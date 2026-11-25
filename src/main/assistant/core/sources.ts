@@ -1,6 +1,8 @@
 // The sources of the attention core (worfy-assistant ticket 03; spec, implementation decisions, the attention core, its sources): what main
 // already has, turned into the core's events. Each function here reads one source and calls the core; none runs a
 // timer, gh, git or a model. install.ts connects them to the app.
+import { createHash } from 'node:crypto'
+import { realpathSync } from 'node:fs'
 import { posix, win32 } from 'node:path'
 import type { AttentionSubject } from '../../../shared/assistant/attention'
 import type { AgentEvent } from '../../../shared/agent/events'
@@ -25,12 +27,23 @@ export const SESSION_WAIT_MS = 15 * 60_000
 export const AUTOPILOT_ITEM_KINDS: ReadonlySet<string> = new Set(['run-stopped', 'ticket-set-aside', 'session-error', 'limits-hit', 'retry-refused'])
 
 /**
- * The Project whose folder holds `cwd` (a worktree under it too); null when none does. Both paths are resolved by the
- * rules of `platform`; on Windows `/` and `\` are one separator and letters compare in either case.
+ * The Project whose folder holds `cwd` (a worktree under it too); null when none does. Both paths are real paths (a link
+ * followed, /var as /private/var on a Mac), or resolved by the rules of `platform` when they cannot be read (a folder
+ * gone); on Windows `/` and `\` are one separator and letters compare in either case.
  */
 export function projectOfPath(projects: readonly { id: string; path: string }[], cwd: string, platform: NodeJS.Platform = process.platform): string | null {
   const path = platform === 'win32' ? win32 : posix
-  const plain = (folder: string): string => (platform === 'win32' ? path.resolve(folder).toLowerCase() : path.resolve(folder))
+  const real = (folder: string): string => {
+    if (platform === process.platform) {
+      try {
+        return realpathSync.native(folder)
+      } catch {
+        // Gone or unreadable: the path as it is.
+      }
+    }
+    return path.resolve(folder)
+  }
+  const plain = (folder: string): string => (platform === 'win32' ? real(folder).toLowerCase() : real(folder))
   const at = plain(cwd)
   let best: { id: string; length: number } | null = null
   for (const project of projects) {
@@ -48,9 +61,12 @@ const clip = (text: string): string => (text.length > 160 ? `${text.slice(0, 159
  * of a turn, a `quiet` turn. The end of a turn names the condition «nothing since for SESSION_WAIT_MS»; a prompt of the
  * person or an answer to a request closes the Session's items.
  */
-export function sessionAttention(core: Core, projectOf: (cwd: string) => string | null, now: () => number): (sessionId: string, event: AgentEvent) => void {
+export function sessionAttention(core: Core, projectOf: (cwd: string) => string | null, now: () => number, departing: () => boolean = () => false): (sessionId: string, event: AgentEvent) => void {
   const projects = new Map<string, string | null>()
   return (sessionId, event) => {
+    // worfy quits (SessionRegistry.depart, then haltAll closes every Session): what the Sessions send now is the quit,
+    // not news. Their items stay open and their conditions armed; the Sessions go on after the start (ADR-0108).
+    if (departing()) return
     if (event.type === 'init') {
       projects.set(sessionId, projectOf(event.cwd))
       return
@@ -153,8 +169,9 @@ export function autopilotAttention(core: Core, line: JournalEvent): void {
   const at = Date.parse(line.at)
   core.ingest({
     source: 'autopilot',
-    id: `${line.run}@${line.at}`,
-    revision: line.kind,
+    // One line, by its time, kind and content: two lines of one kind in one run are two events, even in one millisecond.
+    id: `${line.run}@${line.at}:${line.kind}`,
+    revision: createHash('sha256').update(JSON.stringify(line)).digest('hex').slice(0, 16),
     projectId: line.project,
     subject: { kind: 'run', id: line.run, label: `Autopilot · ${line.epic}` },
     kind: finished ? 'run-finished' : line.kind,

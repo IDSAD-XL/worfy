@@ -2,7 +2,7 @@
 // fields, the waits are counted for every Project of the Machine with no window open, and what came while worfy was
 // closed becomes an item after the start. Fixture events take the shape the events measurement saw
 // (the events measurement of the proactive-runtime map, docs/product/proactive-runtime/): rules (d), (e) and (f).
-import { mkdtempSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -57,6 +57,8 @@ const runStopped = (at: string, reason = 'blocked-tickets'): JournalEvent => ({ 
 
 interface Harness {
   sources: AttentionSources
+  /** worfy quits: the registry departs, and the Sessions it halts close. */
+  quit: () => void
   session: (sessionId: string, event: AgentEvent) => void
   journalLine: (line: JournalEvent) => void
   prChanged: (projectId: string) => void
@@ -70,6 +72,7 @@ let roots = 0
 function harness(models: Record<string, WorkflowModel>, options: { root?: string; start?: string; journal?: JournalEvent[][]; pr?: PrInboxSnapshot } = {}): Harness {
   const root = options.root ?? join(temp, `root-${roots++}`)
   let at = Date.parse(options.start ?? '2026-11-13T12:00:00Z')
+  let departing = false
   const listeners: Record<string, (...args: never[]) => void> = {}
   const keep =
     (name: string) =>
@@ -82,7 +85,7 @@ function harness(models: Record<string, WorkflowModel>, options: { root?: string
     store: attentionFileStore(attentionPaths((id) => join(root, 'projects', id), root)),
     settings: () => ({ timeZone: 'Europe/Berlin' }),
     projects: () => [ALPHA, BETA],
-    sessions: { observe: keep('session') },
+    sessions: { observe: keep('session'), isDeparting: () => departing },
     hub: { open: async (path: string) => models[path] ?? model(path, []), close: async () => true } as unknown as AttentionSources['hub'],
     prInbox: { snapshot: () => options.pr!, onChange: keep('pr') },
     health: { subscribe: keep('health'), current: () => null },
@@ -93,7 +96,7 @@ function harness(models: Record<string, WorkflowModel>, options: { root?: string
     (name: string) =>
     (...args: unknown[]) =>
       (listeners[name] as (...args: unknown[]) => void)(...args)
-  return { sources, session: call('session'), journalLine: call('journal'), prChanged: call('pr'), health: call('health'), limits: call('limits'), time: { now: () => at, add: (ms) => (at += ms) } }
+  return { sources, quit: () => (departing = true), session: call('session'), journalLine: call('journal'), prChanged: call('pr'), health: call('health'), limits: call('limits'), time: { now: () => at, add: (ms) => (at += ms) } }
 }
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
@@ -169,6 +172,51 @@ describe('the seven sources', () => {
     expect(core.items(ALPHA.id).map((item) => [item.kind, item.state])).toEqual([['turn-end', 'closed']])
     stop()
   })
+
+  it('two lines of one kind in one Autopilot run — two Tickets set aside — are two events of the run’s item', async () => {
+    const h = harness({})
+    const { core, stop } = installAttentionCore(h.sources)
+    const setAside = (ticket: string, at: string): JournalEvent => ({ kind: 'ticket-set-aside', at, run: '2026-11-17T08-00-00-000Z-abcd', project: ALPHA.id, epic: 'worfy-x', ticket, cause: 'limits', attempts: 2 }) as unknown as JournalEvent
+    h.journalLine(setAside('03', '2026-11-13T11:00:00.000Z'))
+    h.journalLine(setAside('05', '2026-11-13T11:30:00.000Z'))
+    // Another Ticket set aside in the same millisecond is news too; the same line once more (read back at a start) is not.
+    h.journalLine(setAside('07', '2026-11-13T11:30:00.000Z'))
+    h.journalLine(setAside('05', '2026-11-13T11:30:00.000Z'))
+    expect(core.items(ALPHA.id).map((item) => [item.kind, item.events, item.text])).toEqual([['ticket-set-aside', 3, 'worfy-x: Ticket 07 set aside']])
+    stop()
+  })
+
+  it('a PR that moves from Needs my answer to Needs a fix with the same updatedAt is news of its item', async () => {
+    const row = { repo: 'acme/app', number: 7, title: 'Fix', updatedAt: '2026-11-13T11:30:00Z' }
+    let group = 'needs-answer'
+    const h = harness({})
+    h.sources.prInbox.snapshot = () => ({ projectId: ALPHA.id, enabled: true, viewer: 'me', readAt: '2026-11-13T12:00:00Z', groups: [{ group, rows: [row] }] }) as unknown as PrInboxSnapshot
+    const { core, stop } = installAttentionCore(h.sources)
+    h.prChanged(ALPHA.id)
+    group = 'needs-fix'
+    h.prChanged(ALPHA.id)
+    expect(core.items(ALPHA.id).map((item) => [item.kind, item.events])).toEqual([['needs-fix', 2]])
+    stop()
+  })
+
+  it('the Sessions worfy closes when it quits stay as they are: their items stay open and their conditions armed for the next start', async () => {
+    const root = join(temp, 'quit-sessions')
+    const h = harness({}, { root })
+    const one = installAttentionCore(h.sources)
+    h.session('s-1', { type: 'init', cwd: ALPHA.path } as AgentEvent)
+    h.session('s-1', { type: 'result', isError: false, interrupted: false, at: h.time.now() } as AgentEvent)
+    h.quit()
+    h.session('s-1', { type: 'state', state: 'closed', error: null } as AgentEvent)
+    one.stop()
+
+    const after = harness({}, { root, start: '2026-11-13T12:30:00Z' })
+    const two = installAttentionCore(after.sources)
+    expect(two.core.items(ALPHA.id).map((item) => [item.kind, item.state])).toEqual([
+      ['turn-end', 'new'],
+      ['waiting', 'new'],
+    ])
+    two.stop()
+  })
 })
 
 describe('every Project of the Machine', () => {
@@ -188,6 +236,19 @@ describe('every Project of the Machine', () => {
     expect(projectOfPath([ALPHA, nested], join(ALPHA.path, 'sub', '..', 'other'))).toBe(ALPHA.id)
     expect(projectOfPath([{ ...ALPHA, path: ALPHA.path + sep }], join(ALPHA.path, 'x'))).toBe(ALPHA.id)
     expect(projectOfPath([ALPHA], join(WORK, 'alphabet'))).toBeNull()
+  })
+
+  it('projectOfPath reads real paths: a folder reached through a link, or /var for /private/var on a Mac, is the Project’s', () => {
+    const real = realpathSync.native(mkdtempSync(join(tmpdir(), 'worfy-attention-real-')))
+    const project = join(real, 'project')
+    mkdirSync(join(project, 'sub'), { recursive: true })
+    const link = join(real, 'link')
+    symlinkSync(project, link, 'junction')
+    expect(projectOfPath([{ id: 'p-real', path: link }], join(project, 'sub'))).toBe('p-real')
+    expect(projectOfPath([{ id: 'p-real', path: project }], join(link, 'sub'))).toBe('p-real')
+    // A cwd that is gone (a removed worktree) falls back to the path as it is.
+    expect(projectOfPath([{ id: 'p-real', path: project }], join(project, 'gone'))).toBe('p-real')
+    removeTree(real)
   })
 
   it('projectOfPath on Windows: backslashes, either case of the letters, a drive letter', () => {

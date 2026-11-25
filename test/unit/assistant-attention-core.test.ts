@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import type { AttentionEvent } from '../../src/shared/assistant/attention'
 import { AttentionCore } from '../../src/main/assistant/core/attention-core'
-import { attentionFileStore, attentionPaths, ATTENTION_FILE, type AttentionFile } from '../../src/main/assistant/core/store'
+import { attentionFileStore, attentionPaths, ATTENTION_FILE } from '../../src/main/assistant/core/store'
 import { removeTree } from '../../src/main/storage/remove'
 
 const temp = mkdtempSync(join(tmpdir(), 'worfy-attention-'))
@@ -265,18 +265,15 @@ describe('keeping the items', () => {
     ])
   })
 
-  it('an event with the revision of an item it already has does not reopen it, though its key is gone (a restart past the keys)', () => {
-    const time = clock('2026-11-13T09:00:00Z')
-    const files = new Map<string | null, AttentionFile>()
-    const store = { read: (scope: string | null) => structuredClone(files.get(scope)), write: (scope: string | null, file: AttentionFile) => void files.set(scope, structuredClone(file)) }
-    const first = new AttentionCore({ now: time.now, store, settings: () => ({ timeZone: 'Europe/Berlin' }), projects: () => [PROJECT] })
-    const item = first.ingest(waits(1, 'r1'))!
-    first.mark(PROJECT, item.id, 'dismissed')
-    // The keys are gone (dropped or never kept), the item is still there.
-    files.set(PROJECT, { ...files.get(PROJECT)!, seen: {} })
-    const second = new AttentionCore({ now: time.now, store, settings: () => ({ timeZone: 'Europe/Berlin' }), projects: () => [PROJECT] })
-    expect(second.ingest(waits(1, 'r1'))).toBeNull()
-    expect(second.items(PROJECT).map((each) => [each.state, each.events])).toEqual([['dismissed', 1]])
+  it('updatedAt is the core’s clock when it took the event, not the event’s own time; startedAt is the event’s', () => {
+    const time = clock('2026-11-13T18:00:00Z')
+    const core = coreOver(dataRoot(), time.now)
+    // An event that happened at 09:00 and was read back at 18:00 (a catch-up), then one more of the subject at 10:00.
+    core.ingest(waits(1, 'r1', Date.parse('2026-11-13T09:00:00Z')))
+    expect(core.items(PROJECT).map((item) => [item.startedAt, item.updatedAt])).toEqual([[Date.parse('2026-11-13T09:00:00Z'), Date.parse('2026-11-13T18:00:00Z')]])
+    time.add(HOUR)
+    core.ingest(waits(1, 'r2', Date.parse('2026-11-13T10:00:00Z')))
+    expect(core.items(PROJECT).map((item) => [item.startedAt, item.updatedAt, item.events])).toEqual([[Date.parse('2026-11-13T09:00:00Z'), Date.parse('2026-11-13T19:00:00Z'), 2]])
   })
 
   it('a Project whose file cannot be read or written does not stop the tick of the others', () => {

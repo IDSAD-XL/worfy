@@ -25,7 +25,8 @@ export interface AttentionSources {
   store: AttentionStore
   settings?: () => AttentionSettings
   projects: () => readonly { id: string; path: string }[]
-  sessions: { observe(sink: (sessionId: string, event: AgentEvent) => void): () => void }
+  /** The app's SessionRegistry: its events, and whether worfy quits (depart). */
+  sessions: { observe(sink: (sessionId: string, event: AgentEvent) => void): () => void; isDeparting?(): boolean }
   hub: WaitsHub
   prInbox: { snapshot(projectId: string): PrInboxSnapshot; onChange(listener: (projectId: string) => void): () => void }
   health: { subscribe(listener: (report: FirstRunReport) => void): () => void; current(): FirstRunReport | null }
@@ -52,7 +53,7 @@ export function installAttentionCore(sources: AttentionSources): { core: Attenti
 
   const projectOf = (cwd: string): string | null => projectOfPath(sources.projects(), cwd)
   const stops = [
-    sources.sessions.observe(guard('a Session event', sessionAttention(core, projectOf, sources.now))),
+    sources.sessions.observe(guard('a Session event', sessionAttention(core, projectOf, sources.now, () => sources.sessions.isDeparting?.() ?? false))),
     followWorkflows(
       sources.hub,
       sources.projects,

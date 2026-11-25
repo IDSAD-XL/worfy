@@ -123,11 +123,6 @@ export class AttentionCore {
     const now = this.options.now()
     const at = event.at ?? now
     file.seen[key] = now
-    // An item already holds this revision (its key is gone, a source read its state again): it stays as it is.
-    if (file.items.some((item) => item.condition === undefined && item.source === event.source && sameSubject(item.subject, event.subject) && item.revision === event.revision)) {
-      this.save(event.projectId, file)
-      return null
-    }
     // Something happened on the subject: its pending condition ends, and an open «nothing happened» item is stale.
     this.settle(file, event.subject, 'stale')
     const day = dayOf(at, this.timeZone())
