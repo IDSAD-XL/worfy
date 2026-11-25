@@ -184,3 +184,38 @@ gate fast — exit 0.
    - Ответ: `beforeRename` смотрит во временные файлы рядом и бросает ошибку, только когда в одном из них есть
      `IN_FLIGHT`.
    - Строки: `test/contract/pr-inbox-send.test.ts:577-580`
+
+## 9. Что нашёл review и что осталось
+
+> VERIFIED — worfy-polish 148 (audit findings 157, 158, 165, 181: GitHub Enterprise token and host in accountAuth, the PR inbox notification baseline after a first read with an error, Send refused when the in-flight mark cannot be written), head a4be7eb1095a1274758cd9f72e692c91d1e9d9fe
+>
+> Gate (depth medium, one round): reviewer (lens: correctness) — MERGE, no findings.
+>
+> - What it does:
+>   - accountAuth takes an optional host. For an Enterprise Server host it asks `gh auth token -u <account> --hostname <host>` and returns GH_ENTERPRISE_TOKEN. For github.com, and when no host is given, it returns GH_TOKEN as before.
+>   - The account step passes each account's host, so a second account on an Enterprise host is checked as itself.
+>   - PrInboxNotices takes the first read without an error as its baseline, so a first read cut short by a rate-limit pause no longer notifies about old PRs.
+>   - A new test: Send refuses and posts nothing when the in-flight mark cannot be written.
+>   - The gh stand-in answers `api repos/<o>/<r>` with the token real gh would read for that host.
+> - Evidence:
+>   - The new tests are red on origin/main.
+>   - The reviewer found no caller that passes a host and still reads `.GH_TOKEN` (the only one with a host, accounts.ts:191, passes the whole environment).
+>   - The reviewer checked two mutants, and both turn a test red: removing notify.ts:682, and returning GH_TOKEN for an Enterprise host.
+>   - The reviewer's run of 216 touched tests plus 151 neighbouring tests: EXIT=0. pnpm lint and typecheck: EXIT=0.
+>   - The implementer's full pnpm test: EXIT=0. Gate fast green. story-check ok.
+> - Not verified: real gh against a real Enterprise Server (forbidden by the brief).
+> - Out of this ticket: for an Enterprise Project, PR checks (src/main/ipc/checks.ts:198) and Work track (src/main/work-track/github.ts:255,272) still go to github.com, and the PR inbox reads github.com repositories only. The question of a ticket for it goes to the owner.
+>
+> Decided without the owner (to confirm): a Project whose every read ends with an error gets no baseline and never notifies until a read succeeds.
+
+Code: `src/main/ipc/checks.ts:198-198` · key lines: 198
+
+```ts
+  return new PrTracker({ run, auth: accountAuth({ account, run }), ...(options.now ? { now: options.now } : {}) })
+```
+
+Code: `src/main/work-track/github.ts:255-255` · key lines: 255
+
+```ts
+      const answer = searchSchema.safeParse(parse(await this.options.gh(root, args), 'search'))
+```

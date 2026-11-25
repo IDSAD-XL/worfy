@@ -1,7 +1,8 @@
 # 148 — Аудит повторного review: GitHub Enterprise, уведомления PR inbox и Send
 
 Type: bug
-Status: claimed 2026-11-25T19:13Z
+Status: done 2026-11-25T20:46Z
+PR: #2231
 Branch: worfy-polish/148
 Blocked by: none
 Source: audit-pr-rereview-2026-11-13, triage.md «В Ticket-ы»; checked open on main b0e073620 2026-11-25
@@ -50,18 +51,23 @@ Source: audit-pr-rereview-2026-11-13, triage.md «В Ticket-ы»; checked open o
 - [ ] 158: test `test/contract/github-prs.test.ts` (stand-in `gh` из `test/contract/gh-world.ts`) — аккаунт на
       `ghe.example.com`: `gh auth token` получает `--hostname ghe.example.com`. Красный на origin/main.
   - evidence: test-run pass · `pnpm test test/contract/github-prs.test.ts` exit 0; the new Enterprise test exit 1 on origin/main sources · mac - · 53def3d1f
+  - evidence: review pass · PR #2231 · - - · a4be7eb1095a1274758cd9f72e692c91d1e9d9fe
 - [ ] 157: test `test/contract/github-accounts.test.ts` — проверка записи для repository на `ghe.example.com` идёт с
       `GH_ENTERPRISE_TOKEN` аккаунта Project-а; для github.com — с `GH_TOKEN`, как сейчас. Красный на origin/main.
   - evidence: test-run pass · `pnpm test test/contract/github-accounts.test.ts` exit 0; the two-account Enterprise test exit 1 on origin/main sources · mac - · 53def3d1f
+  - evidence: review pass · PR #2231 · - - · a4be7eb1095a1274758cd9f72e692c91d1e9d9fe
 - [ ] 165: test `test/contract/pr-inbox-notifications.test.ts` — первое чтение с паузой rate limit посреди details (часть
       PR без строк), следующее полное: уведомлений о старых PR нет. Красный на origin/main.
   - evidence: test-run pass · `pnpm test test/contract/pr-inbox-notifications.test.ts` exit 0; the rate-limit baseline test exit 1 on origin/main sources · mac - · 53def3d1f
+  - evidence: review pass · PR #2231 · - - · a4be7eb1095a1274758cd9f72e692c91d1e9d9fe
 - [ ] 181: test `test/contract/pr-inbox-send.test.ts` рядом с `:582` — запись отметки in-flight падает: исход `refused`
       с «could not be marked before the post», stand-in `gh` не получил POST, draft не помечен отправленным; mutant «post
       после неудачной отметки» — красный.
   - evidence: test-run pass · `pnpm test test/contract/pr-inbox-send.test.ts` exit 0; mutant that posts after a failed mark exit 1 · mac - · 53def3d1f
+  - evidence: review pass · PR #2231 · - - · a4be7eb1095a1274758cd9f72e692c91d1e9d9fe
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 53def3d1f
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45689401778/job/139499523890 · ci - · a4be7eb1095a1274758cd9f72e692c91d1e9d9fe
 
 ## Итог
 
