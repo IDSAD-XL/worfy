@@ -2,6 +2,7 @@
 
 Type: task
 Status: claimed 2026-11-25T14:09Z
+PR: #2218
 Blocked by: 03
 Source: [spec.md](../spec.md), «Ticket-ы», строка 11; «Решения владельца», 2, 13 и 19; «Решения по реализации» →
 «Проверка источников через connectors claude.ai (решение владельца, вариант В)»; «Риски» («Connectors claude.ai»,
