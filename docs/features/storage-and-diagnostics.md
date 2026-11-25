@@ -177,7 +177,7 @@ folder:
 | `terminal-ai` (folder) | The empty folder where Terminal AI requests, the Limits refresh, the Project profile draft, the Code story request and a question about its lines run, so none of them becomes a Session of a Project | `src/main/terminal-ai/options.ts` |
 | `attachments` (folder) | `images/<sha256>.<ext>`, the copies of sent images, and `<id>/<name>`, copies of files attached outside every Project | `src/main/agent/attachments.ts` |
 | `autopilot` (folder) | `<run>.jsonl`, the journal of each run | `src/main/autopilot/journal.ts` |
-| `assistant` (folder) | `usage.json`, the Assistant's usage ledger: its automatic wakes, the tokens and cost of each of its calls and checks of sources, and the cost of other Sessions' turns summed per hour; nothing older than 8 days | `src/main/assistant/budget/ledger.ts` |
+| `assistant` (folder) | `usage.json`, the Assistant's usage ledger: its automatic wakes, the tokens and cost of each of its calls and checks of sources, and the cost of other Sessions' turns summed per hour; nothing older than 8 days; `wake.json`, what the decision to wake the Assistant has handed to it: each item with the number of its events, the items waiting for an urgent wake, the last wake and the day of the last morning summary | `src/main/assistant/budget/ledger.ts`, `src/main/assistant/wake/loop.ts` |
 | `link` (folder) | `machine.json`, `linked.json`, `settings.json`, `secrets.json` and `link.log` | `src/main/link/` ([Link](link.md)) |
 | `logs` (folder) | `process-gone.jsonl` and `hang-<time>-<pid>.txt` | See [Diagnostics](#diagnostics) |
 
