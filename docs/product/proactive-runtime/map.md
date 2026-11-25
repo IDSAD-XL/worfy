@@ -145,6 +145,9 @@ Haiku-first Proactive Runtime for Worfy»: файл `brief.md` этой папк
   - общие ленты находок свернули: Pulse, Suggested Tasks у Jules, inbox решений Antigravity;
   - остались обязанности агента с областью, предложение по умолчанию и самостоятельность по классу действия;
   - главная измеренная проблема — шум; маленькие модели Linear убрал из triage.
+- 2026-11-25 orchestrator перенёс черновик в Epic `worfy-assistant`:
+  [.scratch/worfy-assistant/spec.md](../../../.scratch/worfy-assistant/spec.md), 20 Ticket-ов в 9 Wave-ах. Черновик
+  [worfy-assistant](drafts/worfy-assistant.md) остаётся с пометкой «Moved».
 
 ## Not yet specified
 

@@ -1,5 +1,8 @@
 # worfy-assistant: Assistant — агент worfy над всеми Project-ами
 
+Moved to .scratch/worfy-assistant/spec.md on 2026-11-25 ([spec](../../../../.scratch/worfy-assistant/spec.md), 20
+Ticket-ов в `.scratch/worfy-assistant/issues/`). Этот файл больше не правится.
+
 Advisor draft
 
 Status: принят владельцем 2026-11-20. На последний вопрос — термин Assistant и имя Epic-а — владелец ответил «Да» и
