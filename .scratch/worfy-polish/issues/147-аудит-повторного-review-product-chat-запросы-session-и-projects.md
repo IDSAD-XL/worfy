@@ -1,7 +1,7 @@
 # 147 — Аудит повторного review: Product chat, запросы Session и Projects
 
 Type: bug
-Status: open
+Status: claimed 2026-11-25T16:45Z
 Blocked by: none
 Source: audit-pr-rereview-2026-11-13, triage.md «В Ticket-ы»; checked open on main b0e073620 2026-11-25
 

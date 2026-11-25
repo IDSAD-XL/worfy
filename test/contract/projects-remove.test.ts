@@ -362,6 +362,28 @@ describe('Remove project of a Full mode repository', () => {
     expect(store.list().map((each) => each.id)).toStrictEqual([inner.id])
   })
 
+  // worfy-polish ticket 147 (audit finding 130): a repository inside the removed one, registered with a Profile of
+  // its own, is not part of the removal: its Sessions stay open, its Orchestrator runs on, the notice does not name it.
+  it('a listed Project inside the folder with a Profile of its own is left alone: Sessions, Orchestrator, notes', async () => {
+    const mono = makeRepo(join(scratch, 'mono'))
+    const inner = makeRepo(join(mono, 'packages', 'inner'))
+    await connect('mono', 'full', null, [mono])
+    await connect('inner', 'full', null, [inner])
+    const project = await listed(mono)
+    const own = await listed(inner)
+    const preview = await removalPreview(deps(), project.id)
+    expect(preview.status === 'ready' && [preview.profile, preview.alsoListed]).toStrictEqual(['mono', []])
+
+    const sessions = [
+      { sessionId: 'mono-session', cwd: join(mono, 'src') },
+      { sessionId: 'inner-session', cwd: join(inner, '.claude', 'worktrees', '03') },
+    ]
+    expect(await removeProject(deps(sessions), project.id)).toStrictEqual({ status: 'removed', notes: [] })
+    expect(log).toStrictEqual(['stop mono', 'close mono-session', 'hold watches mono', 'project-connect --remove mono', 'list remove mono', 'release', 'watch again'])
+    expect(store.list().map((each) => each.id)).toStrictEqual([own.id])
+    expect(existsSync(join(harnessHome, 'projects', 'inner', 'profile.json'))).toBe(true)
+  })
+
   it('a folder the Harness does not know is refused before anything is asked', async () => {
     // A Harness with a registry that does not name the folder: bin/profile answers exit 3.
     await connect('other', 'full', null, [makeRepo(join(scratch, 'other'))])

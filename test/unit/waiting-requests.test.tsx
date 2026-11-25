@@ -68,7 +68,7 @@ describe('useWaitingRequests', () => {
     expect(useSessionLogs.getState().logs.s?.events.map((each) => each.type)).toEqual(['question_request'])
   })
 
-  it('asks nothing while the window holds the open request, and nothing for a Session that waits for no answer', async () => {
+  it('asks nothing while the window holds the open request, and nothing at once for a Session that is not at needs_permission', async () => {
     const { useWaitingRequests, acceptAgentEvent } = await modules()
     acceptAgentEvent({ sessionId: 's', event: PERMISSION })
     const { result } = renderHook(() => useWaitingRequests('s', 'needs_permission'))
@@ -113,6 +113,33 @@ describe('useWaitingRequests', () => {
     expect(result.current.unseen).toBe(false)
     await waitFor(() => expect(result.current.unseen).toBe(true))
     expect(asked.filter((each) => each === 'agent.requests')).toHaveLength(2)
+  })
+
+  // worfy-polish ticket 147 (audit finding 184): a background task of a Session can wait for the user's answer
+  // while the Session itself stands `idle`. A window opened or reloaded after that request asks main once per
+  // mount, whatever the state, so the card is drawn before the request runs out.
+  it('a Session that is not at needs_permission, with no request in this window: asks main once per mount, after ASK_OPEN_REQUESTS_AFTER_MS', async () => {
+    open = [PERMISSION]
+    const { useWaitingRequests, ASK_OPEN_REQUESTS_AFTER_MS } = await modules()
+    const { result, rerender } = renderHook(({ state }) => useWaitingRequests('s', state), { initialProps: { state: 'idle' } })
+    expect(asked).toEqual([])
+    await waitFor(() => expect(result.current.permissions).toBe(1))
+    expect(asked.filter((each) => each === 'agent.requests')).toHaveLength(1)
+    expect(result.current.unseen).toBe(false)
+    // Another render, and a state that still is not needs_permission, ask nothing more.
+    open = []
+    rerender({ state: 'idle' })
+    rerender({ state: 'busy' })
+    await act(() => new Promise((resolve) => setTimeout(resolve, ASK_OPEN_REQUESTS_AFTER_MS + 150)))
+    expect(asked.filter((each) => each === 'agent.requests')).toHaveLength(1)
+  })
+
+  it('a Session that is not at needs_permission, with its request already in this window: asks main nothing', async () => {
+    const { useWaitingRequests, acceptAgentEvent, ASK_OPEN_REQUESTS_AFTER_MS } = await modules()
+    acceptAgentEvent({ sessionId: 's', event: QUESTION })
+    renderHook(() => useWaitingRequests('s', 'idle'))
+    await act(() => new Promise((resolve) => setTimeout(resolve, ASK_OPEN_REQUESTS_AFTER_MS + 150)))
+    expect(asked).toEqual([])
   })
 
   it('main has no open request either: `unseen`, so the view says what the Session waits for', async () => {

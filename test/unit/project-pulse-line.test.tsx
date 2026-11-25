@@ -134,6 +134,26 @@ describe('the live line of a Project card', () => {
     expect(screen.getByRole('tooltip').textContent).toBe('20 Tickets wait: blocked, or waiting for a person, not an agent')
   })
 
+  // worfy-polish ticket 147 (audit finding 145): the focus is only ever on the card's button, never on a part, so the
+  // parts' tooltips do not show for the keyboard. Their words are the button's description instead, and the button
+  // holds nothing focusable.
+  it('puts the parts’ tooltips into the description of the card’s button, with nothing focusable inside it', async () => {
+    await mountCards()
+    const description = (id: string): string => {
+      const button = screen
+        .getAllByTestId('project-row')
+        .find((row) => row.getAttribute('data-project-id') === id)
+        ?.querySelector('button')
+      if (button === null || button === undefined) throw new Error(`no card of ${id}`)
+      expect(button.querySelector('button, a[href], input, select, textarea, [tabindex]')).toBeNull()
+      const ids = (button.getAttribute('aria-describedby') ?? '').split(' ').filter(Boolean)
+      expect(ids.length, `aria-describedby of ${id}`).toBeGreaterThan(0)
+      return ids.map((each) => document.getElementById(each)?.textContent ?? '').join(' ')
+    }
+    expect(description(ALPHA.id)).toBe('1 Session is in a turn. 3 pull requests need you: a review, an answer or a fix. 20 Tickets wait: blocked, or waiting for a person, not an agent.')
+    expect(description(BETA.id)).toBe('2 Sessions are in a turn. 1 pull request needs you: a review, an answer or a fix. 1 Ticket waits: blocked, or waiting for a person, not an agent.')
+  })
+
   it('words the tooltips in pulseParts, next to the words of the line', async () => {
     const { pulseParts } = await import('../../src/renderer/projects/useProjectPulse')
     expect(pulseParts({ busy: 1, prNeedYou: 0, waits: 2 }).map((part) => [part.text, part.hint])).toEqual([

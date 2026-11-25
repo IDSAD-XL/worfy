@@ -258,6 +258,88 @@ describe('the chat of a Product Session', () => {
   })
 })
 
+// worfy-polish ticket 147 (audit finding 65): after Resume or a reload the chat comes from the Session's file,
+// where a question with answer options is the AskUserQuestion call and its result, not a question request. The
+// chat draws such an answered call as the answered question card: the question and the option the owner chose.
+describe('an answered question read back from the Session file', () => {
+  const SEGMENT = 'Which segment first?'
+  const PRICE = 'How should it be priced?'
+  const ask = (id: string, questions: { question: string; header: string; labels: string[] }[]): AgentEvent =>
+    call(id, 'AskUserQuestion', { questions: questions.map(({ question, header, labels }) => ({ question, header, multiSelect: false, options: labels.map((label) => ({ label, description: '' })) })) })
+  const told = (id: string, content: string, isError = false): AgentEvent => ({ type: 'tool_result', toolUseId: id, content, isError, parentToolUseId: null, at: AT + 2000 })
+  const ONE = [{ question: SEGMENT, header: 'Segment', labels: ['Teams', 'Solo', 'Agencies'] }]
+
+  it('draws the question and the option chosen, and no other tool row', () => {
+    render(
+      <Product
+        events={[
+          prompt('Where do we start?'),
+          ask('ask-1', ONE),
+          told('ask-1', `Your questions have been answered: "${SEGMENT}"="Solo". You can now continue with these answers in mind.`),
+          call('t1', 'Bash', { command: 'ls docs/product' }),
+          answer('t1'),
+          text('Solo first, then.'),
+        ]}
+      />,
+    )
+    const card = screen.getByTestId('question-card')
+    expect(card.getAttribute('data-resolution')).toBe('answered')
+    expect(within(card).getByText(SEGMENT)).toBeTruthy()
+    expect(within(card).getByTestId('question-answer-text').textContent).toBe('Solo')
+    expect(within(card).getByTestId('question-resolution').textContent).toBe('Answered')
+    for (const testId of HIDDEN) expect(screen.queryAllByTestId(testId), testId).toEqual([])
+    expect(screen.getByTestId('transcript').textContent).not.toContain('ls docs/product')
+  })
+
+  it('several questions and the owner’s own words: each question with its answer', () => {
+    render(
+      <Product
+        events={[
+          ask('ask-2', [...ONE, { question: PRICE, header: 'Price', labels: ['Per seat', 'Flat'] }]),
+          told('ask-2', `The user answered: "${SEGMENT}"="Teams", "${PRICE}"="Free for a year, then per seat". Read the answers carefully — they may request clarification, changes, or that you not proceed — and follow what they actually say.`),
+        ]}
+      />,
+    )
+    expect(screen.getAllByTestId('question-answer-text').map((each) => each.textContent)).toEqual(['Teams', 'Free for a year, then per seat'])
+  })
+
+  it('a live question is drawn once, by its request: its call and result add no second card', () => {
+    const request: AgentEvent = {
+      type: 'question_request',
+      requestId: 'q-live',
+      toolUseId: 'ask-3',
+      questions: [{ question: SEGMENT, header: 'Segment', multiSelect: false, options: ['Teams', 'Solo', 'Agencies'].map((label) => ({ label, description: '', preview: null })) }],
+    }
+    render(
+      <Product
+        events={[
+          ask('ask-3', ONE),
+          request,
+          { type: 'question_resolved', requestId: 'q-live', outcome: 'answered', answers: { [SEGMENT]: 'Teams' } },
+          told('ask-3', `Your questions have been answered: "${SEGMENT}"="Teams". You can now continue with these answers in mind.`),
+        ]}
+      />,
+    )
+    expect(screen.getAllByTestId('question-card')).toHaveLength(1)
+  })
+
+  it('a declined or unanswered question, and a call whose input is no question, draw nothing', () => {
+    render(
+      <Product
+        events={[
+          ask('ask-4', ONE),
+          told('ask-4', 'The user declined to answer', true),
+          ask('ask-5', ONE),
+          told('ask-5', 'The user did not answer the questions.'),
+          call('ask-6', 'AskUserQuestion', { questions: 'not a list' }),
+          told('ask-6', `Your questions have been answered: "${SEGMENT}"="Solo".`),
+        ]}
+      />,
+    )
+    expect(screen.queryAllByTestId('question-card')).toEqual([])
+  })
+})
+
 // worfy-product-session ticket 28 (owner, 2026-11-09): a message sent while the advisor works waits in the
 // Session's queue (src/main/agent/queue.ts); the chat shows it at once, last, dimmed, with «queued», until
 // main delivers it (a `prompt` event) and it becomes an ordinary message at its place.
