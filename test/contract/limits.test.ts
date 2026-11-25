@@ -13,7 +13,7 @@ import { appUrlMatcher, registerIpc } from '../../src/main/ipc/index'
 import { limitsHandlers } from '../../src/main/ipc/limits'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import { sdkMessageToEvents } from '../../src/shared/vendors/claude/events'
-import type { LimitWindow, LimitsState, LimitsView } from '../../src/shared/agent/limits'
+import { limitBars, limitUpdatesFromUsage, type LimitWindow, type LimitsState, type LimitsView } from '../../src/shared/agent/limits'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
 import { APP_URL, INDEX_HTML } from '../app-url'
 import { removeTestTree } from '../remove'
@@ -380,6 +380,19 @@ describe('limits channels', () => {
     return async (input, window = fakeWindow()) =>
       (await listener({ senderFrame: { url: APP_URL }, sender: window } as unknown as IpcMainInvokeEvent, input)) as IpcResult<unknown>
   }
+
+  // worfy-resource-planner ticket 13: a plan without the 5-hour window, as the usage answer says.
+  it('keeps a window the plan does not have across a restart and sends it to the window, so no bar is drawn for it', async () => {
+    const answer = { rate_limits_available: true, rate_limits: { five_hour: null, seven_day: { utilization: 41, resets_at: '2026-10-12T09:00:00Z' } } }
+    tracker().record(limitUpdatesFromUsage(answer, NOW))
+    const limits = tracker(NOW + 1)
+    expect(limits.snapshot()).toMatchObject({ absent: { five_hour: NOW } })
+    expect(limits.snapshot().windows.five_hour).toBeUndefined()
+    const open = await register(() => limits)
+    const opened = await open(undefined)
+    expect(opened).toEqual({ ok: true, value: { claude: limits.snapshot(), vendors: {} } })
+    expect(limitBars((opened as { value: LimitsView }).value.claude, NOW)?.map((bar) => bar.window)).toEqual(['seven_day'])
+  })
 
   it('answers limits.open with the known Limits and refuses an input', async () => {
     const limits = tracker()

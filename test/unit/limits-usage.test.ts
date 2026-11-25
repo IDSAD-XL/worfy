@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installLimitsRefresh, LimitsRefresher, refreshAppUsage, USAGE_REFRESH_MS, type VendorLimitsPoll } from '../../src/main/agent/limits-usage'
 import { askUsage, claudeUsageReader, sdkUsageReader, USAGE_METHOD, usageOptions, type UsageQuery, type UsageSdk } from '../../src/main/vendors/claude/limits'
-import { emptyLimits, mergeLimits, type LimitUpdate, type LimitWindow, type LimitsState, type LimitWindowState } from '../../src/shared/agent/limits'
+import { emptyLimits, mergeLimits, type LimitUpdate, type LimitWindow, type LimitWindowUpdate, type LimitsState, type LimitWindowState } from '../../src/shared/agent/limits'
 import { removeTestTree } from '../remove'
 
 // The app's probe (claudeUsageReader) and the app's refresher (installLimitsRefresh) over a stand-in
@@ -146,7 +146,7 @@ describe('the app\'s Limits probe and refresher', () => {
     try {
       await vi.waitFor(() => expect(app.recorded).toHaveLength(1))
       expect(app.queries).toEqual([{ cwd: join(dataDir, 'terminal-ai'), cwdExisted: true }])
-      expect((app.recorded[0] as LimitUpdate[]).map(({ window, state }) => [window, state.utilization, state.source])).toEqual([
+      expect((app.recorded[0] as LimitWindowUpdate[]).map(({ window, state }) => [window, state.utilization, state.source])).toEqual([
         ['five_hour', 0.1, 'usage'],
         ['seven_day', 0.2, 'usage'],
       ])
@@ -260,6 +260,21 @@ describe('LimitsRefresher', () => {
 
   it('asks when only one window is fresh', async () => {
     store.state = { windows: { five_hour: window(START - MINUTE, 'sdk') } }
+    start()
+    await settle()
+    expect(read).toHaveBeenCalledTimes(1)
+  })
+
+  // worfy-resource-planner ticket 13: a window the plan does not have is not waited for to be fresh.
+  it('skips a tick while the windows of the plan are fresh: a window it does not have (absent) is not asked for', async () => {
+    store.state = { windows: { seven_day: window(START - 5 * MINUTE, 'sdk') }, absent: { five_hour: START - 60 * MINUTE } }
+    start()
+    await settle()
+    expect(read).not.toHaveBeenCalled()
+  })
+
+  it('asks when every window is absent: nothing fresh is known', async () => {
+    store.state = { windows: {}, absent: { five_hour: START - MINUTE, seven_day: START - MINUTE } }
     start()
     await settle()
     expect(read).toHaveBeenCalledTimes(1)

@@ -232,3 +232,26 @@ test('rate_limit_event fills the toolbar bars, they survive a restart marked wit
     await second.close()
   }
 })
+
+// worfy-resource-planner ticket 13: a plan without the 5-hour window. limits.json holds what the usage
+// answer that left `five_hour` out wrote (src/shared/agent/limits.ts, `absent`): the toolbar draws the
+// 7-day bar alone, with no "5h · no data" next to it. The meter in both themes is kept with the test's output.
+test('a plan without the 5-hour window: the toolbar draws only the 7-day bar', async () => {
+  const now = Date.now()
+  const sevenDay = { utilization: 0.41, resetsAt: Math.floor(now / 1000) + 3 * 24 * 3600, status: null, receivedAt: now, source: 'usage' }
+  writeFileSync(join(dataDir, 'limits.json'), JSON.stringify({ windows: { seven_day: sevenDay }, absent: { five_hour: now } }))
+  const app = await launchApp({ env: { WORFY_DATA_DIR: dataDir } })
+  try {
+    const limits = meter(app.window)
+    await expect(animatedText(limits.getByTestId('limit-seven_day-value'))).toHaveText('41%')
+    await expect(limits.getByTestId('limit-five_hour')).toHaveCount(0)
+    await expect(limits).not.toContainText('no data')
+    for (const scheme of ['light', 'dark'] as const) {
+      await app.window.emulateMedia({ colorScheme: scheme })
+      await limits.screenshot({ path: test.info().outputPath(`limits-no-five-hour-${scheme}.png`) })
+    }
+    await app.window.emulateMedia({ colorScheme: null })
+  } finally {
+    await app.close()
+  }
+})

@@ -45,13 +45,26 @@ export const limitWindowStateSchema = z.object({
 export type LimitWindowState = z.infer<typeof limitWindowStateSchema>
 
 /** The last known state of every window, by window name (`five_hour`, `seven_day`, `seven_day_opus`, …). */
-export const limitsStateSchema = z.object({ windows: z.record(z.string(), limitWindowStateSchema) })
+export const limitsStateSchema = z.object({
+  windows: z.record(z.string(), limitWindowStateSchema),
+  /**
+   * The windows the plan does not have, by name, with when worfy learned it (milliseconds since the
+   * epoch): a plan without the 5-hour window (worfy-resource-planner ticket 13). Only the usage answer
+   * says so (limitUpdatesFromUsage). A window is never here and in `windows` at once: the newer word
+   * wins (mergeLimits). Absent when there is none.
+   */
+  absent: z.record(z.string(), z.number()).optional(),
+})
 export type LimitsState = z.infer<typeof limitsStateSchema>
 
-export interface LimitUpdate {
+/** What a source says about one window it has data for. */
+export interface LimitWindowUpdate {
   window: string
   state: LimitWindowState
 }
+
+/** A source's word about one window: its state, or that the plan has no such window as of `absentAt` (ms). */
+export type LimitUpdate = LimitWindowUpdate | { window: string; absentAt: number }
 
 export const emptyLimits = (): LimitsState => ({ windows: {} })
 
@@ -163,7 +176,7 @@ const orNull = <T>(value: T | null | undefined): T | null => value ?? null
  * shape changed. `status` belongs to the window named by `rateLimitType`; the windows reported
  * only in `unifiedWindows` get their share and reset time without a status.
  */
-export function limitUpdatesFromSdk(message: unknown, receivedAt: number): LimitUpdate[] {
+export function limitUpdatesFromSdk(message: unknown, receivedAt: number): LimitWindowUpdate[] {
   const parsed = sdkRateLimitEvent.safeParse(message)
   if (!parsed.success) return []
   const info = parsed.data.rate_limit_info
@@ -216,13 +229,24 @@ const usageAnswer = z.object({ rate_limits: z.object({ five_hour: usageWindow, s
  * The window updates in an answer of the SDK's usage request; [] when it has no `rate_limits`
  * (an API key, Bedrock, Vertex) or is not an object. `utilization` is 0..100 and `resets_at` an
  * ISO 8601 time; one that does not parse counts as missing.
+ *
+ * The answer gives each window of the plan (the SDK types each as optional and nullable): a window it
+ * gives as null the plan does not have, and the update says so (`absentAt`) — Claude Code's own
+ * `/usage` draws no line for it either. This is the only source that can tell: the SDK event and the
+ * status line leave out a window they have no data for yet. A window the answer leaves out says
+ * nothing: when the usage endpoint fails (a 429), Claude Code answers from earlier rate-limit headers
+ * and leaves out a window whose reset has passed although the plan has it. A window given in a shape
+ * this build cannot read says nothing either.
  */
 export function limitUpdatesFromUsage(value: unknown, receivedAt: number): LimitUpdate[] {
   const parsed = usageAnswer.safeParse(value)
   if (!parsed.success) return []
   const limits = parsed.data.rate_limits
   if (limits === null || limits === undefined) return []
+  // The parse succeeded with `rate_limits` an object, so the answer's own value of each window is there to look at.
+  const given = (value as { rate_limits: Record<string, unknown> }).rate_limits
   return LIMIT_WINDOWS.flatMap((window): LimitUpdate[] => {
+    if (given[window] === null) return [{ window, absentAt: receivedAt }]
     const reported = limits[window]
     if (reported === null || reported === undefined) return []
     const percent = orNull(reported.utilization)
@@ -246,20 +270,36 @@ function clean(state: LimitWindowState): LimitWindowState {
  * a refusal (`rejected`) may come without `resetsAt`, and Autopilot then waits by the time kept
  * here (worfy-daily ticket 05). An update without a status keeps the known one in the same window
  * (keepKnownStatus): the status line bridge has no status, and an SDK `allowed_warning` must not
- * vanish when the bridge writes (worfy-daily ticket 26). Returns `state` itself when nothing changed.
+ * vanish when the bridge writes (worfy-daily ticket 26). A word that the plan has no such window
+ * (`absentAt`) removes the window known before it, and data received before that word is dropped;
+ * data received after it brings the window back. Returns `state` itself when nothing changed.
  */
 export function mergeLimits(state: LimitsState, updates: readonly LimitUpdate[]): LimitsState {
   let windows = state.windows
+  const absentBefore = state.absent ?? {}
+  let absent = absentBefore
   for (const update of updates) {
     const { window } = update
     const known = windows[window]
+    const absentAt = absent[window]
+    if ('absentAt' in update) {
+      if ((absentAt !== undefined && absentAt >= update.absentAt) || (known !== undefined && known.receivedAt > update.absentAt)) continue
+      if (known !== undefined) windows = Object.fromEntries(Object.entries(windows).filter(([id]) => id !== window))
+      absent = { ...absent, [window]: update.absentAt }
+      continue
+    }
     if (known !== undefined && known.receivedAt > update.state.receivedAt) continue
+    if (absentAt !== undefined && absentAt > update.state.receivedAt) continue
     const next = keepKnownStatus(known, keepKnownReset(known, update.state))
     if (known !== undefined && sameWindow(known, next)) continue
     windows = { ...windows, [window]: next }
+    if (absentAt !== undefined) absent = Object.fromEntries(Object.entries(absent).filter(([id]) => id !== window))
   }
+  if (windows === state.windows && absent === absentBefore) return state
   // The spread keeps what else the state holds: the keys of a newer build's limits.json (src/main/agent/limits.ts).
-  return windows === state.windows ? state : { ...state, windows }
+  const next: LimitsState = { ...state, windows, absent }
+  if (Object.keys(absent).length === 0) delete next.absent
+  return next
 }
 
 /** `next`, with the known reset time when `next` has none and the known one is still ahead of it. */
@@ -346,13 +386,15 @@ function levelOf(utilization: number | null, status: string | null): LimitLevel 
 }
 
 /**
- * The two bars (5-hour, 7-day) to draw at `now`; null when nothing is known about either window
- * ("Limits: no data yet").
+ * The bars (5-hour, 7-day) to draw at `now`: one per window of the plan, so none for a window the
+ * plan does not have (`absent`), and `no data` for one it has but nothing is known about yet. Null
+ * when nothing is known about either window ("Limits: no data yet").
  */
 export function limitBars(state: LimitsState, now: number, options: DisplayOptions = {}): LimitBar[] | null {
   const { timeZone } = options
   if (LIMIT_WINDOWS.every((window) => state.windows[window] === undefined)) return null
-  return LIMIT_WINDOWS.map((window): LimitBar => {
+  const shown = LIMIT_WINDOWS.filter((window) => state.windows[window] !== undefined || state.absent?.[window] === undefined)
+  return shown.map((window): LimitBar => {
     const label = LABELS[window]
     const known = state.windows[window]
     if (known === undefined) return { window, label, percent: null, value: 'no data', resets: null, asOf: null, level: 'normal' }

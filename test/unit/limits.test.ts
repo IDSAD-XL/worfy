@@ -264,6 +264,95 @@ describe('limitUpdatesFromUsage (the answer of the SDK usage request)', () => {
   })
 })
 
+// worfy-resource-planner ticket 13: a plan without the 5-hour window. Only the usage answer lists the
+// plan's windows; the SDK event and the status line leave out a window they have no data for, so a window
+// missing there is "no data yet", and one the usage answer leaves out or gives as null is "no such window".
+describe('a plan without the five_hour window', () => {
+  const SEVEN_DAY = { utilization: 41, resets_at: '2026-10-12T09:00:00Z' }
+  const weekOnly = (at: number) => limitUpdatesFromUsage({ rate_limits_available: true, rate_limits: { five_hour: null, seven_day: SEVEN_DAY } }, at)
+
+  it('the usage answer that gives five_hour as null says the plan has no such window', () => {
+    expect(limitUpdatesFromUsage({ rate_limits_available: true, rate_limits: { five_hour: null, seven_day: SEVEN_DAY } }, AT)).toEqual([
+      { window: 'five_hour', absentAt: AT },
+      { window: 'seven_day', state: { utilization: 0.41, resetsAt: 1791795600, status: null, receivedAt: AT, source: 'usage' } },
+    ])
+  })
+
+  // Claude Code answers from earlier rate-limit headers when the usage endpoint fails (a 429): a window
+  // whose reset has passed is then left out although the plan has it (review of PR #2186).
+  it('a window the answer leaves out is unknown, not absent: earlier data and its bar stay; {} marks nothing absent', () => {
+    expect(limitUpdatesFromUsage({ rate_limits_available: true, rate_limits: { seven_day: SEVEN_DAY } }, AT)).toEqual([
+      { window: 'seven_day', state: { utilization: 0.41, resetsAt: 1791795600, status: null, receivedAt: AT, source: 'usage' } },
+    ])
+    expect(limitUpdatesFromUsage({ rate_limits_available: true, rate_limits: {} }, AT)).toEqual([])
+    const passedReset = { window: 'five_hour', state: { utilization: 0.7, resetsAt: Math.floor(AT / 1000) - 60, status: null, receivedAt: AT - 6 * 60 * 60 * 1000, source: 'sdk' } }
+    const known = mergeLimits(emptyLimits(), [passedReset])
+    const after = mergeLimits(known, limitUpdatesFromUsage({ rate_limits_available: true, rate_limits: { seven_day: SEVEN_DAY } }, AT))
+    expect(after.windows.five_hour).toEqual(passedReset.state)
+    expect(after.absent).toBeUndefined()
+    expect(limitBars(after, AT, { timeZone: TZ })?.map((bar) => bar.window)).toEqual(['five_hour', 'seven_day'])
+  })
+
+  it('an absence that removes no known window is still recorded: five_hour null next to a 7-day window without data draws no 5-hour bar', () => {
+    const known = mergeLimits(emptyLimits(), [{ window: 'seven_day', state: { utilization: 0.41, resetsAt: 1791795600, status: 'allowed', receivedAt: AT - 1000, source: 'sdk' } }])
+    expect(mergeLimits(known, [{ window: 'five_hour', absentAt: AT }]).absent).toEqual({ five_hour: AT })
+    const answer = limitUpdatesFromUsage({ rate_limits_available: true, rate_limits: { five_hour: null, seven_day: { utilization: null, resets_at: null } } }, AT)
+    expect(limitBars(mergeLimits(known, answer), AT, { timeZone: TZ })?.map((bar) => bar.window)).toEqual(['seven_day'])
+  })
+
+  it('a window the answer gives but cannot be read is not an absent one', () => {
+    expect(limitUpdatesFromUsage({ rate_limits: { five_hour: 'x', seven_day: SEVEN_DAY } }, AT).map((update) => update.window)).toEqual(['seven_day'])
+  })
+
+  it('the toolbar draws only the windows the plan has', () => {
+    expect(limitBars(mergeLimits(emptyLimits(), weekOnly(AT)), AT, { timeZone: TZ })).toEqual([
+      { window: 'seven_day', label: '7-day', percent: 41, value: '41%', resets: 'resets Mon 09:00', asOf: null, level: 'normal' },
+    ])
+  })
+
+  it('a plan with the window but no data for it yet keeps its "no data" bar', () => {
+    const sdkWeekOnly = mergeLimits(emptyLimits(), [{ window: 'seven_day', state: { utilization: 0.41, resetsAt: 1791795600, status: 'allowed', receivedAt: AT, source: 'sdk' } }])
+    expect(limitBars(sdkWeekOnly, AT, { timeZone: TZ })?.map((bar) => [bar.window, bar.value])).toEqual([
+      ['five_hour', 'no data'],
+      ['seven_day', '41%'],
+    ])
+  })
+
+  it('a newer absence removes the window known before; an older one does not', () => {
+    const fiveHour = (receivedAt: number) => ({ window: 'five_hour', state: { utilization: 0.2, resetsAt: 1791184200, status: null, receivedAt, source: 'statusline' } })
+    const known = mergeLimits(emptyLimits(), [fiveHour(AT - 1000)])
+    const after = mergeLimits(known, weekOnly(AT))
+    expect(after.windows.five_hour).toBeUndefined()
+    expect(after.absent).toEqual({ five_hour: AT })
+    const before = mergeLimits(known, weekOnly(AT - 2000))
+    expect(before.windows.five_hour).toEqual(fiveHour(AT - 1000).state)
+    expect(before.absent).toBeUndefined()
+  })
+
+  it('the window comes back with data newer than the absence, and not with older data', () => {
+    const absent = mergeLimits(emptyLimits(), weekOnly(AT))
+    const fiveHour = (receivedAt: number) => ({ window: 'five_hour', state: { utilization: 0.2, resetsAt: 1791184200, status: null, receivedAt, source: 'sdk' } })
+    expect(mergeLimits(absent, [fiveHour(AT - 1)])).toBe(absent)
+    const back = mergeLimits(absent, [fiveHour(AT + 1)])
+    expect(back.windows.five_hour?.utilization).toBe(0.2)
+    expect(back.absent).toBeUndefined()
+    expect(limitBars(back, AT + 1, { timeZone: TZ })?.map((bar) => bar.window)).toEqual(['five_hour', 'seven_day'])
+  })
+
+  it('keeps the time of the newest word: data older than the last answer stays out, an answer read late changes nothing', () => {
+    const later = AT + 30 * 60 * 1000
+    const absent = mergeLimits(mergeLimits(emptyLimits(), weekOnly(AT)), weekOnly(later))
+    expect(absent.absent).toEqual({ five_hour: later })
+    expect(mergeLimits(absent, [{ window: 'five_hour', state: { utilization: 0.2, resetsAt: 1791184200, status: null, receivedAt: later - 1, source: 'sdk' } }])).toBe(absent)
+    expect(mergeLimits(absent, [{ window: 'five_hour', absentAt: AT }])).toBe(absent)
+  })
+
+  it('limits.json keeps the absence', () => {
+    const absent = mergeLimits(emptyLimits(), weekOnly(AT))
+    expect(limitsStateSchema.parse(JSON.parse(JSON.stringify(absent)))).toEqual(absent)
+  })
+})
+
 describe('limits.json with a source this build does not know', () => {
   it('is read, not set aside: the status, the reset times and the source stay as written', () => {
     const file = {

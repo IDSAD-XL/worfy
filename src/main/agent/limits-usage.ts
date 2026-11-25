@@ -209,12 +209,14 @@ export class LimitsRefresher {
   /**
    * Whether every shown window was received less than `maxAgeMs` ago (by a passive source only, with
    * `passiveOnly`). A window known without its share (`utilization` null) is not fresh: there is no
-   * number to show or to journal.
+   * number to show or to journal. A window the plan does not have (`absent`, worfy-resource-planner
+   * ticket 13) is not shown and not waited for; with every window absent nothing is fresh.
    */
   private fresh(passiveOnly: boolean, maxAgeMs: number): boolean {
-    const { windows } = this.options.limits.snapshot()
+    const { windows, absent } = this.options.limits.snapshot()
     const since = this.now() - maxAgeMs
-    return LIMIT_WINDOWS.every((id) => {
+    const shown = LIMIT_WINDOWS.filter((id) => windows[id] !== undefined || absent?.[id] === undefined)
+    return shown.length > 0 && shown.every((id) => {
       const known = windows[id]
       return known !== undefined && known.utilization !== null && known.receivedAt > since && !(passiveOnly && known.source === 'usage')
     })
