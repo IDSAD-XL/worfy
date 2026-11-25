@@ -444,13 +444,16 @@ type BoxFlowEdge = Edge<{ kind: MapEdge['kind']; view: MindMapView }, 'box'>
 function BoxEdge({ source, target, data, markerEnd }: EdgeProps<BoxFlowEdge>) {
   const from = useInternalNode(source)
   const to = useInternalNode(target)
+  // The `replaces` curve of the Graph bows round the other nodes (ticket 35), so it follows where they are.
+  const lookup = useStore((state) => (data?.kind === 'replaces' && data.view === 'graph' ? state.nodeLookup : null))
   if (from === undefined || to === undefined) return null
   const box = (node: NonNullable<typeof from>) => ({
     ...node.internals.positionAbsolute,
     width: node.measured.width ?? node.width ?? 0,
     height: node.measured.height ?? node.height ?? 0,
   })
-  const path = data?.view === 'tree' ? treeReplacesPath(box(from), box(to)) : graphEdgePath(data?.kind ?? 'from', box(from), box(to))
+  const others = lookup === null ? [] : [...lookup.values()].filter((node) => node.id !== source && node.id !== target).map(box)
+  const path = data?.view === 'tree' ? treeReplacesPath(box(from), box(to)) : graphEdgePath(data?.kind ?? 'from', box(from), box(to), others)
   return <BaseEdge path={path} markerEnd={markerEnd} />
 }
 

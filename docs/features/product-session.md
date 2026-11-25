@@ -292,7 +292,7 @@ four kinds, and an arrow leads to it from the node it grew from:
 
 A rejected Decision stays on the map, struck through, grey and faded, with a dashed outline. A Decision that overturned
 an earlier one has a red dashed "Replaces" arrow to it. In "Tree", where the two often stand one under the other, the
-arrow loops out past their right side. The legend under the map shows each kind's shape and both arrows.
+arrow loops out past their right side; in "Graph" it bends to the side that runs over the fewest other nodes. The legend under the map shows each kind's shape and both arrows.
 
 **Which topic shows.** A Product Session is bound to no topic. While the Session view is open, the Mind map follows the topic
 of the Project whose files changed last; that following is live in this window only. The last topic is remembered per Node
@@ -311,7 +311,7 @@ and the reason.
   the node's card shows it whole.
 - "Tree" is the default: a tidy tree with text of 15 px that grows left to right, the topic at the left, each node to
   the right of the node it grew from. "Graph" is radial, with text of 12 px: the topic in the middle, the branches
-  around it, straight "grew from" arrows, no node over another; the same map always gets the same layout. The view is
+  around it, straight "grew from" arrows, no node over another and no arrow over a node; the same map always gets the same layout. The view is
   remembered per topic on this Machine.
 - "Hide rejected" hides the rejected Decisions and the branches under them while the map is open. The file does not
   change.
@@ -404,8 +404,10 @@ last event; the screen gets `product.changed`. The watch is described on [Projec
 
 **Layout.** The Mind map is drawn with React Flow. ELK lays out "Tree" in the window's Web Worker with `mrtree`; until
 ELK answers, a quick tree layout draws it. "Graph" is laid out at once in the window by the prototype's algorithm: the
-leaves spread round the topic, each parent at the mean direction of its children, then springs on the arrows and
-pushes between boxes, and a last pass that moves a node straight away from the topic until it overlaps no other; it
+leaves spread round the topic, each with a share of the circle as large as its depth, each parent at the mean direction
+of its children, then springs on the arrows and pushes between boxes. When the topic has two or more branches, each
+round also pulls the map a little so the topic stays in the middle of it, and the last rounds move a node off any
+"grew from" arrow that runs over it. A last pass that moves a node straight away from the topic until it overlaps no other; it
 runs once per change of what it reads (the nodes, their parents, texts, kinds and fold marks). In "Tree" a node with `x`
 and `y` in the file stands where the file says; a place written before the Tree grew left to right (without `"placed": 2`) is ignored and the node is laid
 out again.

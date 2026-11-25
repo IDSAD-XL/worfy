@@ -448,19 +448,54 @@ const RADIAL = { across: 170, down: 105, spring: 120, margin: 12, rounds: 700 } 
  * nodes 133, never under RADIAL_ROUNDS_MIN); the last pass keeps the boxes apart whatever the rounds left.
  * Measured on the owner's Mac (Node, nine runs each, under a load average of about 45, so the median is
  * mostly waiting for a core): 150 nodes 16 ms at best and 22 ms median, 300 nodes 19 and 47 ms, 1000 nodes
- * 25 and 45 ms, 3000 nodes 40 and 65 ms. MindMap.tsx runs it once per layout key, not per topic.
+ * 25 and 45 ms, 3000 nodes 40 and 65 ms. With the rounds that clear arrows (ticket 35; five runs each, load
+ * about 43): 150 nodes 42 and 63 ms, 300 nodes 24 and 26 ms, 1000 nodes 23 and 46 ms, 3000 nodes 30 and
+ * 33 ms. MindMap.tsx runs it once per layout key, not per topic.
  */
 const RADIAL_BUDGET = 40_000
 const RADIAL_ROUNDS_MIN = 10
 /** The room the last pass keeps between two boxes, px. */
 const RADIAL_APART = 6
+/**
+ * The part of the way to the topic each round moves the middle of the box round the other nodes (ticket 35),
+ * every node but the root moving together, so the map settles round the topic.
+ */
+const RADIAL_PULL = 0.01
+/**
+ * The last rounds that move boxes off the arrows running over them (ticket 35), and the most nodes a map may
+ * have for them to run: they cost more than the rest of a round, and the larger maps keep their time bound.
+ */
+const RADIAL_CLEAR_ROUNDS = 30
+const RADIAL_CLEAR_MOST = 500
+
+/** Whether the segment from (ax, ay) to (bx, by) runs through the box from (left, top) to (right, bottom). */
+function crosses(ax: number, ay: number, bx: number, by: number, left: number, top: number, right: number, bottom: number): boolean {
+  if (Math.max(ax, bx) <= left || Math.min(ax, bx) >= right || Math.max(ay, by) <= top || Math.min(ay, by) >= bottom) return false
+  // Liang–Barsky: the part of the segment inside the box's columns, then inside its rows.
+  let [enter, leave] = [0, 1]
+  const [dx, dy] = [bx - ax, by - ay]
+  if (dx !== 0) {
+    const [one, two] = [(left - ax) / dx, (right - ax) / dx]
+    enter = Math.max(enter, Math.min(one, two))
+    leave = Math.min(leave, Math.max(one, two))
+  }
+  if (dy !== 0) {
+    const [one, two] = [(top - ay) / dy, (bottom - ay) / dy]
+    enter = Math.max(enter, Math.min(one, two))
+    leave = Math.min(leave, Math.max(one, two))
+  }
+  return enter < leave
+}
 
 /**
  * The Graph as the prototype lays it out (ticket 26): the root in the middle; the leaves spread round it in
  * the order of the tree, each parent at the mean direction of its children, each depth one ring further out;
  * then rounds of springs on the "grew from" arrows and pushes between boxes that touch, the root never
- * moving. The prototype's pushes test every pair; here a grid of cells as large as the largest box finds the
- * pairs near enough to touch, so a large map stays quick. A last pass makes sure no two boxes overlap: in
+ * moving. Unlike the prototype's (ticket 35), a deep leaf gets a larger share of the circle, the rounds pull
+ * the map round the topic where it has two branches or more, and the last rounds move boxes off the arrows
+ * that run over them: a map whose nodes mostly hang from one deep branch still has the topic in its middle,
+ * and no arrow crosses a box on its way. The prototype's pushes test every pair; here a grid of cells as
+ * large as the largest box finds the pairs near enough to touch, so a large map stays quick. A last pass makes sure no two boxes overlap: in
  * the tree's order each node keeps its place or moves straight away from the root until it is clear of
  * those placed before it. No randomness: the same graph always gets the same places.
  */
@@ -487,8 +522,10 @@ export function layoutRadial(graph: MapGraph): Placement {
   })
 
   // The seed. The leaves in the tree's order (depth first, a stack: a chain however deep fits), spread round
-  // the circle from just past the left; a parent comes before its children in `nodes`, so going backwards
-  // gives each parent the mean direction of its children.
+  // the circle from just past the left, each leaf's share as large as its depth (ticket 35): a deep branch
+  // takes the room its rings need and goes round the topic, where an equal share left it all on one side. A
+  // parent comes before its children in `nodes`, so going backwards gives each parent the mean direction of
+  // its children.
   const angle = new Float64Array(count)
   const leaves: number[] = []
   const stack = [0]
@@ -498,7 +535,13 @@ export function layoutRadial(graph: MapGraph): Placement {
     if (kids.length === 0) leaves.push(at)
     for (let kid = kids.length - 1; kid >= 0; kid -= 1) stack.push(kids[kid]!)
   }
-  leaves.forEach((leaf, order) => (angle[leaf] = -Math.PI * 0.95 + (2 * Math.PI * (order + 0.5)) / leaves.length))
+  const share = leaves.map((leaf) => Math.max(1, depth[leaf]!))
+  const shares = share.reduce((sum, each) => sum + each, 0)
+  let before = 0
+  leaves.forEach((leaf, order) => {
+    angle[leaf] = -Math.PI * 0.95 + (2 * Math.PI * (before + share[order]! / 2)) / shares
+    before += share[order]!
+  })
   for (let index = count - 1; index >= 0; index -= 1) {
     const kids = children[index]!
     if (kids.length === 0) continue
@@ -531,9 +574,62 @@ export function layoutRadial(graph: MapGraph): Placement {
     y[index] = Math.sin(angle[index]!) * ring[depth[index]!]! * RADIAL.down
   }
 
+  // The topic in the middle (ticket 35): each round every node but the root moves together by RADIAL_PULL of
+  // the way from the middle of the box round them to the topic, so the map settles round the topic rather
+  // than hanging to one side of it. Only where the topic has two branches or more: a single branch has
+  // nothing to balance, and pulled round the topic it would cross itself.
+  const centred = children[0]!.length > 1
+  const towardsRoot = (): void => {
+    let [left, right, top, bottom] = [Infinity, -Infinity, Infinity, -Infinity]
+    for (let index = 1; index < count; index += 1) {
+      left = Math.min(left, x[index]! - width[index]! / 2)
+      right = Math.max(right, x[index]! + width[index]! / 2)
+      top = Math.min(top, y[index]! - height[index]! / 2)
+      bottom = Math.max(bottom, y[index]! + height[index]! / 2)
+    }
+    const [shiftX, shiftY] = [(RADIAL_PULL * (left + right)) / 2, (RADIAL_PULL * (top + bottom)) / 2]
+    for (let index = 1; index < count; index += 1) {
+      x[index] = x[index]! - shiftX
+      y[index] = y[index]! - shiftY
+    }
+  }
   // The rounds. `cell` is at least the largest box and the margin: two boxes that touch lie in neighbouring cells.
   const cell = Math.max(width.reduce((most, each) => Math.max(most, each), 0), height.reduce((most, each) => Math.max(most, each), 0)) + RADIAL.margin
   const cellKey = (column: number, row: number): number => (column + 2 ** 20) * 2 ** 21 + (row + 2 ** 20)
+  /** Moves boxes off the "grew from" arrows that run over them (the last rounds, see there); `grid` finds the boxes near an arrow. */
+  const clearArrows = (columns: Int32Array, rows: Int32Array, grid: ReadonlyMap<number, number[]>): void => {
+    for (let index = 1; index < count; index += 1) {
+      const up = parent[index]!
+      if (up < 0) continue
+      const [fromColumn, toColumn] = [Math.min(columns[index]!, columns[up]!), Math.max(columns[index]!, columns[up]!)]
+      const [fromRow, toRow] = [Math.min(rows[index]!, rows[up]!), Math.max(rows[index]!, rows[up]!)]
+      for (let column = fromColumn - 1; column <= toColumn + 1; column += 1) {
+        for (let row = fromRow - 1; row <= toRow + 1; row += 1) {
+          for (const other of grid.get(cellKey(column, row)) ?? []) {
+            if (other === index || other === up) continue
+            const [halfX, halfY] = [width[other]! / 2 + RADIAL.margin / 2, height[other]! / 2 + RADIAL.margin / 2]
+            if (!crosses(x[up]!, y[up]!, x[index]!, y[index]!, x[other]! - halfX, y[other]! - halfY, x[other]! + halfX, y[other]! + halfY)) continue
+            const [dx, dy] = [x[index]! - x[up]!, y[index]! - y[up]!]
+            const length = Math.hypot(dx, dy) || 1
+            // The line's normal towards the box's middle, and how far the box reaches over the line along it.
+            let [normalX, normalY] = [-dy / length, dx / length]
+            let side = (x[other]! - x[up]!) * normalX + (y[other]! - y[up]!) * normalY
+            if (side < 0) [normalX, normalY, side] = [-normalX, -normalY, -side]
+            const over = halfX * Math.abs(normalX) + halfY * Math.abs(normalY) - side
+            const [boxPart, endPart] = other === 0 ? [0, over] : up === 0 ? [over, 0] : [over / 2, over / 2]
+            x[other] = x[other]! + normalX * boxPart
+            y[other] = y[other]! + normalY * boxPart
+            if (up !== 0) {
+              x[up] = x[up]! - normalX * endPart
+              y[up] = y[up]! - normalY * endPart
+            }
+            x[index] = x[index]! - normalX * endPart
+            y[index] = y[index]! - normalY * endPart
+          }
+        }
+      }
+    }
+  }
   const rounds = Math.min(RADIAL.rounds, Math.max(RADIAL_ROUNDS_MIN, Math.floor(RADIAL_BUDGET / count)))
   for (let round = 0; round < rounds; round += 1) {
     const cool = 1 - round / rounds
@@ -553,6 +649,7 @@ export function layoutRadial(graph: MapGraph): Placement {
       x[index] = x[index]! - pullX
       y[index] = y[index]! - pullY
     }
+    if (centred) towardsRoot()
     const columns = new Int32Array(count)
     const rows = new Int32Array(count)
     const grid = new Map<number, number[]>()
@@ -603,6 +700,11 @@ export function layoutRadial(graph: MapGraph): Placement {
         }
       }
     }
+    // In the last rounds, an arrow that runs over a box of another node (ticket 35: a map pulled round its
+    // topic packs closer): the box moves away from the arrow's line and the arrow's ends the other way until
+    // the line clears it, each by half. The topic never moves, so an arrow over it takes the whole move; an
+    // arrow from the topic stays where it is, the box taking the whole move.
+    if (count <= RADIAL_CLEAR_MOST && round >= rounds - RADIAL_CLEAR_ROUNDS) clearArrows(columns, rows, grid)
   }
 
   // The last pass: no two boxes overlap.
@@ -657,13 +759,36 @@ const point = ({ x, y }: { x: number; y: number }): string => `${Math.round(x * 
 /**
  * An arrow of the Graph, from box `from` to box `to`, as the prototype draws it (`edgePath`): "grew from" a
  * straight line from the parent's border to 4 px before the child's border, its arrowhead pointing at the
- * child; `replaces` a red dashed curve bowed to one side, so it does not run along the straight arrows.
+ * child; `replaces` a red dashed curve bowed to one side, so it does not run along the straight arrows. Given
+ * the boxes of the other nodes, the curve bows to the side, and as far, that runs over the fewest of them
+ * (ticket 35): the Graph keeps the topic in the middle, and a curve always bowed one way crossed its box or
+ * the node the two Decisions grew from.
  */
-export function graphEdgePath(kind: MapEdge['kind'], from: ScreenBox, to: ScreenBox): string {
+export function graphEdgePath(kind: MapEdge['kind'], from: ScreenBox, to: ScreenBox, others: readonly ScreenBox[] = []): string {
   const [start, end] = [{ x: from.x + from.width / 2, y: from.y + from.height / 2 }, { x: to.x + to.width / 2, y: to.y + to.height / 2 }]
   if (kind === 'replaces') {
     const [dx, dy] = [end.x - start.x, end.y - start.y]
-    const bend = { x: (start.x + end.x) / 2 - dy * 0.35 - 60, y: (start.y + end.y) / 2 + dx * 0.35 }
+    const middle = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 }
+    // The prototype's bend and the same bend on the other side of the line between the two; then, on either
+    // side, a bend half and then all of the line's length out from its middle, across it: in that order.
+    const prototype = { x: -dy * 0.35 - 60, y: dx * 0.35 }
+    const bends = [1, -1].map((times) => ({ x: middle.x + prototype.x * times, y: middle.y + prototype.y * times }))
+    for (const reach of [0.5, -0.5, 1, -1]) bends.push({ x: middle.x - dy * reach, y: middle.y + dx * reach })
+    /** How many boxes of other nodes the curve runs over, its points 24 along it. */
+    const over = (bend: { x: number; y: number }): number => {
+      const [a, b] = [borderPoint(from, 2, bend), borderPoint(to, 5, bend)]
+      const points = Array.from({ length: 23 }, (_, step) => {
+        const t = (step + 1) / 24
+        return { x: (1 - t) ** 2 * a.x + 2 * (1 - t) * t * bend.x + t * t * b.x, y: (1 - t) ** 2 * a.y + 2 * (1 - t) * t * bend.y + t * t * b.y }
+      })
+      return others.filter((box) => points.some(({ x, y }) => x > box.x && x < box.x + box.width && y > box.y && y < box.y + box.height)).length
+    }
+    let [bend, least] = [bends[0]!, others.length === 0 ? 0 : over(bends[0]!)]
+    for (const other of bends.slice(1)) {
+      if (least === 0) break
+      const count = over(other)
+      if (count < least) [bend, least] = [other, count]
+    }
     return `M${point(borderPoint(from, 2, bend))} Q${point(bend)} ${point(borderPoint(to, 5, bend))}`
   }
   return `M${point(borderPoint(from, 0, end))} L${point(borderPoint(to, 4, start))}`

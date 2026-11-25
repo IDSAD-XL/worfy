@@ -1,7 +1,7 @@
 # 35: Rework of worfy-product-session 26, item 6
 
 Type: task
-Status: open
+Status: claimed 2026-11-24T23:33Z
 Blocked by: None — can start immediately
 Source: owner-check fail 2026-11-24 of worfy-product-session 26, item 6 — 26-граф-радиальный-как-в-прототипе.md
 
@@ -21,3 +21,7 @@ Source: owner-check fail 2026-11-24 of worfy-product-session 26, item 6 — 26-�
 
 - [ ] (вручную) Сделай: переключи «Tree · Graph» на «Graph» и сравни с «граф» прототипа → Должно быть: тема в центре, ветки расходятся в разные стороны, узлы не накрывают друг друга; стрелки «выросло из» прямые; «Replaces» — красная пунктирная кривая; текст мельче, чем в «Tree».
   - needs: mac stable
+- [ ] Unit test (`test/unit/mind-map-graph-centre.test.ts`): в Graph карты LONG_MAP (и с Hide rejected) центр темы в пределах 0,4–0,6 рамки всех узлов по обеим осям, с каждой стороны темы не меньше трети узлов; ни одна стрелка «grew from» не идёт поверх узла (LONG_MAP, Hide rejected, карта с пятью ветками); красная кривая «Replaces» не идёт поверх темы и накрывает не больше узлов, чем изгиб прототипа; одна ветка остаётся цепочкой без пересечений. На коде origin/main test красный.
+- [ ] Unit test (`test/unit/mind-map-layout.test.ts`): прежние свойства радиальной раскладки держатся — без наложений, детерминированно, 150 узлов во всех четырёх четвертях, глубже — дальше от темы, цепочка в 4000 узлов раскладывается сразу.
+- [ ] e2e test (`test/e2e/product-session.spec.ts`, карта LONG_MAP): в Graph центр темы в пределах 0,4–0,6 по обеим осям, кривая «Replaces» не заходит в тему; снимки Graph в светлой и тёмной теме.
+- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast зелёный.
