@@ -2,6 +2,7 @@
 
 Type: task
 Status: claimed 2026-11-24T23:39Z
+PR: #2184
 Branch: worfy-neutral/11
 Blocked by: None — can start immediately
 Source: owner-check fail 2026-11-24 of worfy-neutral 01, item 4 — 01-user-personalization-язык-отчётов-и-личные-правила.md
