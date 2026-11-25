@@ -21,8 +21,11 @@ Hook inject-rules Harness (`harness/hooks/`), сборка текста прав
 ## Готово, когда
 
 - [ ] (вручную) После `pnpm install:stable` новая Session владельца отвечает по-русски, а её Subagent получает правило о терминах (виден в `SubagentStart` hook output).
-- [ ] Часть `common` hook-а `inject-rules` в папке зарегистрированного проекта называет значение `language.reports`, а не только имя настройки (для worfy — `Russian (`ru`)`), и язык команды, в `SessionStart` и в `SubagentStart`. Значение — то, что резолвит `bin/profile`: сначала `user.json` пользователя, потом профиль. Текст Harness — английский (ADR-0074); правила пользователя идут после раздела о языке.
+- [ ] Часть `common` hook-а `inject-rules` в папке зарегистрированного проекта называет значение `language.reports`, а не только имя настройки (для worfy — Russian (`ru`)), и язык команды, в `SessionStart` и в `SubagentStart`. Значение — то, что резолвит `bin/profile`: сначала `user.json` пользователя, потом профиль. Текст Harness — английский (ADR-0074); правила пользователя идут после раздела о языке.
+  - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0 · mac - · 8fdd7db10
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 8fdd7db10
 - [ ] В папке без профиля часть называет значение из `user.json` пользователя. Без профиля и без настройки, со сломанным `user.json`, с упавшим или зависшим `bin/profile` часть приходит как была, hook выходит с кодом 0.
+  - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0 · mac - · 8fdd7db10
 
 ## Итог
 
