@@ -176,13 +176,14 @@ done
 
 ## 7. Binding не берёт отказанный claim
 
-Code: `src/shared/binding/signals.ts:110-124` · key lines: 113, 120, 123
+Code: `src/shared/binding/signals.ts:122-140` · key lines: 126, 138, 139
 
 ```ts
-        const claim = claimIn(input.command)
+        const claims = claimsIn(input.command)
+        const claim = claims.at(-1)
         if (claim) {
-          // A claim counts from its call, as before; a result that says it was refused takes it back.
-          pendingClaim = { id: event.id, previous: signals.claim }
+          // A claim counts from its call, as before; its own refusal in the result takes it back.
+          pendingClaim = { id: event.id, claims, previous: signals.claim }
           set({ claim })
         }
       } else if (event.name === 'Skill' && typeof input.skill === 'string') {
@@ -190,21 +191,29 @@ Code: `src/shared/binding/signals.ts:110-124` · key lines: 113, 120, 123
         if (name) set({ skill: { name, args: cap(typeof input.args === 'string' ? input.args.trim() : '', ARGS_MAX) } })
       }
     } else if (event.type === 'tool_result' && pendingClaim !== null && event.toolUseId === pendingClaim.id) {
-      // An error result is the claim's exit code when the claim is the command's last one; the refusal text, when a
-      // command after it hides that code. A claim refused otherwise behind such a command still counts.
-      if (event.isError || CLAIM_REFUSED.test(event.content)) set({ claim: pendingClaim.previous })
+      // The last claim of the call its result does not refuse; none — the claim before the call. Not the error flag of
+      // the result: it is the exit code of the call's last command, not of the claim. A claim refused otherwise (an old
+      // header, a usage error) still counts: the result does not say which command failed.
+      const content = event.content
+      const kept = [...pendingClaim.claims].reverse().find((claim) => !claimRefused(content, claim))
+      set({ claim: kept ?? pendingClaim.previous })
       pendingClaim = null
 ```
 
-- Что делает: claim, как раньше, считается с вызова. Когда приходит его tool result и это ошибка (exit code не 0)
-  или в тексте есть отказ `ticket claim` («already claimed … by branch»), Binding возвращается к claim-у до него.
-- Почему здесь: review round 1, п. 6 — Binding брал последнюю команду `ticket claim` без её исхода, и Session,
-  которой отказала новая проверка, привязывалась к чужому Ticket-у.
+- Что делает: claim, как раньше, считается с вызова. Когда приходит tool result этого вызова, Binding берёт последний
+  claim команды, который результат не отказал; все отказаны — claim до вызова. Отказ — только строка, которую
+  печатает сам `ticket claim`: путь файла именно этого Ticket-а (`<epic>/issues/<NN>-….md`) в начале строки и
+  `: already claimed … by branch` (`claimRefused`, `signals.ts:56-68`).
+- Почему здесь: review round 1, п. 6 — Binding брал последнюю команду `ticket claim` без её исхода. Review round 2:
+  флаг ошибки tool result-а — exit code последней части команды, не claim-а (`claim …; echo …; cat CLAUDE.md` с
+  упавшим `cat` откатывал удачный claim), поэтому он не читается совсем; отказ сверяется с epic/NN каждого claim-а и
+  с началом строки, чтобы `cat` файла, который цитирует сообщение, не откатывал.
 - Без него: узел отказанной Session на холсте стоял бы у Ticket-а другой Session.
 - Требование: [Что происходит, 97](../issues/145-аудит-повторного-review-ticket-claim-review-history-и-перенос-workflow.md#что-происходит)
-- Риски и пробелы test-ов: claim, отказанный по другой причине (старая шапка, неизвестный флаг) за командой вроде
-  `; echo "EXIT=$?"`, по-прежнему считается: tool result не ошибка, а текста отказа нет. Binding Codex
-  (`src/main/vendors/codex/binding.ts`) исход команды не читает.
+- Риски и пробелы test-ов: claim, отказанный по другой причине (старая шапка, неизвестный флаг), по-прежнему
+  считается: результат не говорит, какая часть команды упала. Binding Codex (`src/main/vendors/codex/binding.ts`)
+  исход команды не читает. Replay по настоящим транскриптам (`~/.claude/projects`, только чтение): из 1406 вызовов с
+  claim против origin/main меняется 1 — настоящий отказ `ticket claim` в проверке review.
 
 ## 8. Как проверено
 

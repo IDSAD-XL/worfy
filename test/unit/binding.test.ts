@@ -258,25 +258,45 @@ describe('extendSignals', () => {
     expect(state.signals.claim).toMatchObject({ num: 16 })
   })
 
-  it('drops a `ticket claim` its result says was refused, and keeps the claim before it', () => {
-    const result = (id: string, content: string, isError: boolean): string =>
-      line({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content, is_error: isError }] } })
-    const own = '~/.claude/bin/ticket claim worfy-mvp 07 --branch worfy-mvp/07'
-    let state = extendSignals(emptySignalState(), [bash(own), result(`t-${own.length}`, '.scratch/worfy-mvp/issues/07-x.md:4', false)], { subagent: false })
-    expect(state.signals.claim).toMatchObject({ epic: 'worfy-mvp', num: 7 })
-    // Another Session's ticket: the claim exits 1, the tool result is an error.
-    const taken = '~/.claude/bin/ticket claim worfy-mvp 12 --branch worfy-mvp/07'
-    state = extendSignals(state, [bash(taken)], { subagent: false })
-    expect(state.signals.claim).toMatchObject({ num: 12 })
-    state = extendSignals(state, [result(`t-${taken.length}`, 'Exit code 1\n.scratch/worfy-mvp/issues/12-x.md: already claimed 2026-11-10T09:00Z by branch fix/other; …; nothing written', true)], { subagent: false })
-    expect(state.signals.claim).toMatchObject({ num: 7 })
-    // The same refusal behind `; echo EXIT=$?`: the tool result is no error, its text names the refusal.
-    const echoed = 'ticket claim worfy-mvp 13; echo "EXIT=$?"'
-    state = extendSignals(state, [bash(echoed), result(`t-${echoed.length}`, '.scratch/worfy-mvp/issues/13-x.md: already claimed 2026-11-10T09:00Z by branch fix/other; nothing written\nEXIT=1', false)], { subagent: false })
-    expect(state.signals.claim).toMatchObject({ num: 7 })
-    // A claim whose result has not come yet counts, as before.
-    state = extendSignals(state, [bash('ticket claim worfy-mvp 16')], { subagent: false })
-    expect(state.signals.claim).toMatchObject({ num: 16 })
+  describe('a `ticket claim` its own refusal takes back', () => {
+    const result = (command: string, content: string, isError: boolean): string =>
+      line({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: `t-${command.length}`, content, is_error: isError }] } })
+    const ran = (state: ReturnType<typeof emptySignalState>, command: string, content: string, isError = false) =>
+      extendSignals(state, [bash(command), result(command, content, isError)], { subagent: false })
+    const refusal = (path: string) => `${path}: already claimed 2026-11-10T09:00Z by branch fix/other; --branch worfy-mvp/07 is another branch. Resume your own claim with --branch fix/other, or take the ticket over with --force; nothing written`
+    const bound = () => ran(emptySignalState(), 'ticket claim worfy-mvp 07 --branch worfy-mvp/07', '.scratch/worfy-mvp/issues/07-x.md:4\n  now: Status: claimed 2026-11-10T09:00Z')
+
+    it('the refusal `ticket claim` prints takes the claim back to the one before it; a claim without its result yet counts', () => {
+      let state = bound()
+      expect(state.signals.claim).toMatchObject({ epic: 'worfy-mvp', num: 7 })
+      state = extendSignals(state, [bash('~/.claude/bin/ticket claim worfy-mvp 12 --branch worfy-mvp/07')], { subagent: false })
+      expect(state.signals.claim).toMatchObject({ num: 12 })
+      state = extendSignals(state, [result('~/.claude/bin/ticket claim worfy-mvp 12 --branch worfy-mvp/07', `Exit code 1\n${refusal('.scratch/worfy-mvp/issues/12-x.md')}`, true)], { subagent: false })
+      expect(state.signals.claim).toMatchObject({ num: 7 })
+      // Behind `; echo "EXIT=$?"` the result is no error; the refusal line still takes it back.
+      state = ran(state, 'ticket claim worfy-mvp 13; echo "EXIT=$?"', `${refusal('/w/.scratch/worfy-mvp/issues/13-y.md')}\nEXIT=1`)
+      expect(state.signals.claim).toMatchObject({ num: 7 })
+    })
+
+    it('a claim that succeeded stays when a later command of the same call fails', () => {
+      const state = ran(bound(), 'ticket claim worfy-mvp 14 --branch b; echo "EXIT=$?"; cat CLAUDE.md', 'x/worfy-mvp/issues/14-z.md:4\nEXIT=0\ncat: CLAUDE.md: No such file or directory', true)
+      expect(state.signals.claim).toMatchObject({ num: 14 })
+    })
+
+    it('printing a file that quotes the refusal is no refusal', () => {
+      const state = ran(bound(), 'ticket claim worfy-mvp 15 && cat harness/bin/ticket story.md', '`${rel(target)}: already claimed${since} by branch ${held}`\n- quoted: .scratch/worfy-mvp/issues/15-q.md: already claimed 2026-11-10T09:00Z by branch fix/other')
+      expect(state.signals.claim).toMatchObject({ num: 15 })
+    })
+
+    it('two claims in one call: the refusal of the other ticket does not take back the last claim, the refusal of the last falls back to the first', () => {
+      let state = ran(bound(), 'ticket claim worfy-mvp 20; ticket claim worfy-mvp 21', refusal('.scratch/worfy-mvp/issues/20-a.md'))
+      expect(state.signals.claim).toMatchObject({ num: 21 })
+      state = ran(bound(), 'ticket claim worfy-mvp 22; ticket claim worfy-mvp 23 ;', `.scratch/worfy-mvp/issues/22-b.md:4\n${refusal('.scratch/worfy-mvp/issues/23-c.md')}`)
+      expect(state.signals.claim).toMatchObject({ num: 22 })
+      // Both refused: the claim before the call.
+      state = ran(bound(), 'ticket claim worfy-mvp 24; ticket claim worfy-mvp 25  ;', `${refusal('.scratch/worfy-mvp/issues/24-d.md')}\n${refusal('.scratch/worfy-mvp/issues/25-e.md')}`)
+      expect(state.signals.claim).toMatchObject({ num: 7 })
+    })
   })
 
   it('keeps the cwd and the branch of the last record that names them', () => {

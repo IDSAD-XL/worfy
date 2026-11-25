@@ -15,10 +15,10 @@ export interface SignalState {
   /** A Subagent's first prompt (its task) has been read: later prompts are not its task. */
   promptSeen: boolean
   /**
-   * The last `ticket claim` whose tool result has not been read yet: its tool use id and the claim before it, which
-   * comes back when the result says the claim was refused.
+   * The last Bash call with a `ticket claim` whose tool result has not been read yet: its tool use id, its claims in
+   * order and the claim before the call, which comes back when the result refuses all of them.
    */
-  pendingClaim: { id: string; previous: AgentSignals['claim'] } | null
+  pendingClaim: { id: string; claims: NonNullable<AgentSignals['claim']>[]; previous: AgentSignals['claim'] } | null
 }
 
 export interface SignalOptions {
@@ -41,18 +41,30 @@ const CLAIM = /(?:^|[\s;&|()/\\'"`])ticket\s+claim\s+([A-Za-z0-9][A-Za-z0-9._-]*
 /** A Ticket file's path: `.scratch/<epic>/issues/<NN>-…`, with `/` or, on Windows, `\` (worfy-windows ticket 08). */
 const TICKET_PATH = /(?:^|[^A-Za-z0-9._-])\.scratch[\\/]([A-Za-z0-9][A-Za-z0-9._-]*)[\\/]issues[\\/](\d+)-/u
 
-/**
- * The refusal `ticket claim` prints for a ticket another branch holds (harness/bin/ticket): it shows in the tool result
- * even when the command goes on after the claim (`; echo "EXIT=$?"`) and the result is no error.
- */
-const CLAIM_REFUSED = /: already claimed\b[^\n]*\bby branch\b/u
+/** Every claim in a Bash command, in order. */
+export function claimsIn(command: string): (TicketRef & { command: string })[] {
+  return [...command.matchAll(CLAIM)].map((match) => ({ epic: match[1]!, num: Number(match[2]), command: cap(command.trim(), COMMAND_MAX) }))
+}
 
 /** The last claim in a Bash command; null when it has none. */
 export function claimIn(command: string): (TicketRef & { command: string }) | null {
-  let last: RegExpExecArray | null = null
-  for (const match of command.matchAll(CLAIM)) last = match
-  if (last === null) return null
-  return { epic: last[1]!, num: Number(last[2]), command: cap(command.trim(), COMMAND_MAX) }
+  return claimsIn(command).at(-1) ?? null
+}
+
+const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
+
+/**
+ * Whether a tool result holds the refusal `ticket claim` prints for this Ticket when another branch holds it
+ * (harness/bin/ticket): a line that starts with the Ticket file's path, `<…>/<epic>/issues/<NN>-<slug>.md`, and goes on
+ * `: already claimed [<time> ]by branch `. Only the claim's own words count: the exit code of the call is that of its
+ * last command, and a file that quotes the message (`cat harness/bin/ticket`) starts its line otherwise.
+ */
+export function claimRefused(result: string, claim: TicketRef): boolean {
+  const line = new RegExp(
+    `^(?:[A-Za-z]:)?(?:[^\\n:]*[\\\\/])?${escapeRegExp(claim.epic)}[\\\\/]issues[\\\\/]0*${claim.num}-[^\\\\/\\n:]*\\.md: already claimed (?:\\S+ )?by branch `,
+    'mu',
+  )
+  return line.test(result)
 }
 
 /** The first Ticket path in a text; null when it has none. */
@@ -107,10 +119,11 @@ function extendOne(state: SignalState, record: Json, options: SignalOptions): Si
     if (event.type === 'tool_use' && isObject(event.input)) {
       const input = event.input
       if (event.name === 'Bash' && typeof input.command === 'string') {
-        const claim = claimIn(input.command)
+        const claims = claimsIn(input.command)
+        const claim = claims.at(-1)
         if (claim) {
-          // A claim counts from its call, as before; a result that says it was refused takes it back.
-          pendingClaim = { id: event.id, previous: signals.claim }
+          // A claim counts from its call, as before; its own refusal in the result takes it back.
+          pendingClaim = { id: event.id, claims, previous: signals.claim }
           set({ claim })
         }
       } else if (event.name === 'Skill' && typeof input.skill === 'string') {
@@ -118,9 +131,12 @@ function extendOne(state: SignalState, record: Json, options: SignalOptions): Si
         if (name) set({ skill: { name, args: cap(typeof input.args === 'string' ? input.args.trim() : '', ARGS_MAX) } })
       }
     } else if (event.type === 'tool_result' && pendingClaim !== null && event.toolUseId === pendingClaim.id) {
-      // An error result is the claim's exit code when the claim is the command's last one; the refusal text, when a
-      // command after it hides that code. A claim refused otherwise behind such a command still counts.
-      if (event.isError || CLAIM_REFUSED.test(event.content)) set({ claim: pendingClaim.previous })
+      // The last claim of the call its result does not refuse; none — the claim before the call. Not the error flag of
+      // the result: it is the exit code of the call's last command, not of the claim. A claim refused otherwise (an old
+      // header, a usage error) still counts: the result does not say which command failed.
+      const content = event.content
+      const kept = [...pendingClaim.claims].reverse().find((claim) => !claimRefused(content, claim))
+      set({ claim: kept ?? pendingClaim.previous })
       pendingClaim = null
     } else if (event.type === 'command') {
       const name = skillName(event.name)
