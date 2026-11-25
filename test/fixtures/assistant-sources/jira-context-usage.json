@@ -1,0 +1,23 @@
+{
+  "categories": [
+    { "id": "system_prompt", "name": "System prompt", "tokens": 1400, "color": "promptBorder", "kind": "used" },
+    { "id": "system_tools", "name": "System tools", "tokens": 310, "color": "inactive", "kind": "used" },
+    { "id": "mcp_tools", "name": "MCP tools", "tokens": 3540, "color": "cyan_FOR_SUBAGENTS_ONLY", "kind": "used" },
+    { "id": "free_space", "name": "Free space", "tokens": 194750, "color": "promptBorder", "kind": "free" }
+  ],
+  "totalTokens": 5250,
+  "maxTokens": 200000,
+  "rawMaxTokens": 200000,
+  "percentage": 3,
+  "gridRows": [],
+  "model": "claude-haiku-5-5",
+  "memoryFiles": [],
+  "mcpTools": [
+    { "name": "mcp__claude_ai_Atlassian__atlassianUserInfo", "serverName": "claude_ai_Atlassian", "tokens": 240, "isLoaded": true },
+    { "name": "mcp__claude_ai_Atlassian__getAccessibleAtlassianResources", "serverName": "claude_ai_Atlassian", "tokens": 300, "isLoaded": true },
+    { "name": "mcp__claude_ai_Atlassian__searchJiraIssuesUsingJql", "serverName": "claude_ai_Atlassian", "tokens": 1650, "isLoaded": true },
+    { "name": "mcp__claude_ai_Atlassian__getJiraIssue", "serverName": "claude_ai_Atlassian", "tokens": 1350, "isLoaded": true }
+  ],
+  "systemTools": [{ "name": "StructuredOutput", "tokens": 310 }],
+  "agents": []
+}
