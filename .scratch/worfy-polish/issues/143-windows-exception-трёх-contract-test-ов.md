@@ -1,7 +1,8 @@
 # 143 — Windows exception трёх contract test-ов, красных на PR #2194
 
 Type: task
-Status: claimed 2026-11-25T12:19Z
+Status: done 2026-11-25T12:51Z
+PR: #2208
 Branch: worfy-polish/143
 Blocked by: none
 Source: бриф Orchestrator-а 2026-11-25: CI run 45598235951 PR #2194 (worfy-product-session 37 — правило архива и
@@ -72,10 +73,13 @@ Windows exception (`"kind": "windows-exception"`, owner `worfy-windows 117`, п�
       `"kind": "windows-exception"`, owner `worfy-windows 117`, срок в пределах 45 дней; три test-а помечены
       `quarantined('<id>')`; `test/unit/quarantine.test.ts` зелёный.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/quarantine.test.ts test/unit/quarantine-suggest.test.ts test/contract/gate-failures-report.test.ts test/contract/autopilot-faults-ladder.test.ts test/contract/terminal-windows.test.ts` exit 0 (64 passed, 14 skipped) · mac - · ac108f77926b8637245151cc86b9d7f9b9cd7259
+  - evidence: review pass · PR #2208 · - - · 95919dbd056dfe9eb8fb20cf73bbb352f2ac15da
 - [ ] Timeout-ы и пределы test-ов и `src/` не изменены.
   - evidence: commit pass · worfy-polish/143: Windows exceptions for three contract tests red only on Windows (no src/ change, no timeout changed) · - - · ac108f77926b8637245151cc86b9d7f9b9cd7259
+  - evidence: review pass · PR #2208 · - - · 95919dbd056dfe9eb8fb20cf73bbb352f2ac15da
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast зелёный; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · ac108f77926b8637245151cc86b9d7f9b9cd7259
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45615665811/job/139216218367 · ci - · 95919dbd056dfe9eb8fb20cf73bbb352f2ac15da
 
 ## Где в коде
 

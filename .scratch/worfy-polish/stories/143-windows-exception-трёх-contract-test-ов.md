@@ -98,3 +98,21 @@ Code: `test/contract/autopilot-faults-ladder.test.ts:369-369` · key lines: 369
    Ответ: пропускает test helper `quarantined('<id>')`, которым test объявлен; без него запись ничего не делает, и
    `test/unit/quarantine.test.ts` красный.
    Строки: `test/contract/terminal-windows.test.ts:287-287`
+
+## 7. Что нашёл review и что осталось
+
+> VERIFIED — worfy-polish 143 (Windows exceptions for three contract tests red only on Windows CI: terminal-windows endDescendants ×2, autopilot-faults-ladder background-stalled), head 95919dbd056dfe9eb8fb20cf73bbb352f2ac15da
+>
+> Gate (depth medium, one round): reviewer (lens: correctness) — MERGE, no findings.
+>
+> - What it does: three records test/quarantine/*.json of kind windows-exception (platforms win32, owner worfy-windows 117, 2026-11-25 to 2027-01-09, 45 days), the three tests labelled quarantined('<id>'); on Linux and macOS the Autopilot test runs as before; no src/ change, no timeout raised.
+> - Evidence: CI history of 119 runs 2026-11-23..25 — terminal tests red 1 of 44 Windows jobs (green on main and on the same PR's previous head), the Autopilot test red 2 and retried-green 8 of 26 Windows jobs, 0 on Linux (57) and macOS (20); the reviewer matched each record's test name to the loader's rule (test/quarantine.ts:293-294) and ran quarantine, quarantine-suggest and autopilot-faults-ladder tests EXIT=0; pnpm lint, typecheck, test EXIT=0; gate fast green; story-check ok.
+> - Not verified: the skip itself on win32 (CI of this PR decides).
+> - Noted: the Autopilot test's race (it waits for the journal line, not for the background-stalled timer) is worth its own ticket; endDescendants' 3000 ms helper limit under load is a product question for worfy-windows 117.
+
+Code: `test/quarantine.ts:293-294` · key lines: 293
+
+```ts
+      if (!found) problems.push(`${entry.id}: ${entry.file} has no test "${entry.test}" under quarantined('${entry.id}')`)
+    }
+```
