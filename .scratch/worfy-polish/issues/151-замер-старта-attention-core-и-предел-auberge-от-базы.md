@@ -58,6 +58,7 @@ Project-а пишет `assistant-items.json` синхронно и с прове
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/quarantine.test.ts test/unit/quarantine-suggest.test.ts` exit 0; `pnpm test:e2e test/e2e/epic-frame.spec.ts` exit 0 (8 passed) · mac - · b1e938b20b23d52d6d8577e39dfc29078c2d8d88
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast зелёный; `ci-ok` зелёный на head PR, test идёт в
       `macos-e2e` и зелёный.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · c99782d9974662198eb19d49b7e65f0fcd5f1310
 
 ## Где в коде
 
