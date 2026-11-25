@@ -1,7 +1,8 @@
 # 12 — Рецепт Slack: что касается пользователя с прошлой проверки
 
 Type: task
-Status: open
+Status: claimed 2026-11-25T19:53Z
+Branch: worfy-assistant/12
 Blocked by: 04, 11
 Source: [spec.md](../spec.md), «Ticket-ы», строка 12; «Решения владельца», 5 и 19; «Решения по реализации» → «Проверка
 источников через connectors claude.ai», «Рецепт источника»; «Риски» («Connectors claude.ai»); «Решения по test-ам»;
