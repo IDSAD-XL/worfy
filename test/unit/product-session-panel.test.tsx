@@ -981,9 +981,9 @@ describe('the Mind map pane of a Product Session', () => {
     const { pickNode } = await import('../../src/renderer/product/node-chips')
     // What a chip's click does (NodeChips.tsx).
     act(() => pickNode({ projectId: 'alpha', topic: 'pricing', id: 'per-seat' }))
-    await vi.waitFor(() => expect(within(screen.getByTestId('mind-map')).getByText('Charge per seat')).toBeTruthy())
-    await vi.waitFor(() => expect(within(screen.getByRole('region', { name: 'Node' })).getByText('Charge per seat')).toBeTruthy())
-    expect(document.querySelector('[data-testid="mind-node"][data-id="per-seat"]')?.className).toContain('w-mind__node--selected')
+    const node = () => document.querySelector('[data-testid="mind-node"][data-id="per-seat"]')
+    await vi.waitFor(() => expect(node()?.className).toContain('w-mind__node--selected'))
+    expect(within(screen.getByRole('region', { name: 'Node' })).getByText('Charge per seat')).toBeTruthy()
     expect(within(screen.getByTestId('mind-map')).queryByText('Sell to small teams')).toBeNull()
   })
 

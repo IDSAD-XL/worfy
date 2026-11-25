@@ -89,6 +89,46 @@ function OptionText({ option, index, multi }: { option: Question['options'][numb
   )
 }
 
+export interface ResolvedQuestionsProps {
+  /** The request's id, or the call's id for a question read back from the Session's file. */
+  requestId: string
+  questions: readonly Question[]
+  /** The answers by the question's text; null — none given. */
+  answers: Readonly<Record<string, string>> | null
+  /** null: not answered. */
+  outcome: Resolution['outcome'] | null
+}
+
+/**
+ * A question card once resolved: each question with its answer, and how it ended; no controls. The chat of a
+ * Product Session draws a question answered before Resume with it too (worfy-polish ticket 147).
+ */
+export function ResolvedQuestions({ requestId, questions, answers, outcome }: ResolvedQuestionsProps) {
+  return (
+    <div className="w-tr__row" data-testid="question-card" data-request-id={requestId} data-resolution={outcome ?? 'open'}>
+      <div className="w-tr__who w-mono w-tr__who--assistant">ask</div>
+      <div className="w-tr__body">
+        <div className="w-permission w-question" data-open="false">
+          <ol className="w-question__answers">
+            {questions.map((each) => (
+              <li key={each.question} className="w-question__answer" data-testid="question-answer">
+                {each.header !== '' ? <span className="w-question__chip w-mono">{each.header}</span> : null}
+                <span className="w-question__asked">{each.question}</span>
+                <span className="w-question__given" data-testid="question-answer-text">
+                  {answers !== null && Object.hasOwn(answers, each.question) ? answers[each.question] : '—'}
+                </span>
+              </li>
+            ))}
+          </ol>
+          <div className="w-permission__resolved w-mono" data-testid="question-resolution">
+            {outcome === null ? 'Not answered' : OUTCOME[outcome]}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function QuestionCard({ request, sessionId, projectId }: QuestionCardProps) {
   const resolution = useResolution(sessionId, request.requestId)
   const readOnly = useReadOnly()
@@ -155,31 +195,7 @@ export function QuestionCard({ request, sessionId, projectId }: QuestionCardProp
     change(toggled(question, pick, option.label))
   }
 
-  if (!open) {
-    return (
-      <div className="w-tr__row" data-testid="question-card" data-request-id={request.requestId} data-resolution={resolution?.outcome ?? 'open'}>
-        <div className="w-tr__who w-mono w-tr__who--assistant">ask</div>
-        <div className="w-tr__body">
-          <div className="w-permission w-question" data-open="false">
-            <ol className="w-question__answers">
-              {questions.map((each) => (
-                <li key={each.question} className="w-question__answer" data-testid="question-answer">
-                  {each.header !== '' ? <span className="w-question__chip w-mono">{each.header}</span> : null}
-                  <span className="w-question__asked">{each.question}</span>
-                  <span className="w-question__given" data-testid="question-answer-text">
-                    {resolution !== null && Object.hasOwn(resolution.answers, each.question) ? resolution.answers[each.question] : '—'}
-                  </span>
-                </li>
-              ))}
-            </ol>
-            <div className="w-permission__resolved w-mono" data-testid="question-resolution">
-              {resolution === null ? 'Not answered' : OUTCOME[resolution.outcome]}
-            </div>
-          </div>
-        </div>
-      </div>
-    )
-  }
+  if (!open) return <ResolvedQuestions requestId={request.requestId} questions={questions} answers={resolution?.answers ?? null} outcome={resolution?.outcome ?? null} />
 
   const shown = pointed ?? pick.selected.at(-1) ?? null
   const preview = question.options.find((option) => option.label === shown)?.preview ?? null

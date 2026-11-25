@@ -71,7 +71,8 @@ blocked or wait for a person, not for an agent. It is known only while a window 
 Projects" does. No part of the live line is cut: a part that does not fit moves whole to the next line, without the
 " · " before it, and the card grows with it. Each part has a tooltip that says what it counts: busy — the Sessions in a
 turn; PR need you — the pull requests that need your review, answer or fix; waits — the Tickets that are blocked, or wait
-for a person, not an agent. A Project of a Linked machine keeps its single line.
+for a person, not an agent. The same words are the description of the card itself, so the keyboard focus on the card
+and a screen reader give them too. A Project of a Linked machine keeps its single line.
 
 **The Acceptance section** shows the [Acceptance](acceptance.md) queue by Project: each Project's name, then a row per
 group that holds a check of that Project — Ready to check, Update first, Waits for you, Failed — with its count. In work

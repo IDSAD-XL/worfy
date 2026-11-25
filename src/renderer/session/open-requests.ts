@@ -3,8 +3,10 @@
 // says `needs_permission` for both; the Node's badges (canvas/badges/NeedsPermission.tsx,
 // WaitsForAnswer.tsx) tell them apart by this. A window that opened or reloaded after a request
 // arrived has not seen it: useWaitingRequests then asks main for the open ones (worfy-product-session
-// ticket 30), so the card is drawn and the counts are right.
-import { useEffect, useMemo, useState } from 'react'
+// ticket 30), so the card is drawn and the counts are right. A background task of the Session can wait for
+// an answer while the Session itself is `idle`, so the window asks once on mounting too, whatever the state
+// (worfy-polish ticket 147).
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { AgentEvent } from '../../shared/agent/events'
 import { loadOpenRequests, useSessionLog } from './store'
 
@@ -53,17 +55,36 @@ export const ASK_OPEN_REQUESTS_AFTER_MS = 250
  * window holds none of its requests — it opened or reloaded after they went out — asks main for them
  * (worfy-product-session ticket 30): the Session would wait for an answer with no card to give it. It
  * asks once per such stretch, after ASK_OPEN_REQUESTS_AFTER_MS; `unseen` holds from main's answer to the
- * end of the stretch, and a new stretch starts without it.
+ * end of the stretch, and a new stretch starts without it. Holding none of them on mounting, it asks once
+ * as well, in any state (worfy-polish ticket 147): a background task's request leaves the Session `idle`.
  */
 export function useWaitingRequests(sessionId: string | null, state: string | null): WaitingRequests {
   const requests = useOpenRequests(sessionId)
-  const missing = sessionId !== null && state === 'needs_permission' && requests.permissions === 0 && requests.questions.length === 0
+  const none = requests.permissions === 0 && requests.questions.length === 0
+  const missing = sessionId !== null && state === 'needs_permission' && none
+  // The Session this mount has asked main about, or found its requests in the window for: it asks no more on mounting.
+  const checked = useRef<string | null>(null)
+  useEffect(() => {
+    if (sessionId === null || checked.current === sessionId) return
+    // At needs_permission the stretch's own ask below is the one.
+    if (missing) return
+    if (!none) {
+      checked.current = sessionId
+      return
+    }
+    const timer = setTimeout(() => {
+      checked.current = sessionId
+      void loadOpenRequests(sessionId)
+    }, ASK_OPEN_REQUESTS_AFTER_MS)
+    return () => clearTimeout(timer)
+  }, [sessionId, missing, none])
   // The Session whose requests main was asked for in this stretch, once its answer is in.
   const [asked, setAsked] = useState<string | null>(null)
   useEffect(() => {
     if (!missing) return
     let live = true
     const timer = setTimeout(() => {
+      checked.current = sessionId
       void loadOpenRequests(sessionId).then(() => {
         if (live) setAsked(sessionId)
       })
