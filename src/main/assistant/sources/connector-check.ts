@@ -35,6 +35,11 @@ export interface ConnectorRecipe {
   readTools: readonly string[]
   /** What to look for since `since` (ms since the epoch): the first part of the call's message. */
   task(input: { since: number; now: number }): string
+  /**
+   * Whether an item that passed the form reaches the attention core; every item when absent. An item left out still
+   * counts as read: the time the answer covers does not change (ticket 12: Slack shows only what concerns the user).
+   */
+  keeps?(item: SourceItem): boolean
 }
 
 export interface SourceCheckDeps {
@@ -105,7 +110,7 @@ export function sourceCheckRun(recipe: ConnectorRecipe, deps: SourceCheckDeps): 
     const check = sourceItemsOf(end.structured, recipe.kind)
     if (check === null) return fail('the answer is not in the form of items')
     for (const refused of check.refused) deps.log(`[assistant] the ${recipe.kind} check: ${refused}`)
-    for (const item of check.items) deps.core.ingest(sourceEventOf(item, recipe.kind, projects))
+    for (const item of check.items) if (recipe.keeps?.(item) ?? true) deps.core.ingest(sourceEventOf(item, recipe.kind, projects))
     if (!check.full) return undefined
     // At its cap the answer covers the time only up to its newest item: the next check asks from there.
     const newest = check.items.at(-1)

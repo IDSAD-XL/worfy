@@ -11,7 +11,9 @@ import { madeRegistry, sharedRegistry } from './agent/app-registry'
 import { installLimitsRefresh } from './agent/limits-usage'
 import { appUserModelId } from './app-id'
 import { startAttentionCore } from './assistant/core/app'
-import { startCheckScheduler } from './assistant/schedule/app'
+import { checkScheduler, startCheckScheduler } from './assistant/schedule/app'
+import { appSourceCheck } from './assistant/sources/app'
+import { registerSlackCheck } from './assistant/sources/slack'
 import { toEveryWindow } from './broadcast'
 import { stopLiveBrowsers } from './browser/live'
 import { browserProfilePartitions } from './browser/profiles'
@@ -244,6 +246,12 @@ function start(): void {
         app.on('will-quit', startCheckScheduler(powerMonitor))
       } catch (error) {
         console.error('[assistant] the scheduler of the checks did not start', error)
+      }
+      // The Slack check (worfy-assistant ticket 12): on the scheduler, about every 10 minutes once the user turns it on.
+      try {
+        registerSlackCheck(checkScheduler(), appSourceCheck)
+      } catch (error) {
+        console.error('[assistant] the Slack check was not registered', error)
       }
       // The Acceptance queue (worfy-acceptance ticket 01): main follows the Tickets of every Project for it from the
       // start, over the workflow hub, so a Sent decision whose line came meanwhile is dropped and the first window gets
