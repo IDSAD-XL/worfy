@@ -71,8 +71,11 @@ Windows exception (`"kind": "windows-exception"`, owner `worfy-windows 117`, п�
       `terminal-windows-end-descendants-pid-reused.json`, `autopilot-faults-background-stalled-not-turn-hung.json` —
       `"kind": "windows-exception"`, owner `worfy-windows 117`, срок в пределах 45 дней; три test-а помечены
       `quarantined('<id>')`; `test/unit/quarantine.test.ts` зелёный.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/quarantine.test.ts test/unit/quarantine-suggest.test.ts test/contract/gate-failures-report.test.ts test/contract/autopilot-faults-ladder.test.ts test/contract/terminal-windows.test.ts` exit 0 (64 passed, 14 skipped) · mac - · ac108f77926b8637245151cc86b9d7f9b9cd7259
 - [ ] Timeout-ы и пределы test-ов и `src/` не изменены.
+  - evidence: commit pass · worfy-polish/143: Windows exceptions for three contract tests red only on Windows (no src/ change, no timeout changed) · - - · ac108f77926b8637245151cc86b9d7f9b9cd7259
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast зелёный; `ci-ok` зелёный на head PR.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · ac108f77926b8637245151cc86b9d7f9b9cd7259
 
 ## Где в коде
 
