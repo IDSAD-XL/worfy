@@ -1,7 +1,7 @@
 # 141 — Аудит повторного review: PR inbox и pr-reply
 
 Type: bug
-Status: open
+Status: claimed 2026-11-25T08:05Z
 Blocked by: none
 Source: audit-pr-rereview-2026-11-13, triage.md «Чинить сейчас»; checked open on main 3c9c06e8c 2026-11-25
 

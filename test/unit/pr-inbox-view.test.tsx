@@ -716,8 +716,27 @@ describe('the pure parts of the two panes', () => {
     expect(nextStep('needs-answer', ROWS.answer, NOW, 0, true, ME)).toMatchObject({ text: 'No drafts yet: Draft replies starts a Session that writes them.', action: { kind: 'draft-replies' } })
     // A Linked machine: no drafts here, no button.
     expect(nextStep('needs-answer', ROWS.answer, NOW, 0, false, ME)).toMatchObject({ text: 'Drafts of replies stay on the machine of the Project.', action: null })
-    expect(nextStep('needs-answer', { ...ROWS.answer, unresolvedThreads: 0 }, NOW, 0, true, ME).title).toBe('Your answer is awaited')
-    expect(nextStep('needs-answer', { ...ROWS.answer, unresolvedThreads: 1 }, NOW, 0, true, ME).title).toBe('Answer 1 open thread')
+    // My PR: both unresolved threads end with someone else's comment, so both wait for me.
+    expect(nextStep('needs-answer', ROWS.answer, NOW, 0, true, ME).title).toBe('Answer 2 open threads')
+    // Only a mention waits: no thread does.
+    expect(nextStep('needs-answer', { ...ROWS.answer, threads: ROWS.answer.threads.filter((thread) => thread.isResolved) }, NOW, 0, true, ME).title).toBe('Your answer is awaited')
+    // Without a viewer no thread can wait for the user.
+    expect(nextStep('needs-answer', ROWS.answer, NOW, 0, true, null).title).toBe('Your answer is awaited')
+  })
+
+  it("nextStep of a colleague's PR counts only the threads that wait for the user, not every unresolved one (worfy-polish 141)", async () => {
+    const { nextStep } = await load()
+    // Ana's PR, two unresolved threads: I wrote in T1 and Ana answered last; T2 is Bo's alone, not mine to answer.
+    const colleague = { ...ROWS.answer, author: ANA, unresolvedThreads: 2 }
+    expect(nextStep('needs-answer', colleague, NOW, 0, true, ME).title).toBe('Answer 1 open thread')
+    // The user answered last in T1: nothing of the threads waits, a mention does.
+    const answered = {
+      ...colleague,
+      threads: colleague.threads.map((thread) => (thread.id === 'T1' ? { ...thread, comments: [...thread.comments, comment('C14', ME, ago(HOUR), 'Done')] } : thread)),
+    }
+    expect(nextStep('needs-answer', answered, NOW, 0, true, ME).title).toBe('Your answer is awaited')
+    // A review asked of the user still counts every open thread, from others.
+    expect(nextStep('needs-review', colleague, NOW, 0, true, ME).text).toContain('2 open threads from others.')
   })
 
   it('nextStep of a PR to fix names what is wrong; its first reason is the main button, the others beside it, and Open checks stays a link (worfy-pr-follow ticket 04)', async () => {
@@ -896,6 +915,13 @@ async function view(inbox: Record<string, PrInboxSnapshot> = { 'web-00000001': s
   return shown
 }
 
+/** view() with the Pull requests view shown in the shell: only then does the pane read the drafts of its PR (worfy-polish 141). */
+async function shownView(...args: Parameters<typeof view>) {
+  const { setView } = await import('../../src/renderer/session/navigation')
+  setView('pull-requests')
+  return view(...args)
+}
+
 describe('Start review (worfy-pr-review ticket 09)', () => {
   /** The answers Review mode reads: one file of the PR, and the draft Start review creates. */
   const reviewAnswers: Answers = {
@@ -1011,7 +1037,7 @@ describe('selecting a PR', () => {
   })
 
   it('the pane shows the threads, open ones first, with links to the code line; the new mark goes once main has the look', async () => {
-    await view()
+    await shownView()
     select(API, 118)
     const threads = within(pane()).getAllByTestId('pr-inbox-thread')
     expect(threads.map((thread) => within(thread).queryByTestId('pr-inbox-thread-link')?.textContent)).toEqual(['src/upload.ts:12', 'src/retry.ts', 'src/old.ts:1'])
@@ -1032,7 +1058,7 @@ describe('selecting a PR', () => {
   })
 
   it('drafts are read for the selected PR only', async () => {
-    await view()
+    await shownView()
     const draftsAsked = (): number[] => [...new Set(main.calls.filter((call) => call.channel === 'prInbox.drafts').map((call) => (call.input as { number: number }).number))]
     await waitFor(() => expect(draftsAsked()).toEqual([118]))
     select(WEB, 41)
@@ -1163,7 +1189,7 @@ describe('selecting a PR', () => {
   }
 
   it("the view's own pick stays over a snapshot that reorders its group: the typed text of its draft stays, and it is not marked seen", async () => {
-    await view({ 'web-00000001': answering([X, Y]) }, { 'prInbox.drafts': draftsAnswer })
+    await shownView({ 'web-00000001': answering([X, Y]) }, { 'prInbox.drafts': draftsAnswer })
     expect(selectedRows()).toEqual([`${API}#118`])
     const field = (await within(pane()).findByTestId('pr-draft-field')) as HTMLTextAreaElement
     expect(field.value).toBe('Draft for 118')
@@ -1203,7 +1229,7 @@ describe('selecting a PR', () => {
         return { ok: true, value: { results: [], drafts: draftsOf(repo, number) } }
       },
     }
-    await view({ 'web-00000001': answering([X, Y]) }, answers)
+    await shownView({ 'web-00000001': answering([X, Y]) }, answers)
     await within(pane()).findByTestId('pr-draft')
     key('ArrowDown')
     expect(pane().dataset.number).toBe('40')
@@ -1228,7 +1254,7 @@ describe('selecting a PR', () => {
     const answer = { ...X, unresolvedThreads: 2 }
     DRAFTS[118] = [draftItem(0, 'T1', 'Draft for 118'), draftItem(1, 'T2', 'Second draft for 118')]
     try {
-      await view({ 'web-00000001': answering([answer]) }, {
+      await shownView({ 'web-00000001': answering([answer]) }, {
         'prInbox.drafts': draftsAnswer,
         'prInbox.send': (input: unknown) => {
           const { repo, number } = input as { repo: string; number: number }
@@ -1261,7 +1287,7 @@ describe('selecting a PR', () => {
   })
 
   it('the strip of a PR with one draft has no button: its Send is under its thread', async () => {
-    await view({ 'web-00000001': answering([X, Y]) }, { 'prInbox.drafts': draftsAnswer })
+    await shownView({ 'web-00000001': answering([X, Y]) }, { 'prInbox.drafts': draftsAnswer })
     await within(pane()).findByTestId('pr-draft')
     const next = within(pane()).getByTestId('pr-inbox-next-step')
     await waitFor(() => expect(next.textContent).toContain('1 draft reply is ready below: read, edit, then Send under its thread.'))
