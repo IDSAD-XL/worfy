@@ -14,6 +14,7 @@ import { startAttentionCore } from './assistant/core/app'
 import { checkScheduler, startCheckScheduler } from './assistant/schedule/app'
 import { appSourceCheck } from './assistant/sources/app'
 import { registerSlackCheck } from './assistant/sources/slack'
+import { registerJiraCheck } from './assistant/sources/jira'
 import { toEveryWindow } from './broadcast'
 import { stopLiveBrowsers } from './browser/live'
 import { browserProfilePartitions } from './browser/profiles'
@@ -252,6 +253,13 @@ function start(): void {
         registerSlackCheck(checkScheduler(), appSourceCheck)
       } catch (error) {
         console.error('[assistant] the Slack check was not registered', error)
+      }
+      // The Jira check (worfy-assistant ticket 13): changes in the user's issues through their claude.ai connector, once
+      // an hour by default and only once the person turns it on. Not a startup step: worfy runs without it.
+      try {
+        app.on('will-quit', registerJiraCheck(checkScheduler(), (recipe) => appSourceCheck(recipe)))
+      } catch (error) {
+        console.error('[assistant] the Jira check was not registered', error)
       }
       // The Acceptance queue (worfy-acceptance ticket 01): main follows the Tickets of every Project for it from the
       // start, over the workflow hub, so a Sent decision whose line came meanwhile is dropped and the first window gets

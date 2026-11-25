@@ -1,0 +1,30 @@
+[
+  {
+    "name": "claude.ai Atlassian",
+    "status": "connected",
+    "scope": "claudeai",
+    "source": "claudeai",
+    "serverInfo": { "name": "atlassian", "version": "1.0.0" },
+    "config": { "type": "claudeai-proxy", "url": "https://mcp.atlassian.example/v1/mcp", "id": "mcpsrv_01atlassianmadeup" },
+    "tools": [
+      { "name": "atlassianUserInfo", "description": "Get the current user" },
+      { "name": "getAccessibleAtlassianResources", "description": "Get the cloud ids of the user's sites", "annotations": { "readOnly": true } },
+      { "name": "searchJiraIssuesUsingJql", "description": "Search Jira issues with JQL", "annotations": { "readOnly": true, "openWorld": true } },
+      { "name": "getJiraIssue", "description": "Get a Jira issue", "annotations": { "readOnly": true } },
+      { "name": "getConfluencePage", "description": "Get a Confluence page", "annotations": { "readOnly": true } },
+      { "name": "search", "description": "Search with Rovo", "annotations": { "readOnly": true } },
+      { "name": "createJiraIssue", "description": "Create a Jira issue", "annotations": { "readOnly": false } },
+      { "name": "editJiraIssue", "description": "Edit a Jira issue", "annotations": { "readOnly": false, "destructive": true } },
+      { "name": "addCommentToJiraIssue", "description": "Comment on a Jira issue", "annotations": { "readOnly": false, "destructive": false } },
+      { "name": "transitionJiraIssue", "description": "Move a Jira issue to another status", "annotations": { "readOnly": false } }
+    ]
+  },
+  {
+    "name": "claude.ai Slack",
+    "status": "connected",
+    "scope": "claudeai",
+    "source": "claudeai",
+    "config": { "type": "claudeai-proxy", "url": "https://mcp.slack.example/mcp", "id": "mcpsrv_01slackmadeup" },
+    "tools": [{ "name": "slack_search_public_and_private", "annotations": { "readOnly": true } }]
+  }
+]
