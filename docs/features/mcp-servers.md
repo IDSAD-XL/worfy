@@ -136,8 +136,11 @@ live check.
   inventory gave no address for) says so and offers no Restart. The popover shows such a reason under the row's name
   when the row offers no Restart and the reason is not the heading's own words; the reason of a row Restart helps is
   not repeated under it, as the heading and its Restart Session say it.
-- The group ends with a line: "A claude.ai connector missing here: add its name to MCP servers in Project settings (Edit
-  profile)." A connector the inventory finds is in the group already; the line is for one it does not.
+- The group ends with a line: "A claude.ai connector missing here cannot be allowed by its name: connect it on claude.ai,
+  then open this list again." A connector the inventory finds is in the group already; the line is for one it does not.
+  Its name on the Project's list does nothing: Claude Code drops a name with a dot or a space, and worfy puts a connector
+  on the Session's list only by the address the inventory gave. The inventory runs again each time the popover opens, so
+  a connector it lists then shows in the group with Allow.
 - A Session outside every Project has no list: it runs no inventory and has no such rows.
 
 #### In Autopilot

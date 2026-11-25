@@ -177,11 +177,13 @@ for sh in "${SHELLS[@]}"; do
     # outlived its shell (as one that kill -f also failed to end would) does not touch that lock and ends within 3 s,
     # so the other agent's lock can still go stale. The other holder.json is written first and the old mtime once the
     # heartbeat has begun its next sleep (step_done): a step already past its holder.json check has touched by then.
+    # The count of sleeps is read after that write, never before: a sleep begun between the count and the write would
+    # end in a check of the old holder.json, and its touch could land after the old mtime.
     PATH="$HBBIN:$PATH" $sh -c "$STUB"$'\n'"$b" >"$W/out" 2>&1 & bp=$!
     if until_ok 10 test -s "$W/hb.pid" && until_ok 10 test -e "$W/go.started"; then
         hb="$(cat "$W/hb.pid")"
         kill -KILL "$bp" 2>/dev/null; wait "$bp" 2>/dev/null
-        n="$(sleeps_of)"; printf '{"prs":[9],"what":"gate-full","pid":1,"since":"x"}\n' >"$L/holder.json"
+        printf '{"prs":[9],"what":"gate-full","pid":1,"since":"x"}\n' >"$L/holder.json"; n="$(sleeps_of)"
         until_ok 10 step_done "$n" "$hb"; touch -t 202001010000 "$L"
         m0="$(mtime_of "$L")"; until_ok 3 gone_pid "$hb"; ended=$?; sleep 0.5; m1="$(mtime_of "$L")"
         [ "$ended" = 0 ] && [ "$m0" = "$m1" ] && [ "$(q "$L/holder.json" 's.prs.join(",")' 2>&1)" = 9 ] \
@@ -216,7 +218,8 @@ for sh in "${SHELLS[@]}"; do
     # this needs holder.json written in the very form the heartbeat looks for. (2) Then another agent holds the lock
     # (its holder.json, an old mtime): the heartbeat no longer touches it but does not end while its shell lives, so
     # the trap signals the heartbeat's own pid, not a freed one. (3) The block ends: its trap ends the heartbeat and
-    # leaves the other agent's lock in place.
+    # leaves the other agent's lock in place. In (2) the count of sleeps is read after the other holder.json is written,
+    # as in the kill -9 case above.
     PATH="$HBBIN:$PATH" $sh -c "$STUB"$'\n'"$b" >"$W/out" 2>&1 & bp=$!
     if until_ok 10 test -s "$W/hb.pid" && until_ok 10 test -e "$W/go.started"; then
         hb="$(cat "$W/hb.pid")"
@@ -224,7 +227,7 @@ for sh in "${SHELLS[@]}"; do
         moved() { [ "$(mtime_of "$L")" != "$old" ]; }
         until_ok 3 moved && ok "$sh: the one-PR gate full block: the heartbeat of a live block touches its own lock" \
             || bad "$sh: the one-PR block: the heartbeat $hb did not touch its own lock within 3 s [holder $(cat "$L/holder.json" 2>&1)]"
-        n="$(sleeps_of)"; printf '{"prs":[9],"what":"gate-full","pid":1,"since":"x"}\n' >"$L/holder.json"
+        printf '{"prs":[9],"what":"gate-full","pid":1,"since":"x"}\n' >"$L/holder.json"; n="$(sleeps_of)"
         until_ok 10 step_done "$n" "$hb"; touch -t 202001010000 "$L"
         m0="$(mtime_of "$L")"; sleep 1; m1="$(mtime_of "$L")"
         ours "$hb" "$W" && [ "$m0" = "$m1" ] \

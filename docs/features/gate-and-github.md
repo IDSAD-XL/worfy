@@ -129,7 +129,8 @@ stays only when another process holds it open on Windows, or when a run ended be
 main branch of a repository, not a worktree: `main-red-<key>.json`. The gate does not write it. The Harness script `land` writes it
 each time it reads the CI push runs of the main branch and finds the branch red: the commit, the PR that broke it (or `null`), since
 when, the run's URL, the line it prints for the Orchestrator, and when the file was written. worfy can read it by the Project's root (`readMainRed` in `src/main/gate/state.ts`), under
-the same key as the gate's own markers; no screen or Autopilot step acts on it yet.
+the same key as the gate's own markers. No screen shows it; the Autopilot reads it before it continues or sets aside a stuck
+Ticket and stops the run with `main-red` while it is there ([Autopilot faults](autopilot-faults.md)).
 `land` removes it the next time it finds the branch not red. While the red run is rerun, or when `gh` cannot read the runs, the
 file stays as it is: until a verdict the branch counts as red. Only `land` removes it, so it can be older than the branch's state.
 
@@ -198,6 +199,17 @@ Only scripts that exist in the package run. "Add project" shows the `root` lists
 
 worfy's own repository is on the second row, with `ci-ok` as the final check. There Gate full stays a tool for the implementer
 and for analysing a failure.
+
+**A red main branch holds the merge.** The Harness script `land`, which merges the Orchestrator's ready PRs one by one,
+reads the CI push runs of the main branch before it merges a PR. While the newest run with a verdict is red, a PR with code
+waits, with a reason that names the red commit, the PR that broke the branch, when the run finished and the deadline of a
+fix forward: one hour, then revert that PR (when none of the newest 50 push runs is green, the reason names
+no PR and no deadline: the culprit is older, found by hand). A run still queued or in progress, a cancelled run and the run of a commit that
+changed documents only are passed over; a red run whose failed jobs were rerun and passed counts as green, and while the
+newest run is being rerun code PRs wait for its verdict. Two kinds of PR merge while the branch is red: the fix or the
+revert, marked `main_fix`, and a PR with documents only. When `gh` cannot read the runs, the PR waits as not verified.
+`land` reruns and reverts nothing: the pause ends at the first pass that finds the newest verdict green, and the next PR
+merges then. Each reading keeps the `main-red-<key>.json` marker above.
 
 **The e2e lock.** With `workflow.e2e_lock` in the Profile, `wave-gate`, the skills and the Project's rules take that folder as a
 lock for each local e2e run and Gate full. The Gate itself does not take it, so a bare `node gate.mjs full` holds nothing, and CI
@@ -370,7 +382,9 @@ already there is skipped, and the rerun commands of an imported record are never
 
 **The computer.** A record names its computer by an id of 8 random hex digits, made once, and a name: `mac`, `windows`
 or `linux` by the platform, until `gate-failures machine --name <name>` gives another one. A name that is the host name,
-the user name or other personal data is refused. This is not the Machine of worfy Link, which keeps a file of its own.
+the user name or other personal data is refused. The host name counts as the privacy rules of the Harness see it (`hostNeedles`
+in `harness/lib/privacy.cjs`): a common word in it is no secret, so on a host named `mac-02` the name `mac` is accepted.
+This is not the Machine of worfy Link, which keeps a file of its own.
 
 **Retention.** Records live 60 days, counted by the time inside the file. Each time a red run writes its file, the Gate
 removes the older records, own and imported. A broken file, or one of another version, stays.
@@ -402,8 +416,11 @@ it is not part of the id. A renamed test, or a moved file, starts a new history.
 **Scrubbing.** An export may be published in a public repository, so every text of an entry is scrubbed before it is
 written, whatever the reporter did. The root of the worktree becomes `<repo>` and the home folder `~`, and the rest of
 such a path is written with `/`. The user name in any home folder path becomes `<user>`. The host name becomes `<host>`
-as a whole word, and the user name `<user>` when it has at least 3 characters and is not a stand-in such as `test` or
-`runner`. The privacy rules of the Harness then mask what they find by shape (UUIDs, email addresses, tokens, Tailscale
+as a whole word in any case: its full name when it has more than one label, then its first label, unless that label is a
+common word (`mac`, `linux`, `dev`, `server` and the like, judged without a model suffix such as `-MacBook-Pro` and without
+a machine number of one or two digits), all digits, or too short (under three characters, under two before a model suffix).
+A common word is no secret, and replacing it would turn ordinary text such as the platform `mac` into `<host>`. The user
+name becomes `<user>` when it has at least 3 characters and is not a stand-in such as `test` or `runner`. The privacy rules of the Harness then mask what they find by shape (UUIDs, email addresses, tokens, Tailscale
 addresses, host names of known shapes) and the words of the personal list `<Harness home>/user/privacy.json`.
 `export` checks every field and the whole text once more, against those rules and the host name, the user name, the
 home folder and the worktree root of this computer. On a finding it names the record, the field and the rule, never the

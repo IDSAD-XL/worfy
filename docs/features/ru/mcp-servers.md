@@ -109,9 +109,11 @@ popover-а даёт main подхватить сервер, который ра�
   не запустил (connector claude.ai, разрешённый по имени, или подключённый после старта процесса). Она стоит в группе
   not started, считается в m и несёт статус blocked, как failed; в Session, за которой человек, заголовок группы
   предлагает Restart Session.
-- Группа «Not allowed in this Project» кончается строкой «A claude.ai connector missing here: add its name to MCP servers in Project settings (Edit
-  profile).». Инвентарь может не перечислять connector-ы claude.ai, поэтому connector, которого в группе нет, разрешают,
-  вписав его имя в список.
+- Группа «Not allowed in this Project» кончается строкой «A claude.ai connector missing here cannot be allowed by its name:
+  connect it on claude.ai, then open this list again.». Connector, который инвентарь находит, уже стоит в группе; строка —
+  для того, которого он не находит. Его имя в списке Project-а ничего не даёт: Claude Code отбрасывает имя с точкой или
+  пробелом, а worfy кладёт connector в список Session только по адресу, который дал инвентарь. Инвентарь запускается
+  заново при каждом открытии popover-а, поэтому connector, который он тогда находит, встаёт в группу с Allow.
 - У Session вне всех Project-ов списка нет: она не запускает инвентарь, и таких строк у неё нет.
 
 #### В Autopilot
