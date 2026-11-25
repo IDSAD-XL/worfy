@@ -24,9 +24,9 @@ import { ADR_DIR, ADR_FILE_PATTERN, HANDOFF_FILE, type AdrEntry, type DocsState 
 import type { ProductTopicChange } from '../../shared/ipc/product'
 import { isProductTopicName } from '../../shared/product/paths'
 import { accepted, DEFAULT_DOC_HEADINGS, escapeRegExp, OLD_DOC_HEADINGS } from '../../shared/workflow/doc-headings'
-import { readTopic, type ProductTopic } from '../product/topic'
+import { nodeProductFs, readTopic, type ProductReadOptions, type ProductTopic } from '../product/topic'
 import { refTree, resolveSource, type RefGitRunner, type RepoTree, type SourceLayout } from '../workflow/main-ref'
-import { isInside, leadsToRemote, leavesFolder, UNCHECKED, walkLinks, type LinkFs, type PathRules } from '../remote-links'
+import { cachedLinks, isInside, leadsToRemote, leavesFolder, UNCHECKED, walkLinks, type LinkFs, type PathRules } from '../remote-links'
 import { namesTheFolder, notThere, watchWithNode } from '../watch-gone'
 
 /** A larger file is refused: HANDOFF and ADRs are short text. */
@@ -246,17 +246,23 @@ export function productPathOf(parts: readonly string[], dir: readonly string[]):
  * The topic `name` of the Product Session folder `dir` (segments under `root`) as it reads now, or
  * null when its folder is not there. On Windows a way to it through a link to another host is
  * treated as not there, as the documents are (readDocs): reading it would hand that host the user's
- * credentials (worfy-windows tickets 18 and 19).
+ * credentials (worfy-windows tickets 18 and 19). Each file and folder inside the topic is checked the
+ * same way before it is read (readTopic; worfy-polish ticket 146).
  */
-export async function readProductTopic(root: string, dir: readonly string[], name: string, options: Pick<DocOptions, 'paths' | 'links'> = {}): Promise<ProductTopic | null> {
+export async function readProductTopic(root: string, dir: readonly string[], name: string, options: ProductReadOptions = {}): Promise<ProductTopic | null> {
   if (!isProductTopicName(name)) throw new Error(`not a Product Session topic name: ${JSON.stringify(name)}`)
   const paths = options.paths ?? nativePath
+  const fs = options.fs ?? nodeProductFs
+  // The walks of the folder and of each file share their first segments: each link is asked about once.
+  const links = cachedLinks(options.links)
   const folder = paths.join(root, ...dir, name)
+  let allowed: readonly string[] = [root]
   if (paths.sep === '\\') {
-    const base = await realpath(root).catch(() => null)
-    if (base === null || (await leadsToRemote(folder, [root, base], { paths, links: options.links }))) return null
+    const base = await fs.realpath(root).catch(() => null)
+    if (base === null || (await leadsToRemote(folder, [root, base], { paths, links }))) return null
+    allowed = [root, base]
   }
-  return (await isFolder(folder)) ? readTopic(folder) : null
+  return (await fs.isFolder(folder)) ? readTopic(folder, { paths, links, fs, allowed }) : null
 }
 
 /** When the reads after the start run, in ms (see DocsWatcher.watch). */

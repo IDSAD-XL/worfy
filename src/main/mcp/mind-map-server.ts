@@ -24,7 +24,7 @@
 // Session's messages showed it before the call reached the handler (mindMapForSession); otherwise none.
 import { randomUUID } from 'node:crypto'
 import { writeFileSync } from 'node:fs'
-import { readdir } from 'node:fs/promises'
+import * as nativePath from 'node:path'
 import { join } from 'node:path'
 import { z } from 'zod'
 import { checkMindMap, MIND_MAP_PLACED, MIND_MAP_VERSION, mindMapSchema, type MindMap, type MindMapNode } from '../../shared/product/mind-map'
@@ -42,12 +42,13 @@ import {
 import { sdkMessageToEvents } from '../../shared/vendors/claude/events'
 import { productToolDecision } from '../agent/product-guard'
 import { retriedOnWindows } from '../harness/install'
-import { readTopic, type ProductTopic } from '../product/topic'
+import { linkRefusal, nodeProductFs, readTopic, type ProductReadOptions, type ProductTopic } from '../product/topic'
 import { appSaveSignal, saveAnswer } from '../product/save-signal'
 import { writeJsonFile } from '../storage/json-file'
 import { claudeMcpServer, type ClaudeMcpServer } from '../vendors/claude/mcp'
 import type { McpServer, McpToolResult } from '../vendors/mcp'
 import { projectStore, type StoredProject } from '../projects/store'
+import { cachedLinks } from '../remote-links'
 import { observeMessages, projectForCwd, repositoryRoot } from './canvas-server'
 import instructions from './agent-instructions-mind-map.md?raw'
 
@@ -215,6 +216,14 @@ export interface MindMapContext {
   writer?: MindMapWriter
   /** A new node id; a short random one by default. */
   newId?: () => string
+  /**
+   * The Project's root: on Windows each topic file mind_map_read reads is checked for a link to another
+   * host from there (readTopic; worfy-polish ticket 146), and a share the root lies on is the Project's
+   * own. Without it the check starts at the Product Session folder.
+   */
+  root?: string
+  /** The path rules, links and file calls the topics are read with: the platform's and Node's by default; replaced in tests. */
+  files?: ProductReadOptions
 }
 
 const NO_FOLDER = 'The Product Session folder of this Project could not be found (its profile did not answer): the Mind map cannot be read or changed now.'
@@ -263,14 +272,16 @@ function handlers(context: MindMapContext): Handlers {
   return {
     mind_map_read: async ({ topic }) => {
       const root = folder()
+      // One answer per link for every walk of this call, and each file checked before it is read.
+      const files = { ...context.files, links: cachedLinks(context.files?.links), allowed: [context.root ?? root] }
       if (topic !== undefined) {
-        const names = await topicNames(root)
+        const names = await topicNames(root, files)
         if (!names.includes(topic)) throw new ToolError(`There is no topic ${topic} yet. Topics: ${names.length === 0 ? '(none)' : names.join(', ')}.`)
-        return topicAnswer(await readTopic(productTopicFolder(root, topic)))
+        return topicAnswer(await readTopic(productTopicFolder(root, topic), files))
       }
       const topics = []
-      for (const name of await topicNames(root)) {
-        const read = await readTopic(productTopicFolder(root, name))
+      for (const name of await topicNames(root, files)) {
+        const read = await readTopic(productTopicFolder(root, name), files)
         topics.push({ topic: name, title: read.title, tickets: read.tickets.length, nodes: read.nodes.length, errors: read.errors.length })
       }
       return { topics }
@@ -351,11 +362,16 @@ function handlers(context: MindMapContext): Handlers {
   }
 }
 
-/** The topic folders of the Product Session folder, by name; none when it does not exist yet. */
-async function topicNames(root: string): Promise<string[]> {
+/**
+ * The topic folders of the Product Session folder, by name; none when it does not exist yet. On Windows a
+ * folder whose way leads to another host through a link is refused before it is listed (worfy-polish ticket 146).
+ */
+async function topicNames(root: string, files: ProductReadOptions & { allowed?: readonly string[] } = {}): Promise<string[]> {
+  const refused = await linkRefusal(root, files.allowed ?? [root], { paths: files.paths ?? nativePath, links: files.links })
+  if (refused !== null) throw new ToolError(`The Product Session folder ${root} ${refused}.`)
   let entries
   try {
-    entries = await readdir(root, { withFileTypes: true })
+    entries = await (files.fs ?? nodeProductFs).readdir(root)
   } catch (error) {
     if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return []
     throw error
@@ -480,6 +496,7 @@ export async function mindMapForSession(request: MindMapRequest, deps: MindMapDe
   const server = await claudeMcpServer(
     mindMapServer({
       productFolder: request.productFolder,
+      root: project.path,
       messageOf: (name, args) => messages.take(name, args),
       save: () => save(projectId),
     }),

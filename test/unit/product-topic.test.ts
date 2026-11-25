@@ -1,9 +1,10 @@
-import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
-import { readTopic } from '../../src/main/product/topic'
+import { readProductTopic } from '../../src/main/docs/watch'
+import { readTopic, ticketStatus } from '../../src/main/product/topic'
 import {
   MIND_MAP_FILE,
   productCriticFolder,
@@ -12,6 +13,7 @@ import {
   productTopicFolder,
   isProductTopicName,
 } from '../../src/shared/product/paths'
+import { fakeProductSystem, reads } from './product-fake-fs'
 import { removeTestTree } from '../remove'
 
 const FIXTURE = join(resolve(dirname(fileURLToPath(import.meta.url)), '..'), 'fixtures', 'product-topic')
@@ -114,6 +116,85 @@ describe('readTopic', () => {
 
     expect(read.errors).toEqual([])
     expect(read.nodes.map((node) => node.id)).toEqual(['idea-1', 'q-1', 'd-1', 'o-1'])
+  })
+
+  // worfy-polish ticket 146 (audit finding 79): a mind-map.json that cannot be read must not pass for
+  // an empty Mind map — the writer would then overwrite the map with its one new node.
+  it('names a mind-map.json it cannot read (a folder in its place) in errors, rather than reading an empty Mind map without one', async () => {
+    const topic = topicCopy()
+    rmSync(join(topic, MIND_MAP_FILE))
+    mkdirSync(join(topic, MIND_MAP_FILE))
+
+    const read = await readTopic(topic)
+
+    expect(read.nodes).toEqual([])
+    expect(read.tickets).toHaveLength(2)
+    expect(read.errors).toEqual([{ file: MIND_MAP_FILE, id: null, message: expect.any(String) as unknown }])
+  })
+
+  it('reads a Status word it does not know as none, and a known one as itself', () => {
+    expect(ticketStatus('# 03 — Pricing\n\nStatus: someword\n')).toBe('none')
+    expect(ticketStatus('# 03 — Pricing\n\nStatus: blocked by 02\n')).toBe('blocked')
+    expect(ticketStatus('# 03 — Pricing\n\nType: task\n')).toBe('none')
+  })
+})
+
+// worfy-polish ticket 146 (audit findings 58 and 78): on Windows a symlink inside a topic folder —
+// map.md, mind-map.json, issues\ or a Ticket in it — to `\\host\share\…` would make the system hand that
+// host the user's credentials when the Product Session is opened, with no click. Each file is checked
+// for such a link before it is read; the path rules are path.win32 and the file system is replaced,
+// so this runs on any machine.
+describe('readProductTopic and a link inside the topic folder that leads to another host (Windows rules)', () => {
+  const ROOT = 'C:\\p\\repo'
+  const DIR = ['docs', 'product']
+  const FOLDER = 'C:\\p\\repo\\docs\\product\\roadmap'
+  const MAP = '# Roadmap\n\n## Destination\n\nA calmer week.\n'
+  const TICKET = '# 02 — Share\n\nType: task\nStatus: open\n'
+  const MIND_MAP = JSON.stringify({ version: 1, nodes: [{ id: 'idea-1', kind: 'idea', text: 'Show the share', from: 'ticket:02' }] })
+
+  it('reads a topic of local files through the calls it is given: map.md, a Ticket and mind-map.json', async () => {
+    const system = fakeProductSystem({
+      files: { [`${FOLDER}\\map.md`]: MAP, [`${FOLDER}\\issues\\02-share.md`]: TICKET, [`${FOLDER}\\${MIND_MAP_FILE}`]: MIND_MAP },
+    })
+
+    const topic = await readProductTopic(ROOT, DIR, 'roadmap', system.options)
+
+    expect(topic).toMatchObject({ name: 'roadmap', folder: FOLDER, title: 'Roadmap', errors: [] })
+    expect(topic?.tickets.map(({ number, status }) => ({ number, status }))).toEqual([{ number: 2, status: 'open' }])
+    expect(topic?.nodes.map((node) => node.id)).toEqual(['idea-1'])
+  })
+
+  it('reads none of map.md, mind-map.json and issues\\ when each is a link to a share, and names each file in errors', async () => {
+    const system = fakeProductSystem({
+      files: { [`${FOLDER}\\notes.txt`]: 'the folder is there' },
+      links: {
+        [`${FOLDER}\\map.md`]: '\\\\evil.example\\share\\map.md',
+        [`${FOLDER}\\${MIND_MAP_FILE}`]: '\\\\evil.example\\share\\mind-map.json',
+        [`${FOLDER}\\issues`]: '//evil.example/share/issues',
+      },
+    })
+
+    const topic = await readProductTopic(ROOT, DIR, 'roadmap', system.options)
+
+    expect(topic).not.toBeNull()
+    expect(topic?.errors.map((error) => error.file).sort()).toEqual(['issues', 'map.md', MIND_MAP_FILE])
+    for (const error of topic?.errors ?? []) expect(error.message).toMatch(/another host/)
+    expect(topic).toMatchObject({ title: null, sections: [], tickets: [], nodes: [] })
+    // The links themselves are looked at with lstat and readlink; nothing reads a path through them.
+    expect(reads(system.calls)).toEqual([`realpath ${ROOT}`, `isFolder ${FOLDER}`])
+  })
+
+  it('leaves out a Ticket that is a link to a share and names it; the other Ticket is read', async () => {
+    const system = fakeProductSystem({
+      files: { [`${FOLDER}\\map.md`]: MAP, [`${FOLDER}\\issues\\02-share.md`]: TICKET },
+      links: { [`${FOLDER}\\issues\\03-price.md`]: '\\\\evil.example\\share\\03-price.md' },
+    })
+
+    const topic = await readProductTopic(ROOT, DIR, 'roadmap', system.options)
+
+    expect(topic?.tickets.map((ticket) => ticket.file)).toEqual(['02-share.md'])
+    expect(topic?.errors).toEqual([{ file: 'issues/03-price.md', id: null, message: expect.stringMatching(/another host/) as unknown }])
+    expect(system.calls).not.toContain(`readFile ${FOLDER}\\issues\\03-price.md`)
   })
 })
 

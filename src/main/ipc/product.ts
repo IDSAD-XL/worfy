@@ -1,12 +1,12 @@
-import { readdir, readFile, realpath } from 'node:fs/promises'
 import * as nativePath from 'node:path'
 import { productLayout, productShare, productTopic } from '../../shared/ipc/product'
 import { CRITIC_DIR, isProductTopicName } from '../../shared/product/paths'
 import { adviceShare, type AdviceShare, type ShareReview } from '../../shared/product/share'
 import { readProductTopic } from '../docs/watch'
 import { layoutChange, placesCleared, updateMindMap } from '../mcp/mind-map-server'
+import { linkRefusal, nodeProductFs, type ProductFs, type ProductReadOptions } from '../product/topic'
 import { projectStore } from '../projects/store'
-import { leadsToRemote } from '../remote-links'
+import { cachedLinks, type LinkFs, type PathRules } from '../remote-links'
 import { docsHub, docsSource } from './docs'
 import { defineHandler, type HandlerModule } from './index'
 
@@ -22,30 +22,53 @@ import { defineHandler, type HandlerModule } from './index'
 // asked (src/shared/product/share.ts); nothing of it is kept.
 
 /** The names in `folder`; none when it is not there. Any other error is thrown. */
-async function names(folder: string): Promise<string[]> {
+async function names(fs: ProductFs, folder: string): Promise<string[]> {
   try {
-    return await readdir(folder)
+    return (await fs.readdir(folder)).map((entry) => entry.name)
   } catch (error) {
     if (error instanceof Error && 'code' in error && (error.code === 'ENOENT' || error.code === 'ENOTDIR')) return []
     throw error
   }
 }
 
+/** The calls of one share read, with one answer per link for all its walks. */
+interface ShareRead {
+  paths: PathRules
+  fs: ProductFs
+  links: LinkFs
+}
+
+/**
+ * The folders the walks start from under Windows rules — the root as written and as its real path — or
+ * null when the root's real path cannot be found and nothing is read; the root alone under other rules.
+ */
+async function allowedFolders(root: string, read: ShareRead): Promise<string[] | null> {
+  if (read.paths.sep !== '\\') return [root]
+  const base = await read.fs.realpath(root).catch(() => null)
+  return base === null ? null : [root, base]
+}
+
 /**
  * The critic's reviews, `critic/*.md` of the Product Session folder `dir` (segments under `root`). On
  * Windows a way to that folder through a link to another host is treated as no folder, as
- * readProductTopic treats a topic's: reading it would hand that host the user's credentials.
+ * readProductTopic treats a topic's: reading it would hand that host the user's credentials. A review
+ * whose own way leads there is not read and is named instead (worfy-polish ticket 146).
  */
-async function readReviews(root: string, dir: readonly string[]): Promise<ShareReview[]> {
-  const folder = nativePath.join(root, ...dir, CRITIC_DIR)
-  if (nativePath.sep === '\\') {
-    const base = await realpath(root).catch(() => null)
-    if (base === null || (await leadsToRemote(folder, [root, base], { paths: nativePath }))) return []
-  }
+async function readReviews(root: string, dir: readonly string[], read: ShareRead): Promise<ShareReview[]> {
+  const { paths, fs, links } = read
+  const folder = paths.join(root, ...dir, CRITIC_DIR)
+  const allowed = await allowedFolders(root, read)
+  if (allowed === null || (await linkRefusal(folder, allowed, { paths, links })) !== null) return []
   const reviews: ShareReview[] = []
-  for (const file of (await names(folder)).filter((name) => name.endsWith('.md')).sort()) {
+  for (const file of (await names(fs, folder)).filter((name) => name.endsWith('.md')).sort()) {
+    const path = paths.join(folder, file)
+    const refused = await linkRefusal(path, allowed, { paths, links })
+    if (refused !== null) {
+      reviews.push({ file, error: refused })
+      continue
+    }
     try {
-      reviews.push({ file, text: await readFile(nativePath.join(folder, file), 'utf8') })
+      reviews.push({ file, text: await fs.readFile(path) })
     } catch (error) {
       reviews.push({ file, error: error instanceof Error ? error.message : String(error) })
     }
@@ -53,16 +76,24 @@ async function readReviews(root: string, dir: readonly string[]): Promise<ShareR
   return reviews
 }
 
-/** The share of accepted advice of the Product Session folder `dir` (segments under `root`), as its files read now. */
-export async function readAdviceShare(root: string, dir: readonly string[]): Promise<AdviceShare> {
+/**
+ * The share of accepted advice of the Product Session folder `dir` (segments under `root`), as its files
+ * read now. On Windows a folder whose way leads to another host through a link is not listed: the share
+ * has no advice then (worfy-polish ticket 146).
+ */
+export async function readAdviceShare(root: string, dir: readonly string[], options: ProductReadOptions = {}): Promise<AdviceShare> {
+  const read: ShareRead = { paths: options.paths ?? nativePath, fs: options.fs ?? nodeProductFs, links: cachedLinks(options.links) }
+  const folder = read.paths.join(root, ...dir)
+  const allowed = await allowedFolders(root, read)
+  if (allowed === null || (await linkRefusal(folder, allowed, read)) !== null) return adviceShare({ topics: [], reviews: [] })
   const topics = []
   // `critic` and hidden names are no topic names; a file (README.md) reads as no topic.
-  for (const name of (await names(nativePath.join(root, ...dir))).sort()) {
+  for (const name of (await names(read.fs, folder)).sort()) {
     if (!isProductTopicName(name)) continue
-    const topic = await readProductTopic(root, dir, name)
+    const topic = await readProductTopic(root, dir, name, read)
     if (topic !== null) topics.push(topic)
   }
-  return adviceShare({ topics, reviews: await readReviews(root, dir) })
+  return adviceShare({ topics, reviews: await readReviews(root, dir, read) })
 }
 
 export default [
