@@ -280,8 +280,7 @@ export function mergeLimits(state: LimitsState, updates: readonly LimitUpdate[])
     const known = windows[window]
     const absentAt = absent[window]
     if ('absentAt' in update) {
-      // Already absent: the time of the first word is kept, so each usage answer does not rewrite limits.json.
-      if (absentAt !== undefined || (known !== undefined && known.receivedAt > update.absentAt)) continue
+      if ((absentAt !== undefined && absentAt >= update.absentAt) || (known !== undefined && known.receivedAt > update.absentAt)) continue
       if (known !== undefined) windows = Object.fromEntries(Object.entries(windows).filter(([id]) => id !== window))
       absent = { ...absent, [window]: update.absentAt }
       continue

@@ -319,9 +319,12 @@ describe('a plan without the five_hour window', () => {
     expect(limitBars(back, AT + 1, { timeZone: TZ })?.map((bar) => bar.window)).toEqual(['five_hour', 'seven_day'])
   })
 
-  it('the next answer that says the same changes nothing, so limits.json is not written again', () => {
-    const absent = mergeLimits(emptyLimits(), weekOnly(AT))
-    expect(mergeLimits(absent, [{ window: 'five_hour', absentAt: AT + 30 * 60 * 1000 }])).toBe(absent)
+  it('keeps the time of the newest word: data older than the last answer stays out, an answer read late changes nothing', () => {
+    const later = AT + 30 * 60 * 1000
+    const absent = mergeLimits(mergeLimits(emptyLimits(), weekOnly(AT)), weekOnly(later))
+    expect(absent.absent).toEqual({ five_hour: later })
+    expect(mergeLimits(absent, [{ window: 'five_hour', state: { utilization: 0.2, resetsAt: 1791184200, status: null, receivedAt: later - 1, source: 'sdk' } }])).toBe(absent)
+    expect(mergeLimits(absent, [{ window: 'five_hour', absentAt: AT }])).toBe(absent)
   })
 
   it('limits.json keeps the absence', () => {

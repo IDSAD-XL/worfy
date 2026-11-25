@@ -26,7 +26,8 @@ Source: owner-check fail 2026-11-24 of worfy-resource-planner 12, item 4 — 12-
 - [x] Полоса рисуется только для окон плана: без `five_hour` — одна полоса 7-day; с окном, но без данных — полоса
       «no data» остаётся. Unit `test/unit/limits.test.ts`, `test/unit/limits-meter.test.tsx`.
 - [x] Более новое «окна нет» убирает известное раньше окно, более старое — нет; данные новее возвращают окно, старее —
-      отбрасываются; повтор того же ответа не переписывает `limits.json`. Unit `test/unit/limits.test.ts`.
+      отбрасываются; держится время самого нового ответа, ответ, прочитанный позже, ничего не меняет. Unit
+      `test/unit/limits.test.ts`.
 - [x] `absent` переживает перезапуск и доходит до окна через `limits.open`. Contract `test/contract/limits.test.ts`.
 - [x] Собранное приложение с `limits.json` без `five_hour` рисует только 7-day, без «no data»; снимки в обеих темах —
       `../evidence/13/limits-no-five-hour-light.png`, `../evidence/13/limits-no-five-hour-dark.png`. E2e
