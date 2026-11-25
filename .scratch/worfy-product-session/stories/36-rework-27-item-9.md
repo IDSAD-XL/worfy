@@ -139,3 +139,18 @@ export function IdeasPanel({ projectId, agents, root, session, chat, busy }: Ide
    - Ответ: ход считается законченным, когда после вызова идёт следующее сообщение владельца, или когда Session не
      занята.
    - Строки: `src/renderer/session/product-agents.ts:210-218`
+
+## 6. Что нашёл review и что осталось
+
+> VERIFIED — worfy-product-session 36 (rework of product-session 27 item 9: Escape and the Idea generator panel of the Product Session rail), head 0dcafc45a69e78ebc8b0df844ee4a7a28b92abec
+>
+> Gate (depth medium, two rounds): reviewer (lens: correctness) — FIX in round 1 (one med, two lows in src/renderer/session/product-agents.ts); round 1 checked by the Orchestrator against the diff 18a82ea2d..0dcafc45a.
+>
+> - What the user sees: Escape closes the open rail panel of the Product Session wherever the focus is in the strip, also right after reopening Agents, and returns focus to its button; Escape passes on when no panel is open. The Idea generator panel shows a run of worfy:product-ideas the advisor made in its own turn (task, working/done/interrupted/error, its answer), not only a Subagent.
+> - Fixed in round 1: a turn the owner stopped (the transcript's «[Request interrupted by user]» notice) no longer starts a new turn and shows «interrupted»; a turn whose Session process died shows «error»; the end of a run without a result is the turn's own last event, not the owner's next message; a Skill call of a Subagent of the advisor no longer counts as the advisor's run.
+> - Evidence: three new unit tests red before round 1, 47/47 after; reviewer ran 96 files touching src/renderer/session/ (2519 passed) and typecheck EXIT=0; e2e test/e2e/product-session.spec.ts whole 12/12 EXIT=0 on adf76e33a; pnpm lint, typecheck, test EXIT=0 on adf76e33a; screenshots of the fixed panel in both themes.
+> - Local gate fast red on adf76e33a: 19 file-watcher contract tests timed out while macOS fseventsd ran at 108 % CPU (load 55–71) — the known Mac blocker, not this change; the merge waits for green ci-ok.
+> - Debt (low): test/unit/product-session-panel.test.tsx is over 1000 lines (1069).
+> - Not verified: the manual item on Mac Stable (after merge and Stable update).
+>
+> Decided without the owner (to confirm): the strip, not the panel, handles Escape while a panel is open; a later skill run replaces an earlier Subagent run in the panel (equal or unknown start → the skill run).
