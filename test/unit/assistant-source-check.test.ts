@@ -373,7 +373,7 @@ describe('a message read again', () => {
     await run()
     const again = setup(fakeClaude([resultOf([entry(1, { at: '2026-11-25T12:30:00Z', author: 'Dana Edited' })])]), { core })
     await again.run()
-    expect(core.items(null)).toEqual([expect.objectContaining({ events: 2, message: expect.objectContaining({ at: '2026-11-25T12:30:00Z', author: 'Dana Edited' }) })])
+    expect(core.items(null)).toEqual([expect.objectContaining({ events: 2, lastAt: Date.parse('2026-11-25T12:30:00Z'), message: expect.objectContaining({ at: '2026-11-25T12:30:00Z', author: 'Dana Edited' }) })])
   })
 })
 
