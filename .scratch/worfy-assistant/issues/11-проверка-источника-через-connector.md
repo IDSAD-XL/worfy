@@ -59,19 +59,26 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 11; «Решения 
 - [ ] В «Итог» — результат первого шага: можно ли оставить в вызове один connector и только его read tools, и сколько
       места в контексте занимают tools connector-а. Если нельзя — Ticket в `blocked` с `Waits: owner` и вариантами.
   - evidence: commit pass · Check a source through one claude.ai connector with Haiku 5.5 and its read tools (worfy-assistant 11) · - - · 7f1043387
+  - evidence: commit pass · Source check: a capped answer covers up to its newest item; allow list of built-ins; note lost calls (worfy-assistant 11, review round 1) · - - · 13f6b3c55faa7618f9992a23c240fcf2ff405877
 - [ ] Unit test: список подключённых connectors main берёт из списка MCP-серверов Claude Code без вызова модели.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/connector-check-options.test.ts` exit 0 · mac - · 5749a9b71c634ae3f3fe41fb47efd5b9fafde82d
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/connector-check-options.test.ts` exit 0 · mac - · 13f6b3c55faa7618f9992a23c240fcf2ff405877
 - [ ] Unit test опций: вызов — Haiku 5.5, один connector, только его read tools; нет tools Claude Code, `worfy-app` и
       настроек Project-а.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/connector-check-options.test.ts` exit 0 · mac - · 5749a9b71c634ae3f3fe41fb47efd5b9fafde82d
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/connector-check-options.test.ts test/contract/vendor-sdk-imports.test.ts` exit 0 · mac - · 13f6b3c55faa7618f9992a23c240fcf2ff405877
 - [ ] Unit test на записанных ответах: правильный ответ даёт пункты со всеми полями из «Что строить», 5; ответ неверной
       формы пунктом не становится и пишется в журнал.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-source-check.test.ts` exit 0 · mac - · 5749a9b71c634ae3f3fe41fb47efd5b9fafde82d
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-source-check.test.ts test/unit/assistant-check-scheduler.test.ts` exit 0 · mac - · 13f6b3c55faa7618f9992a23c240fcf2ff405877
 - [ ] Test-ы не вызывают модель и не ходят в сеть.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/connector-check-options.test.ts test/unit/assistant-source-check.test.ts` exit 0 · mac - · 5749a9b71c634ae3f3fe41fb47efd5b9fafde82d
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/connector-check-options.test.ts test/unit/assistant-source-check.test.ts` exit 0 · mac - · 13f6b3c55faa7618f9992a23c240fcf2ff405877
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 5749a9b71c634ae3f3fe41fb47efd5b9fafde82d
   - evidence: gate pass · `gate fast` exit 0 · mac - · 5749a9b71c634ae3f3fe41fb47efd5b9fafde82d
+  - evidence: test-run pass · `pnpm lint` exit 0, `pnpm typecheck` exit 0 · mac - · 13f6b3c55faa7618f9992a23c240fcf2ff405877
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 13f6b3c55faa7618f9992a23c240fcf2ff405877
 
 ## Итог
 

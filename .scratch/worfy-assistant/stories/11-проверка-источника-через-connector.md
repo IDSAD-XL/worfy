@@ -46,7 +46,7 @@ Code: `src/main/vendors/claude/connector-check.ts:173-186` · key lines: 176, 17
 
 ## 3. Проверка до модели: сообщение держится, пока Claude Code не покажет один connector и его read tools
 
-Code: `src/main/vendors/claude/connector-check.ts:300-311` · key lines: 305, 307, 308, 309, 310
+Code: `src/main/vendors/claude/connector-check.ts:305-315` · key lines: 310, 312, 313, 314, 315
 
 ```ts
 export async function askConnector(start: ConnectorQueryStarter, spec: ConnectorCallSpec, text: string, timing: ConnectorTiming = CONNECTOR_TIMING): Promise<ConnectorCallEnd> {
@@ -60,7 +60,6 @@ export async function askConnector(start: ConnectorQueryStarter, spec: Connector
     const limit = limitOf(spec, status, await asked.getContextUsage({ detail: 'summary' }))
     if ('reason' in limit) return { kind: 'refused', reason: limit.reason }
     release(true)
-    for await (const message of asked) {
 ```
 
 - Что делает: Claude Code стартует с входом, который держит единственное сообщение. Сначала main спрашивает
@@ -71,12 +70,46 @@ export async function askConnector(start: ConnectorQueryStarter, spec: Connector
   `mcpServerStatus()` не отдаёт.
 - Без него: ошибка в опциях или другая версия Claude Code молча отдали бы модели лишние tools, и это стоило бы вызова.
 - Требование: [Готово, когда, пункт 1](../issues/11-проверка-источника-через-connector.md#готово-когда)
-- Риски и пробелы test-ов: fake Claude Code в test-е отдаёт ответ только после сообщения; что настоящий
-  `getContextUsage` отвечает до первого сообщения, не проверено вживую.
+- Риски и пробелы test-ов: fake Claude Code в test-е, как SDK, читает вход с самого старта, поэтому сообщение, отправленное
+  до проверки, test-ы видят (mutant «release до проверки» красный, review раунд 1). Что настоящий `getContextUsage`
+  отвечает до первого сообщения, не проверено вживую.
 
-## 4. Причины отказа: чужой сервер, не read tool, Bash, потолок token-ов
+## 4. После сообщения расход записывается всегда
 
-Code: `src/main/vendors/claude/connector-check.ts:262-282` · key lines: 268, 275, 280, 281
+Code: `src/main/vendors/claude/connector-check.ts:315-331` · key lines: 316, 324, 329, 331
+
+```ts
+    release(true)
+    const lost = (detail: string): ConnectorCallEnd => ({ kind: 'no-answer', detail, usage: NO_USAGE, costUsd: 0, model: CONNECTOR_CHECK_MODEL, toolTokens: limit.tokens })
+    try {
+      for await (const message of asked) {
+        if (!isRecord(message) || message.type !== 'result') continue
+        const [event] = sdkMessageToEvents(message)
+        if (event?.type !== 'result') break
+        const cost = { usage: event.usage, costUsd: event.costUsd, model: CONNECTOR_CHECK_MODEL, toolTokens: limit.tokens }
+        if (message.subtype === 'success' && message.is_error !== true && message.structured_output !== undefined) return { kind: 'answer', structured: message.structured_output, ...cost }
+        const errors = Array.isArray(message.errors) && message.errors.length > 0 ? `, ${message.errors.length} errors` : ''
+        return { kind: 'no-answer', detail: `${String(message.subtype)}${errors}`, ...cost }
+      }
+    } catch (error) {
+      // The kind alone: Claude Code's message may carry what the source wrote.
+      return lost(`Claude Code failed after the message: ${error instanceof Error ? error.name : 'an error'}`)
+    }
+    return lost('Claude Code ended before the result')
+```
+
+- Что делает: после отправки сообщения вызов кончается ответом или `no-answer`, и тогда, когда Claude Code упал или
+  кончился без `result`: такой вызов идёт с нулевым `usage`, и проверка записывает его в журнал расхода. Из `errors`
+  результата в лог идёт только их число.
+- Почему здесь: review PR #2218, раунд 1, пункты 4 и 7: деньги потрачены, а записи не было; повтор structured answer
+  может цитировать текст источника.
+- Без него: упавший после сообщения вызов не попадал бы в мониторинг расхода, а лог мог бы нести чужой текст.
+- Требование: [Что строить, пункт 5](../issues/11-проверка-источника-через-connector.md#что-строить)
+- Риски и пробелы test-ов: настоящий расход такого вызова неизвестен — записан ноль.
+
+## 5. Причины отказа: чужой сервер, не read tool, лишний встроенный tool, потолок token-ов
+
+Code: `src/main/vendors/claude/connector-check.ts:261-282` · key lines: 267, 274, 279, 280, 281
 
 ```ts
 function limitOf(spec: ConnectorCallSpec, status: unknown, usage: unknown): { reason: string } | { tokens: number } {
@@ -95,15 +128,17 @@ function limitOf(spec: ConnectorCallSpec, status: unknown, usage: unknown): { re
     if (!allowed.has(full)) return { reason: `the context holds ${full}, which is not a read tool of ${spec.connector.name}` }
     tokens += typeof tool.tokens === 'number' ? tool.tokens : 0
   }
-  const builtIns = Array.isArray(usage.systemTools) ? usage.systemTools.filter(isRecord).map((tool) => String(tool.name)) : []
-  const denied = builtIns.filter((name) => DENIED_BUILT_INS.has(name))
-  if (denied.length > 0) return { reason: `the context holds ${denied.join(', ')}` }
+  // An allow list: the structured answer is the one built-in tool, in the context or loadable on demand.
+  const builtIns = [usage.systemTools, usage.deferredBuiltinTools].flatMap((tools) => (Array.isArray(tools) ? tools : []))
+  const extra = builtIns.map((tool) => (isRecord(tool) ? String(tool.name) : String(tool))).filter((name) => name !== STRUCTURED_OUTPUT_TOOL)
+  if (extra.length > 0) return { reason: `the context holds ${extra.join(', ')}` }
   if (tokens > CONNECTOR_TOOLS_MAX_TOKENS) return { reason: `the tools of ${spec.connector.name} take ${tokens} tokens, over ${CONNECTOR_TOOLS_MAX_TOKENS}` }
   return { tokens }
 ```
 
 - Что делает: отказ, если connector не `connected`, рядом запущен другой сервер, в контексте tool не из read tools
-  connector-а или встроенный tool, который пишет или ходит в сеть, или tools connector-а дороже
+  connector-а, встроенный tool кроме `StructuredOutput` (в контексте или в отложенных, `deferredBuiltinTools`), или tools
+  connector-а дороже
   `CONNECTOR_TOOLS_MAX_TOKENS` (20 000). Иначе отдаёт число token-ов tools.
 - Почему здесь: spec, раздел о проверке источников: в вызове только read tools одного connector-а, ни tools Claude Code,
   ни `worfy-app`. Число 20 000 решено без владельца и записано в «Итог».
@@ -112,39 +147,40 @@ function limitOf(spec: ConnectorCallSpec, status: unknown, usage: unknown): { re
 - Риски и пробелы test-ов: имя tool-а `mcp__claude_ai_Slack__…` взято из функции нормализации Claude Code 2.1.322; при
   другой нормализации проверка откажет каждому вызову, а не пропустит лишнее.
 
-## 5. Форма ответа проверяется в main, по одному пункту
+## 6. Форма ответа проверяется в main, по одному пункту
 
-Code: `src/shared/assistant/source-items.ts:62-75` · key lines: 64, 69, 70
+Code: `src/shared/assistant/source-items.ts:73-87` · key lines: 75, 80, 81, 85, 86
 
 ```ts
 export function sourceItemsOf(answer: unknown, source: string): SourceItemsCheck | null {
   const envelope = envelopeSchema.safeParse(answer)
   if (!envelope.success) return null
-  const check: SourceItemsCheck = { items: [], refused: [] }
+  const passed: SourceItem[] = []
+  const refused: string[] = []
   envelope.data.items.forEach((entry, index) => {
     const number = index + 1
-    if (index >= SOURCE_ITEMS_MAX) return void check.refused.push(`item ${number} is past the ${SOURCE_ITEMS_MAX} an answer may carry`)
     const item = sourceItemSchema.safeParse(entry)
-    if (!item.success) return void check.refused.push(`item ${number} fails the form: ${fieldsOf(item.error)}`)
-    if (item.data.source !== source) return void check.refused.push(`item ${number} names another source than ${source}`)
-    check.items.push(item.data)
+    if (!item.success) return void refused.push(`item ${number} fails the form: ${fieldsOf(item.error)}`)
+    if (item.data.source !== source) return void refused.push(`item ${number} names another source than ${source}`)
+    passed.push(item.data)
   })
-  return check
+  passed.sort((a, b) => Date.parse(a.at) - Date.parse(b.at))
+  return { items: passed.slice(0, SOURCE_ITEMS_MAX), refused, full: envelope.data.items.length >= SOURCE_ITEMS_MAX }
 }
 ```
 
 - Что делает: ответ вне конверта `{ items }` не даёт ни одного пункта. Внутри каждый пункт проверяется отдельно:
   неверная форма, ссылка не https, время без смещения или чужой источник — пункт отказан, строка называет номер и
-  поля, без текста источника.
+  поля, без текста источника. Из прошедших берутся 30 самых старых; `full` говорит, что ответ дошёл до предела.
 - Почему здесь: «Что строить», пункт 5: main проверяет форму, ответ, не прошедший проверку, пунктом не становится и
   пишется в журнал. Что один плохой пункт не губит остальные — решено без владельца.
 - Без него: текст модели, прочитавшей чужие сообщения, шёл бы в пункты как есть, вместе с `javascript:`-ссылкой.
 - Требование: [Готово, когда, пункт 4](../issues/11-проверка-источника-через-connector.md#готово-когда)
 - Риски и пробелы test-ов: ответы — записанные fixture-ы, придуманные по форме SDK; настоящего ответа Haiku 5.5 нет.
 
-## 6. Проверка как `CheckRun` планировщика: connector, вызов, расход, пункты
+## 7. Проверка как `CheckRun` планировщика: connector, вызов, расход, пункты
 
-Code: `src/main/assistant/sources/connector-check.ts:82-98` · key lines: 85, 86, 90, 91, 92, 94, 97
+Code: `src/main/assistant/sources/connector-check.ts:88-114` · key lines: 91, 92, 96, 97, 99, 102, 108, 113
 
 ```ts
   return async ({ since, now }) => {
@@ -157,18 +193,30 @@ Code: `src/main/assistant/sources/connector-check.ts:82-98` · key lines: 85, 86
     const projects = deps.projects()
     const end = await deps.ask({ connector, readTools, outputSchema: sourceAnswerJsonSchema() }, messageOf(recipe, since ?? now - FIRST_CHECK_LOOKBACK_MS, now, projects))
     if (end.kind === 'refused') return fail(`the call was refused before the model: ${end.reason}`)
-    deps.ledger.noteCall({ kind: 'source-check', source: recipe.kind, wakeId: null, model: end.model, usage: end.usage, costUsd: end.costUsd })
+    try {
+      deps.ledger.noteCall({ kind: 'source-check', source: recipe.kind, wakeId: null, model: end.model, usage: end.usage, costUsd: end.costUsd })
+    } catch (error) {
+      // The answer is paid for already: losing its items to a full disk would cost a second call.
+      deps.log(`[assistant] the ${recipe.kind} check: the usage ledger could not note the call: ${error instanceof Error ? error.message : String(error)}`)
+    }
     if (end.kind === 'no-answer') return fail(`the call gave no answer (${end.detail})`)
     const check = sourceItemsOf(end.structured, recipe.kind)
     if (check === null) return fail('the answer is not in the form of items')
     for (const refused of check.refused) deps.log(`[assistant] the ${recipe.kind} check: ${refused}`)
     for (const item of check.items) deps.core.ingest(sourceEventOf(item, recipe.kind, projects))
+    if (!check.full) return undefined
+    // At its cap the answer covers the time only up to its newest item: the next check asks from there.
+    const newest = check.items.at(-1)
+    if (newest === undefined) return fail('the answer is full of entries that fail the form')
+    return { coveredUntil: Date.parse(newest.at) } satisfies CheckRunResult
   }
 ```
 
 - Что делает: находит connector источника, отказывает без вызова, если его нет или он ждёт входа в claude.ai. Вызов,
   дошедший до модели, пишет `noteCall` в журнал расхода Ticket-а 05, и когда ответа не было. Пункты идут в ядро
-  внимания событиями источника `slack` или `jira` с автором, ссылкой и полями сообщения.
+  внимания событиями источника `slack` или `jira` с автором, ссылкой и полями сообщения. Журнал расхода, который не
+  пишется, — строка в логе, а не потеря пунктов. Ответ на пределе возвращает `coveredUntil` — время самого нового
+  взятого пункта.
 - Почему здесь: бриф велит регистрироваться в планировщике Ticket-а 04 и писать в журнал Ticket-а 05, не повторяя их;
   «Что строить», пункт 6, — пункты в ядро внимания. Неудача бросает исключение, чтобы планировщик оставил `since` на
   прошлом успехе.
@@ -177,17 +225,41 @@ Code: `src/main/assistant/sources/connector-check.ts:82-98` · key lines: 85, 86
 - Риски и пробелы test-ов: `appSourceCheck` (сборка из частей приложения) не покрыт test-ом; его регистрирует рецепт
   Ticket-а 12.
 
-## 7. Что сознательно не меняли
+## 8. Ответ на пределе не сдвигает `since` дальше, чем покрыл
+
+Code: `src/main/assistant/schedule/scheduler.ts:234-239` · key lines: 234, 239
+
+```ts
+    const end = (succeeded: boolean, coveredUntil?: number): void => {
+      if (ended) return
+      ended = true
+      this.clearTimer(limit)
+      // A run that covered only part of its time moves `since` that far, never past its own start.
+      if (succeeded) this.mark(kind, { succeededAt: coveredUntil === undefined ? now : Math.min(now, coveredUntil) })
+```
+
+- Что делает: проверка, которая сказала `coveredUntil`, сдвигает отметку успеха только до этого времени и не дальше своего
+  старта; следующая проверка спрашивает с него.
+- Почему здесь: review PR #2218, раунд 1, пункт 1: 45 сообщений давали 30 пунктов, проверка считалась успешной, и 15
+  терялись. Планировщик Ticket-а 04 расширен, а не повторён.
+- Без него: всё сверх 30 сообщений за интервал пропадало бы молча.
+- Требование: [Что строить, пункт 5](../issues/11-проверка-источника-через-connector.md#что-строить)
+- Риски и пробелы test-ов: больше 30 сообщений с одним временем дают одни и те же 30 пунктов на каждой проверке
+  (повторы ядро отбрасывает); решено без владельца как маловероятное.
+
+## 9. Что сознательно не меняли
 
 - `src/main/index.ts` не трогали: регистрацию делает рецепт (Ticket-ы 12 и 13), с ним появится и поведение для
   пользователя. Поэтому страница в `docs/features` не правилась.
 - Своих token-ов Slack и Jira нет, recipe-ов нет — это Ticket-ы 12 и 13.
 
-## 8. Как проверено
+## 10. Как проверено
 
 - `node scripts/vitest-electron.mjs test/unit/connector-check-options.test.ts test/unit/assistant-source-check.test.ts` —
   exit 1 до правки (модулей нет), exit 0 после.
-- `pnpm lint && pnpm typecheck && pnpm test` — exit 0 (весь набор); `gate fast` — exit 0.
+- `pnpm lint`, `pnpm typecheck` — exit 0; `gate fast` (lint, typecheck и весь `pnpm test`) — exit 0.
+- Review раунд 1: test до каждой правки красный; mutant-ы «release до проверки», «без обновления `message` при склейке»,
+  «без предела 30» и «имя Project-а с учётом регистра» — красные.
 
 ## Проверить себя
 
@@ -197,8 +269,8 @@ Code: `src/main/assistant/sources/connector-check.ts:82-98` · key lines: 85, 86
    - Строки: `src/main/vendors/claude/connector-check.ts:176-178`
 2. Что тратится, если Claude Code запустил рядом с connector-ом чужой сервер?
    - Ответ: ничего: проверка отказывает до сообщения, модель не вызвана, `noteCall` не пишется.
-   - Строки: `src/main/vendors/claude/connector-check.ts:307-309`, `src/main/assistant/sources/connector-check.ts:90-92`
-3. Почему ответ вне формы роняет проверку, а плохой пункт — нет?
-   - Ответ: без конверта нет ни одного пункта, и следующая проверка должна покрыть то же время; плохой пункт
-     отказан один, остальные пункты идут в ядро.
-   - Строки: `src/main/assistant/sources/connector-check.ts:94-97`, `src/shared/assistant/source-items.ts:62-72`
+   - Строки: `src/main/vendors/claude/connector-check.ts:313-314`, `src/main/assistant/sources/connector-check.ts:96-97`
+3. Что спросит проверка после ответа ровно из 30 пунктов?
+   - Ответ: сообщения со времени самого нового из взятых 30 пунктов: ответ на пределе возвращает `coveredUntil`, и
+     планировщик ставит отметку успеха туда, а не на старт.
+   - Строки: `src/main/assistant/sources/connector-check.ts:109-113`, `src/main/assistant/schedule/scheduler.ts:239-239`
