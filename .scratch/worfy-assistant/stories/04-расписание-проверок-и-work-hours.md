@@ -222,3 +222,35 @@ Code: `src/shared/settings/app-settings.ts:333-335` · key lines: 335
    Ответ: через 10 минут запуск считается упавшим, Slack планируется заново по интервалу от старта зависшего запуска;
    `since` — старт последнего успешного запуска, поздний ответ зависшего ничего не меняет.
    Lines: `src/main/assistant/schedule/scheduler.ts:224-237`
+
+## 10. Что нашёл review и что осталось
+
+> VERIFIED — worfy-assistant 04 (one scheduler of the Assistant's checks and the work hours: days, windows, time zone, sleep outside work hours, catch-up after sleep and restart), head d7f1a65c3eac669da81a4aab45277c34c1fd36bf
+>
+> Gate (depth medium, two rounds): reviewer (lens: correctness) — FIX in round 1 (one med: the guard against a second start of a running check had no test; four lows); the Orchestrator added a per-run time limit; round 1 checked by the Orchestrator against the code of d7f1a65c3.
+>
+> - What it does (no UI yet; the Slack and Jira checks of tickets 11–13 register with it): with the defaults (Slack every 10 min, Jira every 60 min, both off, both asleep outside Mon–Fri 09:00–18:00 machine time) it sets no timer and reads or writes nothing; an enabled check runs on its interval ±10 %, never twice at once, a timer waits at most an hour so a clock change shows within the hour, after sleep or a restart an overdue check runs once with `since` from its last success, a check asleep outside work hours goes after their start by its share of the spread, a run that does not end in 10 minutes counts as failed.
+> - Fixed in round 1: tests for the running guard (timers, reschedule, suspend/resume while a check hangs), the 1 h timer cap, stop(); a last start in the future is brought to now; the spread at the work-hours start; CHECK_RUN_TIMEOUT_MS = 10 min (src/main/assistant/schedule/scheduler.ts:224-237).
+> - Evidence: reviewer 13 of 16 mutants caught in round 1 and 353 + 105 tests EXIT=0; round 1: 8 new tests red first, 11 mutants killed, 187 tests of the scheduler, settings and main wiring EXIT=0, lint and typecheck EXIT=0, gate fast green on d7f1a65c3, story-check ok.
+> - Not verified: Electron's real powerMonitor on a real Mac sleep; a timed-out call that is still alive runs beside the next one of its kind (written in the code comment).
+>
+> Decided without the owner (to confirm): Slack every 10 min and Jira every 60 min, both off by default and asleep outside work hours; work hours Mon–Fri 09:00–18:00 in the machine's time zone; interval 5–1440 min; spread ±10 %; up to 4 windows a day; a check run is limited to 10 minutes.
+
+Code: `src/main/assistant/schedule/scheduler.ts:224-237` · key lines: 224
+
+```ts
+    let ended = false
+    const end = (succeeded: boolean): void => {
+      if (ended) return
+      ended = true
+      this.clearTimer(limit)
+      if (succeeded) this.mark(kind, { succeededAt: now })
+      entry.running = false
+      entry.spread = this.draw()
+      this.plan()
+    }
+    const limit = this.setTimer(() => {
+      console.warn(`[assistant] the ${kind} check did not end in ${CHECK_RUN_TIMEOUT_MS / MINUTE_MS} minutes: counted as failed`)
+      end(false)
+    }, CHECK_RUN_TIMEOUT_MS)
+```

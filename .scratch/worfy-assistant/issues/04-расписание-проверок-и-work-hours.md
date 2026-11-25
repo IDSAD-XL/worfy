@@ -1,7 +1,8 @@
 # 04 — Расписание проверок и work hours
 
 Type: task
-Status: claimed 2026-11-25T08:13Z
+Status: done 2026-11-25T11:46Z
+PR: #2199
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», строка 04; «Решения владельца», 5; «Решения по реализации» → «Расписание
 проверок»; «Решения по test-ам», А; истории 12 и 13; «Волны», Wave 1
@@ -45,17 +46,23 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 04; «Решения 
 - [ ] Планировщик держит реестр проверок с интервалом и разбросом; unit test: проверка, которая ещё идёт, второй раз не
       запускается.
   - evidence: test-run pass · `pnpm test test/unit/assistant-check-scheduler.test.ts` exit 0 · mac - · 790013a43eb69f4f0538a5f835f667ded5a6f424
+  - evidence: review pass · PR #2199 · - - · d7f1a65c3eac669da81a4aab45277c34c1fd36bf
 - [ ] Work hours задают дни недели, одно или несколько окон и часовой пояс; unit test: вне work hours отмеченная проверка
       спит, неотмеченная идёт.
   - evidence: test-run pass · `pnpm test test/unit/assistant-work-hours.test.ts test/unit/assistant-check-scheduler.test.ts` exit 0 · mac - · 790013a43eb69f4f0538a5f835f667ded5a6f424
+  - evidence: review pass · PR #2199 · - - · d7f1a65c3eac669da81a4aab45277c34c1fd36bf
 - [ ] Unit test: у каждого типа проверки свои включение, интервал и сон вне work hours.
   - evidence: test-run pass · `pnpm test test/unit/assistant-check-scheduler.test.ts test/unit/assistant-schedule-settings.test.ts` exit 0 · mac - · 790013a43eb69f4f0538a5f835f667ded5a6f424
+  - evidence: review pass · PR #2199 · - - · d7f1a65c3eac669da81a4aab45277c34c1fd36bf
 - [ ] Unit test-ы на ненастоящих часах: полночь, смена летнего времени; после сна Mac и после перезапуска проверка
       догоняет пропущенное, пока Mac спит или worfy закрыт — не идёт.
   - evidence: test-run pass · `pnpm test test/unit/assistant-check-scheduler.test.ts test/unit/assistant-work-hours.test.ts` exit 0 · mac - · 790013a43eb69f4f0538a5f835f667ded5a6f424
+  - evidence: review pass · PR #2199 · - - · d7f1a65c3eac669da81a4aab45277c34c1fd36bf
 - [ ] Настройки лежат в настройках машины; их каналы IPC — `local`, Linked machine их не видит.
   - evidence: test-run pass · `pnpm test test/contract/assistant-schedule-settings.test.ts test/contract/app-settings.test.ts` exit 0 · mac - · 790013a43eb69f4f0538a5f835f667ded5a6f424
+  - evidence: review pass · PR #2199 · - - · d7f1a65c3eac669da81a4aab45277c34c1fd36bf
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45594187894/job/139180257669 · ci - · d7f1a65c3eac669da81a4aab45277c34c1fd36bf
 
 ## Итог
 
