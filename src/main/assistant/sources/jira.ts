@@ -24,6 +24,23 @@ export const JIRA_READ_TOOLS = Object.freeze(['atlassianUserInfo', 'getAccessibl
  */
 export const JIRA_SEARCH_OVERLAP_MS = 5 * 60_000
 
+/**
+ * The fields the search asks for besides the change history (`expand "changelog"`): what an item needs, so the search
+ * alone shows what changed and no issue needs a read of its own.
+ */
+export const JIRA_SEARCH_FIELDS = Object.freeze(['summary', 'status', 'priority', 'assignee', 'reporter', 'duedate', 'updated', 'comment'] as const)
+
+/** The most issues the call reads one by one (getJiraIssue), all in one turn: those the search left unclear. Decided without the owner. */
+export const JIRA_ISSUE_READS_MAX = 5
+
+/**
+ * The turns a Jira call plans, however many issues changed: who the user is and their site; both searches; their next
+ * pages; the few issue reads; the answer. Below CONNECTOR_CHECK_MAX_TURNS (8), so a search Jira refuses or a call the
+ * model splits still fits: a call that hits the cap is paid for and gives nothing, and the next check reads a wider
+ * window.
+ */
+export const JIRA_TURN_BUDGET = 5
+
 /** A claude.ai connector of Atlassian or Jira: `claude.ai Atlassian`, as the user named it in claude.ai. */
 export function isJiraConnector(name: string): boolean {
   return /^claude\.ai .*\b(?:atlassian|jira)\b/iu.test(name)
@@ -37,10 +54,14 @@ export function jiraTask({ since, now }: { since: number; now: number }): string
   return [
     `Report what changed in the user's Jira issues since ${new Date(since).toISOString()} (it is ${new Date(now).toISOString()} now).`,
     'The user’s issues are those the user is assigned to, reported or watches, and those whose comments mention the user.',
-    'Call atlassianUserInfo for the user’s account id and getAccessibleAtlassianResources for the cloud id and the address of the Jira site.',
-    `Search with searchJiraIssuesUsingJql: \`(assignee = currentUser() OR reporter = currentUser() OR watcher = currentUser()) AND updated >= -${minutes}m ORDER BY updated ASC\`,`,
-    `then \`comment ~ "accountid:<the user’s account id>" AND updated >= -${minutes}m ORDER BY updated ASC\`; if Jira refuses that second search, go on without it.`,
-    'Read each issue found with getJiraIssue, with its comments and its change history.',
+    `Use at most ${JIRA_TURN_BUDGET} turns, the answer included; make the calls that do not wait for each other together, in one turn.`,
+    'Turn 1: call atlassianUserInfo and getAccessibleAtlassianResources together, in one turn, for the user’s account id and the cloud id and address of the Jira site.',
+    'Turn 2: make both searches together, in one turn, with searchJiraIssuesUsingJql, each with',
+    `fields ${JIRA_SEARCH_FIELDS.join(', ')}, expand "changelog" and maxResults 50: \`(assignee = currentUser() OR reporter = currentUser() OR watcher = currentUser()) AND updated >= -${minutes}m ORDER BY updated ASC\``,
+    `and \`comment ~ "accountid:<the user’s account id>" AND updated >= -${minutes}m ORDER BY updated ASC\`; if Jira refuses that second search, go on without it.`,
+    'Turn 3, only when a search has more pages: their next pages, together.',
+    `Turn 4, only when needed: getJiraIssue only for an issue whose search result does not show what changed, at most ${JIRA_ISSUE_READS_MAX} issues, all in one turn.`,
+    'Then answer.',
     `Report one message per change made at or after ${new Date(from).toISOString()}: a new issue, a new comment, a change of status, assignee, priority, due date or another field.`,
     'Leave out the changes the user made.',
     'For each message: source "jira";',
