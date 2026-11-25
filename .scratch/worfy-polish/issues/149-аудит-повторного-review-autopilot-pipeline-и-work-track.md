@@ -57,17 +57,22 @@ Source: audit-pr-rereview-2026-11-13, triage.md «В Ticket-ы»; checked open o
 - [ ] 53: test `test/contract/orchestrator-continue.test.ts` рядом с `:566` — `unattended` меняется с true на false
       посреди turn-а с `git push` без результата, turn падает с 529: «continue» нет; mutant «не звать
       `entry.retry.observe` для `tool_use`» — красный.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/workflow-release.test.ts test/unit/pipeline.test.ts test/unit/work-track-lanes.test.ts test/unit/work-track-view.test.tsx test/unit/work-track-panel.test.tsx test/contract/orchestrator-continue.test.ts test/contract/autopilot-queue.test.ts` exit 0 (224 passed); mutant if (!owned) entry.retry.observe red · mac - · 0cf57a82c6c299cde2f7f7f473d0d77a9e20c302
 - [ ] 55: test `test/contract/autopilot-queue.test.ts` рядом с `:358` и `:495` — alpha ждёт владельца, beta и gamma
       `elsewhere`: `run-stopped` с причиной `waits-owner` и Ticket-ом alpha; mutant «вернуть `effect` вместо
       `waits-owner`» (`run.ts:1762`) — красный.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/workflow-release.test.ts test/unit/pipeline.test.ts test/unit/work-track-lanes.test.ts test/unit/work-track-view.test.tsx test/unit/work-track-panel.test.tsx test/contract/orchestrator-continue.test.ts test/contract/autopilot-queue.test.ts` exit 0 (224 passed); mutant return effect in moveOn red · mac - · 0cf57a82c6c299cde2f7f7f473d0d77a9e20c302
 - [ ] 206: unit test `test/unit/pipeline.test.ts` в `describe('stageOf: a Ticket over several repositories')` — `lib`
       вошёл в Stage в 10:00, `app` прошёл его в 13:00 и ушёл вперёд: `enteredAt` = 13:00. Красный на origin/main.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/workflow-release.test.ts test/unit/pipeline.test.ts test/unit/work-track-lanes.test.ts test/unit/work-track-view.test.tsx test/unit/work-track-panel.test.tsx test/contract/orchestrator-continue.test.ts test/contract/autopilot-queue.test.ts` exit 0 (224 passed); red on origin/main (enteredAt 10:00) · mac - · 0cf57a82c6c299cde2f7f7f473d0d77a9e20c302
 - [ ] 209: unit test `test/unit/pipeline.test.ts` — три repository, `lib-a` первый в `Repo:`, строка `Release:`
       `lib-b` не выполнена, CI PR-а `lib-a` красный: Ticket на Stage CI с красным, а не на `release`. Красный на
       origin/main.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/workflow-release.test.ts test/unit/pipeline.test.ts test/unit/work-track-lanes.test.ts test/unit/work-track-view.test.tsx test/unit/work-track-panel.test.tsx test/contract/orchestrator-continue.test.ts test/contract/autopilot-queue.test.ts` exit 0 (224 passed); red on origin/main (Stage release) · mac - · 0cf57a82c6c299cde2f7f7f473d0d77a9e20c302
 - [ ] 212: unit test `test/unit/work-track-lanes.test.ts` — 17 marks в одну минуту дают одну группу со счётчиком 17, с
       красным CI цвет группы красный; render-test (`test/unit/work-track-panel.test.tsx` или
       `work-track-view.test.tsx`) видит счётчик. Красный на origin/main.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/workflow-release.test.ts test/unit/pipeline.test.ts test/unit/work-track-lanes.test.ts test/unit/work-track-view.test.tsx test/unit/work-track-panel.test.tsx test/contract/orchestrator-continue.test.ts test/contract/autopilot-queue.test.ts` exit 0 (224 passed); red on origin/main (markGroups missing, 19 CI marks) · mac - · 0cf57a82c6c299cde2f7f7f473d0d77a9e20c302
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
 
 ## Где в коде
@@ -140,3 +145,10 @@ origin/main 2af5f760e.
   `blocked-tickets`). Оба файла восстановлены.
 - Test-ы 206, 209 и оба test-а 212 красные на origin/main до правки (`enteredAt` 10:00 вместо 13:00; Stage
   `release` вместо `ci` `failing`; `markGroups is not a function`; 19 mark-ов CI вместо 3).
+- Полный `pnpm lint && pnpm typecheck && pnpm test` на dacdf30f7: exit 1, один красный —
+  `test/contract/workflow-release.test.ts` «both PRs open, app listed first» (ждал старое правило, см. пункт 209
+  выше); исправлен в 0cf57a82c, файл зелёный. Повтор полного прогона на 0cf57a82c: exit 1, четыре timeout-а в
+  модулях, которых правка не касается (`flight-recorder-service`, `gate-failures-rerun`, `harness-scripts-2`
+  `land.test.sh`, `pr-search-view`), при load average 60–88; в первом прогоне все четыре были зелёными.
+- gate fast на 0cf57a82c: exit 2, красный один test — `harness-scripts-2` `bin/tests/land.test.sh` убит после
+  360 s (load average 65–88). Правка не трогает `harness/`. Повтор ради зелёного не делался.
