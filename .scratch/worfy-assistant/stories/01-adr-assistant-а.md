@@ -129,3 +129,14 @@ Code: `docs/adr/0114-assistant-app-session.md:111-121` · key lines: 113, 118, 1
 3. Для каких Session-ов решение 3 `worfy-retry` перестаёт действовать?
    - Ответ: только для Session-ов на Canvas: их после сброса Limits продолжает Assistant по режиму обязанности.
    - Строки: `docs/adr/0114-assistant-app-session.md:118-121`
+
+## 7. Что нашёл review и что осталось
+
+> VERIFIED — worfy-assistant 01 (ADR-0114: the Assistant is a Session of the app with the MCP server worfy-app, six bounds, a closed action list in main, item storage, source checks through claude.ai connectors), head 11277da1cff7e58f989e493fea44960427459577
+>
+> Gate (depth medium, one round): reviewer (lens: correctness) — MERGE with four lows; the Orchestrator fixed all four (11277da1c with the Code story).
+>
+> - What the reader gets: one ADR that records what spec.md of worfy-assistant and the owner's decisions (proactive-runtime questions 01–13, the three critic objections) settled, with no new decision; ADR-0105 unchanged; worfy-retry decision 3 changes only for Canvas Sessions (ticket 08, which also takes worfy-limits-out idea 6); the values the spec left open are listed with the ticket that sets them.
+> - Fixed by the Orchestrator: the stall claim narrowed to the «agent stopped» and «PR or CI» classes; limits-out idea 6 named; why `WORFY_SESSION_KIND=agent` from question 07 is not taken (the term is Assistant, decision 22); a note that tickets 03 and 10 do not name their open values yet.
+> - Evidence: reviewer checked every claim against spec, critic, ADR-0005/0021/0058/0105 and the code it cites, all 8 links open; pnpm lint, typecheck, test EXIT=0 on 7072d02c5 (implementer); story-check ok on 11277da1c; docs only (gate fast: nothing ran).
+> - Not verified: nothing beyond ci-ok, which land waits for.
