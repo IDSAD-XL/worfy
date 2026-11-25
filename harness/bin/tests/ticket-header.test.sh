@@ -223,12 +223,39 @@ mk 01
 out="$(mt claim mr 01 --branch fix/lot-flag --repo lib --repo app 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && [ "$(hdr 01)" = "Status: claimed T|Branch: fix/lot-flag|Repo: lib|Repo: app|Blocked by: —|" ] \
     && ok "claim --repo lib --repo app: two Repo: lines in the order of the arguments, one Branch:" || bad "claim two repos: exit $rc, $out, header $(hdr 01)"
-mt claim mr 01 --repo app --repo lib >/dev/null 2>&1
+mt claim mr 01 --branch fix/lot-flag --repo app --repo lib >/dev/null 2>&1
 [ "$(hdr 01)" = "Status: claimed T|Branch: fix/lot-flag|Repo: app|Repo: lib|Blocked by: —|" ] \
     && ok "a second claim with --repo replaces the set of Repo: lines, in the new order" || bad "claim reorder: $(hdr 01)"
-mt claim mr 01 --repo lib --repo app >/dev/null 2>&1
+mt claim mr 01 --branch fix/lot-flag --repo lib --repo app >/dev/null 2>&1
 out="$(mt claim mr 01 --repo lib --repo lib 2>&1)"; rc=$?
 [ "$rc" -eq 1 ] && [[ "$out" == *"named twice"* ]] && ok "claim with one --repo given twice -> exit 1" || bad "claim lib lib: exit $rc, $out"
+
+# A claimed ticket with a Branch: line belongs to the session of that branch (audit finding 97, worfy-polish 145): a
+# claim from another branch, or with no --branch, is refused and writes nothing; --force takes the ticket over; the
+# same --branch claims it again.
+mk 05
+mt claim mr 05 --branch fix/first >/dev/null 2>&1
+cp "$ME/05-t.md" "$T/m05"
+held="$(sed -n 's/^Status: claimed //p' "$ME/05-t.md")"
+out="$(mt claim mr 05 --branch fix/second 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] && cmp -s "$T/m05" "$ME/05-t.md" && [[ "$out" == *"fix/first"* ]] && [[ "$out" == *"$held"* ]] \
+    && ok "claim of a ticket claimed by another branch -> exit 1, Status and Branch: unchanged, the branch and time named" \
+    || bad "claim over another branch: exit $rc, $out, header $(hdr 05)"
+out="$(mt claim mr 05 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] && cmp -s "$T/m05" "$ME/05-t.md" && [[ "$out" == *"fix/first"* ]] \
+    && ok "claim without --branch of a ticket claimed by a branch -> exit 1, nothing written" || bad "claim without --branch: exit $rc, $out"
+out="$(mt claim mr 05 --branch fix/first 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && [ "$(hdr 05)" = "Status: claimed T|Branch: fix/first|Blocked by: —|" ] \
+    && ok "claim again with the same --branch is allowed" || bad "claim same branch: exit $rc, $out, header $(hdr 05)"
+out="$(mt claim mr 05 --branch fix/second --force 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && [ "$(hdr 05)" = "Status: claimed T|Branch: fix/second|Blocked by: —|" ] && [[ "$out" == *"branch: Branch: fix/first -> Branch: fix/second"* ]] \
+    && ok "claim --force takes a ticket claimed by another branch over: Branch: rewritten" || bad "claim --force: exit $rc, $out, header $(hdr 05)"
+out="$(mt open mr 05 --force 2>&1)"; rc=$?
+[ "$rc" -eq 1 ] && [[ "$out" == *"--force goes only with claim"* ]] && ok "--force with another command -> exit 1" || bad "open --force: exit $rc, $out"
+mt open mr 05 >/dev/null 2>&1
+out="$(mt claim mr 05 --branch fix/third 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && [ "$(hdr 05)" = "Status: claimed T|Branch: fix/third|Blocked by: —|" ] \
+    && ok "claim of an open ticket with an old Branch: line is allowed" || bad "claim after open: exit $rc, $out, header $(hdr 05)"
 
 # ticket pr
 cp "$ME/01-t.md" "$T/m01"

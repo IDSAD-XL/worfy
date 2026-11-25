@@ -42,7 +42,11 @@ Source: …
 - `PR: #<N>` — `ticket done … --pr N` (Full mode; Silent mode has no `--pr`), or `ticket pr <epic> <NN> #N` when
   the PR is open.
 - `Branch:`, `Repo:`, `Type:`, `Blocked by:`, `Source:` — as before. `ticket claim … --branch B --repo R` writes
-  `Branch:` and `Repo:`; the name of a repository comes from `_resolved.repos` of the profile.
+  `Branch:` and `Repo:`; the name of a repository comes from `_resolved.repos` of the profile. A `claimed` ticket
+  with a `Branch:` line is held by that branch: a claim with another `--branch`, or with none, is exit 1, the branch
+  and the time of the claim named and nothing written — two sessions would otherwise work on one ticket, the second
+  claim silently replacing the first. The same `--branch` claims it again (a session resuming its own ticket);
+  `--force` takes it over on purpose.
 - `Who: <who does it>` — optional: `agent`, or `owner` for a ticket the owner does himself (an acceptance), the
   value may go on after the word (`Who: owner, with the orchestrator.`). A ticket written in another language uses
   its words for the key and for `owner` (lib/input-words.json, `ticketWho` and `ticketWhoOwner`). Only `owner` is
@@ -458,7 +462,9 @@ folder that holds this file's `bin/`.
 - **Frontier**: the **Unblocked** tickets of the epic in `open` state, first by number wins:
   `"${CLAUDE_PLUGIN_ROOT}/bin/epic-status" <epic>` lists them (`--json` for every field).
 - **Claim**: `"${CLAUDE_PLUGIN_ROOT}/bin/ticket" claim <epic> <NN>` before any work; it writes the
-  Status line, which no one edits by hand. The claim is the Status line, not an assignee.
+  Status line, which no one edits by hand. The claim is the Status line, not an assignee. A ticket another
+  session claimed with a branch is refused (exit 1, its branch and time named): leave it, or take it over with
+  `--force` only when that session is gone.
 - **Resolve**: write the answer under an `## Answer` heading of the ticket, then
   `"${CLAUDE_PLUGIN_ROOT}/bin/ticket" done <epic> <NN>` — the word is `done`, not `resolved` or
   closed — then append the context pointer (gist and link) to Decisions-so-far in `map.md`. A ticket

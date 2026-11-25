@@ -1,0 +1,12 @@
+{
+  "data": {
+    "node": {
+      "comments": {
+        "pageInfo": { "hasNextPage": false, "endCursor": "c3" },
+        "nodes": [
+          { "id": "C2", "url": "https://github.com/acme/shop/pull/51#discussion_r2", "body": "SECOND-PAGE-THREAD-REPLY-TEXT and the tenant id, or two tenants share an entry", "createdAt": "2026-05-19T10:10:00Z", "authorAssociation": "COLLABORATOR", "author": { "__typename": "User", "login": "tomas-k" }, "path": "src/cache.js", "line": 4, "originalLine": 4, "diffHunk": "@@ -1,2 +1,4 @@\n+const key = name", "replyTo": { "id": "C1" }, "originalCommit": { "oid": "c1" } }
+        ]
+      }
+    }
+  }
+}

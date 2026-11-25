@@ -13,11 +13,15 @@
 //   ticket done  <epic> <NN> [--pr N]   Status: done <time>; with --pr also `PR: #N`. A ticket of several
 //                                       repositories: --pr <repo>#N, once per PR, and done only when every Repo:
 //                                       line has its PR (given now or written before) — otherwise exit 2, nothing written
-//   ticket claim <epic> <NN> [--branch B] [--repo R]...
+//   ticket claim <epic> <NN> [--branch B] [--repo R]... [--force]
 //                                       Status: claimed <time>; with --branch also the line
 //                                       `Branch: B`, with --repo the line `Repo: R` (a name from
 //                                       _resolved.repos of the profile — a project of several repositories);
-//                                       several --repo write a Repo: line each, in the order given — the order of merge
+//                                       several --repo write a Repo: line each, in the order given — the order of merge.
+//                                       A ticket already claimed with a Branch: line is held by that branch: a claim
+//                                       with another --branch, or with none, is refused (exit 1, nothing written,
+//                                       the branch and the time named); the same --branch claims it again; --force
+//                                       takes it over
 //   ticket pr    <epic> <NN> <repo>#N   the line `PR: <repo>#N` when the PR is open (a ticket of one repository: #N,
 //                                       the line `PR: #N`); Status is not touched. A bare #N on a ticket of several
 //                                       repositories, or a repository that is not its Repo: line — exit 2
@@ -95,7 +99,7 @@ const die = (msg) => {
     process.exit(1)
 }
 
-const USAGE = `usage: ticket <done|claim|open|block|show> <epic> <NN> [--pr N]... [--branch B] [--repo R]... [--waits W] [-n] [--root <dir>]
+const USAGE = `usage: ticket <done|claim|open|block|show> <epic> <NN> [--pr N]... [--branch B] [--repo R]... [--waits W] [--force] [-n] [--root <dir>]
        ticket pr <epic> <NN> <repo>#N|#N [-n] [--root <dir>]
        ticket release <epic> <NN> <repo> tag <tag>|package <name>@<version> [-n] [--root <dir>]
        ticket migrate [--epic E] [-n] [--root <dir>]
@@ -137,6 +141,7 @@ let waitsArg = null
 let epicArg = null
 let shaArg = null
 let contextsArg = false
+let forceArg = false
 // The fields of an Evidence line (ticket evidence); "-" is a value here, so these take the next argument as it is.
 const evArgs = { ref: null, platform: null, copy: null, scrub: null }
 const EV_FLAGS = { "--ref": "ref", "--platform": "platform", "--copy": "copy", "--scrub": "scrub" }
@@ -172,6 +177,7 @@ for (let i = 0; i < argv.length; i++) {
     else if (a === "--sha") shaArg = argv[++i] ?? ""
     else if (a.startsWith("--sha=")) shaArg = a.slice(6)
     else if (a === "--contexts") contextsArg = true
+    else if (a === "--force") forceArg = true
     else if (EV_FLAGS[a]) {
         // "-" is a value, but another flag is not: `--ref -n` took -n as the ref and wrote the line. Exit 2, like
         // the other usage errors of evidence.
@@ -579,6 +585,7 @@ if (sh.kind === "old")
 if (prs.length && cmd !== "done") die(`--pr goes only with done, not with ${cmd}`)
 if (branchArg !== null && cmd !== "claim") die(`--branch goes only with claim, not with ${cmd}`)
 if (repoArgs.length && cmd !== "claim") die(`--repo goes only with claim and evidence, not with ${cmd}`)
+if (forceArg && cmd !== "claim") die(`--force goes only with claim, not with ${cmd}`)
 // A refusal of a PR or a release that does not fit the ticket (pr, release, done): exit 2, nothing written — the
 // caller passed a wrong fact, as with a usage error of mark and evidence.
 const refuse = (msg) => {
@@ -655,6 +662,23 @@ if (repoArgs.length && Array.isArray(prof?._resolved?.repos) && prof._resolved.r
     const names = prof._resolved.repos.map((r) => r.name)
     for (const r of repoArgs) if (!names.includes(r)) die(`--repo: "${r}" is not a repository of the project (${names.join(", ")})`)
 }
+// A claimed ticket with a Branch: line is held by the session of that branch. Two sessions claiming one ticket with
+// different branches would both work on it, the second claim silently replacing the first one's time and branch; so
+// a claim from another branch, or with no --branch, is refused, and --force takes the ticket over on purpose. The
+// same --branch claims it again: a session resuming its own ticket, or changing its Repo: lines.
+if (cmd === "claim" && !forceArg && sh.kind === "new" && STATUS_NEW.exec(lines[sh.first])[1] === "claimed") {
+    // Only the header counts: a "Branch:" line of the body or of a code block is text.
+    const at = lines.findIndex((l, i) => i < sh.end && !sh.code[i] && headerLineMatch("Branch", l))
+    const held = at === -1 ? "" : headerLineMatch("Branch", lines[at])[2].replace(/\*+[ \t]*$/, "").trim()
+    if (held && held !== branchArg) {
+        const since = STATUS_NEW.exec(lines[sh.first])[2]
+        die(
+            `${rel(target)}: already claimed${since ? ` ${since}` : ""} by branch ${held}; ` +
+                `${branchArg === null ? "no --branch given" : `--branch ${branchArg} is another branch`}. ` +
+                `Resume your own claim with --branch ${held}, or take the ticket over with --force; nothing written`,
+        )
+    }
+}
 // claim --repo sets the repositories of the ticket. A repository it leaves out must not leave its PR: or Release: line
 // behind: that line would stand for a repository the ticket no longer names, so the claim is refused and the person
 // decides. One repository growing into several: a bare `PR: #N` was the PR of that one repository and becomes
@@ -721,12 +745,10 @@ const extra = [
 ]
 for (const [key, val] of extra) {
     if (val === null) continue
-    const bold = new RegExp(`^(\\*\\*${key}\\b[ \\t]*\\*{0,2}[ \\t]*:[ \\t]*\\*{0,2}[ \\t]*)(.*)$`, "i")
-    const plain = new RegExp(`^(${key}\\b[ \\t]*:[ \\t]*)(.*)$`, "i")
-    const idx = lines.reduce((found, l, i) => (bold.test(l) || plain.test(l) ? i : found), -1)
+    const idx = headerLineAt(key)
     if (idx !== -1) {
         const old = lines[idx]
-        lines[idx] = (old.match(bold) || old.match(plain))[1] + val
+        lines[idx] = headerLineMatch(key, old)[1] + val
         console.log(`  ${key.toLowerCase()}: ${old.trim()} -> ${lines[idx].trim()}`)
     } else {
         lines.splice(++last, 0, `${key}: ${val}`)
@@ -750,6 +772,17 @@ if (cmd === "done") {
     }
 }
 process.exit(0)
+
+// The line `<key>: <value>` in either spelling (`**Branch:**` or `Branch:`): [prefix, value] as a match, or null.
+function headerLineMatch(key, line) {
+    const bold = new RegExp(`^(\\*\\*${key}\\b[ \\t]*\\*{0,2}[ \\t]*:[ \\t]*\\*{0,2}[ \\t]*)(.*)$`, "i")
+    const plain = new RegExp(`^(${key}\\b[ \\t]*:[ \\t]*)(.*)$`, "i")
+    return line.match(bold) || line.match(plain)
+}
+// The index of the last such line of the file, or -1.
+function headerLineAt(key) {
+    return lines.reduce((found, l, i) => (headerLineMatch(key, l) ? i : found), -1)
+}
 
 // --- several repositories: Repo:, PR:, Release: ----------------------------------
 // claim with several --repo, or on a header with several Repo: lines: the Repo: lines become the given ones, in the

@@ -2,10 +2,12 @@
 # Tests of `harness/bin/profile-set --move`: the move of a project's workflow files between Full mode and
 # Silent mode (lib/workflow-move.cjs). mode and workflow.folder are written only by a move, never by --field;
 # a stranger fingerprint is a conflict. Full -> Silent puts the tickets, the state file, the ADRs and the
-# glossary in the Workflow folder with a commit there and a commit removing them in the repository, and
-# bin/profile prints the new mode and folder; Silent -> Full brings them back; a project of several
-# repositories cannot move to Full mode. Uncommitted changes, an open PR of a ticket's branch, or gh unable to
-# tell are refused before anything is written; a failure half-way puts both sides and the profile back.
+# glossary in the Workflow folder with a commit there and a commit removing them in the repository, and the
+# Product Session folder docs/product at <Workflow folder>/product; bin/profile prints the new mode and folder;
+# Silent -> Full brings them back; a project of several repositories cannot move to Full mode. Uncommitted
+# changes, an open PR of a ticket's branch, or gh unable to tell are refused before anything is written; gh is
+# asked under the GH_TOKEN of the profile's github.account, and the token is printed nowhere; a failure half-way
+# puts both sides and the profile back.
 # Run: bash harness/bin/tests/profile-set-move.test.sh; exit code 0 — everything passed.
 #
 # Everything runs in a temporary HOME and HARNESS_HOME; gh is always a node stand-in ($PROFILE_SET_GH) that
@@ -54,13 +56,16 @@ g() { git -c user.name=t -c user.email=t@t -c init.defaultBranch=main "$@"; }
 
 # The repository of a Full mode project: tickets, the state file, ADRs, the glossary, and code that stays.
 g -C "$R" init -q
-mkdir -p "$R/.scratch/epic-a/issues" "$R/docs/adr" "$R/src"
+mkdir -p "$R/.scratch/epic-a/issues" "$R/docs/adr" "$R/docs/product/topic-a" "$R/src"
 printf '# 01 — one\n\nStatus: open\n\n## What\n\nBranch: not-a-header-line\n' >"$R/.scratch/epic-a/issues/01-one.md"
 printf '# 02 — two\n\nStatus: claimed 2026-11-10T00:00Z\nBranch: fix/two\n\n## What\n' >"$R/.scratch/epic-a/issues/02-two.md"
 printf '# spec\n' >"$R/.scratch/epic-a/spec.md"
 printf '# state\n' >"$R/HANDOFF.md"
 printf '# 0001 — a decision\n' >"$R/docs/adr/0001-a.md"
 printf '# glossary\n' >"$R/CONTEXT.md"
+# The Product Session folder: docs/product in Full mode, <Workflow folder>/product in Silent mode.
+printf '# map\n' >"$R/docs/product/map.md"
+printf '# topic a\n' >"$R/docs/product/topic-a/topic.md"
 printf 'code\n' >"$R/src/a.txt"
 g -C "$R" add -A
 g -C "$R" commit -q -m init
@@ -82,7 +87,8 @@ cat >"$HH/projects/demo/profile.json" <<'EOF'
   "tickets": { "root": ".scratch/", "path": ".scratch/<epic>/issues/NN-*.md", "branch": "<epic>/<NN>" },
   "workflow": { "folder": null },
   "docs": { "adr_dir": "docs/adr", "handoff": { "path": "HANDOFF.md" }, "context": { "path": "CONTEXT.md" } },
-  "numbering": { "adr": { "dir": "docs/adr" } }
+  "numbering": { "adr": { "dir": "docs/adr" } },
+  "github": { "account": "demo-acct" }
 }
 EOF
 printf '{"schema":2,"name":"multi","mode":"silent","workflow":{"folder":null}}\n' >"$HH/projects/multi/profile.json"
@@ -93,11 +99,21 @@ g -C "$HH" commit -q -m init
 PJ="$HH/projects/demo/profile.json"
 WF="$HH/projects/demo/workflow"
 
-# gh: a node stand-in that prints $GH_ANSWER and exits with $GH_CODE (0 by default); it notes each run.
+# gh: a node stand-in that prints $GH_ANSWER and exits with $GH_CODE (0 by default); it notes each run with the
+# GH_TOKEN it saw. `auth token -u <login>` prints the invented token token-of-<login>, or fails with $GH_AUTH_CODE.
 GH="$T/gh-stand-in.mjs"
 cat >"$GH" <<'EOF'
 import { appendFileSync } from "node:fs"
-if (process.env.GH_RUNS) appendFileSync(process.env.GH_RUNS, process.argv.slice(2).join(" ") + "\n")
+const args = process.argv.slice(2)
+if (process.env.GH_RUNS) appendFileSync(process.env.GH_RUNS, args.join(" ") + " | token=" + (process.env.GH_TOKEN ?? "unset") + "\n")
+if (args[0] === "auth" && args[1] === "token") {
+    if (process.env.GH_AUTH_CODE && process.env.GH_AUTH_CODE !== "0") {
+        process.stderr.write("no oauth token found for github.com account " + args[3] + "\n")
+        process.exit(1)
+    }
+    process.stdout.write("token-of-" + args[3] + "\n")
+    process.exit(0)
+}
 process.stdout.write(process.env.GH_ANSWER ?? "[]")
 if (process.env.GH_CODE && process.env.GH_CODE !== "0") process.stderr.write("HTTP 401: Bad credentials\n")
 process.exit(Number(process.env.GH_CODE || 0))
@@ -120,7 +136,7 @@ absent() { for f; do [ ! -e "$f" ] || return 1; done; }
 unchanged() {
     check "$1: profile.json unchanged" cmp -s "$PJ" "$T/pj-before"
     check "$1: no commit in the repository" [ "$(head_of "$R")" = "$repo_head" ]
-    check "$1: the workflow files still in the repository" present "$R/.scratch/epic-a/issues/02-two.md" "$R/HANDOFF.md" "$R/docs/adr/0001-a.md"
+    check "$1: the workflow files still in the repository" present "$R/.scratch/epic-a/issues/02-two.md" "$R/HANDOFF.md" "$R/docs/adr/0001-a.md" "$R/docs/product/map.md"
     check "$1: no commit in the Harness home" [ "$(hh_commits)" = "$hh_before" ]
     check "$1: no Workflow folder made" [ ! -e "$WF" ]
     check "$1: no lock left" [ ! -e "$HH/projects/demo/.profile-set.lock" ]
@@ -197,7 +213,25 @@ check "an open PR of a ticket branch (template): exit 1" [ $? -eq 1 ]
 check "an open PR: the reason names the PR" grep -q "#7 (epic-a/01)" "$T/err"
 check "an open PR: a PR of no ticket is not named" bash -c "! grep -q '#9' '$T/err'"
 check "gh was asked for the open PRs" grep -q "pr list --state open" "$T/gh-runs"
+check "gh: the token of the profile's github.account was asked for" grep -q "^auth token -u demo-acct " "$T/gh-runs"
+check "gh: the open PRs asked under the GH_TOKEN of github.account" grep -q "^pr list --state open .* | token=token-of-demo-acct$" "$T/gh-runs"
+check "gh: the token printed nowhere" bash -c "! grep -q token-of '$T/err'"
 unchanged "open PR (template)"
+# Without github.account the open PRs are asked under the GH_TOKEN the caller has, as before.
+cp "$PJ" "$T/pj-account"
+node -e 'const fs=require("fs"),f=process.argv[1],p=JSON.parse(fs.readFileSync(f,"utf8")); delete p.github; fs.writeFileSync(f,JSON.stringify(p,null,2)+"\n")' "$PJ"
+rm -f "$T/gh-runs"
+GH_ANSWER='[{"number":7,"headRefName":"epic-a/01"}]' run "$SET" -C "$R" --expect "$FP" --move silent >/dev/null 2>"$T/err"
+check "no github.account: the open PR still refuses, exit 1" [ $? -eq 1 ]
+check "no github.account: no token asked for" bash -c "! grep -q '^auth token' '$T/gh-runs'"
+check "no github.account: the open PRs asked under the caller's GH_TOKEN" grep -q "^pr list --state open .* | token=invalid$" "$T/gh-runs"
+cp "$T/pj-account" "$PJ"
+# gh has no login under github.account: the caller's GH_TOKEN, as the session hook leaves it.
+rm -f "$T/gh-runs"
+GH_AUTH_CODE=1 GH_ANSWER='[{"number":7,"headRefName":"epic-a/01"}]' run "$SET" -C "$R" --expect "$FP" --move silent >/dev/null 2>"$T/err"
+check "no gh login under github.account: exit 1 on the open PR" [ $? -eq 1 ]
+check "no gh login under github.account: the open PRs asked under the caller's GH_TOKEN" grep -q "^pr list --state open .* | token=invalid$" "$T/gh-runs"
+unchanged "open PR without the account's token"
 GH_ANSWER='[{"number":8,"headRefName":"fix/two"}]' run "$SET" -C "$R" --expect "$FP" --move silent >/dev/null 2>"$T/err"
 check "an open PR of a ticket's Branch: line: exit 1" [ $? -eq 1 ]
 check "an open PR of a Branch: line: named" grep -q "#8 (fix/two)" "$T/err"
@@ -225,7 +259,9 @@ check "Full -> Silent: the Workflow folder is the default one" same_dir "$(run "
 check "Full -> Silent: workflow.folder written" [ "$(pj_field workflow.folder)" != null ]
 check "Full -> Silent: the tickets in the Workflow folder" present "$WF/.scratch/epic-a/issues/02-two.md" "$WF/.scratch/epic-a/spec.md"
 check "Full -> Silent: the state file, ADRs and glossary there" present "$WF/HANDOFF.md" "$WF/docs/adr/0001-a.md" "$WF/CONTEXT.md"
-check "Full -> Silent: none of them left in the repository" absent "$R/.scratch" "$R/HANDOFF.md" "$R/docs/adr" "$R/CONTEXT.md"
+check "Full -> Silent: the Product Session folder at <Workflow folder>/product" present "$WF/product/map.md" "$WF/product/topic-a/topic.md"
+check "Full -> Silent: no docs/product in the Workflow folder" absent "$WF/docs/product"
+check "Full -> Silent: none of them left in the repository" absent "$R/.scratch" "$R/HANDOFF.md" "$R/docs/adr" "$R/CONTEXT.md" "$R/docs/product"
 check "Full -> Silent: the code stays" [ -f "$R/src/a.txt" ]
 check "Full -> Silent: one commit in the repository" [ "$(git -C "$R" rev-list --count HEAD)" -eq 2 ]
 check "Full -> Silent: the repository commit says where the files went" bash -c "git -C '$R' log -1 --format=%s | grep -q 'into the project.s Workflow folder'"
@@ -234,7 +270,7 @@ check "Full -> Silent: the Workflow folder commit says where from" bash -c "git 
 check "Full -> Silent: both sides clean" clean "$R" "$WF"
 check "Full -> Silent: a commit in the Harness home" [ "$(hh_commits)" -eq $((hh_before + 1)) ]
 check "Full -> Silent: the Harness commit message" bash -c "git -C '$HH' log -1 --format=%s | grep -q 'Move demo to Silent mode'"
-check "Full -> Silent: the report names the paths" [ "$(json_get moved <<<"$out" | json_get paths)" = '[".scratch","HANDOFF.md","docs/adr","CONTEXT.md"]' ]
+check "Full -> Silent: the report names the paths" [ "$(json_get moved <<<"$out" | json_get paths)" = '[".scratch","HANDOFF.md","docs/adr","CONTEXT.md","docs/product"]' ]
 check "Full -> Silent: the new fingerprint is the one --read prints" [ "$(json_get fingerprint <<<"$out")" = "$(fp)" ]
 
 # --- Silent -> Full ------------------------------------------------------------------------------------------------
@@ -248,8 +284,8 @@ g -C "$WF" checkout -q -- HANDOFF.md
 check "Silent -> Full refused: still Silent" [ "$(run "$PROFILE" -C "$R" --field mode)" = silent ]
 PROFILE_SET_MOVE_FAIL_AT=from-commit run "$SET" -C "$R" --expect "$FP2" --move full >/dev/null 2>"$T/err"
 check "Silent -> Full failure at from-commit: exit 1" [ $? -eq 1 ]
-check "Silent -> Full failure: the files back in the Workflow folder" present "$WF/HANDOFF.md" "$WF/.scratch/epic-a/spec.md"
-check "Silent -> Full failure: none in the repository" absent "$R/HANDOFF.md" "$R/.scratch"
+check "Silent -> Full failure: the files back in the Workflow folder" present "$WF/HANDOFF.md" "$WF/.scratch/epic-a/spec.md" "$WF/product/map.md"
+check "Silent -> Full failure: none in the repository" absent "$R/HANDOFF.md" "$R/.scratch" "$R/docs/product"
 check "Silent -> Full failure: both sides clean" clean "$R" "$WF"
 check "Silent -> Full failure: no new commit on either side" [ "$(git -C "$WF" rev-list --count HEAD):$(git -C "$R" rev-list --count HEAD)" = 1:2 ]
 check "Silent -> Full failure: still Silent" [ "$(run "$PROFILE" -C "$R" --field mode)" = silent ]
@@ -261,7 +297,8 @@ check "Silent -> Full: exit 0" [ "$rc" -eq 0 ]
 check "Silent -> Full: bin/profile prints mode full" [ "$(run "$PROFILE" -C "$R" --field mode)" = full ]
 check "Silent -> Full: workflow.folder null" [ "$(pj_field workflow.folder)" = null ]
 check "Silent -> Full: the files back in the repository" present "$R/.scratch/epic-a/issues/01-one.md" "$R/HANDOFF.md" "$R/docs/adr/0001-a.md" "$R/CONTEXT.md"
-check "Silent -> Full: none left in the Workflow folder" absent "$WF/.scratch" "$WF/HANDOFF.md"
+check "Silent -> Full: the Product Session folder back at docs/product" present "$R/docs/product/map.md" "$R/docs/product/topic-a/topic.md"
+check "Silent -> Full: none left in the Workflow folder" absent "$WF/.scratch" "$WF/HANDOFF.md" "$WF/product"
 check "Silent -> Full: a commit on each side" [ "$(git -C "$R" rev-list --count HEAD):$(git -C "$WF" rev-list --count HEAD)" = 3:2 ]
 check "Silent -> Full: the repository commit says where from" bash -c "git -C '$R' log -1 --format=%s | grep -q 'from the project.s Workflow folder'"
 check "Silent -> Full: the Workflow folder commit says where to" bash -c "git -C '$WF' log -1 --format=%s | grep -q 'to the repository demo'"

@@ -8,7 +8,9 @@
 // folder (docs.adr_dir, numbering.adr.dir), the glossary (docs.context.path) and the lessons (`lessons:
 // "repo:<path>"`). An absolute or `~/` path is outside both folders and stays where it is. Full mode keeps
 // them in the project's repository, Silent mode in the Workflow folder, a git repository outside it
-// (`<profile folder>/workflow` by default, made with `git init` when absent).
+// (`<profile folder>/workflow` by default, made with `git init` when absent). The Product Session folder moves
+// too, from one fixed path to another: `docs/product` in the repository, `product` in the Workflow folder
+// (src/shared/product/paths.ts); it stays where it is when another workflow path holds it or lies inside it.
 //
 //   planMove({ profile, resolved, to, folder, profileDir, gh }) → { problems, plan }
 //     Reads, writes nothing. problems: the reasons the move is refused (empty — it may go ahead): already in
@@ -16,7 +18,8 @@
 //     (by its real path: a link on the way counts) or, when the move would create it, inside any git work
 //     tree; a folder that is not a git repository of its own or has no branch checked out; uncommitted or
 //     untracked files in the repository or the Workflow folder; a file of the move already at its new place;
-//     an open PR of a ticket's branch (gh unable to tell is a refusal too). `resolved` is
+//     an open PR of a ticket's branch (gh unable to tell is a refusal too; gh is asked under the GH_TOKEN of the
+//     profile's github.account, `gh auth token -u <account>`, and under the caller's own without one). `resolved` is
 //     `bin/profile --json`'s `_resolved`. plan.ignored: the files the receiving side's .gitignore ignores; the
 //     move adds them all the same (`git add -f`), so nothing is left out of its commit.
 //   runMove(plan, { failAt, killAt, alive }) → state
@@ -92,6 +95,24 @@ function nearestExisting(p) {
     let at = path.resolve(p)
     while (!fs.existsSync(at) && path.dirname(at) !== at) at = path.dirname(at)
     return at
+}
+
+/**
+ * The Product Session folder on each side, relative to it: the copy of PRODUCT_FULL_DIR and PRODUCT_SILENT_DIR of
+ * src/shared/product/paths.ts, which the app reads it by.
+ */
+const PRODUCT_DIR = { full: "docs/product", silent: "product" }
+
+/**
+ * The name a file of the side the files leave has on the side they come to: the same, except under a move whose
+ * folder sits at another path there (the Product Session folder). `moves`: { rel, to?, files }.
+ */
+function targetName(moves, file) {
+    for (const m of moves) {
+        const to = m.to ?? m.rel
+        if (to !== m.rel && (file === m.rel || file.startsWith(`${m.rel}/`))) return to + file.slice(m.rel.length)
+    }
+    return file
 }
 
 /** Where the marker of a move in progress lives: next to profile.json. */
@@ -189,25 +210,52 @@ function ticketBranches(ticketsRoot, template) {
     return { exact, patterns }
 }
 
+/** Starts `gh` (a test's stand-in; a .mjs, .cjs or .js one runs with this node) with `args`. */
+function runGh(gh, args, options) {
+    const [program, argv] = /\.(mjs|cjs|js)$/.test(gh) ? [process.execPath, [gh, ...args]] : [gh, args]
+    return spawnSync(program, argv, { encoding: "utf8", windowsHide: true, timeout: 30_000, ...options })
+}
+
+// A GitHub login, the rule hooks/gh-token-env.mjs checks github.account by: letters, digits and single inner
+// hyphens, at most 39 characters. Anything else would be read by gh as an option.
+const GITHUB_LOGIN = /^[A-Za-z0-9]+(-[A-Za-z0-9]+)*$/
+
+/**
+ * The token gh keeps for the GitHub account `account` (`gh auth token -u <account>`, as hooks/gh-token-env.mjs
+ * gives a session), or null: no account, not a login, or no gh login under it. The token goes only into the
+ * environment of the gh it is for: never into the output, an error or a file.
+ */
+function accountToken(gh, account, env) {
+    if (typeof account !== "string" || account.length > 39 || !GITHUB_LOGIN.test(account)) return null
+    // A GH_TOKEN of the caller's own environment must not answer for the account.
+    const own = { ...env }
+    delete own.GH_TOKEN
+    delete own.GITHUB_TOKEN
+    const r = runGh(gh, ["auth", "token", "-u", account], { env: own, stdio: ["ignore", "pipe", "ignore"] })
+    if (r.error || r.status !== 0) return null
+    const token = String(r.stdout ?? "").trim()
+    return token === "" ? null : token
+}
+
 /**
  * The open PRs of the repository at `repo`: { prs } or { error }. A repository without a remote has none.
- * `gh` is the program to start (a test's stand-in; a .mjs, .cjs or .js one runs with this node).
+ * `gh` is the program to start (runGh). `account` — the profile's github.account: gh is asked under its token, as
+ * a session of the project is (a private repository the global gh account cannot see); without one, or with no gh
+ * login under it, under the caller's own GH_TOKEN or gh account.
  */
-function openPrs(repo, gh) {
+function openPrs(repo, gh, account) {
     const remotes = git(repo, ["remote"])
     if (remotes.status === 0 && remotes.stdout.trim() === "") return { prs: [] }
-    const args = ["pr", "list", "--state", "open", "--limit", "500", "--json", "number,headRefName"]
-    const [program, argv] = /\.(mjs|cjs|js)$/.test(gh) ? [process.execPath, [gh, ...args]] : [gh, args]
-    const r = spawnSync(program, argv, {
-        cwd: repo,
-        encoding: "utf8",
-        windowsHide: true,
-        timeout: 30_000,
-        // gh runs git too: an inherited GIT_DIR would point the check at another repository.
-        env: { ...gitEnv(), GH_PROMPT_DISABLED: "1", GH_NO_UPDATE_NOTIFIER: "1" },
-    })
+    // gh runs git too: an inherited GIT_DIR would point the check at another repository.
+    const env = { ...gitEnv(), GH_PROMPT_DISABLED: "1", GH_NO_UPDATE_NOTIFIER: "1" }
+    const token = accountToken(gh, account, env)
+    if (token !== null) env.GH_TOKEN = token
+    const r = runGh(gh, ["pr", "list", "--state", "open", "--limit", "500", "--json", "number,headRefName"], { cwd: repo, env })
     if (r.error) return { error: r.error.code === "ENOENT" ? "gh not found" : r.error.message }
-    if (r.status !== 0) return { error: said(r) }
+    if (r.status !== 0) {
+        const unused = typeof account === "string" && account !== "" && token === null
+        return { error: `${said(r)}${unused ? ` (gh has no login under github.account ${account}: asked under the caller's gh account)` : ""}` }
+    }
     try {
         const list = JSON.parse(r.stdout)
         if (!Array.isArray(list)) throw new Error("not a list")
@@ -279,15 +327,23 @@ function planMove({ profile, resolved, to, folder, profileDir, gh }) {
     const source = to === "silent" ? repo : workflow
     const target = to === "silent" ? workflow : repo
     const moves = []
-    for (const rel of workflowPaths(profile)) {
-        const files = trackedFiles(source, rel)
+    const paths = workflowPaths(profile)
+    const pairs = paths.map((rel) => ({ rel, to: rel }))
+    // The Product Session folder, from its path on this side to its path on the other. A workflow path that holds it
+    // or lies inside it on either side moves as it is: the folder is not moved twice.
+    const product = { rel: PRODUCT_DIR[from], to: PRODUCT_DIR[to] }
+    const overlap = (a, b) => a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`)
+    if (product.rel && product.to && !paths.some((p) => overlap(p, product.rel) || overlap(p, product.to))) pairs.push(product)
+    for (const pair of pairs) {
+        const files = trackedFiles(source, pair.rel)
         if (files.length === 0) continue
-        if (fs.existsSync(path.join(target, ...rel.split("/")))) problems.push(`${rel} is already in ${to === "silent" ? "the Workflow folder" : "the repository"}: nothing is moved over it`)
-        moves.push({ rel, files })
+        if (fs.existsSync(path.join(target, ...pair.to.split("/"))))
+            problems.push(`${pair.to} is already in ${to === "silent" ? "the Workflow folder" : "the repository"}: nothing is moved over it`)
+        moves.push({ ...pair, files })
     }
     // The files the receiving side's .gitignore would leave out of its commit: added all the same, and said.
     let ignored = []
-    const all = moves.flatMap((m) => m.files)
+    const all = moves.flatMap((m) => m.files.map((f) => targetName(moves, f)))
     if (!createFolder && all.length > 0) {
         const r = spawnSync(GIT, ["-C", target, "check-ignore", "--no-index", "-z", "--stdin"], { input: all.join("\0"), encoding: "utf8", windowsHide: true, env: gitEnv() })
         // Exit 1: none is ignored.
@@ -298,7 +354,7 @@ function planMove({ profile, resolved, to, folder, profileDir, gh }) {
     // The open PRs of the tickets' branches.
     const ticketsRel = workflowPaths({ tickets: profile.tickets })[0]
     const branches = ticketBranches(path.join(source, ...(ticketsRel || ".scratch").split("/")), at(profile, "tickets.branch"))
-    const listed = openPrs(repo, gh)
+    const listed = openPrs(repo, gh, at(profile, "github.account"))
     if (listed.error) problems.push(`whether a ticket has an open PR cannot be told (gh: ${listed.error})`)
     else {
         const open = listed.prs.filter((pr) => branches.exact.has(pr.headRefName) || branches.patterns.some((re) => re.test(pr.headRefName)))
@@ -364,14 +420,16 @@ function runMove(plan, { failAt = "", killAt = "", alive = () => {} } = {}) {
         state.toHead = headOf(plan.target)
         state.fromHead = headOf(plan.source)
         const rels = plan.moves.map((m) => m.rel)
+        const targetRels = plan.moves.map((m) => m.to ?? m.rel)
         const text = messages(plan)
         step("copy", () => {
             for (const [i, file] of files.entries()) {
                 if (i % 200 === 199) alive()
+                const named = targetName(plan.moves, file)
                 const from = path.join(plan.source, ...file.split("/"))
-                const to = path.join(plan.target, ...file.split("/"))
+                const to = path.join(plan.target, ...named.split("/"))
                 // Named before it is written: a copy cut short is the move's too, and the undo deletes it by name.
-                state.copied.push(file)
+                state.copied.push(named)
                 fs.mkdirSync(path.dirname(to), { recursive: true })
                 const stat = fs.lstatSync(from)
                 if (stat.isSymbolicLink()) fs.symlinkSync(fs.readlinkSync(from), to)
@@ -381,7 +439,7 @@ function runMove(plan, { failAt = "", killAt = "", alive = () => {} } = {}) {
         if (files.length === 0) return state
         step("to-commit", () => {
             // -f: a file the receiving side's .gitignore ignores (plan.ignored) moves with the rest.
-            must(git(plan.target, ["add", "-f", "--", ...rels]), "git add of the moved files")
+            must(git(plan.target, ["add", "-f", "--", ...targetRels]), "git add of the moved files")
             must(git(plan.target, [...commitArgs(plan.target), "commit", "-q", "--no-verify", "-m", text.to]), `git commit in ${plan.target}`)
             state.toCommitted = true
         })
@@ -478,6 +536,8 @@ function writeMarker(plan, files, fromHead, toHead) {
         createFolder: plan.createFolder,
         madeTop: plan.madeTop ?? null,
         rels: plan.moves.map((m) => m.rel),
+        // The moves whose folder sits at another path on the side the files came to (the Product Session folder).
+        renames: plan.moves.filter((m) => (m.to ?? m.rel) !== m.rel).map((m) => ({ from: m.rel, to: m.to })),
         files,
         fromHead,
         toHead,
@@ -519,6 +579,9 @@ function readMarker(profileDir) {
         ["repo", "workflow", "source", "target"].every((k) => typeof marker[k] === "string" && path.isAbsolute(marker[k])) &&
         [false, "make", "init"].includes(marker.createFolder) &&
         strings(marker.rels) &&
+        // A marker written before the Product Session folder moved has no renames.
+        (marker.renames === undefined ||
+            (Array.isArray(marker.renames) && marker.renames.every((r) => isObject(r) && typeof r.from === "string" && typeof r.to === "string"))) &&
         strings(marker.files) &&
         shaOrNull(marker.fromHead) &&
         shaOrNull(marker.toHead) &&
@@ -627,18 +690,21 @@ function recoverMove(profileDir, profile, { alive = () => {} } = {}) {
         target: marker.target,
         createFolder: marker.createFolder,
         madeTop: marker.madeTop ?? null,
-        moves: marker.rels.map((rel) => ({ rel, files: [] })),
+        moves: marker.rels.map((rel) => ({ rel, to: (marker.renames ?? []).find((r) => r.from === rel)?.to ?? rel, files: [] })),
         profileDir,
     }
     const files = marker.files
     const listed = new Set(files)
+    // The same files by their names on the side they came to.
+    const copies = files.map((f) => targetName(plan.moves, f))
+    const listedCopies = new Set(copies)
     const named = `the marker ${markerPath(profileDir)} of a move that did not end`
     const problems = []
     const targetGit = fs.existsSync(path.join(plan.target, ".git"))
     const from = sideState(plan.source, marker.fromHead, marker.messages.from, files, named)
     // A Workflow folder the move made or git-initialized has no repository yet when the move was killed before
     // `git init`: it stands "before" while nothing is in it.
-    const to = targetGit || !plan.createFolder ? sideState(plan.target, marker.toHead, marker.messages.to, files, named) : { at: "before" }
+    const to = targetGit || !plan.createFolder ? sideState(plan.target, marker.toHead, marker.messages.to, copies, named) : { at: "before" }
     for (const side of [from, to]) if (side.problem) problems.push(side.problem)
     alive()
     // The working trees: on each side only what the move itself left may differ from its commit. On the side the
@@ -650,11 +716,11 @@ function recoverMove(profileDir, profile, { alive = () => {} } = {}) {
         if (foreign.length > 0) problems.push(`${plan.source} has changes since ${named} (${shown(foreign)}): commit, move or remove them by hand, then move again`)
     }
     if (to.at && plan.createFolder && !targetGit) {
-        const foreign = filesUnder(plan.target).filter((f) => !listed.has(f))
+        const foreign = filesUnder(plan.target).filter((f) => !listedCopies.has(f))
         if (foreign.length > 0) problems.push(`${plan.target} has files since ${named} (${shown(foreign)}): move or remove them by hand, then move again`)
     } else if (to.at) {
         const entries = statusOf(plan.target)
-        const foreign = entries.filter((e) => !(to.at === "before" && (e.xy === "??" || e.xy === "A ") && listed.has(e.file))).map((e) => e.file)
+        const foreign = entries.filter((e) => !(to.at === "before" && (e.xy === "??" || e.xy === "A ") && listedCopies.has(e.file))).map((e) => e.file)
         if (foreign.length > 0) problems.push(`${plan.target} has changes since ${named} (${shown(foreign)}): commit, move or remove them by hand, then move again`)
     }
     // The copies on the side the files came to, before its commit, still hold what the move wrote: the bytes of
@@ -663,7 +729,7 @@ function recoverMove(profileDir, profile, { alive = () => {} } = {}) {
     // stores (eol=crlf, a filter), would never match git's view of the copy. A copy edited since is a person's change.
     if (problems.length === 0 && to.at === "before") {
         const edited = files.filter((f) => {
-            const copy = path.join(plan.target, ...f.split("/"))
+            const copy = path.join(plan.target, ...targetName(plan.moves, f).split("/"))
             return fs.existsSync(copy) || isLink(copy) ? !sameEntry(path.join(plan.source, ...f.split("/")), copy) : false
         })
         if (edited.length > 0) problems.push(`${plan.target} has files changed since ${named} (${shown(edited)}): keep a copy of them elsewhere and restore them, then move again`)
@@ -675,7 +741,7 @@ function recoverMove(profileDir, profile, { alive = () => {} } = {}) {
         files,
         made: plan.createFolder === "make",
         initialized: Boolean(plan.createFolder),
-        copied: files,
+        copied: copies,
         toHead: marker.toHead,
         fromHead: marker.fromHead,
         toCommitted: to.at === "committed",

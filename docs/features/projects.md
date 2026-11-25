@@ -43,7 +43,8 @@ gets no "Move to Full mode…": the form says it stays in Silent mode. "Move fil
 `harness/bin/profile-set --move`. The workflow files are the paths the Profile names relative to the Workflow folder: the
 Tickets root (with the Epic specs and evidence), the folder of the Ticket and spec templates up to their first
 placeholder when it lies outside that root, the state file, the ADR folder, the glossary and the lessons kept in the
-repository. An absolute path stays where it is. Their tracked files are copied to the other side and committed there, then removed with `git rm`
+repository. An absolute path stays where it is. The Product Session folder moves too, between its two fixed places:
+`docs/product` in the repository and `product` in the Workflow folder; a workflow path that holds it moves it as it is. Their tracked files are copied to the other side and committed there, then removed with `git rm`
 and committed on the side they left. Each commit message says where the files went or came from. Only then does the
 Profile get `mode` and `workflow.folder`: Silent mode writes the folder's path, and Full mode writes `null`. The change is
 committed in the Harness home's git.
@@ -56,7 +57,9 @@ The move is refused before anything is written, with the reason in the form's fo
   make (or `git init`) lies inside another git repository;
 - a file of the move already exists at its new place;
 - a PR of a Ticket's branch is open, or gh cannot tell. A Ticket's branch is its `Branch:` line or the Profile's
-  branch template for its Epic. A repository without a remote has no PRs to ask about;
+  branch template for its Epic. gh is asked as the Profile's `github.account` (`gh auth token -u <account>`), and as the
+  active gh account when the Profile names none or gh has no login under it. A repository without a remote has no PRs
+  to ask about;
 - a Session of the Project in worfy is starting, busy or waiting for a permission (worfy checks this before it calls the
   script). An idle Session does not stop the move.
 

@@ -1,0 +1,14 @@
+{
+  "data": {
+    "repository": {
+      "pullRequest": {
+        "comments": {
+          "pageInfo": { "hasNextPage": false, "endCursor": "k3" },
+          "nodes": [
+            { "id": "K2", "url": "https://github.com/acme/shop/pull/51#issuecomment-2", "body": "SECOND-PAGE-COMMENT-TEXT Let us keep the old cache one more release.", "createdAt": "2026-05-19T11:30:00Z", "authorAssociation": "OWNER", "author": { "__typename": "User", "login": "jun-o" } }
+          ]
+        }
+      }
+    }
+  }
+}

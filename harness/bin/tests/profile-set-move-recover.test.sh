@@ -4,7 +4,8 @@
 # the refusals of a detached HEAD and of a file already at the new place, the folder of a spec template outside
 # tickets.root, a file the receiving side's .gitignore ignores (moved with `git add -f` and named), git run with
 # the caller's config (GIT_CONFIG_GLOBAL kept, so a rollback writes the bytes the caller's git expects), and a
-# move killed at each step: the marker it leaves, `--read` printing interrupted, the next move rolling it back
+# move killed at each step: the marker it leaves (the Product Session folder docs/product, at another path in the
+# Workflow folder, among its files), `--read` printing interrupted, the next move rolling it back
 # (or closing it when the profile was written), and a refusal naming the marker once a side moved on since.
 # Run: bash harness/bin/tests/profile-set-move-recover.test.sh; exit code 0 — everything passed.
 #
@@ -53,12 +54,14 @@ g() { git -c user.name=t -c user.email=t@t -c init.defaultBranch=main "$@"; }
 
 # A Full mode project: tickets, a spec template outside tickets.root, the state file, ADRs with a picture.
 g -C "$R" init -q
-mkdir -p "$R/.scratch/epic-a/issues" "$R/plans/epic-a" "$R/docs/adr" "$R/src"
+mkdir -p "$R/.scratch/epic-a/issues" "$R/plans/epic-a" "$R/docs/adr" "$R/docs/product" "$R/src"
 printf '# 01 — one\n\nStatus: open\n' >"$R/.scratch/epic-a/issues/01-one.md"
 printf '# spec\n' >"$R/plans/epic-a/spec.md"
 printf '# state\nline two\n' >"$R/HANDOFF.md"
 printf '# 0001 — a decision\n' >"$R/docs/adr/0001-a.md"
 printf 'not really a png\n' >"$R/docs/adr/d.png"
+# The Product Session folder: docs/product in the repository, product in the Workflow folder.
+printf '# map\n' >"$R/docs/product/map.md"
 # A file whose bytes on disk are not what git stores (eol=crlf: CRLF on disk, LF in the blob), and a symlink: a copy
 # of each holds the bytes of the original, which git's view of the copy (hash-object) does not match.
 printf 'docs/adr/crlf.md text eol=crlf\n' >"$R/.gitattributes"
@@ -215,10 +218,13 @@ for at in copy to-commit from-commit profile; do
     check "killed at $at: the files in the Workflow folder, once" present "$WF/HANDOFF.md" "$WF/plans/epic-a/spec.md" "$WF/.scratch/epic-a/issues/01-one.md"
     check "killed at $at: one commit more in the Workflow folder" [ "$(count "$WF")" -eq $((wf_before + 1)) ]
     check "killed at $at: none left in the repository" absent "$R/HANDOFF.md" "$R/plans" "$R/.scratch"
+    check "killed at $at: the Product Session folder at <Workflow folder>/product, once" present "$WF/product/map.md"
+    check "killed at $at: no docs/product on either side" absent "$R/docs/product" "$WF/docs/product"
     check "killed at $at: both sides clean" clean "$R" "$WF"
     back_to_full "killed at $at"
 done
 check "the spec folder outside tickets.root moved back too" present "$R/plans/epic-a/spec.md"
+check "the Product Session folder moved back to docs/product too" present "$R/docs/product/map.md"
 
 # Copies whose bytes git would write otherwise (a symlink, an eol=crlf file) are the move's own copies: a kill
 # before their commit is rolled back. One changed byte (the size the same) is a person's change and refuses.
@@ -242,6 +248,18 @@ cp "$R/docs/adr/crlf.md" "$WF/docs/adr/crlf.md"
 out="$(run "$SET" -C "$R" --expect "$(fp)" --move silent 2>"$T/err")"
 check "the byte put back by hand: the next move rolls back and moves" [ "$(json_get moved <<<"$out" | json_get recovered)" = rolled-back ]
 back_to_full "the byte put back by hand"
+# A copy of the Product Session folder is compared with its original under the other path: docs/product/map.md
+# with product/map.md. An edit of it is a person's change.
+kill_at_plain to-commit
+printf '# maX\n' >"$WF/product/map.md"
+run "$SET" -C "$R" --expect "$(fp)" --move silent >/dev/null 2>"$T/err"
+check "a copy in product/ changed: the next move exits 1" [ $? -eq 1 ]
+check "a copy in product/ changed: the reason names it" grep -q "docs/product/map.md" "$T/err"
+cp "$R/docs/product/map.md" "$WF/product/map.md"
+out="$(run "$SET" -C "$R" --expect "$(fp)" --move silent 2>"$T/err")"
+check "the copy in product/ put back by hand: the next move rolls back and moves" [ "$(json_get moved <<<"$out" | json_get recovered)" = rolled-back ]
+check "the copy in product/ put back by hand: the folder at product/ once" present "$WF/product/map.md"
+back_to_full "the copy in product/ put back by hand"
 # The symlink of a copy replaced by a file with its target's bytes: not the move's copy (links are never followed).
 if [ -L "$R/docs/adr/link.md" ]; then
     kill_at_plain to-commit
