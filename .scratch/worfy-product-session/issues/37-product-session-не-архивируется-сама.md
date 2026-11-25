@@ -73,6 +73,8 @@ Product Session, простоявшая дольше порога «Archive fini
   - evidence: test-run pass · `pnpm test test/unit/session-node-product.test.tsx test/contract/layout-archive.test.ts` exit 0 (button and archiveSessionNode tests; red before the change) · mac - · b3bac6916
   - evidence: test-run pass · `pnpm test:e2e test/e2e/session-archive.spec.ts` exit 0 · mac dev · b3bac6916
   - evidence: test-run pass · `pnpm test:e2e test/e2e/session-archive.spec.ts test/e2e/codex-sessions-on-canvas.spec.ts` exit 0 (Archive under the header; titles visible) · mac dev · 8404d697e
+  - evidence: test-run pass · `pnpm test test/unit/session-node-product.test.tsx test/unit/session-node-remove.test.tsx` exit 0 (pinned alone; read-only Node with a live Session) · mac - · 773dd1253
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/session-archive.spec.ts test/e2e/codex-sessions-on-canvas.spec.ts` exit 0 (Archive whole at 240 px; label whole at 340 px) · mac dev · 773dd1253
 - [ ] Settings → Canvas под порогом «Archive finished sessions after» говорит, что Product Session сама в архив не уходит;
   unit test.
   - evidence: test-run pass · `pnpm test test/unit/settings-canvas.test.tsx` exit 0 (red before the change) · mac - · b3bac6916
@@ -82,6 +84,8 @@ Product Session, простоявшая дольше порога «Archive fini
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · b3bac6916
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 8404d697e
   - evidence: gate pass · `gate fast` exit 0 · mac - · 8404d697e
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 0645247f7
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 0645247f7
 - [ ] (вручную) На Mac Stable Product Session, простоявшая дольше порога, остаётся на Canvas; Archive в её меню убирает
   её в архив.
   - needs: mac stable
