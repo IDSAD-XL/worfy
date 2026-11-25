@@ -135,7 +135,9 @@ Undo, which brings back that batch alone and is not a step of ⌘Z. "Archive N" 
 without a Binding, newest first, with a search by title, Restore on each row and "Restore all from today". Those with a
 Binding are in the history of their Ticket or Epic. A Session that resumes comes back. A restored Node returns to its
 old place if clear, otherwise to the nearest clear place. The palette's "Archive finished sessions now" is one step of
-⌘Z, and uses 24 h while the setting is Never.
+⌘Z, and uses 24 h while the setting is Never. A Product Session's Node never goes by itself: neither threshold, the
+Ticket rule nor "Archive finished sessions now" takes it, so it stays on the Canvas until the user archives it. One
+already in the Archive stays there until restored.
 
 The Trash, the Archive and the history of a Ticket or an Epic are popovers. Opening one moves the focus into it, and
 closing gives it back to its button. Esc, a press outside, leaving the window (a press inside a Browser's page too) and

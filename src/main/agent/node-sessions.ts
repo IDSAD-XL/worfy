@@ -40,6 +40,7 @@ import { DEFAULT_SETTINGS, sameSettings, type SessionSettings } from '../../shar
 import type { LiveSession } from '../../shared/ipc/claude-home'
 import { signInHint, UNNAMED_VENDOR, VENDOR_IDS, vendorIdSchema, type VendorId } from '../../shared/vendors/vendor'
 import {
+  isProductSessionNode,
   LIVE_SESSION_HEIGHT,
   LIVE_SESSION_WIDTH,
   PRODUCT_SESSION_VENDOR,
@@ -436,7 +437,7 @@ export class NodeSessions {
   private archived(change: LayoutChange): void {
     if (change.op.op !== 'archive') return
     const ids = new Set(change.op.nodes.map((each) => each.id))
-    const product = change.layout.nodes.find((node) => ids.has(node.id) && isWorfyNode(node) && node.data.kind === 'product')
+    const product = change.layout.nodes.find((node) => ids.has(node.id) && isProductSessionNode(node))
     if (product !== undefined) this.productEnded(change.projectId, product.id)
   }
 

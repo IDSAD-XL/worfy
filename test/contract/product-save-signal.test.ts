@@ -268,7 +268,8 @@ describe('closing or archiving a Product Session', () => {
       pending.push(save.signal(projectId))
     })
     writeFileSync(join(repo, 'docs', 'product', 'roadmap', 'map.md'), '# Roadmap, edited\n')
-    // A Product Session that ended without Close: its Node is archived, as the automatic archive does.
+    // A Product Session that ended without Close: its Node is archived by an `archive` without a screen. The automatic
+    // archive never takes a Product Session's Node (worfy-product-session ticket 37); a Node archived before it did stays so.
     h.layout.apply(PROJECT, { op: 'create', node: { id: 'product-1', kind: 'session', x: 0, y: 0, w: 340, h: 220, data: { origin: 'worfy', vendor: 'claude', kind: 'product', sessionId: 'f0000000-0000-4000-8000-0000000000f1' } } })
     h.layout.apply(PROJECT, { op: 'create', node: { id: 'plain-1', kind: 'session', x: 400, y: 0, w: 340, h: 220, data: { origin: 'worfy', vendor: 'claude', sessionId: 'f0000000-0000-4000-8000-0000000000f2' } } })
     h.layout.apply(PROJECT, { op: 'archive', batch: 'batch-1', nodes: [{ id: 'plain-1', rule: 'idle' }] }, null)

@@ -150,3 +150,8 @@ Ticket-ами», вопросы 4–6 исследования; Epic [worfy-canv
   (`src/main/mcp/canvas-server.ts`), docs (`src/main/ipc/docs.ts`), корзина (`src/main/layout/trash.ts`) и
   Session-ы Node-ов (`src/main/agent/node-sessions.ts`). Читать ту запись так: «окно открыло Project,
   Linked machine его запросила или сам main его прочитал».
+- **2026-11-25, Product Session в архив сама не уходит** (worfy-product-session Ticket 37; владелец 2026-11-25:
+  «они не должны архивироваться вообще пока пользователь сам ее не кинет в архив»). Правило не берёт Node Product
+  Session (`isProductSessionNode`, `src/shared/ipc/sessions.ts`) ни при каком пороге, ни по `ticket-done`, ни в
+  «Archive finished sessions now» и часов ей не ставит; `archive` самого пользователя с экрана и Restore работают как
+  раньше. Уже заархивированные Product Session сами не возвращаются.

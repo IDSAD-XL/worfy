@@ -1,7 +1,7 @@
 # 37: Product Session не уходит в архив сама
 
 Type: task
-Status: open
+Status: claimed 2026-11-25T07:57Z
 Blocked by: None — can start immediately
 Source: owner 2026-11-25: «они не должны архивироваться вообще пока пользователь сам ее не кинет в архив».
 
@@ -23,6 +23,18 @@ Product Session, простоявшая дольше порога «Archive fini
 - Unit и contract test-ы архива: `test/unit/*archive*`, `test/contract/*archive*`.
 - `docs/adr/0076-*.md` — Amendment 2026-11-25 (одна-две фразы; бриф его называет).
 - `docs/features/` — страница, которая описывает автоархив (en и `docs/features/ru/`).
+
+Уточнено при работе (2026-11-25):
+
+- Отдельного предиката Product Session не было: main узнавал её Node прямо в `src/main/agent/node-sessions.ts`
+  (`isWorfyNode(node) && node.data.kind === 'product'`, сигнал сохранения при архиве). Эта проверка вынесена в
+  `isProductSessionNode` (`src/shared/ipc/sessions.ts`); её читают `node-sessions.ts` и `archive.ts`.
+- Действия Archive на одном Node в UI нет. Архив, который просит сам пользователь, — `archive` с экрана через
+  `archiveFromScreen` (⌘Z после Restore, ⇧⌘Z); он Product Session по-прежнему берёт.
+- Автоархив описан в `docs/features/canvas.md`; про архив Product Session говорят ещё `docs/features/product-session.md`
+  и `docs/features/sessions.md` (en и ru). Комментарий в `test/contract/product-save-signal.test.ts` называл архив Node-а
+  Product Session автоматическим.
+- Test-ы: `test/unit/archive-rule.test.ts`, `test/contract/layout-archive.test.ts`.
 
 ## Готово, когда
 
