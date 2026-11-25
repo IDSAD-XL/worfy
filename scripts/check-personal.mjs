@@ -28,9 +28,13 @@
 //     \p{M}, \p{N}); a word is lower-cased, and a non-ASCII word is taken in NFC. A text of ASCII
 //     only is cut the first way; any other text both ways, and a place both cuts find is one finding.
 //     An entry of the list is cut the second way, so `foo-bar`, `foo.bar` and `foo bar` are the two
-//     words foo and bar, and a Cyrillic entry is a word. What is not caught: a Latin entry glued to a
-//     Latin letter or digit (foobar for foo, a plural foos); a non-Latin entry glued to any letter,
-//     mark or digit (a Cyrillic case ending); an entry with a letter of another case form than its
+//     words foo and bar, and a Cyrillic entry is a word. A Cyrillic entry of one word and at least four
+//     letters is found in its oblique cases too: a Cyrillic word of the text with a Russian case
+//     ending is also hashed without it, with each nominative ending put back (CASE_ENDINGS below).
+//     What is not caught: a Latin entry glued to a Latin letter or digit (foobar for foo, a plural
+//     foos); any other non-Latin entry glued to a letter, mark or digit, and a Cyrillic one glued to
+//     more than one case ending (a suffix such as -ovich) or with a stem that changes (a vowel lost in the
+//     oblique cases); an entry with a letter of another case form than its
 //     lower case (dotted I, Kelvin sign) where it stands inside the entry; an entry in another spelling
 //     or split by other characters than those between words. An empty report is not proof that nothing
 //     personal is left.
@@ -107,6 +111,38 @@ function normalWord(word) {
   return (ASCII.test(word) ? word : word.normalize('NFC')).toLowerCase()
 }
 
+// Russian case endings of nouns, surnames and adjectives, longest first, written as escapes (code is
+// ASCII, scripts/check-cyrillic.mjs): -ami -yami -ogo -ego -omu -emu -ymi -imi -ov -ev -om -em -oy -ey
+// -ym -im -ykh -ikh -am -yam -akh -yakh -uyu -yuyu -aya -yaya -oe -ee -a -ya -u -yu -e -y -i -o. The hash
+// list keeps no word, so the guard cannot take the stem of an entry; it takes the ending off a Cyrillic
+// word of the text instead, puts back each ending a nominative may have (none, -a, -ya, -y, the soft
+// sign) and hashes the result again: a surname in -ov is found with -a or -ym after it, a name in -a
+// with -oy or -u in its place, a name in -y with -ya or -em in its place.
+// shortcut: one ending off, Russian only (no Ukrainian endings, no stem that loses a vowel in its oblique
+// cases, no suffix such as -ovich); redo when a deny-list entry is found missed in a form this does not
+// reach, or when the list holds names of another Cyrillic language.
+const CASE_ENDINGS = '\u0430\u043c\u0438 \u044f\u043c\u0438 \u043e\u0433\u043e \u0435\u0433\u043e \u043e\u043c\u0443 \u0435\u043c\u0443 \u044b\u043c\u0438 \u0438\u043c\u0438 \u043e\u0432 \u0435\u0432 \u043e\u043c \u0435\u043c \u043e\u0439 \u0435\u0439 \u044b\u043c \u0438\u043c \u044b\u0445 \u0438\u0445 \u0430\u043c \u044f\u043c \u0430\u0445 \u044f\u0445 \u0443\u044e \u044e\u044e \u0430\u044f \u044f\u044f \u043e\u0435 \u0435\u0435 \u0430 \u044f \u0443 \u044e \u0435 \u044b \u0438 \u043e'.split(' ')
+const NOMINATIVE_ENDINGS = ['', '\u0430', '\u044f', '\u0439', '\u044c']
+// The stemming applies to entries of one word and at least four letters: a shorter one would match too many
+// unrelated words.
+const MIN_STEMMED = 4
+const CYRILLIC_WORD = /^\p{Script=Cyrillic}+$/u
+
+/** The forms of a Cyrillic word of the text that may be the nominative of a list entry it declines. */
+function nominatives(word) {
+  const out = new Set()
+  if (!CYRILLIC_WORD.test(word)) return out
+  for (const ending of CASE_ENDINGS) {
+    if (!word.endsWith(ending)) continue
+    const stem = word.slice(0, -ending.length)
+    for (const back of NOMINATIVE_ENDINGS) {
+      const form = stem + back
+      if (form !== word && [...form].length >= MIN_STEMMED) out.add(form)
+    }
+  }
+  return out
+}
+
 /** The parts of a personal-list entry, cut by the rule of the text. */
 function entryWords(entry) {
   return [...entry.matchAll(WORD)].map((m) => normalWord(m[0]))
@@ -124,6 +160,21 @@ function wordHash(word) {
   return h
 }
 
+// Per hash list, the answer of declined() for each word seen so far: most words repeat across the tree.
+const declinedSeen = new WeakMap()
+/** Whether `word` is a list entry of one word in an oblique case (see CASE_ENDINGS). */
+function declined(word, deny) {
+  let known = declinedSeen.get(deny)
+  if (!known) declinedSeen.set(deny, (known = new Map()))
+  let hit = known.get(word)
+  if (hit === undefined) {
+    if (known.size > 2_000_000) known.clear()
+    hit = [...nominatives(word)].some((form) => deny.full.has(wordHash(form)))
+    known.set(word, hit)
+  }
+  return hit
+}
+
 /**
  * The deny-word findings of `text` cut into words by `re`, each word made a key by `normal`: each
  * word and each run of two and three neighbouring words joined with `-`, pushed to `found`.
@@ -138,7 +189,7 @@ function denyWords(text, re, normal, deny, found) {
     const h = wordHash(word)
     const current = { word, start: m.index, lead: deny.first.has(h.slice(0, PREFIX)) }
     const end = m.index + m[0].length
-    if (deny.full.has(h)) add(current.start, end, word)
+    if (deny.full.has(h) || declined(word, deny)) add(current.start, end, word)
     if (before1?.lead) {
       const pair = `${before1.word}-${word}`
       if (deny.full.has(sha256(pair))) add(before1.start, end, pair)

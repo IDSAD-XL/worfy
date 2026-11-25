@@ -1,7 +1,7 @@
 # 144 — Аудит повторного review: проверка личных данных в guard и check-personal
 
 Type: bug
-Status: open
+Status: claimed 2026-11-25T14:10Z
 Blocked by: none
 Source: audit-pr-rereview-2026-11-13, triage.md «В Ticket-ы»; checked open on main b0e073620 2026-11-25
 

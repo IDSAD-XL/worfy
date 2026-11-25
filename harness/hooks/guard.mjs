@@ -335,6 +335,22 @@ const silentCheck = () => {
                     `so nothing tells whether ${lowerFirst(c.what)} carries traces. Run the same command again; ` +
                     `if it fails the same way, run the check by hand and fix what it reports: ${byHand}.`
             )
+        // A file read with its old text: refused only where the project checks texts at all (a clean verdict), not
+        // where silent-check had nothing to check (a Full project with attribution on, a folder outside a project).
+        const stale = c.stale || []
+        if (r.status === 0 && stale.length && /^silent-check: clean\b/m.test(r.stdout || ""))
+            deny(
+                notRun +
+                    stale
+                        .map(
+                            (u) =>
+                                `an earlier part of this same command names \`${u.written}\`, a file it sends: the guard reads that file before any ` +
+                                "part of the command runs, so it checked the text the file had before, not the one that part may write into it, " +
+                                "and running the same command again ends the same way. "
+                        )
+                        .join("") +
+                    "Nothing was published. Write the file in one command, then send it in the next one."
+            )
         if (r.status === 0) continue
         if (r.status === 2 && /^silent-check: profile not read\b/m.test(r.stderr || "")) continue
         if (r.status === 2 && unread.length && /^silent-check: cannot read /m.test(r.stderr || ""))
@@ -649,6 +665,12 @@ function ghApi(args, dir, checks, bodies, flat) {
 
     const texts = []
     const unread = []
+    const read = [] // the files read from disk: {written}
+    const send = (f) => {
+        const t = fileText(f, dir, unread)
+        if (t.length) read.push({ written: f })
+        return t
+    }
     for (const [flag, kv] of fields) {
         const eq = kv.indexOf("=")
         if (eq === -1) continue
@@ -656,24 +678,26 @@ function ghApi(args, dir, checks, bodies, flat) {
         if (!graphql && !GH_API_TEXT_KEYS.has(kv.slice(0, eq).match(/([^[\]]*)\]?$/)[1])) continue
         const value = kv.slice(eq + 1)
         // --field reads `@<file>` (`@-` is stdin, a heredoc body taken below); --raw-field takes the value as it is.
-        if (flag === "--field" && value.startsWith("@")) texts.push(...fileText(value.slice(1), dir, unread))
+        if (flag === "--field" && value.startsWith("@")) texts.push(...send(value.slice(1)))
         else texts.push(value)
     }
     // A JSON payload of a REST write counts by its text fields, from a file or from the heredoc of `--input -`.
     // Any other heredoc (`-F body=@-`, `-f body="$(cat <<EOF …)"`) is published as it is.
     const payload = (t) => (graphql ? t : payloadText(t))
-    if (input !== undefined) texts.push(...fileText(input, dir, unread).map(payload))
+    if (input !== undefined) texts.push(...send(input).map(payload))
     const all = [...texts, ...(input === "-" ? bodies.map(payload) : bodies)]
     // A GraphQL query only reads; a mutation the guard cannot see in full (an unread file) is checked all the same.
     if (graphql && !unread.length && !all.some((t) => /\bmutation\b/.test(t))) return
     if (!all.length && !unread.length) return
-    // A file named in an earlier part of the same command may be one that part writes: it does not exist yet when
-    // the guard reads it, before anything of the command runs.
+    // A file named in an earlier part of the same command may be one that part writes: the guard reads it before
+    // anything of the command runs, so it either does not exist yet or still has its old text.
     const start = flat.search(/(^|[^\w-])gh\s+api\b/)
-    for (const u of unread) {
+    const earlier = (u) => {
         const at = flat.indexOf(u.written)
-        u.earlier = at !== -1 && at < start
+        return at !== -1 && at < start
     }
+    for (const u of unread) u.earlier = earlier(u)
+    const stale = read.filter(earlier)
     // The text lands in the repository the endpoint names, so that repository's project decides. A GraphQL mutation
     // and an endpoint the guard cannot resolve (a shell variable, gh's {owner}, a repository no checkout has) name
     // none: sent from the common folder above a project's repositories (its workspace), they are checked from every
@@ -691,6 +715,7 @@ function ghApi(args, dir, checks, bodies, flat) {
             texts: all,
             diff: [],
             unread,
+            stale,
         })
 }
 
