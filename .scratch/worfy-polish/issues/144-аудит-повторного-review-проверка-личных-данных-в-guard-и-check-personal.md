@@ -1,7 +1,7 @@
 # 144 — Аудит повторного review: проверка личных данных в guard и check-personal
 
 Type: bug
-Status: claimed 2026-11-25T14:10Z
+Status: done 2026-11-25T15:59Z
 PR: #2214
 Blocked by: none
 Source: audit-pr-rereview-2026-11-13, triage.md «В Ticket-ы»; checked open on main b0e073620 2026-11-25
@@ -73,16 +73,20 @@ GitHub через `gh api` и в публичный repository через `pnpm 
       origin/main.
   - evidence: test-run pass · `bash harness/hooks/tests/guard-silent.test.sh` exit 0 (passed 195; on origin/main code exit 1, 2 failed: overwrite then post) · mac - · a8a8d5260460332c373e13a8c0a0712837709865
   - evidence: test-run pass · `bash harness/hooks/tests/guard-silent.test.sh` exit 0 (passed 203; review round 1 cases failed 6 before the fix) · mac - · b82f008bc0a4793e09ea84f04c74d7cb060a61a5
+  - evidence: review pass · PR #2214 · - - · 13239775e3bd3551d34a8b3e31fcfddb26c05841
 - [ ] 121: test в `harness/hooks/tests/guard-silent.test.sh` рядом с `:114` — `gh api <REST endpoint> --input p.json`
       без метода, в файле deny-слово — deny; mutant «убрать `|| input !== undefined`» (`guard.mjs:647`) — красный.
   - evidence: test-run pass · `bash harness/hooks/tests/guard-silent.test.sh` exit 0; mutant without input in the implicit POST rule exit 1 (the --input only test failed) · mac - · a8a8d5260460332c373e13a8c0a0712837709865
   - evidence: test-run pass · `bash harness/hooks/tests/guard-silent.test.sh` exit 0 (passed 203, the --input only implicit POST case included) · mac - · b82f008bc0a4793e09ea84f04c74d7cb060a61a5
+  - evidence: review pass · PR #2214 · - - · 13239775e3bd3551d34a8b3e31fcfddb26c05841
 - [ ] 196: unit test `test/unit/check-personal.test.ts` — запись на кириллице находится в косвенном падеже («…а»,
       «…ым»), по выбранному пути (при (а) — форма, вписанная в список). Красный на origin/main.
   - evidence: test-run pass · `vitest run test/unit/check-personal.test.ts` exit 0 (27 passed; the oblique-case test failed before the change) · mac - · a8a8d5260460332c373e13a8c0a0712837709865
   - evidence: test-run pass · `vitest run test/unit/check-personal.test.ts` exit 0 (29 passed; adjective and four-letter cases failed before the fix) · mac - · b82f008bc0a4793e09ea84f04c74d7cb060a61a5
+  - evidence: review pass · PR #2214 · - - · 13239775e3bd3551d34a8b3e31fcfddb26c05841
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `bash harness/hooks/tests/guard-silent.test.sh` — exit 0;
       `ci-ok` зелёный на head PR, job-ы Windows CI зелёные (платформенный PR).
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45646721210/job/139330346506 · ci - · 13239775e3bd3551d34a8b3e31fcfddb26c05841
 
 ## Где в коде
 
