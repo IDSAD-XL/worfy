@@ -33,14 +33,20 @@ Source: owner-check fail 2026-11-24 of worfy-product-session 27, item 9 — 27-�
 
 - [ ] Unit test: Esc с кнопки полосы, которая открыла панель (после «›» и повторного Agents), закрывает панель и
   оставляет фокус на кнопке; без открытой панели Esc уходит дальше.
+  - evidence: test-run pass · `pnpm test` exit 0 (test/unit/product-session-panel.test.tsx; red on origin/main) · mac - · c5d353861f92d609de9863d0dc5e181dd32d66e6
 - [ ] Unit test-ы: Idea generator показывает запуск skill `worfy:product-ideas` в ходе советника — задание (аргументы
   skill-а или вопрос хода), состояние (working, пока ход идёт; done, error, interrupted) и последний ответ хода;
   `/worfy:product-ideas` владельца тоже считается; отказанный вызов Skill и другой skill — нет; из Subagent-а и запуска
   в чате показан более поздний.
+  - evidence: test-run pass · `pnpm test` exit 0 (test/unit/product-session-panel.test.tsx; red on origin/main) · mac - · c5d353861f92d609de9863d0dc5e181dd32d66e6
 - [ ] e2e test (`test/e2e/product-session.spec.ts`, фейковый агент `product-ideas-skill.jsonl`): в окне 1160 px панель
   Idea generator показывает задание, «working», затем «done» и ответ; Agents, «›», снова Agents и Escape — панель
   закрыта, фокус на Agents.
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/product-session.spec.ts` exit 0 (red on origin/main code; red at the Escape step without the strip handler) · mac dev · 847a8677d76db03da09cc4c99fd8a20d7b9d0de8
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test`, e2e `test/e2e/product-session.spec.ts`, gate fast — exit 0.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · c5d353861f92d609de9863d0dc5e181dd32d66e6
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/product-session.spec.ts` exit 0 · mac dev · 847a8677d76db03da09cc4c99fd8a20d7b9d0de8
+  - evidence: gate pass · `gate fast` exit 0 · mac - · c5d353861f92d609de9863d0dc5e181dd32d66e6
 
 - [ ] (вручную) Сделай: нажми по очереди Critic, Idea generator, Drafts, щёлкни черновик, потом ещё раз Drafts; затем Agents, «›», снова Agents и Escape → Должно быть: каждая кнопка открывает свою панель в колонке 300 px, чат сужается, но не закрыт; Critic — строка состояния с числом возражений, имя файла и отзыв; Idea generator — задание, состояние, ответ; Drafts — черновик хода, по щелчку его текст; повторный щелчок, «›» и Escape сворачивают; открыта одна панель.
   - needs: mac stable
