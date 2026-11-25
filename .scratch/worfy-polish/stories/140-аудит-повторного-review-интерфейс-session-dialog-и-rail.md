@@ -196,3 +196,13 @@ quote-comments, changes-comments, product-session, pipeline, sidebar-rail) — 5
    - Ответ: у Ticket в работе `waits` не бывает `null`: Stage агента даёт `agent`. Только `waitsForPerson` отделяет
      ожидание человека от работы агента.
    - Строки: `src/renderer/shell/sidebar/PipelineSection.tsx:54`
+
+## 10. Что нашёл review и что осталось
+
+> VERIFIED — worfy-polish 140 (audit findings 70, 141 with 142, 189, 187, 133: the «not sent» label, focus after a kit Dialog closes, the Queued list reopening, «Show all» of a replaced quote, the Pipeline rail dot), head f45d193e2d7bd8a3242b709c10b4cb865859d040
+>
+> Gate (depth medium, two rounds): reviewer (lens: correctness) — MERGE with three lows; the Orchestrator sent finding 70 back (the label was red but at 2.7–2.9:1 under the 0.55 opacity of a queued message) with the palette note and the uncovered isConnected check; round 1 checked by the Orchestrator against the diff 95bac09cc..f45d193e2 and the screenshots.
+>
+> - What the user sees: a «not sent» message is no longer dimmed and its label is red in both themes (a waiting queued message stays dimmed); a kit Dialog that closes under a newer one, or after its action moved the focus, leaves the focus where it is — this covers the Command palette too (finding 142); the Queued list does not reopen by itself after the queue empties; «Show all» appears when the whole quote replaces the cut one; the Pipeline rail dot and «N Tickets wait» count only Tickets that are blocked or wait for a person.
+> - Evidence: every new test red on origin/main code; reviewer 8 of 9 mutants caught in round 1 (the ninth, isConnected, is removed in round 1); contrast test computes the blended contrast the user sees (red on the old CSS, 5 failed, green after); kit-dialog 25 passed; 269 tests of the touched files EXIT=0; e2e product-session.spec.ts whole 13/13 EXIT=0 with a new not-sent case; lint, typecheck EXIT=0; gate fast green on f45d193e2; story-check ok; four screenshots looked at by the Orchestrator (fixture text only).
+> - Not verified: the real «Getting started» command after the palette closes (a test window stands in).
