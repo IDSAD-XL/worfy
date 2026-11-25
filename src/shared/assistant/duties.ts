@@ -6,7 +6,7 @@
 // Assistant read them later (tickets 09, 14 and 15).
 import { z } from 'zod'
 import { attentionSourceSchema, type AttentionItem } from './attention'
-import { CHECK_KINDS, type CheckKind } from './schedule/settings'
+import { SOURCE_CHECK_KINDS, type SourceCheckKind } from './schedule/settings'
 
 /**
  * The mode of an action of a duty (story 15): `self` — the Assistant does it and writes the journal line;
@@ -100,7 +100,7 @@ export interface DutyDefinition {
   thresholdMinutes?: number
 }
 
-export const sourceDutyId = (kind: CheckKind): string => `source:${kind}`
+export const sourceDutyId = (kind: SourceCheckKind): string => `source:${kind}`
 export const projectRuleDutyId = (projectId: string, ruleId: string): string => `rule:${projectId}/${ruleId}`
 
 /**
@@ -135,7 +135,7 @@ export const BUILTIN_DUTIES: readonly DutyDefinition[] = Object.freeze([
     thresholdMinutes: 15,
   },
   { id: 'morning-summary', title: 'Morning summary', trigger: { kind: 'morning' }, actions: { summary: 'self' } },
-  ...CHECK_KINDS.map((kind): DutyDefinition => ({ id: sourceDutyId(kind), title: `${kind[0]!.toUpperCase()}${kind.slice(1)}`, trigger: { kind: 'items', match: [{ source: kind }] }, actions: { open: 'hand-over' } })),
+  ...SOURCE_CHECK_KINDS.map((kind): DutyDefinition => ({ id: sourceDutyId(kind), title: `${kind[0]!.toUpperCase()}${kind.slice(1)}`, trigger: { kind: 'items', match: [{ source: kind }] }, actions: { open: 'hand-over' } })),
 ])
 
 /** The sources a trigger covers. */

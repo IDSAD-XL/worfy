@@ -1,0 +1,51 @@
+{
+  "data": {
+    "repository": {
+      "defaultBranchRef": {
+        "name": "main",
+        "target": {
+          "history": {
+            "nodes": [
+              {
+                "oid": "c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6",
+                "committedDate": "2026-11-25T09:58:00Z",
+                "statusCheckRollup": null,
+                "associatedPullRequests": { "nodes": [] }
+              },
+              {
+                "oid": "c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5",
+                "committedDate": "2026-11-25T09:30:00Z",
+                "statusCheckRollup": {
+                  "contexts": {
+                    "nodes": [
+                      { "__typename": "CheckRun", "name": "test", "status": "COMPLETED", "conclusion": "SUCCESS", "startedAt": "2026-11-25T09:30:10Z", "completedAt": "2026-11-25T09:44:00Z" },
+                      { "__typename": "CheckRun", "name": "docs", "status": "COMPLETED", "conclusion": "SKIPPED", "startedAt": "2026-11-25T09:30:10Z", "completedAt": "2026-11-25T09:30:12Z" },
+                      { "__typename": "StatusContext", "context": "deploy", "state": "FAILURE", "createdAt": "2026-11-25T09:50:00Z" }
+                    ]
+                  }
+                },
+                "associatedPullRequests": {
+                  "nodes": [{ "number": 13, "title": "Fix the parser", "state": "MERGED", "baseRefName": "main", "mergeCommit": { "oid": "c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5" } }]
+                }
+              },
+              {
+                "oid": "c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4",
+                "committedDate": "2026-11-25T09:00:00Z",
+                "statusCheckRollup": {
+                  "contexts": {
+                    "nodes": [
+                      { "__typename": "CheckRun", "name": "test", "status": "COMPLETED", "conclusion": "FAILURE", "startedAt": "2026-11-25T09:00:10Z", "completedAt": "2026-11-25T09:20:00Z" }
+                    ]
+                  }
+                },
+                "associatedPullRequests": {
+                  "nodes": [{ "number": 10, "title": "Add the parser", "state": "MERGED", "baseRefName": "main", "mergeCommit": { "oid": "c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4c4" } }]
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}
