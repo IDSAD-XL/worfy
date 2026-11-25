@@ -66,8 +66,9 @@ heading, so Interrupt stays in sight down to the smallest window. Its body is th
     before the review, "No review written yet".
   - Idea generator shows the Session's last run of `worfy:product-ideas`: its task, its state line and its last answer.
     The advisor usually runs the skill in its own turn; that run's task is the skill's arguments, else what the owner
-    asked in that turn, it is "working" while the turn runs, and its answer is the advisor's last message of that
-    turn. A run as a Subagent shows the agent's own task, state and answer. When both kinds exist, the later started
+    asked in that turn, it is "working" while the turn runs ("interrupted" when the owner stopped it, "error" when
+    the Session's process died in it), and its answer is the advisor's last message of that turn. A Subagent of the
+    advisor that runs the skill is not such a run. A run as a Subagent shows the agent's own task, state and answer. When both kinds exist, the later started
     one is shown. With none it reads "No idea generator in this Session yet"; before an answer, "No ideas written yet".
   - Drafts lists the advisor's drafts (`<topic>/drafts/*.md`) that the loaded part of the chat wrote or edited, the
     last written first, each with its topic and how many times it was written. A click shows the text of its last

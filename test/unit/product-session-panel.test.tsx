@@ -721,7 +721,8 @@ describe('the Critic, Idea generator and Drafts buttons of the strip', () => {
     // Read back from the transcript file: no turn result, but the owner wrote again.
     await mount([...ideasTurn(), { type: 'notice', kind: 'user', text: 'Thanks', at: 90_000 } as AgentEvent, text('m4', 'You are welcome.')], true)
     fireEvent.click(screen.getByTestId('product-rail-ideas'))
-    expect(within(ideasPanel()).getByTestId('product-rail-state').textContent).toMatch(/^\s*done ·/u)
+    // The turn's own events carry no time here, so the state line has none: the owner's next message is no end of it.
+    expect(within(ideasPanel()).getByTestId('product-rail-state').textContent?.trim()).toBe('done')
     expect(within(ideasPanel()).getByTestId('product-ideas-answer').textContent).toContain('A free tier')
     cleanup()
     await mount([...ideasTurn(), turnEnd(62_000, true)])
@@ -748,6 +749,37 @@ describe('the Critic, Idea generator and Drafts buttons of the strip', () => {
     const interrupted = { ...(turnEnd(9_000, true) as object), interrupted: true } as AgentEvent
     expect(ideasSkillRunOf([...ideasTurn(), interrupted], false)?.status).toBe('interrupted')
     expect(ideasSkillRunOf([IDEAS_PROMPT, text('m1', 'no skill')], false)).toBeUndefined()
+  })
+
+  // Review round 1 of PR #2185.
+  it('ideasSkillRunOf: a turn the owner stopped is interrupted, its answer whole; a process that died mid-turn is an error', () => {
+    // Read back from the transcript: no result, the interrupt notice and then the owner's next message.
+    const stopped = ideasSkillRunOf(
+      [
+        ...ideasTurn(),
+        { type: 'notice', kind: 'user', text: '[Request interrupted by user]', at: 30_000 } as AgentEvent,
+        { type: 'notice', kind: 'user', text: 'Go on later', at: 90_000 } as AgentEvent,
+        text('m9', 'Fine.'),
+      ],
+      false,
+    )
+    expect(stopped).toMatchObject({ status: 'interrupted', durationMs: 28_000 })
+    expect(stopped?.answer).toContain('A free tier')
+    // The live Session's process died: a state event with the error, no result.
+    const died = ideasSkillRunOf([...ideasTurn(), { type: 'state', state: 'error', error: 'exited with code 1', at: 40_000 } as AgentEvent], false)
+    expect(died).toMatchObject({ status: 'error', durationMs: 38_000 })
+  })
+
+  it('ideasSkillRunOf ends a run with no result at the last event of its turn, not at the owner’s next message', () => {
+    const turn = ideasTurn().map((event, index) => ({ ...event, at: event.at ?? 2_000 + index * 1_000 }) as AgentEvent)
+    const run = ideasSkillRunOf([...turn, { type: 'notice', kind: 'user', text: 'Later', at: 5 * 60 * 60_000 } as AgentEvent], false)
+    // The Skill call at 2 s, the turn's last event at 8 s; the owner wrote again five hours later.
+    expect(run).toMatchObject({ status: 'done', startedAt: 2_000, durationMs: 6_000 })
+  })
+
+  it('ideasSkillRunOf leaves out a Skill call of a Subagent of the advisor', () => {
+    const nested: AgentEvent = { type: 'tool_use', id: 'skill-sub', name: 'Skill', input: { skill: 'worfy:product-ideas' }, parentToolUseId: 'agent-1', at: 2_000 }
+    expect(ideasSkillRunOf([IDEAS_PROMPT, nested, result('skill-sub'), text('m1', 'The Subagent is on it.'), turnEnd(5_000)], false)).toBeUndefined()
   })
 
   it('Idea generator shows the later of a skill run and an idea generator Subagent', async () => {
