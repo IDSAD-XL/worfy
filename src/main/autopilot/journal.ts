@@ -50,6 +50,17 @@ const randomSuffix = (): string => randomBytes(RUN_ID_SUFFIX_LENGTH / 2).toStrin
 /** How many run ids to try when the file of a new one already exists (same millisecond and suffix). */
 const OPEN_ATTEMPTS = 5
 
+const lineListeners = new Set<(event: JournalEvent) => void>()
+
+/**
+ * Hears each line worfy appended to a run journal, once it is written (the attention core, worfy-assistant ticket 03).
+ * A line an observer appends from outside is not heard: the core reads those back at its start. Answers the unsubscribe.
+ */
+export function onJournalLine(listener: (event: JournalEvent) => void): () => void {
+  lineListeners.add(listener)
+  return () => lineListeners.delete(listener)
+}
+
 /** One open run: appends its events to its file, in the order append() was called. */
 export class RunJournal {
   /** The previous append; the next one starts after it settles, so lines keep the call order. */
@@ -81,7 +92,18 @@ export class RunJournal {
     } catch (error) {
       return Promise.reject(error instanceof Error ? error : new Error(String(error)))
     }
-    const write = this.tail.then(() => appendFile(this.file, line))
+    const write = this.tail.then(async () => {
+      await appendFile(this.file, line)
+      // The listeners hear the line as written: the parsed event, without the keys the format dropped.
+      const event = JSON.parse(line) as JournalEvent
+      for (const listener of lineListeners) {
+        try {
+          listener(event)
+        } catch (error) {
+          console.warn('[autopilot] a journal line listener failed', error)
+        }
+      }
+    })
     this.tail = write.catch(() => undefined)
     return write
   }

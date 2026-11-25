@@ -167,6 +167,11 @@ export class SessionRegistry {
     for (const session of this.live()) session.hold()
   }
 
+  /** Whether worfy quits (depart() was called): a Session closed now is closed by the quit (the attention core). */
+  isDeparting(): boolean {
+    return this.departing
+  }
+
   /**
    * worfy quits (step 3 of quit-grace.ts): every Session's turn is interrupted (Session.halt, `haltTurnMs` at most),
    * then every Session is closed and its processes waited for — EXIT_WAIT_MS, then SIGKILL and KILL_EXIT_MS more

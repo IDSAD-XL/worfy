@@ -10,6 +10,7 @@ import { sharedOrchestratorContinue, startOrchestrators } from './agent/app-orch
 import { madeRegistry, sharedRegistry } from './agent/app-registry'
 import { installLimitsRefresh } from './agent/limits-usage'
 import { appUserModelId } from './app-id'
+import { startAttentionCore } from './assistant/core/app'
 import { startCheckScheduler } from './assistant/schedule/app'
 import { toEveryWindow } from './broadcast'
 import { stopLiveBrowsers } from './browser/live'
@@ -253,6 +254,13 @@ function start(): void {
         app.on('will-quit', () => void acceptance.stop())
       } catch (error) {
         console.error('[acceptance] the Acceptance queue did not start', error)
+      }
+      // The attention core of the Assistant (worfy-assistant ticket 03): the events of every Project as items. Not a
+      // startup step: worfy runs without it.
+      try {
+        app.on('will-quit', startAttentionCore())
+      } catch (error) {
+        console.error('[assistant] the attention core did not start', error)
       }
       // The Update checks of the Stable copy (worfy-update ticket 01, ADR-0089): GitHub without
       // sign-in, 10 s after the start and then every hour; in any other build nothing runs. Not a

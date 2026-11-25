@@ -5,7 +5,7 @@ import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFi
 import { tmpdir } from 'node:os'
 import { join, relative, sep } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ESTIMATE_RUNS, journalDir, listRuns, openRun, readRecentRuns, readRun } from '../../src/main/autopilot/journal'
+import { ESTIMATE_RUNS, journalDir, listRuns, onJournalLine, openRun, readRecentRuns, readRun } from '../../src/main/autopilot/journal'
 import { JOURNAL_EVENT_KINDS, type JournalEventFields } from '../../src/shared/autopilot/journal'
 import { removeTestTree } from '../remove'
 
@@ -188,6 +188,41 @@ describe('openRun and append', () => {
     await expect(failed).rejects.toThrow(/no space/)
     await next
     expect(rawLines(journal.file).map((line) => (JSON.parse(line) as { kind: string }).kind)).toEqual(['run-started', 'run-stopped'])
+  })
+
+  it('tells each listener of a line once it is written; a listener that throws costs neither the append nor the next listener (worfy-assistant ticket 03)', async () => {
+    const journal = await openRun({ project: PROJECT, epic: EPIC }, { now: ticking(T0) })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const heard: { kind: string; onDisk: boolean }[] = []
+    const stopThrowing = onJournalLine(() => {
+      throw new Error('listener broke')
+    })
+    const stopHearing = onJournalLine((event) => heard.push({ kind: event.kind, onDisk: rawLines(journal.file).some((line) => line.includes('"run-stopped"')) }))
+    try {
+      await expect(journal.append({ kind: 'run-stopped', reason: 'epic-done', secret: 'x' } as unknown as JournalEventFields)).resolves.toBeUndefined()
+      expect(warn).toHaveBeenCalledWith('[autopilot] a journal line listener failed', expect.any(Error))
+    } finally {
+      stopThrowing()
+      stopHearing()
+      warn.mockRestore()
+    }
+    expect(heard).toEqual([{ kind: 'run-stopped', onDisk: true }])
+    expect(rawLines(journal.file).map((line) => (JSON.parse(line) as { kind: string }).kind)).toEqual(['run-started', 'run-stopped'])
+    // Unsubscribed: the next line is heard by no one.
+    await journal.append({ kind: 'resumed' })
+    expect(heard).toHaveLength(1)
+  })
+
+  it('a listener hears the event as it was written, not the raw one', async () => {
+    const journal = await openRun({ project: PROJECT, epic: EPIC }, { now: ticking(T0) })
+    const heard: unknown[] = []
+    const stop = onJournalLine((event) => heard.push(event))
+    try {
+      await journal.append({ kind: 'run-stopped', reason: 'epic-done', secret: 'x' } as unknown as JournalEventFields)
+    } finally {
+      stop()
+    }
+    expect(heard).toEqual([JSON.parse(rawLines(journal.file)[1]!)])
   })
 
   it('refuses an event outside the format and writes the parsed event, not the raw one', async () => {
