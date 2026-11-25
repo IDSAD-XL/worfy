@@ -2,6 +2,7 @@
 
 Type: task
 Status: claimed 2026-11-24T23:33Z
+PR: #2188
 Blocked by: None — can start immediately
 Source: owner-check fail 2026-11-24 of worfy-product-session 26, item 6 — 26-граф-радиальный-как-в-прототипе.md
 

@@ -2,6 +2,7 @@
 
 Type: task
 Status: claimed 2026-11-24T23:33Z
+PR: #2188
 Blocked by: None — can start immediately
 Source: owner-check fail 2026-11-24 of worfy-product-session 23, item 10 — 23-mind-map-размер-текст-и-карточка-узла-как-в-прототипе.md
 
