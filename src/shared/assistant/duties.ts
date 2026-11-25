@@ -20,9 +20,11 @@ export type DutyActionMode = z.infer<typeof dutyActionModeSchema>
 /**
  * The actions a duty may have. `wake-orchestrator` and `continue-session` are the closed list of main (ticket 08);
  * `fix-session` proposes a Session that fixes the red CI of the main branch; `open` opens the item's subject;
- * `summary` writes the morning summary.
+ * `summary` writes the morning summary. `pr-follow` («Fix checks», «Resolve conflicts», «Address comments» on a PR)
+ * and `autopilot-start` (the Start Autopilot dialog) are main's own functions with their own checks, which the
+ * Assistant reaches through `worfy-app` (ticket 09).
  */
-export const DUTY_ACTIONS = ['open', 'wake-orchestrator', 'continue-session', 'fix-session', 'summary'] as const
+export const DUTY_ACTIONS = ['open', 'wake-orchestrator', 'continue-session', 'fix-session', 'summary', 'pr-follow', 'autopilot-start'] as const
 export type DutyAction = (typeof DUTY_ACTIONS)[number]
 
 /** The counters of a duty (story 19). */
@@ -117,7 +119,7 @@ export const BUILTIN_DUTIES: readonly DutyDefinition[] = Object.freeze([
       kind: 'items',
       match: [{ source: 'session', kinds: ['quiet', 'waiting', 'error'] }, { source: 'autopilot' }, { source: 'workflow' }, { source: 'limits' }],
     },
-    actions: { open: 'hand-over', 'wake-orchestrator': 'ask', 'continue-session': 'ask' },
+    actions: { open: 'hand-over', 'wake-orchestrator': 'ask', 'continue-session': 'ask', 'autopilot-start': 'ask' },
     thresholdMinutes: 15,
   },
   {
@@ -131,7 +133,7 @@ export const BUILTIN_DUTIES: readonly DutyDefinition[] = Object.freeze([
     id: 'waits-for-user',
     title: 'Waits for you',
     trigger: { kind: 'items', match: [{ source: 'session', kinds: ['question', 'permission'] }, { source: 'ticket-waits' }, { source: 'pr-inbox' }, { source: 'health' }] },
-    actions: { open: 'hand-over' },
+    actions: { open: 'hand-over', 'pr-follow': 'ask' },
     thresholdMinutes: 15,
   },
   { id: 'morning-summary', title: 'Morning summary', trigger: { kind: 'morning' }, actions: { summary: 'self' } },
