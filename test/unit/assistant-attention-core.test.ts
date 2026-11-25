@@ -318,3 +318,105 @@ describe('keeping the items', () => {
     expect(logs).toEqual([expect.stringContaining('p-broken')])
   })
 })
+
+// worfy-polish 151: the first read of a 682-Ticket Project gave 96 items, each written as the whole file — 96 writes,
+// 42 ms of the main process on the owner's Mac before the window became interactive. A batch writes each scope once.
+describe('a batch of changes', () => {
+  /** A core over a store that counts the writes of each scope, and the listener's calls. */
+  function counted(now: () => number): { core: AttentionCore; root: ReturnType<typeof dataRoot>; writes: Map<string | null, number>; told: (string | null)[] } {
+    const root = dataRoot()
+    const files = attentionFileStore(attentionPaths(root.projectDir, root.root))
+    const writes = new Map<string | null, number>()
+    const store = {
+      read: files.read,
+      write: (scope: string | null, file: Parameters<typeof files.write>[1]) => {
+        writes.set(scope, (writes.get(scope) ?? 0) + 1)
+        files.write(scope, file)
+      },
+    }
+    const core = new AttentionCore({ now, store, settings: () => ({ timeZone: 'Europe/Berlin' }), projects: () => [PROJECT] })
+    const told: (string | null)[] = []
+    core.subscribe((scope) => told.push(scope))
+    return { core, root, writes, told }
+  }
+
+  it('N changes of one scope in a batch are one write of its file and one call of the listeners, after the last change', () => {
+    const time = clock('2026-11-13T09:00:00Z')
+    const { core, root, writes, told } = counted(time.now)
+    const taken: string[] = []
+    core.onItem((item) => taken.push(item.subject.id))
+    core.batch(() => {
+      for (let num = 1; num <= 40; num++) core.ingest(waits(num, 'r1'))
+      core.resolve(PROJECT, waits(3, '').subject)
+      core.expect({ source: 'session', id: 's-1:waiting', revision: 'turn-1', projectId: PROJECT, subject: { kind: 'session', id: 's-1', label: 's-1' }, kind: 'waiting', text: 'waits', quietMs: 15 * MIN })
+      core.ingest({ source: 'limits', id: 'five_hour', revision: 'limit-reached\0', projectId: null, subject: { kind: 'limit', id: 'five_hour', label: 'five_hour' }, kind: 'limit-reached', text: 'reached' })
+      // Nothing is on disk or told until the batch ends; the core itself answers at once.
+      expect(writes.size).toBe(0)
+      expect(told).toEqual([])
+      expect(core.items(PROJECT)).toHaveLength(40)
+    })
+    expect(Object.fromEntries(writes)).toEqual({ [PROJECT]: 1, null: 1 })
+    expect(told.sort()).toEqual([null, PROJECT].sort())
+    // Each item is still handed to the takers one by one, as it is taken.
+    expect(taken).toHaveLength(41)
+
+    // The same items as without a batch: a restart reads them back, and the condition is pending.
+    const after = coreOver(root, time.now)
+    expect(after.items(PROJECT)).toEqual(core.items(PROJECT))
+    expect(after.items(PROJECT).filter((item) => item.state === 'closed').map((item) => item.subject.id)).toEqual(['worfy-x/3'])
+    time.add(HOUR)
+    after.tick()
+    expect(after.items(PROJECT).map((item) => item.kind)).toContain('waiting')
+  })
+
+  it('a batch inside a batch writes once, when the outer one ends', () => {
+    const { core, writes } = counted(clock('2026-11-13T09:00:00Z').now)
+    core.batch(() => {
+      core.ingest(waits(1, 'r1'))
+      core.batch(() => core.ingest(waits(2, 'r1')))
+      expect(writes.size).toBe(0)
+      core.ingest(waits(3, 'r1'))
+    })
+    expect(Object.fromEntries(writes)).toEqual({ [PROJECT]: 1 })
+  })
+
+  it('a batch that throws still writes what it took before the throw, and the error goes on to the caller', () => {
+    const { core, root, writes } = counted(clock('2026-11-13T09:00:00Z').now)
+    expect(() =>
+      core.batch(() => {
+        core.ingest(waits(1, 'r1'))
+        throw new Error('the source broke')
+      }),
+    ).toThrow('the source broke')
+    expect(Object.fromEntries(writes)).toEqual({ [PROJECT]: 1 })
+    expect(coreOver(root, clock('2026-11-13T09:00:00Z').now).items(PROJECT)).toHaveLength(1)
+  })
+
+  it('a scope whose write fails at the end of a batch does not keep the other scopes from theirs; the failure goes to the caller', () => {
+    const root = dataRoot()
+    const files = attentionFileStore(attentionPaths(root.projectDir, root.root))
+    const store = {
+      read: files.read,
+      write: (scope: string | null, file: Parameters<typeof files.write>[1]) => {
+        if (scope === PROJECT) throw new Error('ENOSPC: no space left on device')
+        files.write(scope, file)
+      },
+    }
+    const core = new AttentionCore({ now: clock('2026-11-13T09:00:00Z').now, store, settings: () => ({ timeZone: 'Europe/Berlin' }), projects: () => [PROJECT] })
+    expect(() =>
+      core.batch(() => {
+        core.ingest(waits(1, 'r1'))
+        core.ingest({ source: 'limits', id: 'five_hour', revision: 'limit-reached\0', projectId: null, subject: { kind: 'limit', id: 'five_hour', label: 'five_hour' }, kind: 'limit-reached', text: 'reached' })
+      }),
+    ).toThrow('ENOSPC')
+    expect(existsSync(join(root.root, 'assistant', 'items.json'))).toBe(true)
+  })
+
+  it('without a batch each change is written at once, as before', () => {
+    const { core, writes } = counted(clock('2026-11-13T09:00:00Z').now)
+    core.ingest(waits(1, 'r1'))
+    core.ingest(waits(2, 'r1'))
+    // The new file when the scope is first kept, then one write per change.
+    expect(Object.fromEntries(writes)).toEqual({ [PROJECT]: 3 })
+  })
+})

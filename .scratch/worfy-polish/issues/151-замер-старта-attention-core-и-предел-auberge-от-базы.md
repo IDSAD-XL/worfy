@@ -1,7 +1,8 @@
 # 151 — Замер старта attention core на Project-е из 155 Ticket-ов и предел Auberge-test-а от замеренной базы
 
 Type: bug
-Status: open
+Status: claimed 2026-11-25T19:13Z
+Branch: worfy-polish/151
 Blocked by: 150
 Source: Ticket worfy-polish 150 (карантин flaky e2e test-а старта Auberge-проекта на macOS CI) и его таблица evidence;
 бриф Orchestrator-а 2026-11-25.
@@ -67,3 +68,61 @@ Project-а пишет `assistant-items.json` синхронно и с прове
 
 - Подъём `START_MS`, `START_RATIO` или `RUNNER_START_CAP_MS` — запрещён правилами проекта.
 - Ускорение старта renderer-а (ELK, React Flow) — отдельный Ticket, если замер покажет, что время там.
+
+## Итог
+
+### Замер
+
+Project e2e test-а — не 155 Ticket-ов, а 682 (42 Epic-а, `generateAuberge` в `test/e2e/epic-frame.spec.ts`), из них 96
+в состоянии `blocked`. Первое чтение workflow этого Project-а в attention core дало 96 items, и каждый `ingest`
+переписывал весь `assistant-items.json` с проверкой zod: **96 записей**, не 23.
+
+Как мерили. Временные timing marks (в PR их нет) в main process вокруг `workflowAttention` первого чтения workflow и
+счётчик записей store; `WORFY_QUARANTINE=only pnpm test:e2e test/e2e/epic-frame.spec.ts --repeat-each`, Mac владельца,
+2026-11-25, тот же build. `N` — время до интерактивного окна, которое печатает test.
+
+| Сборка | Старт-ов | Записей за первое чтение | Время ядра на первое чтение, ms | `N`, ms (min / медиана / max) |
+| --- | --- | --- | --- | --- |
+| `main` (ядро пишет на каждый item) | 8 | 96 | 42–70, медиана 51 | 723 / 825 / 909 |
+| этот PR (одна запись на scope за чтение) | 5 | 1 | 8.8–12.9, медиана 9 | 786 / 796 / 801 |
+| без ядра (`startAttentionCore` не запущен) | 8 | — | — | 690 / 734 / 847 |
+
+- Ядро на `main` — 51 ms из медианных 825 ms `N`, **6 % `N`** на Mac владельца: больше «нескольких процентов», то есть
+  заметно. Если runner медленнее Mac в той же пропорции, что `N` (медиана 4963 ms против 825 ms, ×6), это около 300 ms
+  на runner-е.
+- Тот же расчёт в vitest без окна (Electron Node, тот же `workflowAttention` на 682 Ticket-ах, файловый store): 96
+  записей, 21–26 ms на все записи, 24–35 ms всего → после правки 1 запись, 0.5–2.8 ms на неё, 3–12 ms всего.
+- Ядро — не главная причина красных job-ов: 300 ms из превышений 400–2958 ms над 7300 ms; два из четырёх красных
+  job-ов шли на коде без ядра. Главная причина — потолок 7300 ms, который решал предел в 58 из 84 job-ов (Ticket 150).
+
+### Правка ядра
+
+`AttentionCore.batch(take)` (`src/main/assistant/core/attention-core.ts`): изменения внутри `take` пишут каждый
+scope один раз, в конце; слушатели `subscribe` получают итог один раз на scope; каждый item по-прежнему уходит
+слушателям `onItem` сразу, как взят. Вложенный batch пишет в конце внешнего. То, что `take` успел изменить до
+исключения, записывается, исключение идёт дальше; scope, чья запись упала, не мешает записи остальных, первая ошибка
+бросается после них. Синхронно, без `setImmediate`: записи не теряются при выходе (`will-quit`), источник видит ошибку
+записи в том же вызове, как раньше. В batch идут источники, которые отдают много событий за раз
+(`src/main/assistant/core/sources.ts`): чтение workflow, PR inbox, Health check report, Limits. Те же items, тот же
+файл. Test-ы: `test/unit/assistant-attention-core.test.ts` («a batch of changes», 5 test-ов) и
+`test/unit/assistant-attention-sources.test.ts` (чтение Project-а из 682 Ticket-ов — одна запись и один вызов
+слушателей; без правки — 112 записей).
+
+### Предел от замеренной базы
+
+Выбран вариант «отношение `N / R` против предела из распределения»: на GitHub Actions предел — `START_RATIO × R`
+(6 × медиана трёх стартов Project-а из одного Ticket-а в том же job-е), не меньше `START_MS`, без потолка в ms.
+`START_MS` = 3000 и `START_RATIO` = 6 не тронуты; `RUNNER_START_CAP_MS` удалён, не поднят.
+
+Числа базы (84 первые попытки `macos-e2e` 2026-11-22..25, Ticket 150): `N / R` 1.83–5.19, медиана 3.56; четыре
+красных — 2.66, 4.03, 4.10, 5.02, все внутри 6. Калибровка 2026-10-28: 3.07–4.3. Ни один из 84 + 4 замеров не выше 6.
+
+Цена: задержка, которая одинаково добавилась бы к каждому старту, поднимает `R` вместе с `N` и на CI больше не
+ловится — её ловит только `START_MS` = 3000 вне GitHub Actions. Раньше её ловил потолок 7300 ms, ценой того, что
+медленный runner краснил test. Второй вариант из Ticket-а — база «тот же старт без ядра» — не взят: он мерит только
+долю ядра и не убирает зависимость от скорости runner-а.
+
+`N / R` теперь печатается в строке `auberge-size: interactive …` test-а, так что распределение можно пересчитать по
+log-ам job-ов.
+
+Карантин снят: `test/quarantine/epic-frame-auberge-start-macos-ci.json` удалён, test объявлен через `test`.

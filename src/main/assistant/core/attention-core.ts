@@ -74,8 +74,44 @@ export class AttentionCore {
   private readonly scopes = new Map<string | null, AttentionFile>()
   private readonly listeners = new Set<AttentionListener>()
   private readonly takers = new Set<(item: AttentionItem) => void>()
+  /** How many batch() calls are running; while above 0, a changed scope is only marked in `dirty`. */
+  private batching = 0
+  private readonly dirty = new Set<string | null>()
 
   constructor(private readonly options: AttentionCoreOptions) {}
+
+  /**
+   * Runs `take` and writes each scope it changed once, at its end (a batch inside a batch: at the end of the outer
+   * one); the listeners are told once per scope then. A source that hands over many events at once (the first read of
+   * a Project's workflow) runs in a batch: the file is written once, not once per item (worfy-polish 151). Inside the
+   * batch the core answers at once from memory, and each item still goes to the takers (onItem) as it is taken.
+   * What `take` changed before it threw is written too; the throw goes on to the caller.
+   */
+  batch<T>(take: () => T): T {
+    this.batching += 1
+    try {
+      return take()
+    } finally {
+      this.batching -= 1
+      if (this.batching === 0) this.flush()
+    }
+  }
+
+  /** Writes every scope a batch changed; a scope whose write fails costs only itself, and the first failure is thrown after the rest. */
+  private flush(): void {
+    let failure: { error: unknown } | undefined
+    for (const scope of [...this.dirty]) {
+      this.dirty.delete(scope)
+      const file = this.scopes.get(scope)
+      if (file === undefined) continue
+      try {
+        this.write(scope, file)
+      } catch (error) {
+        failure ??= { error }
+      }
+    }
+    if (failure !== undefined) throw failure.error
+  }
 
   private timeZone(): string {
     return this.options.settings?.().timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone
@@ -87,13 +123,21 @@ export class AttentionCore {
       const saved = this.options.store.read(scope)
       file = saved ?? { since: this.options.now(), items: [], seen: {}, conditions: [] }
       this.scopes.set(scope, file)
-      // Written at once: `since` has to outlive a run that gave the scope no item.
-      if (saved === undefined) this.options.store.write(scope, file)
+      // Written at once (in a batch: at its end): `since` has to outlive a run that gave the scope no item.
+      if (saved === undefined) {
+        if (this.batching > 0) this.dirty.add(scope)
+        else this.options.store.write(scope, file)
+      }
     }
     return file
   }
 
   private save(scope: string | null, file: AttentionFile): void {
+    if (this.batching > 0) this.dirty.add(scope)
+    else this.write(scope, file)
+  }
+
+  private write(scope: string | null, file: AttentionFile): void {
     const oldest = this.options.now() - ATTENTION_KEEP_DAYS * DAY_MS
     file.items = file.items.filter((item) => item.updatedAt >= oldest)
     file.seen = Object.fromEntries(Object.entries(file.seen).filter(([, at]) => at >= oldest))
