@@ -172,3 +172,16 @@ async function listedInside(deps: Pick<ProjectRemovalDeps, 'projects' | 'profile
 3. Что будет с Session-ом вложенного Project-а, Profile которого `bin/profile` не смог определить?
    - Ответ: он считается общим с удаляемым: его Orchestrator останавливается, Session закрывается, как до изменения.
    - Строки: `src/main/projects/remove.ts:150-154`
+
+## 9. Что нашёл review и что осталось
+
+> VERIFIED — worfy-polish 147 (audit re-review findings 63, 65, 184, 130, 145: Product chat, Session requests, Projects), head 4144e6b6c024d3ebf1dd124165b084f0a020d9aa
+>
+> Gate (depth medium, two rounds): reviewer (lens: correctness) — MERGE with four lows; the Orchestrator sent three back (the destructive path's defensive branch untested and its comment stale; a mount-time request for closed Sessions; no test with «", » inside an answer); round 1 checked by the Orchestrator against the implementer's report and the diff.
+>
+> - What the user sees: the Product Session chat shows a question answered before Resume as the answered card with the chosen option; a window that opens a Session (not closed) asks main once for its open requests, so a waiting question or permission shows without a state change; a chip of another topic's node switches the Mind map to that topic (a toast when it is gone or unreadable); the Project card's part tooltips are read as its button's description; removing a Project folder no longer stops, closes or names a nested Project that has its own Profile (one whose Profile cannot be told still counts as shared and is closed).
+> - Evidence: new tests red on origin/main (7), the reviewer's 9 of 11 mutants caught and both survivors killed in round 1; 233 tests of the 7 files EXIT=0; pnpm lint, typecheck, test EXIT=0 (924 files) on the first head; gate fast green on 24abd2935; story-check ok; the answer format checked against the Claude Code binary of SDK 0.3.322.
+> - Not verified: reading a real Session file's answered question; how VoiceOver reads the description; no screenshots (no done item is about looks).
+> - Noted (low, no fix): find in the Product chat does not search the read-back questions; a chip switches the topic of two open chats of one Project.
+>
+> Decided without the owner (to confirm): toast texts «The Mind map has no topic "<name>"» and «Could not read the Mind map topic "<name>": <error>»; a declined or unanswered question from the file is not drawn; a nested Project whose Profile cannot be determined counts as sharing it; a closed Session is not asked for requests on mount.
