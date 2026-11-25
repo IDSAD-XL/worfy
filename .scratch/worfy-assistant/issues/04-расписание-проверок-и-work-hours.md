@@ -44,17 +44,17 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 04; «Решения 
 
 - [ ] Планировщик держит реестр проверок с интервалом и разбросом; unit test: проверка, которая ещё идёт, второй раз не
       запускается.
-  - evidence: test-run pass · `pnpm test test/unit/assistant-check-scheduler.test.ts` exit 0 · mac - · 9acb1a1657ecfb4adafe57db9143b3faa7344acc
+  - evidence: test-run pass · `pnpm test test/unit/assistant-check-scheduler.test.ts` exit 0 · mac - · 790013a43eb69f4f0538a5f835f667ded5a6f424
 - [ ] Work hours задают дни недели, одно или несколько окон и часовой пояс; unit test: вне work hours отмеченная проверка
       спит, неотмеченная идёт.
-  - evidence: test-run pass · `pnpm test test/unit/assistant-work-hours.test.ts test/unit/assistant-check-scheduler.test.ts` exit 0 · mac - · 9acb1a1657ecfb4adafe57db9143b3faa7344acc
+  - evidence: test-run pass · `pnpm test test/unit/assistant-work-hours.test.ts test/unit/assistant-check-scheduler.test.ts` exit 0 · mac - · 790013a43eb69f4f0538a5f835f667ded5a6f424
 - [ ] Unit test: у каждого типа проверки свои включение, интервал и сон вне work hours.
-  - evidence: test-run pass · `pnpm test test/unit/assistant-check-scheduler.test.ts test/unit/assistant-schedule-settings.test.ts` exit 0 · mac - · 9acb1a1657ecfb4adafe57db9143b3faa7344acc
+  - evidence: test-run pass · `pnpm test test/unit/assistant-check-scheduler.test.ts test/unit/assistant-schedule-settings.test.ts` exit 0 · mac - · 790013a43eb69f4f0538a5f835f667ded5a6f424
 - [ ] Unit test-ы на ненастоящих часах: полночь, смена летнего времени; после сна Mac и после перезапуска проверка
       догоняет пропущенное, пока Mac спит или worfy закрыт — не идёт.
-  - evidence: test-run pass · `pnpm test test/unit/assistant-check-scheduler.test.ts test/unit/assistant-work-hours.test.ts` exit 0 · mac - · 9acb1a1657ecfb4adafe57db9143b3faa7344acc
+  - evidence: test-run pass · `pnpm test test/unit/assistant-check-scheduler.test.ts test/unit/assistant-work-hours.test.ts` exit 0 · mac - · 790013a43eb69f4f0538a5f835f667ded5a6f424
 - [ ] Настройки лежат в настройках машины; их каналы IPC — `local`, Linked machine их не видит.
-  - evidence: test-run pass · `pnpm test test/contract/assistant-schedule-settings.test.ts test/contract/app-settings.test.ts` exit 0 · mac - · 9acb1a1657ecfb4adafe57db9143b3faa7344acc
+  - evidence: test-run pass · `pnpm test test/contract/assistant-schedule-settings.test.ts test/contract/app-settings.test.ts` exit 0 · mac - · 790013a43eb69f4f0538a5f835f667ded5a6f424
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
 
 ## Итог
