@@ -103,7 +103,12 @@ export interface ResolvedQuestionsProps {
  * A question card once resolved: each question with its answer, and how it ended; no controls. The chat of a
  * Product Session draws a question answered before Resume with it too (worfy-polish ticket 147).
  */
-export function ResolvedQuestions({ requestId, questions, answers, outcome }: ResolvedQuestionsProps) {
+export function ResolvedQuestions(props: ResolvedQuestionsProps) {
+  return resolvedRow(props)
+}
+
+/** The resolved card's row; a plain function, so a card that resolves keeps its element (QuestionCard). */
+function resolvedRow({ requestId, questions, answers, outcome }: ResolvedQuestionsProps) {
   return (
     <div className="w-tr__row" data-testid="question-card" data-request-id={requestId} data-resolution={outcome ?? 'open'}>
       <div className="w-tr__who w-mono w-tr__who--assistant">ask</div>
@@ -195,7 +200,7 @@ export function QuestionCard({ request, sessionId, projectId }: QuestionCardProp
     change(toggled(question, pick, option.label))
   }
 
-  if (!open) return <ResolvedQuestions requestId={request.requestId} questions={questions} answers={resolution?.answers ?? null} outcome={resolution?.outcome ?? null} />
+  if (!open) return resolvedRow({ requestId: request.requestId, questions, answers: resolution?.answers ?? null, outcome: resolution?.outcome ?? null })
 
   const shown = pointed ?? pick.selected.at(-1) ?? null
   const preview = question.options.find((option) => option.label === shown)?.preview ?? null
