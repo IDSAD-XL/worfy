@@ -66,7 +66,8 @@ When a command does not exit 0, show its one line and stop. Keep `headRefOid`, t
   the answer: on the viewer's own pull request (its `author.login` is the viewer) every such thread; on someone
   else's pull request only a thread the viewer wrote in, one with a comment of the viewer's in `comments`. A
   colleague's thread the viewer never wrote in waits for its author, not for the viewer. This is the rule of
-  worfy's "Needs my answer" group. Its last comment is the one in `latest`, never the last of `comments`, which a
+  worfy's "Needs my answer" group (worfy looks for the viewer's comment among the last three comments of a thread
+  only, so on a long thread its count can be lower). Its last comment is the one in `latest`, never the last of `comments`, which a
   long thread cuts. A resolved thread, one whose last comment is the viewer's, and a thread on someone else's pull
   request the viewer never wrote in get no draft.
 - **A comment in the conversation** of the pull request waits when it is newer than the viewer's last comment

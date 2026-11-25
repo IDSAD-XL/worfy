@@ -14,14 +14,15 @@ render панели — на каждое чтение drafts и каждое н
 
 ## 2. Skill pr-reply: на чужом PR ждёт только thread, где пользователь писал
 
-Code: `harness/skills/pr-reply/SKILL.md:65-71` · key lines: 65, 66, 67, 69
+Code: `harness/skills/pr-reply/SKILL.md:65-72` · key lines: 65, 66, 67, 69, 70
 
 ```markdown
 - **A review thread** waits when `isResolved` is false, its last comment is not the viewer's, and the viewer owes
   the answer: on the viewer's own pull request (its `author.login` is the viewer) every such thread; on someone
   else's pull request only a thread the viewer wrote in, one with a comment of the viewer's in `comments`. A
   colleague's thread the viewer never wrote in waits for its author, not for the viewer. This is the rule of
-  worfy's "Needs my answer" group. Its last comment is the one in `latest`, never the last of `comments`, which a
+  worfy's "Needs my answer" group (worfy looks for the viewer's comment among the last three comments of a thread
+  only, so on a long thread its count can be lower). Its last comment is the one in `latest`, never the last of `comments`, which a
   long thread cuts. A resolved thread, one whose last comment is the viewer's, and a thread on someone else's pull
   request the viewer never wrote in get no draft.
 ```
