@@ -5,7 +5,7 @@
 // gives nothing) and the pending «nothing happened» conditions.
 import { join } from 'node:path'
 import { z } from 'zod'
-import { attentionItemSchema, attentionSubjectSchema, attentionSourceSchema } from '../../../shared/assistant/attention'
+import { attentionItemSchema, attentionPrSchema, attentionSubjectSchema, attentionSourceSchema } from '../../../shared/assistant/attention'
 import { readJsonFile, writeJsonFile } from '../../storage/json-file'
 
 export const ATTENTION_FILE = 'assistant-items.json'
@@ -20,6 +20,9 @@ export const attentionConditionSchema = z.object({
   text: z.string(),
   /** When the condition holds unless something happens on its subject first, ms since the epoch. */
   dueAt: z.number(),
+  /** The duty its item belongs to, when the source named one (ticket 07). */
+  duty: z.string().optional(),
+  pr: attentionPrSchema.optional(),
 })
 export type AttentionCondition = z.infer<typeof attentionConditionSchema>
 

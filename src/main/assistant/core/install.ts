@@ -4,6 +4,7 @@
 // Autopilot journal lines written since the core first kept the Project, 14 days back at most (catchUpFrom); the keys
 // taken drop what it had already.
 import type { AgentEvent } from '../../../shared/agent/events'
+import type { AttentionEvent } from '../../../shared/assistant/attention'
 import type { LimitsState } from '../../../shared/agent/limits'
 import type { JournalEvent } from '../../../shared/autopilot/journal'
 import type { FirstRunReport } from '../../../shared/ipc/first-run'
@@ -34,12 +35,22 @@ export interface AttentionSources {
   journal: { onLine(listener: (event: JournalEvent) => void): () => void; recent(projectId: string): Promise<JournalEvent[][]> }
   tickMs?: number
   log?: (message: string, error: unknown) => void
+  /** The duty of an event that names none (ticket 07); every item's duty is null when absent. */
+  dutyOf?: (event: Omit<AttentionEvent, 'at'>) => string | null
+  /** How long a Session stays silent after its turn before it waits for the user; SESSION_WAIT_MS when absent. */
+  sessionWaitMs?: () => number
 }
 
 /** Starts the core over `sources`; answers it and the function that stops it. */
 export function installAttentionCore(sources: AttentionSources): { core: AttentionCore; stop: () => void } {
   const log = sources.log ?? ((message: string, error: unknown) => console.warn(message, error))
-  const core = new AttentionCore({ now: sources.now, store: sources.store, projects: () => sources.projects().map((project) => project.id), ...(sources.settings ? { settings: sources.settings } : {}) })
+  const core = new AttentionCore({
+    now: sources.now,
+    store: sources.store,
+    projects: () => sources.projects().map((project) => project.id),
+    ...(sources.settings ? { settings: sources.settings } : {}),
+    ...(sources.dutyOf ? { dutyOf: sources.dutyOf } : {}),
+  })
   // A source's failure (an unwritable file) is logged and costs that event only.
   const guard =
     <A extends unknown[]>(what: string, take: (...args: A) => void) =>
@@ -53,7 +64,7 @@ export function installAttentionCore(sources: AttentionSources): { core: Attenti
 
   const projectOf = (cwd: string): string | null => projectOfPath(sources.projects(), cwd)
   const stops = [
-    sources.sessions.observe(guard('a Session event', sessionAttention(core, projectOf, sources.now, () => sources.sessions.isDeparting?.() ?? false))),
+    sources.sessions.observe(guard('a Session event', sessionAttention(core, projectOf, sources.now, () => sources.sessions.isDeparting?.() ?? false, sources.sessionWaitMs))),
     followWorkflows(
       sources.hub,
       sources.projects,

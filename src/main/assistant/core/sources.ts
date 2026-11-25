@@ -19,7 +19,8 @@ type Core = Pick<AttentionCore, 'ingest' | 'resolve' | 'expect'>
 /**
  * How long a Session may stay silent after the end of its turn before it waits for the user: 15 minutes, the
  * measure of rule (e) of the events measurement (the events measurement of the proactive-runtime map, docs/product/proactive-runtime/).
- * Decided without the owner (ticket 03, result section).
+ * Decided without the owner (ticket 03, result section). The default only: the app takes the threshold of the duty
+ * «work stands» from the settings (ticket 07).
  */
 export const SESSION_WAIT_MS = 15 * 60_000
 
@@ -59,9 +60,15 @@ const clip = (text: string): string => (text.length > 160 ? `${text.slice(0, 159
 /**
  * The events of the Sessions worfy runs (SessionRegistry.observe): a question, a permission request, an error, the end
  * of a turn, a `quiet` turn. The end of a turn names the condition «nothing since for SESSION_WAIT_MS»; a prompt of the
- * person or an answer to a request closes the Session's items.
+ * person or an answer to a request closes the Session's items. `waitMs` is read at each end of a turn.
  */
-export function sessionAttention(core: Core, projectOf: (cwd: string) => string | null, now: () => number, departing: () => boolean = () => false): (sessionId: string, event: AgentEvent) => void {
+export function sessionAttention(
+  core: Core,
+  projectOf: (cwd: string) => string | null,
+  now: () => number,
+  departing: () => boolean = () => false,
+  waitMs: () => number = () => SESSION_WAIT_MS,
+): (sessionId: string, event: AgentEvent) => void {
   const projects = new Map<string, string | null>()
   return (sessionId, event) => {
     // worfy quits (SessionRegistry.depart, then haltAll closes every Session): what the Sessions send now is the quit,
@@ -101,7 +108,7 @@ export function sessionAttention(core: Core, projectOf: (cwd: string) => string 
       case 'result':
         if (event.interrupted) return
         take(event.isError ? 'error' : 'turn-end', String(at), event.isError ? (event.error ?? 'The turn ended with an error') : 'Finished its turn')
-        core.expect({ source: 'session', id: `${sessionId}:waiting`, revision: String(at), projectId, subject, kind: 'waiting', text: 'Waits for you since the end of its turn', quietMs: SESSION_WAIT_MS, from: at })
+        core.expect({ source: 'session', id: `${sessionId}:waiting`, revision: String(at), projectId, subject, kind: 'waiting', text: 'Waits for you since the end of its turn', quietMs: waitMs(), from: at })
         return
       case 'prompt':
       case 'permission_resolved':

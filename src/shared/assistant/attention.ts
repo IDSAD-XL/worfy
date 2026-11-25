@@ -3,8 +3,11 @@
 // window and the Assistant read them later (tickets 09 and 14).
 import { z } from 'zod'
 
-/** Where an item came from: the seven sources the core follows in main. */
-export const ATTENTION_SOURCES = ['session', 'ticket-waits', 'pr-inbox', 'workflow', 'autopilot', 'health', 'limits'] as const
+/**
+ * Where an item came from: the seven sources the core follows in main, the CI of a Project's main branch (`ci`) and a
+ * rule of a Project's settings (`rule`) — the last two given by the duties (worfy-assistant ticket 07).
+ */
+export const ATTENTION_SOURCES = ['session', 'ticket-waits', 'pr-inbox', 'workflow', 'autopilot', 'health', 'limits', 'ci', 'rule'] as const
 export const attentionSourceSchema = z.enum(ATTENTION_SOURCES)
 export type AttentionSource = z.infer<typeof attentionSourceSchema>
 
@@ -25,6 +28,10 @@ export const ATTENTION_STATES = ['new', 'seen', 'snoozed', 'dismissed', 'closed'
 export const attentionStateSchema = z.enum(ATTENTION_STATES)
 export type AttentionState = z.infer<typeof attentionStateSchema>
 
+/** The PR an item is about besides its subject: the one after which the CI of the main branch went red (ticket 07). */
+export const attentionPrSchema = z.object({ repo: z.string(), number: z.number().int().positive(), title: z.string() })
+export type AttentionPr = z.infer<typeof attentionPrSchema>
+
 /** The states in which an item still asks for something. */
 export const OPEN_STATES: readonly AttentionState[] = ['new', 'seen', 'snoozed']
 
@@ -43,6 +50,9 @@ export interface AttentionEvent {
   text: string
   /** When it happened, ms since the epoch; the core's clock when the source does not know. */
   at?: number
+  /** The duty that raises it, when the source knows (a rule of a Project); else the core asks its `dutyOf`. */
+  duty?: string
+  pr?: AttentionPr
 }
 
 export const attentionItemSchema = z.object({
@@ -55,13 +65,19 @@ export const attentionItemSchema = z.object({
   text: z.string(),
   /** When its first event happened (the event's own time). */
   startedAt: z.number(),
+  /**
+   * When its latest event happened (the event's own time; ticket 07): a duty counts how long a Session waits from it.
+   * Absent in a file written before the field, which reads as `startedAt`.
+   */
+  lastAt: z.number().optional(),
   /** When the core last took an event into it, by the core's clock: an item that takes none for 14 days is dropped. */
   updatedAt: z.number(),
   /** The revision of the latest event glued into the item. */
   revision: z.string(),
   state: attentionStateSchema,
-  /** The duty that raised the item (ticket 07); null until duties exist. */
+  /** The duty that raised the item (ticket 07); null when no duty takes its kind (a Session that ended its turn). */
   duty: z.string().nullable(),
+  pr: attentionPrSchema.optional(),
   /** How many events are glued into it. */
   events: z.number().int().positive(),
   /** Set on an item that says «nothing happened»: the id of its condition. */

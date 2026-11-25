@@ -3,6 +3,7 @@
 // worfy-windows ticket 17; worfy-pr-inbox ticket 04; worfy-pr-follow ticket 01; worfy-acceptance ticket 03). Each Project runs its own process, so the text is a Project setting. worfy does not
 // know what the skill does: it keeps the string and ticket 23 fills in the placeholders.
 import { z } from 'zod'
+import { projectRuleSchema } from '../assistant/duties'
 import { projectIntegrationSchema } from '../integrations/types'
 import { vendorIdSchema, type VendorId } from '../vendors/vendor'
 
@@ -313,6 +314,11 @@ export const projectSettingsSchema = z.object({
    * Only the channels `integrations.*` write it (src/main/projects/settings.ts, writeProjectIntegrations).
    */
   integrations: z.array(projectIntegrationSchema).optional(),
+  /**
+   * The rules of the Assistant for this Project (worfy-assistant ticket 07, story 36): its own process, such as «land
+   * finished, and the Orchestrator sleeps». Absent until the first one. Only writeProjectAssistantRules changes it.
+   */
+  assistantRules: z.array(projectRuleSchema).optional(),
 })
 export type ProjectSettings = z.output<typeof projectSettingsSchema>
 
@@ -357,6 +363,12 @@ export const savedProjectSettingsSchema = projectSettingsSchema.extend({
   prInbox: z.boolean().optional().catch(undefined),
   // A list that does not read reads as none: the rest of the file stays.
   integrations: projectSettingsSchema.shape.integrations.catch(undefined),
+  // A rule that does not read is left out; the others stay.
+  assistantRules: z
+    .array(z.unknown())
+    .transform((rules) => rules.flatMap((rule) => projectRuleSchema.safeParse(rule).data ?? []))
+    .optional()
+    .catch(undefined),
 })
 export type SavedProjectSettings = z.output<typeof savedProjectSettingsSchema>
 
