@@ -158,6 +158,10 @@ finding 70 — только о цвете метки.
 1.0–1.08), `kit-dialog.test.tsx` (focus уходил на открывшего), `composer-popovers.test.tsx` (список открывался сам,
 `aria-expanded` было `true`), `quote-comments-ui.test.tsx` (нет «Show all»), `pipeline-board.test.tsx` (точка считала 4
 Ticket-а вместо 2). Mutation: без проверки «focus в закрывающемся окне» падают три test-а возврата focus.
+`pnpm lint && pnpm typecheck && pnpm test` — exit 0 (914 файлов, 20690 test-ов). E2e целыми spec-файлами (layers-dialog,
+focus-sidebar, select, layers-popover, session-controls, session-two-windows, autopilot-queue, autopilot-start-modal,
+quote-comments, changes-comments, product-session, pipeline, sidebar-rail) — 59 прошли, 4 упали в `layers-popover.spec.ts`
+(demo Ticket Node не появляется на Canvas); те же 4 падают и с `src/` от origin/main на этой машине.
 
 ## Проверить себя
 
