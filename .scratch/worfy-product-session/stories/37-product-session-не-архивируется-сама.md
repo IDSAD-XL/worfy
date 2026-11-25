@@ -6,7 +6,8 @@ Kind: pr · Epic: worfy-product-session · Ticket: 37 · PR: - · Language: ru
 
 Автоархив законченных Session (ADR-0076) брал Node Product Session так же, как любой Session Node: по порогу
 «Archive finished sessions after», по правилу `ticket-done` и в «Archive finished sessions now». Владелец хочет, чтобы
-Product Session оставалась на Canvas, пока он сам не отправит её в архив.
+Product Session оставалась на Canvas, пока он сам не отправит её в архив. Отправить в архив один Node пользователь не
+мог: такого действия в UI не было.
 
 - Требование: [Что происходит](../issues/37-product-session-не-архивируется-сама.md#что-происходит)
 
@@ -36,7 +37,7 @@ export function isProductSessionNode(node: Pick<LayoutNode, 'kind' | 'data'>): b
 
 ## 3. Правило архива пропускает Product Session
 
-Code: `src/main/layout/archive.ts:141-151` · key lines: 145
+Code: `src/main/layout/archive.ts:142-152` · key lines: 146
 
 ```ts
 function finishedSessions(nodes: readonly LayoutNode[], live: readonly LiveSessionLike[], history: readonly HistoryLike[]): FinishedSession[] {
@@ -58,26 +59,91 @@ function finishedSessions(nodes: readonly LayoutNode[], live: readonly LiveSessi
   `touchedAt`.
 - Почему здесь: Ticket называет `archive.ts`, `archiveCandidates`, `ticket-done` и `candidatesNow`; одна проверка в
   общем отборе закрывает их все. `archiveFromScreen` её не получает: это `archive`, который просит сам пользователь
-  (⌘Z после Restore, ⇧⌘Z), а отдельного действия Archive на одном Node в UI нет.
+  (кнопка Archive на Node, ⌘Z после Restore, ⇧⌘Z).
 - Без него: Product Session, простоявшая дольше порога, уходила бы в архив на следующем прогоне таймера.
 - Требование: [Готово, когда](../issues/37-product-session-не-архивируется-сама.md#готово-когда)
 - Риски и пробелы test-ов: уже заархивированная Product Session сама не возвращается — так требует Ticket. Ручной
   пункт на Mac Stable test-ы не заменяют.
 
-## 4. Как проверено
+## 4. Archive одного Node-а — `archive` с экрана
+
+Code: `src/renderer/canvas/archive-node.ts:16-18` · key lines: 17
+
+```ts
+export function archiveSessionNode(projectId: string, nodeId: string, channel: LayoutChannel): Promise<string | undefined> {
+  return applyRecorded(projectId, { op: 'archive', batch: crypto.randomUUID(), nodes: [{ id: nodeId, rule: 'idle' }] }, channel)
+}
+```
+
+- Что делает: шлёт `archive` одного Node-а с новой партией через записывающий канал экрана. `applyRecorded` кладёт его
+  в историю ⌘Z, а main проверяет его в `archiveFromScreen` и не берёт Node с Keep, закреплённый или с живой Session.
+- Почему здесь: Orchestrator добавил в Ticket действие Archive на Node, через существующий `archive` с экрана. Модуль
+  без React, чтобы его грузил contract test архива (`tsconfig.test.node.json`). Правило в записи — `idle`: новое
+  значение `archiveRuleSchema` старый worfy не прочитал бы, а `readJsonFile` откладывает такой файл в сторону и
+  начинает с пустого Layout-а (`src/main/storage/json-file.ts`).
+- Без него: Product Session, которую автоархив больше не берёт, нельзя было бы отправить в архив совсем.
+- Требование: [Готово, когда](../issues/37-product-session-не-архивируется-сама.md#готово-когда)
+- Риски и пробелы test-ов: запись не отличает ручной архив от архива по порогу — оба `idle`. В UI правило архива
+  нигде не показывается.
+
+## 5. Кнопка Archive в шапке Session Node
+
+Code: `src/renderer/canvas/nodes/SessionNode.tsx:280-299` · key lines: 281, 285, 293
+
+```tsx
+const archiveBlock = (node: { keep: boolean; pinned: boolean }, session: string | null): string | null =>
+  node.keep ? 'Kept on the Canvas: press Kept to let it go first' : node.pinned ? 'Pinned to the screen: unpin it first' : session
+
+function ArchiveButton({ projectId, id, blocked, readOnly, onProblem }: { projectId: string; id: string; blocked: string | null; readOnly: string | null; onProblem: (problem: string) => void }) {
+  const archive = () =>
+    void archiveSessionNode(projectId, id, screenChannel(projectId)).then((problem) => {
+      if (problem !== undefined) onProblem(problem)
+    })
+  return (
+    <button
+      type="button"
+      style={styles.tool}
+      data-testid="session-node-archive"
+      disabled={blocked !== null}
+      {...writeAction(readOnly, archive, blocked ?? 'Archive this Session: it leaves the Canvas, nothing is deleted; Restore in the Archive brings it back')}
+    >
+      Archive
+    </button>
+  )
+}
+```
+
+- Что делает: кнопка Archive рядом с Keep, Hide и Remove у каждого Session Node — и у того, что запускает worfy, и у
+  read-only. Неактивна, и tooltip говорит почему, когда main всё равно отказал бы: Keep, закреплённый Node, Session
+  работает или ещё не начиналась. Отказ main при записи уходит в строку ошибки Node-а.
+- Почему здесь: своего контекстного меню у Session Node нет; действия над Node-ом — кнопки в его шапке. Строки в Command
+  palette нет: у palette нет строк для выбранного Node-а.
+- Без него: пользователь нажимал бы Archive на работающей Session и получал бы отказ без объяснения.
+- Требование: [Готово, когда](../issues/37-product-session-не-архивируется-сама.md#готово-когда)
+- Риски и пробелы test-ов: в шапке узкого Node-а стало на одну кнопку больше; вид шапки на снимке не проверялся.
+  Unit test-ы проверяют кнопку у Node-а, который запускает worfy; у read-only Node-а её проверяет e2e (живая Session
+  `LIVE` — неактивна).
+
+## 6. Как проверено
 
 - `pnpm test test/unit/archive-rule.test.ts test/contract/layout-archive.test.ts`: пять новых unit test-ов и три
   contract test-а красные до правки `archive.ts`, зелёные после.
-- `pnpm lint && pnpm typecheck && pnpm test` — exit 0; gate fast — exit 0; `pnpm test:e2e test/e2e/session-archive.spec.ts`
-  — exit 0.
+- `test/unit/session-node-product.test.tsx` (кнопка), `test/unit/settings-canvas.test.tsx` (подсказка под порогом),
+  contract test `archiveSessionNode` — красные до правки, зелёные после.
+- `pnpm test:e2e test/e2e/session-archive.spec.ts` — exit 0: «Archive finished sessions now» и таймер на 24 h Product
+  Session не берут, её Archive убирает её с Canvas, Restore в Archive возвращает.
+- `pnpm lint && pnpm typecheck && pnpm test` — exit 0; gate fast — exit 0.
 
 ## Проверить себя
 
 1. Почему «Archive finished sessions now» перестал предлагать Product Session без отдельной правки `candidatesNow`?
    - Ответ: `candidatesNow` считает кандидатов через `archiveCandidates`, а тот начинает с `finishedSessions`, где Node
      Product Session отсеивается.
-   - Строки: `src/main/layout/archive.ts:141-145`
+   - Строки: `src/main/layout/archive.ts:142-146`
 2. Почему ⌘Z после Restore по-прежнему возвращает Product Session в архив?
    - Ответ: этот `archive` идёт через `archiveFromScreen`, а там свой отбор без `isProductSessionNode`: архив просит
      пользователь, и правило к нему не применяется.
-   - Строки: `src/main/layout/archive.ts:385-387`
+   - Строки: `src/main/layout/archive.ts:386-388`
+3. Почему кнопка Archive неактивна на Node с Keep, хотя Keep говорит только об автоархиве?
+   - Ответ: кнопка идёт через `archiveFromScreen`, а он отбрасывает Node с Keep; активная кнопка получила бы отказ.
+   - Строки: `src/renderer/canvas/nodes/SessionNode.tsx:280-281`

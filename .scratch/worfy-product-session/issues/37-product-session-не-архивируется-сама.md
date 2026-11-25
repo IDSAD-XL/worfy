@@ -67,11 +67,15 @@ Product Session, простоявшая дольше порога «Archive fini
   через `archive` с экрана; пока Session работает или ещё не начиналась, кнопка неактивна и tooltip говорит почему.
   Unit и contract test-ы красные на origin/main; e2e `test/e2e/session-archive.spec.ts`: Archive на Product Session
   убирает её с Canvas, Restore в Archive возвращает, таймер её не берёт.
+  - evidence: test-run pass · `pnpm test test/unit/session-node-product.test.tsx test/contract/layout-archive.test.ts` exit 0 (button and archiveSessionNode tests; red before the change) · mac - · b3bac6916
+  - evidence: test-run pass · `pnpm test:e2e test/e2e/session-archive.spec.ts` exit 0 · mac dev · b3bac6916
 - [ ] Settings → Canvas под порогом «Archive finished sessions after» говорит, что Product Session сама в архив не уходит;
   unit test.
+  - evidence: test-run pass · `pnpm test test/unit/settings-canvas.test.tsx` exit 0 (red before the change) · mac - · b3bac6916
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 98c52342d
   - evidence: gate pass · `gate fast` exit 0 · mac - · 98c52342d
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · b3bac6916
 - [ ] (вручную) На Mac Stable Product Session, простоявшая дольше порога, остаётся на Canvas; Archive в её меню убирает
   её в архив.
   - needs: mac stable
