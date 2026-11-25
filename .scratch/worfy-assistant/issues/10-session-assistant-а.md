@@ -48,4 +48,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 10; «Решение�
 - [ ] Файл памяти хранит обязанности, открытые предложения, обязательства, правила из оценок и ответы пользователя; новая
       Session его читает.
 - [ ] Session Assistant-а идёт не на Haiku.
+- [ ] pr-follow и autopilot-start, которые запустил Assistant, пишутся в журнал Assistant-а (Ticket 08) вместе с
+      пунктом, который их вызвал (ADR-0114, граница 6). Сейчас `journal` в `appWorfyAppDeps`
+      (`src/main/mcp/app-server.ts`) пишет их только в log main (review PR #2240 Ticket-а 09).
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.

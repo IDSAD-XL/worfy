@@ -12,15 +12,30 @@ Kind: pr · Epic: worfy-assistant · Ticket: 09 · PR: - · Language: ru
 
 - Требование: [Что строить](../issues/09-mcp-сервер-worfy-app.md#что-строить)
 
-## 2. Чужой текст — блок с источником и автором
+## 2. Чужой текст — блок с источником и автором, id — worfy
 
-Code: `src/main/mcp/app-server.ts:149-166` · key lines: 161, 162, 165
+Code: `src/main/mcp/app-server.ts:154-198` · key lines: 159, 162, 168, 169, 173, 182
 
 ```ts
+/**
+ * The id the agent knows an item by: worfy's own, made from the core's. The core's id holds its subject's id, and the
+ * subject of a message of Slack or Jira is the message's id as the Haiku check wrote it — free text (ticket 11). The
+ * server finds the item again by making the id of each one (itemOfPublicId); main keeps the core's id.
+ */
+export const publicItemId = (id: string): string => `item-${digest(id)}`
+
+/** A subject's id as the agent reads it: a message's id is a source's text, so worfy makes one of its own. */
+const subjectId = (subject: AttentionItem['subject']): string => (subject.kind === 'message' ? `message-${digest(subject.id)}` : subject.id)
+
 /** An item as the agent reads it: what the core and the duties say, the outside text in blocks. */
 function itemView(item: AttentionItem, actions: DutyLook['shown'][number]['proposals']) {
+  const message = item.message
+  // A message of a source names its own source and author; the core's other items have no author it knows.
+  const source = message?.source ?? item.source
+  const author = message?.author ?? null
+  const block = (text: string): OutsideText => outsideText(text, source, author)
   return {
-    id: item.id,
+    id: publicItemId(item.id),
     projectId: item.projectId,
     source: item.source,
     kind: item.kind,
@@ -29,23 +44,35 @@ function itemView(item: AttentionItem, actions: DutyLook['shown'][number]['propo
     startedAt: iso(item.startedAt),
     lastAt: iso(item.lastAt ?? item.startedAt),
     events: item.events,
-    subject: { kind: item.subject.kind, id: item.subject.id, label: outsideText(item.subject.label, item.source) },
-    text: outsideText(item.text, item.source),
+    subject: { kind: item.subject.kind, id: subjectId(item.subject), label: block(item.subject.label) },
+    text: block(item.text),
+    ...(message === undefined
+      ? {}
+      : {
+          message: {
+            at: message.at,
+            url: block(message.url),
+            concernsUser: message.concernsUser,
+            urgent: message.urgent,
+            project: message.project === null ? null : block(message.project),
+            ticket: message.ticket === null ? null : block(message.ticket),
+          },
+        }),
     ...(item.pr === undefined ? {} : { pr: { repo: item.pr.repo, number: item.pr.number, title: outsideText(item.pr.title, 'github') } }),
     // An action's text may quote the item (`Open <label>`): a block too.
-    actions: actions.map((each) => ({ action: each.action, mode: each.mode, text: outsideText(each.text, item.source) })),
+    actions: actions.map((each) => ({ action: each.action, mode: each.mode, text: block(each.text) })),
   }
 ```
 
-- Что делает: пункт ядра отдаётся агенту так, что его текст, подпись предмета, заголовок PR и текст действия лежат в блоках `outside-text` с источником; голой строкой чужой текст не идёт. Так же устроены ответы `pr_threads_read`, `workflow_read`, `session_tail_read` и `autopilot_runs_read`.
-- Почему здесь: Ticket требует «чужой текст помечен как данные, с источником и автором»; форма блока — решение без владельца (Итог Ticket-а, пункт 3). Текст действия тоже блок: `Open <label>` цитирует подпись пункта.
+- Что делает: пункт ядра отдаётся агенту так, что его текст, подпись предмета, ссылка и Project сообщения, заголовок PR и текст действия лежат в блоках `outside-text`; у сообщения Slack и Jira блок несёт его источник и автора. Id пункта и id предмета-сообщения агент получает от worfy (`item-…`, `message-…`): id ядра содержит id сообщения, который написала проверка Haiku. Так же устроены ответы `pr_threads_read` (и путь файла нити), `workflow_read`, `session_tail_read` и `autopilot_runs_read`.
+- Почему здесь: Ticket требует «чужой текст помечен как данные, с источником и автором»; форма блока — решение без владельца (Итог Ticket-а, пункт 3). Id worfy и автор сообщения — находки review раунда 1 PR #2240: id сообщения — свободный текст до 200 знаков из ответа Haiku (Ticket 11, `src/shared/assistant/source-items.ts`).
 - Без него: указание из комментария PR или строки Session-а приходит модели рядом с данными worfy в одном ряду, и граница 2 держится только на словах инструкций.
 - Требование: [Что строить, пункт 5](../issues/09-mcp-сервер-worfy-app.md#что-строить)
 - Риски и пробелы test-ов: test проверяет, что вне блоков нет текста-инъекции и что блоки несут источник и автора; что модель действительно не следует указаниям, test без модели не проверяет — это держат границы 1 и 3 (только tools `worfy-app`, действия по режиму).
 
 ## 3. Секретов в ответах нет
 
-Code: `src/main/mcp/app-server.ts:139-147` · key lines: 141, 147
+Code: `src/main/mcp/app-server.ts:142-150` · key lines: 144, 150
 
 ```ts
 /** Every string of `value` with its secrets hidden; keys and shape as they were. */
@@ -67,11 +94,11 @@ const text = (value: unknown, isError = false): McpToolResult => ({ content: [{ 
 
 ## 4. Действие — только в режиме self или pre-approved
 
-Code: `src/main/mcp/app-server.ts:324-341` · key lines: 329, 330, 336, 337
+Code: `src/main/mcp/app-server.ts:362-379` · key lines: 363, 367, 368, 374, 375
 
 ```ts
     action_run: async (args) => {
-      const shown = deps.duties.look(deps.items()).shown.find((each) => each.item.id === args.item)
+      const shown = deps.duties.look(deps.items()).shown.find((each) => publicItemId(each.item.id) === args.item)
       if (shown === undefined) throw new ToolError(`No item ${args.item} is shown now: items_list lists the items you may act on. Nothing was done.`)
       const proposal = shown.proposals.find((each) => each.action === args.action)
       if (proposal === undefined) throw new ToolError(`The duty ${shown.duty} has no action ${args.action} for item ${args.item}. Nothing was done.`)
@@ -84,13 +111,13 @@ Code: `src/main/mcp/app-server.ts:324-341` · key lines: 329, 330, 336, 337
         // main checks again, sends its own text and writes the journal line itself.
         const result = await deps.closedList.act({ action: args.action, itemId: item.id, by: 'assistant' })
         if (!result.ok) throw new ToolError(`main refused ${args.action} (${result.reason}). Nothing was sent.`)
-        return { action: args.action, item: item.id, done: result.line.text ?? args.action }
+        return { action: args.action, item: args.item, done: result.line.text ?? args.action }
       }
-      return { action: args.action, item: item.id, done: await act({ ...args, action: args.action }, item) }
+      return { action: args.action, item: args.item, done: await act({ ...args, action: args.action }, item) }
     },
 ```
 
-- Что делает: находит пункт среди тех, что обязанности показывают сейчас, берёт режим действия в его обязанности и при `ask` или `hand-over` отказывает, не дойдя до main; Project пункта должен быть Project-ом этой машины. Действие закрытого списка уходит в `act()` Ticket-а 08 с действием, пунктом и `by: 'assistant'` — без текста: main проверяет снова, шлёт свой текст и сам пишет строку журнала; его отказ (`busy`, `limits`…) приходит агенту с причиной.
+- Что делает: находит пункт по id worfy среди тех, что обязанности показывают сейчас, берёт режим действия в его обязанности и при `ask` или `hand-over` отказывает, не дойдя до main; Project пункта должен быть Project-ом этой машины. Действие закрытого списка уходит в `act()` Ticket-а 08 с действием, пунктом и `by: 'assistant'` — без текста: main проверяет снова, шлёт свой текст и сам пишет строку журнала; его отказ (`busy`, `limits`…) приходит агенту с причиной.
 - Почему здесь: Ticket: «действия — только те, что разрешает режим обязанности (Ticket 07)»; режимы и `look()` — Ticket 07. Что `pre-approved` разрешает как `self` — решение без владельца (Итог, пункт 2). Форма стыка повторяет `appClosedList().act()` Ticket-а 08 (PR в review): после его merge в приложении меняется одна строка wiring.
 - Без него: модель, которой текст PR велел «разбуди Orchestrator», может сделать действие, которое пользователь оставил себе.
 - Требование: [Готово, когда](../issues/09-mcp-сервер-worfy-app.md#готово-когда)
@@ -98,7 +125,7 @@ Code: `src/main/mcp/app-server.ts:324-341` · key lines: 329, 330, 336, 337
 
 ## 5. pr-follow и autopilot-start — через функции main с их проверками
 
-Code: `src/main/mcp/app-server.ts:202-223` · key lines: 207, 210, 218, 221
+Code: `src/main/mcp/app-server.ts:239-260` · key lines: 244, 247, 255, 258
 
 ```ts
   const act = async (args: AppToolArgs['action_run'] & { action: MainAction }, item: AttentionItem): Promise<string> => {
@@ -129,11 +156,11 @@ Code: `src/main/mcp/app-server.ts:202-223` · key lines: 207, 210, 218, 221
 - Почему здесь: Ticket называет примеры: «pr-follow отказывает, пока идёт Autopilot; `autopilot_start` всегда открывает диалог». Журнал этих двух действий пишет сервер: закрытый список Ticket-а 08 пишет только свои.
 - Без него: сервер сам решал бы, можно ли следовать за PR или запускать Autopilot, и обходил бы проверки main.
 - Требование: [Что строить, пункт 4](../issues/09-mcp-сервер-worfy-app.md#что-строить)
-- Риски и пробелы test-ов: в приложении строка этих двух действий пока идёт в log main: журнал Ticket-а 08 строк извне не принимает. Session Assistant-а не зарегистрирована в registry до Ticket-а 10, и в приложении стартер `autopilot_start` ответит, что не знает Session — это отказ, а не запуск.
+- Риски и пробелы test-ов: в приложении строка этих двух действий пока идёт в log main: журнал Ticket-а 08 строк извне не принимает; запись в него — пункт «Готово, когда» Ticket-а 10. Session Assistant-а не зарегистрирована в registry до Ticket-а 10, и в приложении стартер `autopilot_start` ответит, что не знает Session — это отказ, а не запуск.
 
 ## 6. Сервер без cwd
 
-Code: `src/main/mcp/app-server.ts:380-387` · key lines: 384, 386
+Code: `src/main/mcp/app-server.ts:418-425` · key lines: 422, 424
 
 ```ts
 /**
@@ -174,19 +201,23 @@ Project-ы второй машины в приложении не читаютс
 
 ## 9. Как проверено
 
-`test/contract/worfy-app-tools.test.ts` (20 test-ов) и все unit и contract test-ы `src/main/assistant`,
+`test/contract/worfy-app-tools.test.ts` (21 test) и все unit и contract test-ы `src/main/assistant`,
 `src/shared/assistant` и `src/main/mcp`; `pnpm lint && pnpm typecheck && pnpm test` и gate fast — коды выхода в отчёте
 PR. Mutant-ы в своём worktree: без проверки режима `ask`, без блока у заголовка Ticket-а, без `redactSecrets`, без
-проверки Project-а у Prepare — каждый ловит свой test.
+проверки Project-а у Prepare, id ядра вместо id worfy, путь нити без блока, сообщение без автора — каждый ловит свой test.
 
 ## Проверить себя
 
-1. Почему текст действия в ответе `items_list` тоже лежит в блоке чужого текста?
+1. Почему агент не получает id пункта ядра?
+   - Ответ: у сообщения Slack и Jira id ядра содержит id сообщения, который написала проверка Haiku, — чужой текст; агент получает хэш, а сервер находит пункт, считая хэш каждого.
+   - Lines: `src/main/mcp/app-server.ts:154-159`, `src/main/mcp/app-server.ts:217-221`
+
+2. Почему текст действия в ответе `items_list` тоже лежит в блоке чужого текста?
    - Ответ: текст действия main строит из пункта (`Open <label>`), и подпись пункта — чужой текст.
-   - Lines: `src/main/mcp/app-server.ts:164-165`
-2. Что сделает `action_run` с `wake-orchestrator`, если режим в обязанности — `ask`?
+   - Lines: `src/main/mcp/app-server.ts:196-197`
+3. Что сделает `action_run` с `wake-orchestrator`, если режим в обязанности — `ask`?
    - Ответ: откажет и попросит `proposal_create`; до закрытого списка main дело не дойдёт и строки журнала не будет.
-   - Lines: `src/main/mcp/app-server.ts:329`
-3. Почему сервер пишет строку журнала для pr-follow, но не для `wake-orchestrator`?
+   - Lines: `src/main/mcp/app-server.ts:367`
+4. Почему сервер пишет строку журнала для pr-follow, но не для `wake-orchestrator`?
    - Ответ: закрытый список Ticket-а 08 сам пишет строку каждого своего действия; pr-follow идёт мимо него, и строку пишет сервер.
-   - Lines: `src/main/mcp/app-server.ts:334-336`, `src/main/mcp/app-server.ts:218-221`
+   - Lines: `src/main/mcp/app-server.ts:372-374`, `src/main/mcp/app-server.ts:255-258`

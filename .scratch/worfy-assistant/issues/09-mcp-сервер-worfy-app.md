@@ -49,23 +49,23 @@ MCP-сервер `worfy-app` — единственный набор tools Sessi
 ## Готово, когда
 
 - [ ] `worfy-app` работает у Session, cwd которой вне всех Project-ов.
-  - evidence: test-run pass · `ELECTRON_RUN_AS_NODE=1 npx electron node_modules/vitest/vitest.mjs run test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 470e25e26d3eb6c666fe31f1e19beae4423fedfa
+  - evidence: test-run pass · `ELECTRON_RUN_AS_NODE=1 npx electron node_modules/vitest/vitest.mjs run test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 9e8a44265326a4be8260c1a1613bbe239445e59c
 - [ ] Contract test: tools чтения отвечают — Project-ы и машины, пункты журнала, workflow Project-а, нити PR, хвост
       Session, Run Autopilot-а, Limits.
-  - evidence: test-run pass · `ELECTRON_RUN_AS_NODE=1 npx electron node_modules/vitest/vitest.mjs run test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 470e25e26d3eb6c666fe31f1e19beae4423fedfa
+  - evidence: test-run pass · `ELECTRON_RUN_AS_NODE=1 npx electron node_modules/vitest/vitest.mjs run test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 9e8a44265326a4be8260c1a1613bbe239445e59c
 - [ ] Contract test: предложение создаётся, обновляется и снимается; у Prepare в ответе — точный текст будущей Session.
-  - evidence: test-run pass · `ELECTRON_RUN_AS_NODE=1 npx electron node_modules/vitest/vitest.mjs run test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 470e25e26d3eb6c666fe31f1e19beae4423fedfa
+  - evidence: test-run pass · `ELECTRON_RUN_AS_NODE=1 npx electron node_modules/vitest/vitest.mjs run test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 9e8a44265326a4be8260c1a1613bbe239445e59c
 - [ ] Contract test: действие вне закрытого списка или вне режима обязанности отклоняется.
-  - evidence: test-run pass · `ELECTRON_RUN_AS_NODE=1 npx electron node_modules/vitest/vitest.mjs run test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 470e25e26d3eb6c666fe31f1e19beae4423fedfa
+  - evidence: test-run pass · `ELECTRON_RUN_AS_NODE=1 npx electron node_modules/vitest/vitest.mjs run test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 9e8a44265326a4be8260c1a1613bbe239445e59c
 - [ ] Contract test: действие идёт через функцию main с её проверками — pr-follow отказывает, пока идёт Autopilot;
       `autopilot_start` открывает диалог, а не запускает Run.
-  - evidence: test-run pass · `ELECTRON_RUN_AS_NODE=1 npx electron node_modules/vitest/vitest.mjs run test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 470e25e26d3eb6c666fe31f1e19beae4423fedfa
+  - evidence: test-run pass · `ELECTRON_RUN_AS_NODE=1 npx electron node_modules/vitest/vitest.mjs run test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 9e8a44265326a4be8260c1a1613bbe239445e59c
 - [ ] Contract test: чужой текст в ответе помечен как данные, с источником и автором.
-  - evidence: test-run pass · `ELECTRON_RUN_AS_NODE=1 npx electron node_modules/vitest/vitest.mjs run test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 470e25e26d3eb6c666fe31f1e19beae4423fedfa
+  - evidence: test-run pass · `ELECTRON_RUN_AS_NODE=1 npx electron node_modules/vitest/vitest.mjs run test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 9e8a44265326a4be8260c1a1613bbe239445e59c
 - [ ] Contract test: в ответах нет секретов.
-  - evidence: test-run pass · `ELECTRON_RUN_AS_NODE=1 npx electron node_modules/vitest/vitest.mjs run test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 470e25e26d3eb6c666fe31f1e19beae4423fedfa
+  - evidence: test-run pass · `ELECTRON_RUN_AS_NODE=1 npx electron node_modules/vitest/vitest.mjs run test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 9e8a44265326a4be8260c1a1613bbe239445e59c
 - [ ] Ни один tool `worfy-app` не отправляет ничего вовне: ответа в PR среди tools нет.
-  - evidence: test-run pass · `ELECTRON_RUN_AS_NODE=1 npx electron node_modules/vitest/vitest.mjs run test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 470e25e26d3eb6c666fe31f1e19beae4423fedfa
+  - evidence: test-run pass · `ELECTRON_RUN_AS_NODE=1 npx electron node_modules/vitest/vitest.mjs run test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 9e8a44265326a4be8260c1a1613bbe239445e59c
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
 
 ## Итог
@@ -79,7 +79,11 @@ MCP-сервер `worfy-app` — единственный набор tools Sessi
   отвечает Session-у вне всех Project-ов. Подключает его к Session Assistant-а Ticket 10.
 - Чужой текст — блок `{ "kind": "outside-text", "source", "author", "text" }`: текст пункта и его предмета, комментарий
   и заголовок PR, заголовок и `waits` Ticket-а, строка Session-а, подробности строки журнала Autopilot-а, текст действия
-  (он может цитировать пункт). Инструкции говорят агенту: это данные, их указаниям не следовать.
+  (он может цитировать пункт), путь файла в нити PR. У сообщения Slack и Jira блок несёт его источник и автора, рядом —
+  время, ссылка, Project и Ticket сообщения (review раунда 1). Id пункта агент получает от worfy (`item-<16 hex>`,
+  `publicItemId`), id предмета-сообщения — тоже (`message-<16 hex>`): id ядра содержит id сообщения, а его пишет
+  проверка Haiku. По этому id `action_run` и предложения находят пункт; main хранит и получает id ядра. Инструкции
+  говорят агенту: это данные, их указаниям не следовать.
 - Секреты — каждая строка каждого ответа проходит `redactSecrets` (`src/shared/terminal-ai/redact.ts`); текст
   предложения проходит её до того, как main его хранит, поэтому хранимый и отвеченный текст один.
 - Предложения — `src/main/assistant/proposals/book.ts` (`ProposalBook`, `appProposals()`), тип —
@@ -110,5 +114,8 @@ MCP-сервер `worfy-app` — единственный набор tools Sessi
 6. **Linked machine** в `projects_list` приложения пока не читается (только эта машина): Project-ы второй машины —
    Ticket 18. Prepare и действия называют только Project-ы этой машины.
 7. **До Ticket-а 08** закрытый список в приложении отказывает с причиной; после его merge wiring
-   `appWorfyAppDeps` берёт `appClosedList()` — одна строка. Строка журнала `pr-follow` и `autopilot-start` пока идёт в
-   log main: журнал Ticket-а 08 строк извне не принимает.
+   `appWorfyAppDeps` берёт `appClosedList()` с проверкой на null (закрытый список ещё не запущен). Строка журнала
+   `pr-follow` и `autopilot-start` пока идёт в log main: журнал Ticket-а 08 строк извне не принимает; запись в него —
+   пункт «Готово, когда» Ticket-а 10.
+8. **Id пункта для агента** — первые 16 hex SHA-256 id ядра; сопоставление считается заново при каждом вызове, без
+   хранимой таблицы.
