@@ -54,21 +54,41 @@ b0e073620: все открыты.
       win32` и подменённые `links`) — `map.md`, `mind-map.json` и `issues/` темы ведут на удалённый host: ни один не
       читается, тема называет файл в ошибках. Красный на origin/main.
   - evidence: test-run pass · `vitest run test/unit/product-topic.test.ts` exit 0; 3 new link tests exit 1 on origin/main sources · mac - · 15b8d03a4
+  - evidence: test-run pass · `vitest run` of 23 product, mind-map, docs, query-factory and remote-links files exit 0; topic link tests exit 1 on origin/main, unchecked mutant exit 1 · mac - · e6c221a0f
 - [ ] 58: test `test/contract/mind-map-tools.test.ts` — `mind_map_read` темы со ссылкой на удалённый host не читает
       файл. Красный на origin/main.
   - evidence: test-run pass · `vitest run test/contract/mind-map-tools.test.ts` exit 0; 2 new tests exit 1 on origin/main sources · mac - · 15b8d03a4
+  - evidence: test-run pass · `vitest run test/contract/mind-map-tools.test.ts` exit 0; read and write link tests exit 1 before the fix, documents-root mutant exit 1, writer-check mutant exit 1 · mac - · e6c221a0f
 - [ ] 59, 80: unit test `test/unit/product-share.test.ts` — папка Product Session и файл `critic/*.md` ведут на
       удалённый host: `readdir` и `readFile` не зовутся, share без них. Красный на origin/main.
   - evidence: test-run pass · `vitest run test/unit/product-share.test.ts` exit 0; 2 new tests exit 1 on origin/main sources · mac - · 15b8d03a4
+  - evidence: test-run pass · `vitest run test/unit/product-share.test.ts` exit 0; share link tests exit 1 on origin/main, critic folder mutant exit 1 · mac - · e6c221a0f
 - [ ] 79: unit test `test/unit/product-topic.test.ts` — `mind-map.json` нечитаем (папка вместо файла): ошибка в
       `errors`, карта не пустая; `Status: someword` даёт `none`. Mutant «убрать проверку `'error' in mindMap`» и mutant
       «убрать `STATUS_WORDS.has`» — красные.
   - evidence: test-run pass · `vitest run test/unit/product-topic.test.ts` exit 0; mutant without the mind-map error check exit 1, mutant without STATUS_WORDS.has exit 1 · mac - · 15b8d03a4
+  - evidence: test-run pass · `vitest run test/unit/product-topic.test.ts` exit 0; mutant without the mind-map error check exit 1, mutant without STATUS_WORDS.has exit 1 · mac - · e6c221a0f
 - [ ] 93: unit test `test/unit/agent-query-factory.test.ts` в `describe('sdkQueryFactory')` — Session `kind: 'product'`
       получает `productWrites`; mutant «убрать `productWrites` в `query.ts:476`» — красный.
   - evidence: test-run pass · `vitest run test/unit/agent-query-factory.test.ts` exit 0; mutant without productWrites in query.ts exit 1 · mac - · 15b8d03a4
+  - evidence: test-run pass · `vitest run test/unit/agent-query-factory.test.ts` exit 0; mutant without productWrites in query.ts exit 1 · mac - · e6c221a0f
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR, job-ы Windows CI зелёные.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 15b8d03a4
+  - evidence: gate pass · `gate fast` exit 0 · mac - · e6c221a0f
+
+## Решено без владельца (подтвердить)
+
+- 79: «карта не пустая» прочитано как «тема не читается как пустая карта без ошибок»: test требует ошибку
+  `mind-map.json` в `errors`; `nodes` остаются пустыми, как и раньше.
+- Текст отказа в ошибках темы и в `skipped`: `leads to another host through a link: not read`; ссылка, которую нельзя
+  прочитать, — прежний текст `UNCHECKED` из `remote-links.ts`.
+- Папка Product Session за ссылкой на другой host: доля принятых советов пустая, без строки в `skipped` (так раньше
+  вела себя папка `critic/`); отдельный review за такой ссылкой назван в `skipped`.
+- Ссылки при чтении и записи Mind map (`mind_map_*`, `product.layout`) проверяются от корня документов Project-а, как
+  экран (`docsSource`: в Silent mode — Workflow folder), в виде как записан и как real path (review round 1 PR #2216).
+  Если real path не нашёлся, обход идёт от корня как записан.
+- `readTopic` без `allowed` начинает обход от папки темы.
+- Абзац о поведении — в `docs/features/product-session.md` и в переводе `docs/features/ru/product-session.md`.
 
 ## Где в коде
 
