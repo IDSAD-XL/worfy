@@ -291,24 +291,29 @@ function marksOn(marks: readonly MarkFact[], sha: string | null): Map<string, Ma
  * items 4, 5, 8) is judged in each repository by the facts of that repository, and stands on the earliest of their
  * Stages: a `review` mark counts only on the head of every branch, so a new head of any branch takes the verdict off
  * the whole Ticket; red CI of any PR is red CI of the Ticket; one PR merged leaves the Ticket on the Stage of the
- * other. The Stage `release` (ADR-0104, items 5, 6) holds a Ticket while any of its `Release:` lines is not met: each
- * repository waits for the lines of the other repositories, never for its own, so the library goes on to its merge
- * while the consumer waits; a merged PR passes it, as every Stage before the merge.
+ * other. The Stage `release` (ADR-0104, items 5, 6) holds a Ticket while any of its `Release:` lines is not met: a
+ * repository waits for the lines of the repositories before it in the `Repo:` lines (the order of the merges, the
+ * library first) and of libraries that are none of the Ticket's repositories, never for its own or a later one's, so
+ * the library goes on to its merge while the consumer waits; a merged PR passes it, as every Stage before the merge.
+ * The Ticket entered its Stage when the last of its repositories reached it: one that has gone on since counts too.
  */
 export function stageOf(facts: StageFacts, pipeline: readonly PipelineStage[]): TicketStage {
   // A Project that has no `release` in its Pipeline does not see the Stage, nor do its Release: lines change anything.
   const releases = pipeline.some((stage) => stage.kind === 'release') ? (facts.releases ?? []) : []
   const own = releases.length > 0 ? { release: releases.map(({ repo, kind, ref, state }) => ({ repo, kind, ref, state })) } : {}
-  /** The lines a repository waits for: those not met, of the other repositories (the library does not wait for its own release). */
-  const awaited = (repo: string | null) => releases.filter((release) => release.state !== 'released' && release.repo !== repo)
+  /** The lines not met that a repository waits for: of any repository but those in `not` (itself, and those after it). */
+  const awaited = (not: readonly (string | null)[]) => releases.filter((release) => release.state !== 'released' && !not.includes(release.repo))
   const repos = facts.repos ?? []
-  if (repos.length === 0) return { ...stageOfOne(facts, pipeline, awaited(facts.repo ?? null)), ...own }
-  const each = repos.map((repo) => stageOfOne({ ...facts, headSha: repo.headSha, pr: repo.pr, marks: repo.marks, deploys: repo.deploys }, pipeline, awaited(repo.repo)))
+  if (repos.length === 0) return { ...stageOfOne(facts, pipeline, awaited([facts.repo ?? null])).stage, ...own }
+  const names = repos.map((repo) => repo.repo)
+  const judged = repos.map((repo, at) => stageOfOne({ ...facts, headSha: repo.headSha, pr: repo.pr, marks: repo.marks, deploys: repo.deploys }, pipeline, awaited(names.slice(at))))
+  const each = judged.map(({ stage }) => stage)
   const index = Math.min(...each.map((stage) => stage.index))
   const behind = each.filter((stage) => stage.index === index)
   // Every repository on the Ticket's Stage has passed the same Stages before it.
   const first = behind[0]!
-  const entered = latest(behind.map((stage) => timeOf(stage.enteredAt)))
+  // A repository on the Stage entered it at its own enteredAt (a rework counts); one past it, when it reached it.
+  const entered = latest(judged.map(({ stage, reached }) => (stage.index === index ? timeOf(stage.enteredAt) : (reached[index] ?? null))))
   return {
     ...first,
     skipped: first.passed.filter((id) => each.some((stage) => stage.skipped.includes(id))),
@@ -325,9 +330,10 @@ export function stageOf(facts: StageFacts, pipeline: readonly PipelineStage[]): 
 /**
  * The Stage of a Ticket from the facts of one repository. `awaited`: the Release: lines this repository still waits
  * for; while there are any, its CI is not judged — red CI of a consumer before the release of the version it needs is
- * expected (ADR-0104, item 6) — and the Stage `release` is not passed.
+ * expected (ADR-0104, item 6) — and the Stage `release` is not passed. `reached`: for each Stage up to the one it
+ * stands on, when this repository reached it — the latest of the times of the Stages passed before it.
  */
-function stageOfOne(facts: StageFacts, pipeline: readonly PipelineStage[], awaited: readonly ReleaseFact[]): TicketStage {
+function stageOfOne(facts: StageFacts, pipeline: readonly PipelineStage[], awaited: readonly ReleaseFact[]): { stage: TicketStage; reached: (number | null)[] } {
   const pull = facts.pr !== null && facts.pr.state !== 'CLOSED' ? facts.pr : null
   const open = pull?.state === 'OPEN' ? pull : null
   const merged = pull?.state === 'MERGED'
@@ -385,8 +391,10 @@ function stageOfOne(facts: StageFacts, pipeline: readonly PipelineStage[], await
   const passed: string[] = []
   const skipped: string[] = []
   const times: (number | null)[] = [timeOf(facts.statusAt)]
+  const reached: (number | null)[] = []
   let index = pipeline.length - 1
   for (const [at, stage] of pipeline.entries()) {
+    reached.push(latest(times))
     const verdict = judge(stage)
     if (!verdict.passed) {
       index = at
@@ -410,7 +418,7 @@ function stageOfOne(facts: StageFacts, pipeline: readonly PipelineStage[], await
   }
 
   const entered = latest(times)
-  return {
+  const stage: TicketStage = {
     stage: stageId(current),
     index,
     kind: current.kind,
@@ -423,6 +431,7 @@ function stageOfOne(facts: StageFacts, pipeline: readonly PipelineStage[], await
     enteredAt: entered === null ? null : new Date(entered).toISOString(),
     statusAt: facts.statusAt,
   }
+  return { stage, reached }
 }
 
 // ── stuck ────────────────────────────────────────────────────────────────────

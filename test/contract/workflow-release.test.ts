@@ -519,7 +519,7 @@ describe('the Stage release in main (StageReader)', () => {
     expect(ticket(await settled(reader, release.reader, ws, [tagLine]))).toMatchObject({ stage: 'ci', sub: 'failing' })
   })
 
-  it('both PRs open, app listed first: the library goes on past release on its own facts, the Ticket waits on release because of app', async () => {
+  it('both PRs open, app listed first: the Repo: lines put app before lib, so no repository waits for the lines of lib (worfy-polish 149)', async () => {
     const ws = workspace()
     reviewBoth(ws)
     const release = releaseOf()
@@ -533,9 +533,11 @@ describe('the Stage release in main (StageReader)', () => {
     // The library's own red CI is red: lib does not wait for its own release, so its CI is judged.
     const red = await settled(readerOver(ws, open('failure'), release.reader), release.reader, ws, [tagLine, packageLine], extra)
     expect(ticket(red)).toMatchObject({ stage: 'ci', sub: 'failing', merged: { count: 0, of: 2 } })
-    // Green: lib is past release (on Human review), app waits on it, and the Ticket with it.
+    // Green: the order of the Repo: lines is the order of the merges (ADR-0104, item 1). app stands first, so it waits
+    // for no line of lib, a repository after it; lib waits for none of its own: both go past release.
     const green = await settled(readerOver(ws, open('success'), release.reader), release.reader, ws, [tagLine, packageLine], extra)
-    expect(ticket(green)).toMatchObject({ stage: 'release', sub: null, release: [{ ...tagLine, state: 'waiting' }, { ...packageLine, state: 'waiting' }] })
+    expect(ticket(green)).toMatchObject({ stage: 'human-review', sub: null, release: [{ ...tagLine, state: 'waiting' }, { ...packageLine, state: 'waiting' }] })
+    expect(ticket(green).passed).toContain('release')
     // The tag is asked about in lib's checkout, the package in app's, whatever the order of the Repo: lines.
     expect(npmCalls()).toEqual([`npm view ${PACKAGE} version cwd=${ws.app}`])
   })

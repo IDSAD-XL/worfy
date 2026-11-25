@@ -181,6 +181,79 @@ export function markRows(input: WorkTrackInput): MarkRow[] {
   return [row('ci', CI_ROW_TITLE, 'github'), row('ticket-status', STATUS_ROW_TITLE, 'git')]
 }
 
+/** Marks of a row that the track draws as one: they would lie on one another at its scale. */
+export interface MarkGroup {
+  /** In the order of their starts; one mark is a group of one. */
+  marks: WorkSpan[]
+  start: number
+  end: number
+  /** The mark whose colour the group takes and whose panel a click opens: the worst outcome, the latest of those. */
+  lead: WorkSpan
+}
+
+/** The width of a mark on the screen, in pixels (work-track.css): a CI run at least this long, a status change a dot. */
+export const MARK_PX: Readonly<Record<MarkRow['id'], number>> = { ci: 4, 'ticket-status': 8 }
+/** The width the grouping takes for a track not measured yet (and in a test DOM). */
+export const UNMEASURED_TRACK_PX = 1000
+
+/**
+ * The drawn width of the mark of a group of `count` marks, its counter inside, in pixels: Lanes.tsx sets it as the
+ * mark's least width, so the grouping and the screen agree. A CI group starts at its first run; a status group is
+ * centred on its first change, as a dot is.
+ */
+export function groupPx(count: number): number {
+  return Math.max(14, 6 + 6 * String(count).length)
+}
+
+/** How bad a mark's outcome is, for the colour of its group: a red CI run, a blocked Ticket above all. */
+function badness(row: MarkRow['id'], span: WorkSpan): number {
+  if (row === 'ticket-status') return span.outcome === 'blocked' ? 1 : 0
+  switch (span.outcome) {
+    case 'ok':
+      return 0
+    case null:
+      return 1
+    case 'failed':
+    case 'rejected':
+      return 3
+    default:
+      return 2
+  }
+}
+
+/**
+ * The marks of `row` in groups (worfy-polish ticket 149) on a track `widthPx` wide over `bounds`, by what the screen
+ * draws: a CI run from its start to its end, at least MARK_PX wide; a status change a dot MARK_PX wide centred on its
+ * time; a group its counter (groupPx), from its first run, or centred on its first change. A mark whose left edge is
+ * left of the right edge of the group before it joins that group, so marks that would hide one another, or the
+ * counter, are drawn once with their count, in the colour of the worst of them.
+ */
+export function markGroups(row: MarkRow, bounds: { start: number; end: number }, widthPx: number): MarkGroup[] {
+  const width = widthPx > 0 ? widthPx : UNMEASURED_TRACK_PX
+  const px = (time: number): number => ((Math.min(Math.max(time, bounds.start), bounds.end) - bounds.start) / (bounds.end - bounds.start)) * width
+  const dot = row.id === 'ticket-status'
+  /** The left and right edges of a drawn mark `size` wide at `start` (a dot: centred), reaching at least to `end`. */
+  const edges = (start: number, end: number, size: number): [number, number] => {
+    const left = dot ? px(start) - size / 2 : px(start)
+    return [left, Math.max(px(end), left + size)]
+  }
+  const groups: { group: MarkGroup; right: number }[] = []
+  for (const span of [...row.marks].sort((a, b) => a.start - b.start)) {
+    const [left, right] = edges(span.start, span.end, MARK_PX[row.id])
+    const last = groups.at(-1)
+    if (last !== undefined && left < last.right) {
+      const { group } = last
+      group.marks.push(span)
+      group.end = Math.max(group.end, span.end)
+      if (badness(row.id, span) >= badness(row.id, group.lead)) group.lead = span
+      last.right = Math.max(last.right, right, edges(group.start, group.end, groupPx(group.marks.length))[1])
+    } else {
+      groups.push({ group: { marks: [span], start: span.start, end: span.end, lead: span }, right })
+    }
+  }
+  return groups.map(({ group }) => group)
+}
+
 function lane(id: string, kind: LaneKind, title: string, spans: WorkSpan[], over: Partial<Lane> = {}): Lane {
   return { id, kind, title, depth: 0, spans, subagents: 0, expanded: false, children: [], strip: [], gaps: [], ...over }
 }

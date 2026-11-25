@@ -73,7 +73,13 @@ Under the axis of a Day or a Week, two narrow rows hold marks:
   `blocked` is orange.
 
 A mark's tooltip is that of a bar; a click on it opens the Span panel. The two rows are the same `by Session` and
-`by Epic`.
+`by Epic`. Marks that would lie on one another at the current scale are drawn as one mark with their count, in the
+colour of the worst of them, so a red CI run among green ones shows red and a change to `blocked` shows orange. A CI
+run is at least 4 pixels wide, a status change is a dot 8 pixels wide centred on its time, and the mark with a count
+is 14 pixels wide (18 for two digits, 24 for three), starting at its first run or centred on its first change; a mark
+that starts left of the right edge of the group before it joins that group, so nothing covers a count. Its tooltip
+starts with the count (`17 CI runs`, `17 Ticket status changes`) and has a line per mark; a click opens the mark whose
+colour it shows, the latest of those.
 
 **by Session**, top to bottom:
 
