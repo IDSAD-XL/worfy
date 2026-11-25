@@ -156,6 +156,11 @@ export type GhAuth = (root: string) => Promise<GhEnv>
 export interface AccountAuthOptions {
   /** The Project's GitHub account, or null when it has none (src/main/workflow/profile.ts). */
   account: (root: string) => Promise<string | null>
+  /**
+   * The host of the Project's repository, or null for github.com; github.com without it. A GitHub Enterprise
+   * Server host keeps its logins apart from github.com's, so the token is asked of that host.
+   */
+  host?: (root: string) => Promise<string | null>
   /** The runner `gh auth token -u <account>` goes through: the same gh and environment as pr list. */
   run: GhRunner
 }
@@ -164,7 +169,17 @@ export interface AccountAuthOptions {
 const TOKEN_SHAPE = /^\S+$/u
 
 /**
- * GH_TOKEN of the Project's account, from `gh auth token -u <account>`. Without an account, no
+ * The variable gh reads a token for `host` from: GH_TOKEN for github.com and its data residency hosts
+ * (`*.ghe.com`), GH_ENTERPRISE_TOKEN for a GitHub Enterprise Server host, where gh does not look at GH_TOKEN.
+ */
+export function tokenVariable(host: string): 'GH_TOKEN' | 'GH_ENTERPRISE_TOKEN' {
+  const name = host.toLowerCase()
+  return name === 'github.com' || name.endsWith('.ghe.com') ? 'GH_TOKEN' : 'GH_ENTERPRISE_TOKEN'
+}
+
+/**
+ * The token of the Project's account, from `gh auth token -u <account>` (with `--hostname` for a host other than
+ * github.com), in the variable gh reads for that host (tokenVariable). Without an account, no
  * extra environment: gh runs as before, with the login shell's own account. With an account gh has
  * no login for, the read fails with a reason naming the account — falling back to the global
  * account would show another account's answer or the same refusal.
@@ -173,10 +188,12 @@ export function accountAuth(options: AccountAuthOptions): GhAuth {
   return async (root): Promise<GhEnv> => {
     const account = await options.account(root)
     if (account === null) return {}
-    const how = `run \`gh auth login\` and sign in as ${account}`
+    const host = ((await options.host?.(root)) ?? 'github.com').toLowerCase()
+    const onHost = host === 'github.com' ? [] : ['--hostname', host]
+    const how = `run \`gh auth login${host === 'github.com' ? '' : ` --hostname ${host}`}\` and sign in as ${account}`
     let printed: string
     try {
-      printed = await options.run(['auth', 'token', '-u', account], root)
+      printed = await options.run(['auth', 'token', '-u', account, ...onHost], root)
     } catch (error) {
       // gh's own reason (no login, gh not found); it never contains a token.
       throw new Error(`no gh login for ${account}, the Project's GitHub account: ${messageOf(error)}; ${how}`, { cause: error })
@@ -184,7 +201,7 @@ export function accountAuth(options: AccountAuthOptions): GhAuth {
     const token = printed.trim()
     // The output is not quoted in the reason: it may be a token in an unexpected shape.
     if (!TOKEN_SHAPE.test(token)) throw new Error(`gh auth token -u ${account} printed no token; ${how}`)
-    return { GH_TOKEN: token }
+    return { [tokenVariable(host)]: token }
   }
 }
 

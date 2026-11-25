@@ -11,7 +11,7 @@ import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { findOnPath } from '../../src/main/agent/env'
 import { parseAuthStatus, parseRemote, readGithubAccounts, signInBlock, signInCommand, signInRegistry, type FolderRepo } from '../../src/main/github/accounts'
-import { GhExitError, ghRunner } from '../../src/main/github/prs'
+import { GhExitError, ghRunner, type GhRunner } from '../../src/main/github/prs'
 import { runGit } from '../../src/main/projects/store'
 import { githubAccountsStepSchema, githubChoice, withGithubAccount, type GithubAccountsStep, type ProfileDraft } from '../../src/shared/ipc/projects'
 import { authStatus, authStatusText, ghWorld, STUB_COMMAND, type GhWorld, type OldGh, type StubAccount, type StubRepos } from './gh-world'
@@ -164,6 +164,38 @@ describe('write access to origin and the finish', () => {
     if (step.status !== 'accounts') throw new Error(JSON.stringify(step))
     expect(step.accounts).toEqual([{ login: 'corp', host: 'ghe.example.com', active: true, state: 'success', push: true, finish: 'pr-green-ci', reason: null }])
     expect(githubChoice(step, 'corp')).toEqual({ account: 'corp', finish: 'pr-green-ci' })
+  })
+
+  it('two accounts on a GitHub Enterprise host: each is checked with its own GH_ENTERPRISE_TOKEN, not as the active one; github.com with GH_TOKEN (worfy-polish 148)', async () => {
+    const CORP: StubAccount = { login: 'corp', host: 'ghe.example.com', active: true, token: 'gho_corp_SECRET_0003' }
+    const INTERN: StubAccount = { login: 'intern', host: 'ghe.example.com', token: 'gho_intern_SECRET_0004' }
+    const gh = world([ALICE, BOB, CORP, INTERN], { 'acme/shop': { corp: true, intern: false }, 'acme/api': { alice: false, bob: true } })
+    // The variables of the environment each repository read got: the token's name, never its value.
+    const seen: string[] = []
+    const run: GhRunner = (args, cwd, env, output) => {
+      if (args[0] === 'api') seen.push(`${args[1]} ${Object.keys(env ?? {}).join(',')}`)
+      return gh.run(args, cwd, env, output)
+    }
+    const readWith = (repos: readonly FolderRepo[]) => readGithubAccounts(repos, { git: runGit, gh: run })
+
+    const enterprise = await readWith([repo('shop', 'git@ghe.example.com:acme/shop.git')])
+    if (enterprise.status !== 'accounts') throw new Error(JSON.stringify(enterprise))
+    // The active account of the host may push; the other one may not, and its check does not borrow the active one's sign-in.
+    expect(enterprise.accounts).toEqual([
+      { login: 'corp', host: 'ghe.example.com', active: true, state: 'success', push: true, finish: 'pr-green-ci', reason: null },
+      { login: 'intern', host: 'ghe.example.com', active: false, state: 'success', push: false, finish: 'local-green', reason: 'intern has no write access to acme/shop: Tickets will close with the local finish.' },
+    ])
+    expect(enterprise.selected).toBe('corp')
+    expect(seen.splice(0)).toEqual(['repos/acme/shop GH_ENTERPRISE_TOKEN', 'repos/acme/shop GH_ENTERPRISE_TOKEN'])
+
+    // github.com as before: GH_TOKEN, and the account that is not active is checked as itself.
+    const github = await readWith([repo('api', 'https://github.com/acme/api.git')])
+    if (github.status !== 'accounts') throw new Error(JSON.stringify(github))
+    expect(github.accounts.map((account) => [account.login, account.push])).toEqual([
+      ['alice', false],
+      ['bob', true],
+    ])
+    expect(seen).toEqual(['repos/acme/api GH_TOKEN', 'repos/acme/api GH_TOKEN'])
   })
 
   it('without origin: no account and the local finish, gh not run', async () => {

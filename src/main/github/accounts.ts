@@ -6,9 +6,10 @@
 //   GitHub when its host is github.com or a host gh has accounts for (GitHub Enterprise). gh before
 //   2.81 answers "unknown flag: --json": then `gh --version` and the text of `gh auth status`
 //   (./auth-text.ts, worfy-polish ticket 76); a gh before 2.40 is "too old", with the update command.
-// - The access: per account, its token from `gh auth token -u <login>` through accountAuth
+// - The access: per account, its token from `gh auth token -u <login> [--hostname <host>]` through accountAuth
 //   (src/main/github/prs.ts, worfy-week ticket 01), then per repository
-//   `gh api repos/<owner>/<repo> --jq .permissions.push` with that token as GH_TOKEN. Only `true`
+//   `gh api repos/<owner>/<repo> --jq .permissions.push` with that token as GH_TOKEN, or as GH_ENTERPRISE_TOKEN on a
+//   GitHub Enterprise Server host, where gh does not read GH_TOKEN (worfy-polish 148). Only `true`
 //   is write access; `false`, 403, 404 and any other failure are not, and the account's finish is
 //   local (ADR-0045: no PR without write access to origin).
 //
@@ -184,10 +185,10 @@ export async function readGithubAccounts(repos: readonly FolderRepo[], deps: Acc
   const candidates = known.filter((account) => hosts.has(account.host))
   const accounts = await Promise.all(
     candidates.map(async (account): Promise<GithubAccount> => {
-      const run: GhRunner = (args, at, env) => deps.gh(account.host === 'github.com' ? args : [...args, '--hostname', account.host], at, env)
       let token: Readonly<Record<string, string>>
       try {
-        token = await accountAuth({ account: () => Promise.resolve(account.login), run })(cwd)
+        // GH_ENTERPRISE_TOKEN for a GitHub Enterprise Server host: gh reads GH_TOKEN for github.com only.
+        token = await accountAuth({ account: () => Promise.resolve(account.login), host: () => Promise.resolve(account.host), run: deps.gh })(cwd)
       } catch (error) {
         return { ...account, push: false, finish: 'local-green', reason: `${messageOf(error)}. Tickets will close with the local finish.` }
       }

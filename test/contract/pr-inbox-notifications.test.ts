@@ -9,12 +9,23 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { INBOX_SEARCH_INTERVAL_MS, PrInbox, type PrInboxOptions, type PrInboxProject } from '../../src/main/github/inbox'
+import { INBOX_DETAILS_PAGE, INBOX_SEARCH_INTERVAL_MS, PrInbox, type PrInboxOptions, type PrInboxProject } from '../../src/main/github/inbox'
 import { NOTIFICATIONS_OFF_NOTICE, NOTIFICATIONS_PATH, notificationsArgs, notifiedPulls, parseNotificationsAnswer } from '../../src/main/github/inbox-notifications'
-import { GhExitError } from '../../src/main/github/prs'
+import { GhExitError, type GhRunner } from '../../src/main/github/prs'
 import { PR_INBOX_FILE, prInboxSetting, readNotificationsCursor, writeNotificationsCursor } from '../../src/main/projects/pr-inbox-state'
 import { removeTestTree } from '../remove'
 import { ghWorld, type GhWorld } from './gh-world'
+
+// The notifier (src/main/notify.ts) loads Electron and the app's window: no system notification is posted, its notes
+// go to the test's own `show`.
+vi.mock('electron', () => ({
+  app: { focus: vi.fn() },
+  BrowserWindow: { getFocusedWindow: () => null, getAllWindows: () => [] },
+  Notification: class {
+    static isSupported = () => false
+  },
+}))
+vi.mock('../../src/main/window', () => ({ createMainWindow: () => undefined }))
 
 beforeEach(() => {
   for (const name of ['GH_TOKEN', 'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPRISE_TOKEN']) vi.stubEnv(name, undefined)
@@ -570,6 +581,63 @@ describe('the notifications trigger', () => {
     await at(inbox, gh, 10 * MINUTE)
     expect(polls(gh)).toEqual([])
     expect(inbox.snapshot('p1').notice).toBeNull()
+  })
+})
+
+// worfy-polish 148: the notifier of the PR inbox (PrInboxNotices of src/main/notify.ts) over the snapshots this
+// reader makes. A first read that a rate-limit pause stopped between pages of details holds the rows of one page only;
+// it must not become the baseline, or the next full read tells of the old PRs of the other pages as new.
+describe('the first read cut short by a rate-limit pause (worfy-polish 148)', () => {
+  it('is not the baseline of the notifications: the next full read tells of no old PR, a later new one is told', async () => {
+    const { PrInboxNotices } = await import('../../src/main/notify')
+    const gh = ghWorld(join(tempDir(), 'gh'), { accounts: [{ login: ME, token: 'tok-me' }] })
+    worlds.push(gh)
+    // More PRs asking for my review than one page of details: Ana's, found by `review-requested:@me`.
+    const asking = (number: number) => {
+      const base = stubPull(API, number)
+      return { ...base, involves: false, reviewRequested: true, pull: { ...base.pull, author: { login: 'dev-ana' } } }
+    }
+    const count = INBOX_DETAILS_PAGE + 2
+    const pulls = Array.from({ length: count }, (_, i) => asking(i + 1))
+    writeFileSync(join(gh.dir, 'graphql.json'), JSON.stringify({ viewer: ME, pulls }))
+    // While `limited`, the answer to a page of details says the rate limit is almost spent, until 10 minutes on.
+    const resetAt = new Date(START + 10 * MINUTE).toISOString()
+    let limited = true
+    const run: GhRunner = async (args, cwd, env, output) => {
+      const out = await gh.run(args, cwd, env, output)
+      if (!limited || !args.some((arg) => arg.includes('pullRequest(number: $k0)'))) return out
+      const json = JSON.parse(out) as { data: Record<string, unknown> }
+      json.data.rateLimit = { limit: 5000, remaining: 10, resetAt }
+      return JSON.stringify(json)
+    }
+    const p = project('p1', [API])
+    const inbox = reader(gh, [p], { run, notifications: undefined })
+    const shown: string[] = []
+    const notices = new PrInboxNotices({ focused: () => false, show: (note) => void shown.push(note.body), open: () => undefined })
+    const rows = (snapshot: ReturnType<PrInbox['snapshot']>) => snapshot.groups.flatMap((group) => group.rows).length
+
+    await at(inbox, gh, 0)
+    const cut = inbox.snapshot('p1')
+    // The pause came after the first page: read, with the pause as its error, and the rows of one page only.
+    expect(detailsAsked(gh)).toHaveLength(1)
+    expect(cut.readAt).not.toBeNull()
+    expect(cut.error).toMatch(/rate limit/u)
+    expect(rows(cut)).toBe(INBOX_DETAILS_PAGE)
+    notices.read({ id: p.id, name: 'api' }, cut)
+
+    limited = false
+    await at(inbox, gh, 10 * MINUTE)
+    const full = inbox.snapshot('p1')
+    expect(full.error).toBeNull()
+    expect(rows(full)).toBe(count)
+    notices.read({ id: p.id, name: 'api' }, full)
+    expect(shown).toEqual([])
+
+    // A review asked after the baseline is new, and told once.
+    writeFileSync(join(gh.dir, 'graphql.json'), JSON.stringify({ viewer: ME, pulls: [...pulls, asking(count + 1)] }))
+    await at(inbox, gh, 20 * MINUTE)
+    notices.read({ id: p.id, name: 'api' }, inbox.snapshot('p1'))
+    expect(shown).toEqual([`Review requested: ${API}#${count + 1} Change ${count + 1}`])
   })
 })
 

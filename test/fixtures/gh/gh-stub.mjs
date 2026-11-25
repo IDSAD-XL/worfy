@@ -22,9 +22,10 @@
 //     auth-status.json lists only under other hosts than the asked one (github.com without
 //     --hostname) has no token there, as gh answers.
 //   - repos.json: `{"<owner>/<repo>": {"<login>": true | false | null | "<text>" | <HTTP status>}}`: what
-//     `gh api repos/<owner>/<repo>` answers to GH_TOKEN of that login — `permissions.push` (with
+//     `gh api repos/<owner>/<repo> [--hostname <h>]` answers to the token of that login — `permissions.push` (with
 //     `--jq .permissions.push`: null as `null`, a text as it is), or a failure with that status. A login it does not name gets 404, as GitHub answers for a private
-//     repository the account cannot see.
+//     repository the account cannot see. The token is the one gh reads for the host (hostToken): GH_TOKEN for
+//     github.com, GH_ENTERPRISE_TOKEN for a GitHub Enterprise Server host; without one, the host's active account.
 //   - login.json: `{"login", "host"?, "token"}`, the account `gh auth login` adds. Without it the
 //     sign-in fails.
 //   - old-gh.json: `{"version", "text", "stream"?, "code"?}`, a gh older than 2.81 (worfy-polish
@@ -229,7 +230,10 @@ if (args.length === 1 && args[0] === '--version') {
 } else if (args[0] === 'api' && /^repos\/[^/\s]+\/[^/\s]+$/.test(args[1] ?? '')) {
   const slug = args[1].slice('repos/'.length)
   const tokens = read('tokens.json', {})
-  const login = Object.keys(tokens).find((name) => tokens[name] === process.env.GH_TOKEN)
+  // As gh: the token of the asked host's variable, else that host's active account (worfy-polish 148).
+  const host = (option('--hostname') ?? 'github.com').toLowerCase()
+  const fromEnv = hostToken(host)
+  const login = fromEnv !== null ? Object.keys(tokens).find((name) => tokens[name] === fromEnv) : (read('auth-status.json', { hosts: {} }).hosts[host] ?? []).find((entry) => entry.active === true && entry.state === 'success')?.login
   const answers = read('repos.json', {})[slug] ?? {}
   const answer = login === undefined || !Object.hasOwn(answers, login) ? 404 : answers[login]
   if (answer === 404) fail('gh: Not Found (HTTP 404)')
@@ -562,6 +566,16 @@ function environmentToken() {
   if (process.env.GH_TOKEN) return { variable: 'GH_TOKEN', token: process.env.GH_TOKEN }
   if (process.env.GITHUB_TOKEN) return { variable: 'GITHUB_TOKEN', token: process.env.GITHUB_TOKEN }
   return null
+}
+
+/**
+ * The token gh takes from its environment for a call to `host`: GH_TOKEN, then GITHUB_TOKEN for github.com and
+ * `*.ghe.com`; GH_ENTERPRISE_TOKEN, then GITHUB_ENTERPRISE_TOKEN for a GitHub Enterprise Server host, which never
+ * reads GH_TOKEN. An empty one is unset.
+ */
+function hostToken(host) {
+  if (host === 'github.com' || host.endsWith('.ghe.com')) return environmentToken()?.token ?? null
+  return process.env.GH_ENTERPRISE_TOKEN || process.env.GITHUB_ENTERPRISE_TOKEN || null
 }
 
 /** `auth status` without flags, as gh 2.97 prints it (fixtures of worfy-auth-check ticket 01). */

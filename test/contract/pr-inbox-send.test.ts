@@ -8,7 +8,7 @@
 // - a sent reply is not sent again; a repository that is not the Project's is refused before gh;
 // - a Linked machine, at any access level, is refused every drafts channel before the handler.
 // Nothing reaches GitHub or a model: owners, repositories, logins and texts are invented.
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, dirname, join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
@@ -568,6 +568,27 @@ describe('which reply, and where it goes', () => {
     expect(answer.results[0]).toMatchObject({ outcome: 'refused', reason: `Not sent: the draft answers comment ${REPLY_TO}, but the thread on GitHub starts with comment 9999` })
     expect(writes(s.gh)).toEqual([])
     expect(s.draft().items[0]!.error).toBe(answer.results[0]!.reason)
+  })
+
+  it('the in-flight mark cannot be written: refused, no POST, the draft not marked sent (worfy-polish 148)', async () => {
+    const s = await setup([threadItem('The server drops one try.')], {
+      over: {
+        // The write of the mark fails as a full disk would: its temporary file holds IN_FLIGHT, and the rename is refused.
+        beforeRename: async (file) => {
+          const pending = readdirSync(dirname(file)).filter((name) => name.endsWith('.tmp')).map((name) => readFileSync(join(dirname(file), name), 'utf8'))
+          if (pending.some((text) => text.includes(IN_FLIGHT))) throw new Error('ENOSPC: no space left on device, write')
+        },
+      },
+    })
+    const answer = ok(await s.call<SendAnswer>('prInbox.send', { ...pull, items: [{ ...threadRef(), body: 'The server drops one try.' }] }))
+    expect(answer.results[0]).toMatchObject({ outcome: 'refused', sentUrl: null })
+    expect(answer.results[0]!.reason).toContain('could not be marked before the post')
+    expect(answer.results[0]!.reason).toContain('ENOSPC')
+    expect(writes(s.gh)).toEqual([])
+    expect(posted(s.gh)).toEqual([])
+    const item = s.draft().items[0]!
+    expect(item).toMatchObject({ state: 'draft', sentUrl: null })
+    expect(item.error).not.toBe(IN_FLIGHT)
   })
 
   it('a Profile that names no GitHub account: Send refused before any gh call, with what to set', async () => {

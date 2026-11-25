@@ -1,7 +1,8 @@
 # 148 — Аудит повторного review: GitHub Enterprise, уведомления PR inbox и Send
 
 Type: bug
-Status: open
+Status: claimed 2026-11-25T19:13Z
+Branch: worfy-polish/148
 Blocked by: none
 Source: audit-pr-rereview-2026-11-13, triage.md «В Ticket-ы»; checked open on main b0e073620 2026-11-25
 
@@ -56,6 +57,39 @@ Source: audit-pr-rereview-2026-11-13, triage.md «В Ticket-ы»; checked open o
       с «could not be marked before the post», stand-in `gh` не получил POST, draft не помечен отправленным; mutant «post
       после неудачной отметки» — красный.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+
+## Итог
+
+- 158 и 157: у `accountAuth` (`src/main/github/prs.ts`) появилось поле `host`. Для host-а не github.com token берётся
+  как `gh auth token -u <account> --hostname <host>` и отдаётся в `GH_ENTERPRISE_TOKEN` (`tokenVariable`); для
+  github.com и `*.ghe.com` — как раньше, без `--hostname`, в `GH_TOKEN`. Шаг аккаунтов (`accounts.ts`) передаёт host
+  аккаунта, и проверка записи на Enterprise идёт с `GH_ENTERPRISE_TOKEN` своего аккаунта, а не под активным.
+  Stand-in `gh` (`test/fixtures/gh/gh-stub.mjs`) теперь отвечает на `api repos/<o>/<r> --hostname <h>` так, как
+  берёт token настоящий gh: `GH_TOKEN` для github.com, `GH_ENTERPRISE_TOKEN` для Enterprise, без него — активный
+  аккаунт host-а. Поэтому старый test worfy-polish 71 на один Enterprise-аккаунт проходил и при ошибке.
+- 158, часть сценария не подтвердилась. В шаге аккаунтов `--hostname` у `gh auth token` был и до этого Ticket-а: runner
+  с `--hostname` (origin/main `src/main/github/accounts.ts:187`, worfy-polish 71). PR inbox читает только repository на
+  github.com (`src/main/github/inbox.ts:910-916`, shortcut `remoteRepos`), поэтому для Project-а на Enterprise он
+  выключен и `accountAuth` не зовёт — «no gh login» там не появляется. Work track зовёт `gh api` и `gh search` без
+  `--hostname` (`src/main/work-track/github.ts:255`, `:272`), то есть всё равно идёт на github.com. Остальные вызовы
+  `accountAuth` (`src/main/ipc/checks.ts:198`, `src/main/github/inbox.ts:705`, Send, review submit, pr-search,
+  changes) host не передают и работают с github.com, как раньше. Подключить к ним host origin-а — вне следа этого
+  Ticket-а: это поддержка Enterprise в PR checks и Work track, отдельная работа.
+- 165: `PrInboxNotices.read` (`src/main/notify.ts`) не берёт за первый baseline snapshot с `error`. Baseline — первое
+  чтение без ошибки. После baseline чтение с ошибкой сравнивается, как раньше.
+- 181: код не менялся, добавлен test. Mutant «post после неудачной отметки» — красный.
+- Страницы `docs/features/projects.md` (token Enterprise) и `docs/features/notifications.md` (первое чтение с ошибкой)
+  дополнены; русский перевод не правился (ADR-0088).
+
+## Решено без владельца (подтвердить)
+
+- `*.ghe.com` (GitHub Enterprise Cloud с data residency) получает `GH_TOKEN`, как его читает gh; `GH_ENTERPRISE_TOKEN` —
+  только Enterprise Server.
+- Для github.com `--hostname github.com` не добавляется: вызов тот же, что раньше.
+- Подсказка при отсутствии login-а для Enterprise-аккаунта: `gh auth login --hostname <host>`; начало текста «no gh
+  login for» прежнее, его ищет Health check (`src/main/github/github-health.ts:24`).
+- 165: чтение с ошибкой не становится baseline, даже если ошибка — не пауза (например, details прочитаны, но упал
+  поздний шаг): правило «первое чтение без ошибки», как в Ticket-е.
 
 ## Где в коде
 
