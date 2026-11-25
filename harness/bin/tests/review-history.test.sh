@@ -179,7 +179,7 @@ process.stdout.write([r("EXTERNAL-CONTEXT-TEXT"), r("NONE-CONTEXT-TEXT"), r("TEA
     || bad "fetch roles and PRs: $roles"
 grep -q "op=ReviewHistoryReviews cursor=r2" "$T/gh-filt.log" && ok "fetch: a PR with more than 30 reviews is read on by a request of its own" || bad "overflow request: $(cat "$T/gh-filt.log")"
 # A pull request whose review threads, conversation comments and comments of one thread each run past their first
-# page: the text of every second page reaches raw/ (audit finding 21, worfy-polish 145).
+# page: the text of every second page reaches raw/.
 rh readon "$FIX/read-on" fetch; rc=$?
 [ "$rc" -eq 0 ] && raw_has readon "FIRST-PAGE-THREAD-TEXT" && raw_has readon "FIRST-PAGE-COMMENT-TEXT" \
     && ok "fetch read-on: exit 0, the first pages are in raw/" || bad "fetch read-on: exit $rc $(cat "$T/err")"

@@ -230,7 +230,7 @@ mt claim mr 01 --branch fix/lot-flag --repo lib --repo app >/dev/null 2>&1
 out="$(mt claim mr 01 --repo lib --repo lib 2>&1)"; rc=$?
 [ "$rc" -eq 1 ] && [[ "$out" == *"named twice"* ]] && ok "claim with one --repo given twice -> exit 1" || bad "claim lib lib: exit $rc, $out"
 
-# A claimed ticket with a Branch: line belongs to the session of that branch (audit finding 97, worfy-polish 145): a
+# A claimed ticket with a Branch: line belongs to the session of that branch: a
 # claim from another branch, or with no --branch, is refused and writes nothing; --force takes the ticket over; the
 # same --branch claims it again.
 mk 05
