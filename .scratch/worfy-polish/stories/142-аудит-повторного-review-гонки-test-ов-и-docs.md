@@ -136,3 +136,15 @@ merges then. Each reading keeps the `main-red-<key>.json` marker above.
    Ответ: `step_done` ждёт паузу, начатую после счёта, значит после записи; проверка после такой паузы читает уже чужой
    файл и не трогает lock, а `touch` предыдущего шага случился до начала паузы.
    Строки: `harness/bin/tests/wave-gate-heartbeat.test.sh:230-231`
+
+## 8. Что нашёл review и что осталось
+
+> VERIFIED — worfy-polish 142 (audit findings 49 and 116: two test races; 39, 119, 120, 127, 192: the MCP chip hint and five feature pages that said what the code does not do), head d7c939b571d0020af4dccbc759a8fd451eb0a8cf
+>
+> Gate (depth medium, one round): reviewer (lens: correctness) — MERGE with one low; the Orchestrator fixed it (d7c939b57 with the Code story).
+>
+> - What the user sees: the MCP chip no longer tells the user to type a connector's name into the Project's MCP list (Claude Code drops such a name); it says to connect the connector on claude.ai and open the list again, which re-reads the inventory and offers Allow. The feature pages (en and ru) now say: land pauses code PRs on a red main and how the pause ends; a common word in a host name is not taken for a secret; Stop in the main checkout does not run the gate, a Subagent's stop does; a Session Node shows an answer as plain text, markdown is drawn in the Session view.
+> - Test races removed, not hidden: the autopilot-retry and codex-orchestrator contract tests wait for the run state, not for the journal line written before the wait starts (with a forced 300 ms pause the old tests fail 2 of 56, the new pass); the heartbeat shell test reads its counter after holder.json is written. No timeout raised; the old journal assertions stay.
+> - Fixed by the Orchestrator: the land paragraph also covers a red main with no green run among the newest 50 (the reason names no PR and no deadline), en and ru.
+> - Evidence: reviewer re-read every doc sentence against harness/bin/land, harness/lib/privacy.cjs, harness/hooks/stop.mjs, mcp-addresses.ts, session.ts, mcp-inventory.ts, SessionNode.tsx, Transcript.tsx; contract tests + mcp-chip 98 passed EXIT=0; heartbeat test 25/25 EXIT=0; implementer ×10 runs of both 10/10; gate fast green on 44e637d58; story-check ok on d7c939b57.
+> - Not verified: a live claude.ai connector appearing after the list is reopened (code read only).

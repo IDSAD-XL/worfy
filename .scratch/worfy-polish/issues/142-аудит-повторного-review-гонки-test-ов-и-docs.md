@@ -1,7 +1,7 @@
 # 142 — Аудит повторного review: гонки test-ов и docs
 
 Type: bug
-Status: claimed 2026-11-25T08:05Z
+Status: done 2026-11-25T11:12Z
 PR: #2201
 Blocked by: none
 Source: audit-pr-rereview-2026-11-13, triage.md «Чинить сейчас»; checked open on main 3c9c06e8c 2026-11-25
@@ -68,24 +68,32 @@ Source: audit-pr-rereview-2026-11-13, triage.md «Чинить сейчас»; c
       journal; с принудительной паузой между записью `waiting-until` и `wait.wait` старый test красный, новый
       зелёный; каждый файл ×10 подряд — зелёный.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/autopilot-retry.test.ts test/contract/codex-orchestrator.test.ts` exit 0 ten runs of ten (56 tests); with a forced 300 ms pause between the waiting-until write and wait.wait in run.ts the old tests exit 1 (2 failed), the new ones exit 0 · mac - · 44e637d5846d810be3f14f63c62225965d622e04
+  - evidence: review pass · PR #2201 · - - · d7c939b571d0020af4dccbc759a8fd451eb0a8cf
 - [ ] 116: `harness/bin/tests/wave-gate-heartbeat.test.sh` читает счётчик после записи `holder.json`; с паузой между
       ними старый порядок красный, новый зелёный; ×10 подряд — зелёный.
   - evidence: test-run pass · `bash harness/bin/tests/wave-gate-heartbeat.test.sh` exit 0 ten runs of ten (25 passed); a copy with the heartbeat touch slowed: old order exit 1 (2 FAIL, bash and zsh), new order exit 0 · mac - · 44e637d5846d810be3f14f63c62225965d622e04
+  - evidence: review pass · PR #2201 · - - · d7c939b571d0020af4dccbc759a8fd451eb0a8cf
 - [ ] 39: подсказка `CONNECTOR_HINT` и `docs/features/mcp-servers.md` (с `ru/`) не обещают разрешить connector по
       имени и говорят, что работает; unit test `test/unit/mcp-chip.test.tsx` зелёный.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/mcp-chip.test.tsx` exit 0 (42 passed), exit 1 with the old hint; `node scripts/check-feature-docs.mjs` exit 0 · mac - · 44e637d5846d810be3f14f63c62225965d622e04
+  - evidence: review pass · PR #2201 · - - · d7c939b571d0020af4dccbc759a8fd451eb0a8cf
 - [ ] 119: `docs/features/gate-and-github.md` (с `ru/`) описывает паузу `land` при красном main и её снятие.
   - evidence: commit pass · worfy-polish/142: wait on state in Limits tests, count heartbeat sleeps after holder.json, fix docs · - - · 44e637d5846d810be3f14f63c62225965d622e04
+  - evidence: review pass · PR #2201 · - - · d7c939b571d0020af4dccbc759a8fd451eb0a8cf
 - [ ] 120: `docs/features/gate-and-github.md` и `docs/features/evidence.md` (с `ru/`) говорят, что общее слово в host
       name не считается секретом.
   - evidence: commit pass · worfy-polish/142: wait on state in Limits tests, count heartbeat sleeps after holder.json, fix docs · - - · 44e637d5846d810be3f14f63c62225965d622e04
+  - evidence: review pass · PR #2201 · - - · d7c939b571d0020af4dccbc759a8fd451eb0a8cf
 - [ ] 127: `docs/features/vendors.md` (с `ru/`) говорит, что Stop hook в main checkout gate не запускает.
   - evidence: commit pass · worfy-polish/142: wait on state in Limits tests, count heartbeat sleeps after holder.json, fix docs · - - · 44e637d5846d810be3f14f63c62225965d622e04
+  - evidence: review pass · PR #2201 · - - · d7c939b571d0020af4dccbc759a8fd451eb0a8cf
 - [ ] 192: `docs/features/projects.md` (с `ru/`) говорит, что Session Node на Canvas показывает ответ в `<pre>`, без
       markdown.
   - evidence: commit pass · worfy-polish/142: wait on state in Limits tests, count heartbeat sleeps after holder.json, fix docs · - - · 44e637d5846d810be3f14f63c62225965d622e04
+  - evidence: review pass · PR #2201 · - - · d7c939b571d0020af4dccbc759a8fd451eb0a8cf
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 44e637d5846d810be3f14f63c62225965d622e04
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45591725319/job/139160423779 · ci - · d7c939b571d0020af4dccbc759a8fd451eb0a8cf
 
 ## Где в коде
 
