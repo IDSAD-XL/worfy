@@ -77,7 +77,7 @@ Code: `docs/adr/0114-assistant-app-session.md:83-95` · key lines: 85, 87, 88, 9
 
 ## 4. Что ADR меняет и чего не меняет в прежних решениях
 
-Code: `docs/adr/0114-assistant-app-session.md:111-120` · key lines: 113, 118, 119
+Code: `docs/adr/0114-assistant-app-session.md:111-121` · key lines: 113, 118, 119
 
 ```markdown
 **Что это решение меняет и чего не меняет в прежних.**
@@ -89,7 +89,8 @@ Code: `docs/adr/0114-assistant-app-session.md:111-120` · key lines: 113, 118, 1
   него.
 - **Решение 3 Epic-а `worfy-retry`** («Повтор только у Orchestrator-а», `.scratch/worfy-retry/spec.md`) меняется для
   Session-ов на Canvas: их после сброса Limits продолжает Assistant по режиму обязанности. Поведение меняет Ticket 08;
-  в остальном решение 3 остаётся как было.
+  Ticket 08 забирает и отложенную идею 6 Epic-а `worfy-limits-out`; в остальном решение 3 остаётся как
+  было.
 ```
 
 - Что делает: называет, что ADR-0105 не меняется, а решение 3 Epic-а `worfy-retry` меняется только для Session-ов на
@@ -127,4 +128,4 @@ Code: `docs/adr/0114-assistant-app-session.md:111-120` · key lines: 113, 118, 1
    - Строки: `docs/adr/0114-assistant-app-session.md:91-95`
 3. Для каких Session-ов решение 3 `worfy-retry` перестаёт действовать?
    - Ответ: только для Session-ов на Canvas: их после сброса Limits продолжает Assistant по режиму обязанности.
-   - Строки: `docs/adr/0114-assistant-app-session.md:118-120`
+   - Строки: `docs/adr/0114-assistant-app-session.md:118-121`
