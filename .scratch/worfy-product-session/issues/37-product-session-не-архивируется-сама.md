@@ -40,9 +40,14 @@ Product Session, простоявшая дольше порога «Archive fini
 
 - [ ] archiveCandidates никогда не возвращает Node Product Session — при любом пороге, при правиле ticket-done и в
   «Archive finished sessions now»; unit test красный на origin/main, зелёный здесь.
+  - evidence: test-run pass · `pnpm test test/unit/archive-rule.test.ts test/contract/layout-archive.test.ts` exit 0 (8 new tests; red before the fix) · mac - · 98c52342d
 - [ ] Ручной Archive на Node Product Session по-прежнему архивирует её, Restore возвращает; test.
+  - evidence: test-run pass · `pnpm test test/contract/layout-archive.test.ts` exit 0 (a screen archive of a Product Session, Restore, next run leaves it) · mac - · 98c52342d
 - [ ] Комментарий в `archive.ts`, ADR-0076 Amendment (дата 2026-11-25, одна-две фразы) и страница `docs/features`,
   которая описывает автоархив (en и ru), говорят, что Product Session не уходит в архив сама.
+  - evidence: commit pass · worfy-product-session/37: the automatic archive never takes a Product Session · - - · 98c52342d
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 98c52342d
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 98c52342d
 - [ ] (вручную) На Mac Stable Product Session, простоявшая дольше порога, остаётся на Canvas.
   - needs: mac stable
