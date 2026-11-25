@@ -1,7 +1,7 @@
 # 11 — Проверка источника через connector claude.ai: одноразовый вызов Haiku 5.5 только с read tools одного connector-а
 
 Type: task
-Status: open
+Status: claimed 2026-11-25T14:09Z
 Blocked by: 03
 Source: [spec.md](../spec.md), «Ticket-ы», строка 11; «Решения владельца», 2, 13 и 19; «Решения по реализации» →
 «Проверка источников через connectors claude.ai (решение владельца, вариант В)»; «Риски» («Connectors claude.ai»,
@@ -64,3 +64,64 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 11; «Решения 
       формы пунктом не становится и пишется в журнал.
 - [ ] Test-ы не вызывают модель и не ходят в сеть.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+
+## Итог
+
+- Красный до правки: `node scripts/vitest-electron.mjs test/unit/connector-check-options.test.ts
+  test/unit/assistant-source-check.test.ts` — exit 1, оба файла не грузятся: нет
+  `src/main/vendors/claude/connector-check.ts`, `src/main/assistant/sources/connector-check.ts` и
+  `src/shared/assistant/source-items.ts`.
+- **Первый шаг — ответ: ограничить можно**, решено по типам и документации SDK 0.3.322 (`sdk.d.ts`) и коду worfy, без
+  живого вызова:
+  - один connector — policy tier с одной записью `allowedMcpServers: [{ serverUrl: <адрес connector-а> }]` и
+    `allowManagedMcpServersOnly: true`; так Session-ы пропускают connector-ы с worfy-mcp-live 12 (`mcp-addresses.ts`).
+    Других серверов нет: `settingSources: []`, `mcpServers: {}`, без plugin-ов. `strictMcpConfig` не годится: с
+    `--strict-mcp-config` Claude Code не грузит ни одного connector-а claude.ai (spike worfy-mcp-live 11, причина
+    `restricted`);
+  - только read tools — `tools: ['StructuredOutput']` (из встроенных только structured answer), `disallowedTools` —
+    `ONE_SHOT_DISALLOWED_TOOLS` и все остальные tools connector-а («removed from the model's context», `sdk.d.ts`),
+    `allowedTools` — read tools под `permissionMode: 'dontAsk'`, `canUseTool` отказывает всему остальному. Имена tools —
+    `mcp__<ключ сервера>__<tool>`, ключ connector-а — как в Claude Code 2.1.322 (`claude.ai Slack` →
+    `claude_ai_Slack`, строка функции нормализации в бинарнике SDK);
+  - место в контексте: в вызове только read tools одного connector-а, а не 634 tools (ADR-0021). Точное число зависит от
+    схем tools connector-а, их `mcpServerStatus()` не отдаёт, поэтому worfy меряет его на каждом вызове: до отправки
+    сообщения `getContextUsage({ detail: 'summary' })` (локальная оценка Claude Code, без вызова модели) называет tools в
+    контексте и их token-ы. Потолок — `CONNECTOR_TOOLS_MAX_TOKENS` = 20 000 token-ов; выше — вызов отказан;
+  - проверка перед моделью (`askConnector`): сообщение держится, пока `mcpServerStatus()` не покажет один этот connector
+    в `connected`, а `getContextUsage()` — только его read tools, без Bash, записи и сети, не выше потолка. Иначе Claude
+    Code закрывается без сообщения: модель не вызвана, расхода нет, строка в журнале.
+- Какие connectors подключены — `listConnectors`: query инвентаря MCP (`sdkInventoryStarter`, настройки пользователя,
+  ни одного сообщения — модели нет), `mcpServerStatus()` → `connectorsOf`: серверы со scope `claudeai`, их адрес, статус
+  и tools с аннотациями `readOnly` и `destructive`.
+- Вызов — `connectorCheckOptions` (чистая функция, unit test читает ровно то, что уходит в SDK): Haiku 5.5 по id
+  (`claude-haiku-5-5`), без переключателя thinking, папка `<WORFY_DATA_DIR>/assistant-sources` вне Project-ов, без
+  transcript-а, без API-ключей, `maxTurns` 8, `CLAUDE_CODE_MAX_OUTPUT_TOKENS` 8192, ответ — `outputFormat` со схемой
+  пунктов. Код — `src/main/vendors/claude/connector-check.ts`.
+- Выход и проверка формы — `src/shared/assistant/source-items.ts`: пункт — источник, id, автор, время ISO 8601 со
+  смещением, https-ссылка, короткий текст, касается ли пользователя, срочно ли, Project и Ticket (или null); не больше
+  30 пунктов. Ответ вне формы целиком — ни одного пункта, строка в журнале, проверка падает (планировщик оставляет
+  `since` на прошлом успехе). Пункт неверной формы или от другого источника — не пункт, строка в журнале с номером и
+  полями, без текста источника; остальные пункты идут.
+- Пункты — в ядро внимания (`src/main/assistant/sources/connector-check.ts`, `sourceCheckRun` — `CheckRun`
+  планировщика Ticket-а 04): событие источника `slack` или `jira` (виды проверок Ticket-а 04 добавлены в
+  `ATTENTION_SOURCES`), предмет `message` с автором, вид `message` или `urgent-message`, ревизия — время сообщения; поля
+  сообщения лежат в пункте как `message` (`sourceMessageSchema`, `src/shared/assistant/attention.ts`). Project — по
+  имени из ответа среди Project-ов машины, иначе пункт машины. Вызов, дошедший до модели, — `noteCall` журнала расхода
+  Ticket-а 05 (`source-check`, источник, модель, `usage`, `costUsd`), и когда ответа не было.
+- Регистрация в приложении — `appSourceCheck(recipe)` в `src/main/assistant/sources/app.ts`; Ticket-ы 12 и 13
+  регистрируют рецепт: `checkScheduler().register(kind, appSourceCheck(recipe))`. Под `WORFY_AGENT=fake` проверка не
+  запускается. `src/main/index.ts` не менялся.
+- Решено без владельца (подтвердить):
+  - read tool — tool, который назвал рецепт, есть у connector-а и не помечен как пишущий (`readOnly: false` или
+    `destructive: true`); tool без аннотаций, названный рецептом, разрешён — список рецепта и есть решение;
+  - потолок tools connector-а в контексте — 20 000 token-ов; `maxTurns` 8; предел ответа 8192 token-а с thinking; не
+    больше 30 пунктов в ответе;
+  - первая проверка вида без прошлого успеха смотрит на сутки назад;
+  - журнал отказов до журнала Assistant-а (Ticket 08) — лог main (`console.warn`, строки `[assistant] the <kind>
+    check: …`), без текста сообщений;
+  - нет connector-а, connector ждёт входа в claude.ai, вызов отказан, без ответа или ответ вне формы — проверка
+    падает, следующая покрывает то же время;
+  - `src/main/index.ts` не трогается: проверку регистрирует рецепт (Ticket-ы 12 и 13).
+- Не проверено вживую (первый настоящий вызов — приёмка Ticket-а 12): что `getContextUsage({ detail: 'summary' })`
+  отвечает до первого сообщения; что запись `serverUrl` пропускает настоящий connector (тот же открытый ручной пункт
+  worfy-mcp-live 12 / 08); сколько token-ов занимают read tools настоящего connector-а Slack.

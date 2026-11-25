@@ -150,11 +150,12 @@ export class AttentionCore {
         duty: this.dutyOf(event),
       })
       if (event.pr !== undefined) glued.pr = event.pr
+      if (event.message !== undefined) glued.message = event.message
       // A dismissed or snoozed item stays so; a seen, closed or stale one asks again.
       if (glued.state === 'seen' || glued.state === 'closed' || glued.state === 'stale') glued.state = 'new'
       item = glued
     } else {
-      item = { ...this.fresh(event, at, now), events: 1 }
+      item = { ...this.fresh(event, at, now), events: 1, ...(event.message === undefined ? {} : { message: event.message }) }
       file.items.push(item)
     }
     this.save(event.projectId, file)
