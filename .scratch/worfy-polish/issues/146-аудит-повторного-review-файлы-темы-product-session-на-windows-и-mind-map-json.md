@@ -1,7 +1,7 @@
 # 146 — Аудит повторного review: файлы темы Product Session на Windows и mind-map.json
 
 Type: bug
-Status: open
+Status: claimed 2026-11-25T14:11Z
 Blocked by: none
 Source: audit-pr-rereview-2026-11-13, triage.md «В Ticket-ы»; checked open on main b0e073620 2026-11-25
 
@@ -53,16 +53,22 @@ b0e073620: все открыты.
 - [ ] 58, 78: unit test `test/unit/product-topic.test.ts` (по образцу `test/unit/docs-remote-links.test.ts`, `paths:
       win32` и подменённые `links`) — `map.md`, `mind-map.json` и `issues/` темы ведут на удалённый host: ни один не
       читается, тема называет файл в ошибках. Красный на origin/main.
+  - evidence: test-run pass · `vitest run test/unit/product-topic.test.ts` exit 0; 3 new link tests exit 1 on origin/main sources · mac - · 15b8d03a4
 - [ ] 58: test `test/contract/mind-map-tools.test.ts` — `mind_map_read` темы со ссылкой на удалённый host не читает
       файл. Красный на origin/main.
+  - evidence: test-run pass · `vitest run test/contract/mind-map-tools.test.ts` exit 0; 2 new tests exit 1 on origin/main sources · mac - · 15b8d03a4
 - [ ] 59, 80: unit test `test/unit/product-share.test.ts` — папка Product Session и файл `critic/*.md` ведут на
       удалённый host: `readdir` и `readFile` не зовутся, share без них. Красный на origin/main.
+  - evidence: test-run pass · `vitest run test/unit/product-share.test.ts` exit 0; 2 new tests exit 1 on origin/main sources · mac - · 15b8d03a4
 - [ ] 79: unit test `test/unit/product-topic.test.ts` — `mind-map.json` нечитаем (папка вместо файла): ошибка в
       `errors`, карта не пустая; `Status: someword` даёт `none`. Mutant «убрать проверку `'error' in mindMap`» и mutant
       «убрать `STATUS_WORDS.has`» — красные.
+  - evidence: test-run pass · `vitest run test/unit/product-topic.test.ts` exit 0; mutant without the mind-map error check exit 1, mutant without STATUS_WORDS.has exit 1 · mac - · 15b8d03a4
 - [ ] 93: unit test `test/unit/agent-query-factory.test.ts` в `describe('sdkQueryFactory')` — Session `kind: 'product'`
       получает `productWrites`; mutant «убрать `productWrites` в `query.ts:476`» — красный.
+  - evidence: test-run pass · `vitest run test/unit/agent-query-factory.test.ts` exit 0; mutant without productWrites in query.ts exit 1 · mac - · 15b8d03a4
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR, job-ы Windows CI зелёные.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 15b8d03a4
 
 ## Где в коде
 
