@@ -291,7 +291,8 @@ four kinds, and an arrow leads to it from the node it grew from:
 | Objection | ! | Slanted box | A source: the fact it rests on, such as a path, a Ticket, a PR or a URL |
 
 A rejected Decision stays on the map, struck through, grey and faded, with a dashed outline. A Decision that overturned
-an earlier one has a red dashed "Replaces" arrow to it. The legend under the map shows each kind's shape and both arrows.
+an earlier one has a red dashed "Replaces" arrow to it. In "Tree", where the two often stand one under the other, the
+arrow loops out past their right side. The legend under the map shows each kind's shape and both arrows.
 
 **Which topic shows.** A Product Session is bound to no topic. While the Session view is open, the Mind map follows the topic
 of the Project whose files changed last; that following is live in this window only. The last topic is remembered per Node

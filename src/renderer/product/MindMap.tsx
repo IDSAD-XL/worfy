@@ -43,6 +43,7 @@ import {
   nodeShape,
   nodeSize,
   setTextMeasure,
+  treeReplacesPath,
   SHAPE_OF,
   withFilePlaces,
   type MapEdge,
@@ -270,9 +271,8 @@ function MindNodeView({ data, selected, width, height }: NodeProps<MindFlowNode>
   const size = width !== undefined && height !== undefined ? { width, height } : nodeSize(node, view)
   const pad = NODE_PAD[node.kind]
   // The Tree grows left to right (ticket 21): "grew from" enters on the left and leaves on the right. The
-  // Graph's arrows (GraphEdge) run between the borders and use these handles only to exist.
+  // Graph's arrows and the Tree's `replaces` (BoxEdge) run between the borders and use these handles only to exist.
   const [target, source] = [Position.Left, Position.Right]
-  const cross = [Position.Top, Position.Bottom]
   return (
     <div
       className={`w-mind__node w-mind__node--${node.kind}${rejected ? ' w-mind__node--rejected' : ''}${selected === true ? ' w-mind__node--selected' : ''}${lit ? ' w-mind__node--lit' : ''}`}
@@ -307,12 +307,6 @@ function MindNodeView({ data, selected, width, height }: NodeProps<MindFlowNode>
       </span>
       {fold !== null ? <FoldMark id={node.id} fold={fold} /> : null}
       <Handle type="source" position={source} isConnectable={false} className="w-mind__handle" />
-      {cross.map((side) => (
-        <Fragment key={side}>
-          <Handle id={`replaces-out-${side}`} type="source" position={side} isConnectable={false} className="w-mind__handle" />
-          <Handle id={`replaces-in-${side}`} type="target" position={side} isConnectable={false} className="w-mind__handle" />
-        </Fragment>
-      ))}
     </div>
   )
 }
@@ -321,33 +315,14 @@ const nodeTypes: NodeTypes = { mind: MindNodeView }
 
 /**
  * The handles of a node: "grew from" arrows leave the side towards the children and enter the side
- * towards the parent; `replaces` arrows run between the other two sides (`replaces-*`), so they do not
- * run along the tree's arrows. Given before React Flow measures the node, so the arrows are drawn on
- * the first frame.
+ * towards the parent. Given before React Flow measures the node, so the arrows are drawn on the first
+ * frame. `replaces` arrows (BoxEdge) run from border to border and need no handles of their own.
  */
 function handlesOf(width: number, height: number): NonNullable<Node['handles']> {
-  const [top, bottom, left, right] = [
-    { position: Position.Top, x: width / 2, y: 0 },
-    { position: Position.Bottom, x: width / 2, y: height },
-    { position: Position.Left, x: 0, y: height / 2 },
-    { position: Position.Right, x: width, y: height / 2 },
-  ]
-  const [tree, cross] = [[left, right], [top, bottom]]
   return [
-    { type: 'target', ...tree[0]! },
-    { type: 'source', ...tree[1]! },
-    ...cross.flatMap((side) => [
-      { id: `replaces-out-${side.position}`, type: 'source' as const, ...side },
-      { id: `replaces-in-${side.position}`, type: 'target' as const, ...side },
-    ]),
+    { type: 'target', position: Position.Left, x: 0, y: height / 2 },
+    { type: 'source', position: Position.Right, x: width, y: height / 2 },
   ]
-}
-
-/** The sides a `replaces` arrow joins: the ones of the two nodes that face each other across the tree. */
-function replacesSides(from: Placed | undefined, to: Placed | undefined): { sourceHandle: string; targetHandle: string } {
-  const [before, after] = [Position.Top, Position.Bottom]
-  const forward = from !== undefined && to !== undefined && from.y <= to.y
-  return forward ? { sourceHandle: `replaces-out-${after}`, targetHandle: `replaces-in-${before}` } : { sourceHandle: `replaces-out-${before}`, targetHandle: `replaces-in-${after}` }
 }
 
 interface Drawn {
@@ -458,14 +433,15 @@ function pendingDrags(dragged: ReadonlyMap<string, { x: number; y: number }>, to
 /** The arrowheads of the two kinds of arrow, drawn by Arrowheads; their colours are mind-map.css's. */
 const arrowheadId = (flowId: string, kind: 'from' | 'replaces'): string => `w-mind-arrow-${kind}-${flowId}`
 
-/** An arrow of the Graph (GraphEdge): its kind, which says its shape. */
-type GraphFlowEdge = Edge<{ kind: MapEdge['kind'] }, 'graph'>
+/** An arrow drawn from box to box (BoxEdge): its kind and its view, which say its shape. */
+type BoxFlowEdge = Edge<{ kind: MapEdge['kind']; view: MindMapView }, 'box'>
 
 /**
- * An arrow of the Graph, drawn between the two nodes' borders where they are now (a node being dragged
- * too), not between handles: the radial layout puts a child on any side of its parent (ticket 26).
+ * An arrow drawn between the two nodes' borders where they are now (a node being dragged too), not between
+ * handles: every arrow of the Graph, where the radial layout puts a child on any side of its parent (ticket
+ * 26), and the Tree's `replaces`, which bows round the side of two Decisions of one column (ticket 33).
  */
-function GraphEdge({ source, target, data, markerEnd }: EdgeProps<GraphFlowEdge>) {
+function BoxEdge({ source, target, data, markerEnd }: EdgeProps<BoxFlowEdge>) {
   const from = useInternalNode(source)
   const to = useInternalNode(target)
   if (from === undefined || to === undefined) return null
@@ -474,21 +450,22 @@ function GraphEdge({ source, target, data, markerEnd }: EdgeProps<GraphFlowEdge>
     width: node.measured.width ?? node.width ?? 0,
     height: node.measured.height ?? node.height ?? 0,
   })
-  return <BaseEdge path={graphEdgePath(data?.kind ?? 'from', box(from), box(to))} markerEnd={markerEnd} />
+  const path = data?.view === 'tree' ? treeReplacesPath(box(from), box(to)) : graphEdgePath(data?.kind ?? 'from', box(from), box(to))
+  return <BaseEdge path={path} markerEnd={markerEnd} />
 }
 
-const edgeTypes: EdgeTypes = { graph: GraphEdge }
+const edgeTypes: EdgeTypes = { box: BoxEdge }
 
-function flowEdges(graph: MapGraph, placement: Placement, view: MindMapView, flowId: string): Edge[] {
+function flowEdges(graph: MapGraph, view: MindMapView, flowId: string): Edge[] {
   if (view === 'graph') {
     // Straight, as in the prototype's graph; `replaces` a red dashed curve to the Decision it overturned.
     return graph.edges.map(
-      (edge): GraphFlowEdge => ({
+      (edge): BoxFlowEdge => ({
         id: edge.id,
         source: edge.source,
         target: edge.target,
-        type: 'graph',
-        data: { kind: edge.kind },
+        type: 'box',
+        data: { kind: edge.kind, view },
         className: edge.kind === 'from' ? 'w-mind__edge' : 'w-mind__edge w-mind__edge--replaces',
         markerEnd: arrowheadId(flowId, edge.kind),
         focusable: false,
@@ -501,18 +478,18 @@ function flowEdges(graph: MapGraph, placement: Placement, view: MindMapView, flo
   return graph.edges.map((edge) =>
     edge.kind === 'from'
       ? { id: edge.id, source: edge.source, target: edge.target, type: 'default', className: 'w-mind__edge', markerEnd: arrowheadId(flowId, 'from'), focusable: false }
-      : {
+      : ({
           id: edge.id,
           source: edge.source,
           target: edge.target,
-          ...replacesSides(placement.get(edge.source), placement.get(edge.target)),
-          type: 'default',
+          type: 'box',
+          data: { kind: edge.kind, view },
           // No text on the arrow: the legend names the red dashed one.
           className: 'w-mind__edge w-mind__edge--replaces',
           markerEnd: arrowheadId(flowId, 'replaces'),
           focusable: false,
           zIndex: 1,
-        },
+        } satisfies BoxFlowEdge),
   )
 }
 
@@ -1008,7 +985,7 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
   // An id of the arrowheads per map: two maps on one screen do not share them. useId's colons dropped.
   const flowId = useId().replace(/[^\w-]/g, '')
   const askId = `${flowId}-prettify-ask`
-  const edges = useMemo(() => flowEdges(graph, shown, view, flowId), [graph, shown, view, flowId])
+  const edges = useMemo(() => flowEdges(graph, view, flowId), [graph, view, flowId])
   const pickedNode = picked === null ? undefined : graph.nodes.find((node) => node.id === picked)
   // The card closed — its button, Escape, a click on the empty map, its node gone from the topic: the chat takes
   // the ring off its message, as the prototype's selectNode(null) does (ticket 25). A node picked in a folded

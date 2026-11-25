@@ -650,6 +650,30 @@ export function graphEdgePath(kind: MapEdge['kind'], from: ScreenBox, to: Screen
   return `M${point(borderPoint(from, 0, end))} L${point(borderPoint(to, 4, start))}`
 }
 
+/** How far a Tree `replaces` arrow between two Decisions of one column bows out past their right side, px: least and most. */
+const TREE_REPLACES_BOW = { least: 28, most: 44 } as const
+
+/**
+ * The Tree's `replaces` arrow from the later Decision `from` to the Decision `to` it overturned (ticket 33).
+ * Two Decisions grown from one node stand in one column, often one right under the other: an arrow between
+ * the sides that face each other was then a few px long, only its arrowhead seen. Here it leaves the right
+ * side of `from` a quarter of its height towards `to`, bows out past the column's right side (further the
+ * further apart they are, never as far as the next column, 48 px off) and comes back into the right side of
+ * `to`, its arrowhead pointing left at it. Two Decisions in different columns get the prototype's curve, as in
+ * the Graph.
+ */
+export function treeReplacesPath(from: ScreenBox, to: ScreenBox): string {
+  const sameColumn = from.x < to.x + to.width && to.x < from.x + from.width
+  if (!sameColumn) return graphEdgePath('replaces', from, to)
+  const [fromMiddle, toMiddle] = [from.y + from.height / 2, to.y + to.height / 2]
+  const towards = toMiddle >= fromMiddle ? 1 : -1
+  const start = { x: from.x + from.width, y: fromMiddle + (towards * from.height) / 4 }
+  const end = { x: to.x + to.width + 5, y: toMiddle - (towards * to.height) / 4 }
+  const bow = Math.min(TREE_REPLACES_BOW.most, Math.max(TREE_REPLACES_BOW.least, Math.abs(end.y - start.y) * 0.25))
+  const side = Math.max(from.x + from.width, to.x + to.width) + bow
+  return `M${point(start)} C${point({ x: side, y: start.y })} ${point({ x: side, y: end.y })} ${point(end)}`
+}
+
 /** A box on the screen, px from the map's top left corner. */
 export interface ScreenBox {
   x: number

@@ -1,7 +1,7 @@
 # 33: Rework of worfy-product-session 21, item 7
 
 Type: task
-Status: open
+Status: claimed 2026-11-24T23:33Z
 Blocked by: None — can start immediately
 Source: owner-check fail 2026-11-24 of worfy-product-session 21, item 7 — 21-mind-map-выглядит-как-в-прототипе.md
 
@@ -21,3 +21,7 @@ Source: owner-check fail 2026-11-24 of worfy-product-session 21, item 7 — 21-m
 
 - [ ] (manual) Сделай: посмотри на связи → Должно быть: «выросло из» — кривая с серой стрелкой у ребёнка; «Replaces» — красный пунктир с красной стрелкой от «Mind map 60 / чат 40…» к отклонённому Решению, как в прототипе.
   - needs: mac stable
+- [ ] Unit test (`test/unit/mind-map-tree-replaces.test.ts`): в Tree ELK ставит «Mind map 60 / чат 40…» прямо под отклонённое Решение; стрелка «Replaces» огибает их колонку справа, длиннее 60 px, не заходит ни в один из двух узлов и входит в правый край отклонённого Решения остриём влево; при любом порядке двух узлов; между узлами разных колонок — кривая прототипа. На коде origin/main test красный.
+- [ ] Unit test (`test/unit/mind-map-view.test.tsx`, «draws `replaces` as its own red dashed arrow…»): в окне ребро `replaces` в Tree начинается у правого края позднего Решения, кончается в 0–8 px правее отклонённого и выходит за колонку больше чем на 20 px.
+- [ ] e2e test (`test/e2e/product-session.spec.ts`, карта LONG_MAP): путь «Replaces» в Tree пунктирный и длиннее 60 px; снимки Tree в светлой и тёмной теме.
+- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast зелёный.

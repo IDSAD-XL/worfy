@@ -324,6 +324,16 @@ test('the Mind map keeps long texts inside their nodes, opens the card beside it
     const clamped = (await texts()).filter((each) => each.clamped)
     expect(clamped.map((each) => each.id)).toContain('very-long')
     expect(clamped.filter((each) => each.lines !== 4).map((each) => each.id)).toEqual([])
+    // The accepted Decision `split` sits right under the one it overturned (ticket 33): its red dashed
+    // arrow bows round their right side, long enough to be seen as a dashed line and not only an arrowhead.
+    const replacesPath = map.locator('.react-flow__edge.w-mind__edge--replaces path.react-flow__edge-path')
+    await expect(replacesPath).toHaveCount(1)
+    expect(await replacesPath.evaluate((path) => (path as unknown as { getTotalLength(): number }).getTotalLength())).toBeGreaterThan(60)
+    await expect(replacesPath).toHaveCSS('stroke-dasharray', /\d/)
+    for (const scheme of ['light', 'dark'] as const) {
+      await window.emulateMedia({ colorScheme: scheme })
+      await view.screenshot({ path: test.info().outputPath(`33-34-tree-${scheme}.png`) })
+    }
     await map.locator('[data-testid="mind-node"][data-id="very-long"]').click()
     await expect(map.getByRole('region', { name: 'Node' })).toContainText('и то, из чего оно выросло')
     await map.getByRole('button', { name: 'Close the card' }).click()
