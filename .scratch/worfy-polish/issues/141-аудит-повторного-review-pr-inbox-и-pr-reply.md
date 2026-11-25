@@ -34,7 +34,7 @@ Source: audit-pr-rereview-2026-11-13, triage.md «Чинить сейчас»; c
 
 1. 162: в разделе 3 skill-а `pr-reply` правило review thread — как `owesAnswer` приложения: не resolved, последний
    комментарий (`latest`) не viewer-а, и на PR, автор которого не viewer, только thread, в котором viewer писал.
-   Shell test текста skill-а, красный до правки.
+   Contract test текста skill-а (`test/contract/harness-evals.test.ts`, случай pr-reply), красный до правки.
 2. 169: `nextStep` в группе `needs-answer` считает N через `waitingThreads(row, viewer)`. В группе `needs-review`
    («N open threads from others») число остаётся `unresolvedThreads`.
 3. 168: drafts читаются (сразу, по таймеру и на focus окна), только пока показан вид Pull requests
@@ -45,8 +45,9 @@ Source: audit-pr-rereview-2026-11-13, triage.md «Чинить сейчас»; c
 
 ## Готово, когда
 
-- [ ] 162: `harness/bin/tests/pr-reply-text.test.sh` — раздел 3 skill-а `pr-reply` требует для review thread на чужом
-      PR комментарий viewer-а в thread-е, как `owesAnswer`. Красный на origin/main.
+- [ ] 162: contract test `test/contract/harness-evals.test.ts` (случай pr-reply, «SKILL.md forbids every publication…»)
+      — раздел 3 skill-а `pr-reply` требует для review thread на чужом PR комментарий viewer-а в thread-е, как
+      `owesAnswer`. Красный на origin/main.
 - [ ] 169: unit test `test/unit/pr-inbox-view.test.tsx` — PR коллеги в «Needs my answer» с двумя нерешёнными
       threads, из которых пользователь писал в одном: заголовок «Answer 1 open thread». Красный на origin/main.
 - [ ] 168: unit test `test/unit/draft-thread.test.tsx` — пока вид Pull requests скрыт, ни таймер, ни focus окна не
@@ -58,7 +59,7 @@ Source: audit-pr-rereview-2026-11-13, triage.md «Чинить сейчас»; c
 ## Где в коде
 
 - `harness/skills/pr-reply/SKILL.md:63-71` (раздел «3. What waits for an answer»)
-- `harness/bin/tests/pr-reply-text.test.sh` — новый
+- `test/contract/harness-evals.test.ts:1937-1965` (случай pr-reply: текст skill-а)
 - `src/renderer/pr-inbox/usePrInbox.ts:500-525` (`nextStep`)
 - `src/renderer/pr-inbox/DraftThread.tsx:124-168` (`usePrReplyDrafts`)
 - `src/renderer/pr-inbox/CommentBody.tsx:7-13`
