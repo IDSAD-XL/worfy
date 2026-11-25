@@ -6,6 +6,8 @@
 // and act on its Projects: main reads them at every run of the archive (src/main/layout/archive.ts).
 // A choice is kept as the person's own: a change of the defaults (SESSION_ARCHIVE_DEFAULTS, ticket 10
 // turned the timer on at 24 h) leaves it, and only a setting never chosen follows the defaults.
+// Neither takes a Product Session's Node (worfy-product-session ticket 37); the hint under the
+// threshold says so, and that its Node's Archive is the way.
 import { useState } from 'react'
 import { sessionArchiveOf, type SessionArchiveAfter, type SessionArchiveChoice } from '../../shared/settings/app-settings'
 import { Select, type SelectOption } from '../theme/Select'
@@ -41,7 +43,7 @@ export default function CanvasSection() {
         label={ARCHIVE_AFTER_LABEL}
         description={
           problem === undefined ? (
-            'A finished Session leaves the Canvas this long after its last message; nothing is deleted. Never turns this off.'
+            'A finished Session leaves the Canvas this long after its last message; nothing is deleted. Never turns this off. A Product Session never leaves by itself: archive it from its Node.'
           ) : (
             <span role="alert" data-testid="settings-archive-problem">
               Not saved: {problem}

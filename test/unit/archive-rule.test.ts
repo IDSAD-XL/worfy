@@ -164,6 +164,44 @@ describe('never archived', () => {
   })
 })
 
+describe('a Product Session is never archived by the rule (worfy-product-session ticket 37; ADR-0076, Amendments)', () => {
+  /** A Product Session's Node as main writes it (src/main/agent/node-sessions.ts): a worfy Session Node of kind `product`. */
+  const product = (sessionId: string, fields: Record<string, unknown> = {}): LayoutNode =>
+    layoutNodeSchema.parse({ id: `session:${sessionId}`, kind: 'session', x: 0, y: 0, w: 340, h: 220, data: { origin: 'worfy', vendor: 'claude', kind: 'product', sessionId }, ...fields })
+  /** A plain Session worfy runs: the same Node without the kind, which the rule does take. */
+  const plain = (sessionId: string): LayoutNode =>
+    layoutNodeSchema.parse({ id: `session:${sessionId}`, kind: 'session', x: 400, y: 0, w: 340, h: 220, data: { origin: 'worfy', vendor: 'claude', sessionId } })
+
+  it('by the idle rule at every threshold of Settings → Canvas, while a plain Session of the same age is taken', () => {
+    const nodes = [product('p'), plain('w')]
+    const history = [last('p', 300 * HOUR), last('w', 300 * HOUR)]
+    for (const after of SESSION_ARCHIVE_AFTER.filter((each) => each !== 'never')) {
+      const settings = archiveSettings({ after, ticketDone: true })
+      expect(run({ nodes, history, settings }), after).toEqual([{ id: 'session:w', rule: 'idle' }])
+    }
+  })
+
+  it('by the ticket-done rule, with its Ticket done past the grace', () => {
+    const bindings = new Map([['p', ticket('e', 7)], ['w', ticket('e', 7)]])
+    expect(run({ nodes: [product('p'), plain('w')], history: [last('p', 2 * HOUR), last('w', 2 * HOUR)], flow: workflow('done'), bindings })).toEqual([{ id: 'session:w', rule: 'ticket-done' }])
+  })
+
+  it('by «Archive finished sessions now», whose 24 h under «Never» are the same rule', () => {
+    const settings = archiveNowSettings(ARCHIVE_NEVER)
+    expect(run({ nodes: [product('p'), plain('w')], history: [last('p', 30 * HOUR), last('w', 30 * HOUR)], settings })).toEqual([{ id: 'session:w', rule: 'idle' }])
+  })
+
+  it('without a transcript, or touched long ago: no clock is started for it, and no Binding is asked for it', () => {
+    expect(run({ nodes: [product('p', { touchedAt: NOW - 300 * HOUR })] })).toEqual([])
+    expect(sessionsWithoutClock([product('p'), plain('w')], [], [])).toEqual(['session:w'])
+    expect(bindingsNeeded([product('p'), plain('w')], [], [last('p', 2 * HOUR), last('w', 2 * HOUR)], NOW, DAY)).toEqual(['w'])
+  })
+
+  it('a hidden Product Session stays out too', () => {
+    expect(run({ nodes: [product('p', { hidden: true })], history: [last('p', 300 * HOUR)] })).toEqual([])
+  })
+})
+
 describe('Never', () => {
   it('archives nothing, by either rule', () => {
     const bindings = new Map([['a', ticket('e', 7)]])

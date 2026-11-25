@@ -31,15 +31,20 @@
 // - «Archive finished sessions now» (point 9) asks main for the candidates of one Project
 //   (AutoArchiver.candidatesNow, channel `layout.archiveCandidates`) by the same rule, with 24 h
 //   under «Never»; the screen archives them itself, as one step of its undo history.
-// - Every `archive` that comes over IPC — that command, its redo, the undo of a Restore — goes
+// - Every `archive` that comes over IPC — that command, Archive on a Session Node, a redo, the undo of a Restore — goes
 //   through archiveFromScreen(): main drops the Nodes the rule never takes as they are at the write
 //   (Keep, pinned, a live Session), so no screen archives a kept or running Session (points 2 and 6).
+// - A Product Session's Node (isProductSessionNode) leaves the Canvas only by the user: the rule never
+//   takes it — not the timer at any threshold, not the ticket-done rule, not «Archive finished sessions
+//   now» — and starts no clock for it. Archive on its Node (src/renderer/canvas/archive-node.ts,
+//   archiveSessionNode) and the undo of a Restore archive it through archiveFromScreen, and Restore
+//   brings it back (worfy-product-session ticket 37; ADR-0076, Amendments).
 import { resolve } from 'node:path'
 import type { AgentSignals, BindingTarget, BindingWorkflow } from '../../shared/binding/resolve'
 import { resolveBinding } from '../../shared/binding/resolve'
 import type { ManualBinding } from '../../shared/ipc/bindings'
 import { isLaunchBinding } from '../../shared/ipc/bindings'
-import { SESSION_NODE_KIND } from '../../shared/ipc/sessions'
+import { isProductSessionNode, SESSION_NODE_KIND } from '../../shared/ipc/sessions'
 import type { ArchiveBatchEvent, ArchiveCandidate } from '../../shared/ipc/layout'
 import { stillInBatch } from '../../shared/layout/derived'
 import { isArchived, type LayoutNode, type LayoutOp, type LayoutState } from '../../shared/layout/types'
@@ -129,15 +134,16 @@ interface FinishedSession {
 }
 
 /**
- * The Session Nodes of kind `session`, not archived, not pinned, without Keep, naming a Session
- * that is not live. Every entry of `live` is live, whatever its status — `unknown` too (not known
- * — not closed, ADR-0031).
+ * The Session Nodes of kind `session`, not archived, not pinned, without Keep, not a Product
+ * Session's, naming a Session that is not live. Every entry of `live` is live, whatever its status
+ * — `unknown` too (not known — not closed, ADR-0031). A Product Session stays until the user
+ * archives it (worfy-product-session ticket 37; ADR-0076, Amendments).
  */
 function finishedSessions(nodes: readonly LayoutNode[], live: readonly LiveSessionLike[], history: readonly HistoryLike[]): FinishedSession[] {
   const alive = new Set(live.map((session) => session.sessionId))
   const lastAt = new Map(history.map((session) => [session.sessionId, session.lastAt === undefined ? Number.NaN : Date.parse(session.lastAt)]))
   return nodes.flatMap((node): FinishedSession[] => {
-    if (node.kind !== SESSION_NODE_KIND || isArchived(node) || node.pinned || node.keep === true) return []
+    if (node.kind !== SESSION_NODE_KIND || isArchived(node) || node.pinned || node.keep === true || isProductSessionNode(node)) return []
     const sessionId = sessionOf(node)
     if (sessionId === null || alive.has(sessionId)) return []
     const last = lastAt.get(sessionId)
@@ -177,8 +183,8 @@ export function sessionsWithoutClock(nodes: readonly LayoutNode[], live: readonl
  * A candidate passes the cheap checks of idleSessions() and either idled past `settings.idleMs`
  * since the last record of its transcript (`idle`), or, when `settings.ticketDone`, is bound to a
  * Ticket the workflow model says is done and had its last record over TICKET_DONE_GRACE_MS ago
- * (`ticket-done`). The Orchestrator is another kind, so the rule does not see it. «Never»
- * (`idleMs` null) gives nothing.
+ * (`ticket-done`). The Orchestrator is another kind, so the rule does not see it; a Product
+ * Session's Node is never a candidate. «Never» (`idleMs` null) gives nothing.
  */
 export function archiveCandidates(
   nodes: readonly LayoutNode[],
@@ -363,11 +369,12 @@ export class AutoArchiver {
   }
 
   /**
-   * An `archive` a screen sent over IPC («Archive finished sessions now», its redo, the undo of a
-   * Restore): the live Sessions are read again, then, with no wait before the write, the Nodes the
+   * An `archive` a screen sent over IPC («Archive finished sessions now», Archive on a Session Node,
+   * a redo, the undo of a Restore): the live Sessions are read again, then, with no wait before the write, the Nodes the
    * rule never takes are dropped — not a Session Node, already archived, pinned, with Keep, or
    * naming a Session that is live now (by the registry or run by worfy). The touch rule does not
-   * apply: the user asks for these Nodes. Throws when none is left, and changes nothing then.
+   * apply: the user asks for these Nodes — a Product Session's too, which the rule itself never
+   * offers (finishedSessions). Throws when none is left, and changes nothing then.
    */
   async archiveFromScreen(projectId: string, op: Extract<LayoutOp, { op: 'archive' }>, screen: string | null): Promise<LayoutState> {
     const project = this.deps.projects().find((each) => each.id === projectId)

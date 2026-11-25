@@ -32,12 +32,13 @@ import { useSessionLog } from '../../session/store'
 import { VendorBadge } from '../../session/VendorBadge'
 import { StatusChip, type Status } from '../../theme/primitives'
 import { showToast } from '../../toast/toasts'
+import { archiveSessionNode } from '../archive-node'
 import { badges, type SlotSubject } from '../badges'
 import { KIND, type NodeKindColour } from '../kind-colours'
 import { KindBand, KindIcon } from '../kind-icons'
 import { NodeResizeClamp } from '../NodeResizeClamp'
 import { NODE_HEADER } from '../node-header'
-import { useLayoutOps } from '../useLayout'
+import { screenChannel, useLayoutOps } from '../useLayout'
 import type { CanvasNodeProps } from './index'
 
 // A Session of Claude Code on the Canvas (CONTEXT.md, "Session": one Session — one Node, wherever it
@@ -72,6 +73,9 @@ import type { CanvasNodeProps } from './index'
 //   its place (`sessions.resume`). Codex does not say whether the thread still runs in its terminal,
 //   so Resume of a thread worfy did not start asks first: «This Session may be open in a terminal».
 //
+// Every kind has Archive on the line under its header (worfy-product-session ticket 37): the user's own archive of
+// the Node, inactive while its Session runs; a Product Session leaves the Canvas for the Archive only so.
+//
 // The registry (index.ts) needs the kind and size here as literals; `satisfies` fails the
 // typecheck the moment they differ from those of claude-home/session-nodes.ts.
 export const kind = 'session' satisfies typeof SESSION_KIND
@@ -98,10 +102,15 @@ const styles = {
   title: { flex: 1, minWidth: 0, fontSize: 'var(--text-13)', fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
   body: { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 'var(--space-1)', padding: 'var(--space-2) var(--space-3)' },
   line: { display: 'flex', alignItems: 'center', gap: 'var(--space-2)', minWidth: 0, fontSize: 'var(--text-12)', color: 'var(--text-secondary)' },
-  source: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  // From a zero basis: the source takes the room left on its line and gives it all up before the label beside it.
+  source: { flex: '1 1 0', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
   // The label of a Product Session: an outlined tag, as the Vendor badge beside it is a filled one.
+  // It gives way after the source, so Archive at the end of its line stays whole on a 240 px Node.
   kindLabel: {
-    flex: 'none',
+    flex: '0 1 auto',
+    minWidth: 0,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
     padding: '0 6px',
     border: '1px solid var(--border)',
     borderRadius: 'var(--radius-button)',
@@ -125,6 +134,20 @@ const styles = {
   questionText: { flexBasis: '100%', whiteSpace: 'normal' },
   tools: { flex: 'none', display: 'flex', gap: 2 },
   tool: {
+    padding: '0 4px',
+    border: 0,
+    borderRadius: 'var(--radius-button)',
+    background: 'transparent',
+    color: 'var(--text-muted)',
+    font: 'inherit',
+    fontSize: 'var(--text-11)',
+  },
+  // Archive sits at the end of the line under the header, not in the header: there the chip and the
+  // other buttons leave the title no room for one more (a 300 px Codex Node, worfy-product-session
+  // ticket 37). The source on that line gives way instead.
+  archive: {
+    flex: 'none',
+    marginLeft: 'auto',
     padding: '0 4px',
     border: 0,
     borderRadius: 'var(--radius-button)',
@@ -262,6 +285,40 @@ function KeepButton({ id, keep, readOnly }: { id: string; keep: boolean; readOnl
 }
 
 /**
+ * Archive (worfy-product-session ticket 37): the user's own archive of this Node, one step of ⌘Z
+ * (archive-node.ts, archiveSessionNode); Restore in the Archive brings it back. The only way a Product
+ * Session's Node goes into the Archive: the automatic archive never takes it. Inactive, with
+ * `blocked` as the reason, while main would refuse it — a Session that runs, or none yet — and on a
+ * read-only screen. Main's refusal at the write goes to `onProblem`.
+ */
+/**
+ * Why Archive on a Session Node is inactive, or null when it is not: main drops a kept or pinned Node
+ * from a screen's `archive` (archiveFromScreen), so the button says so first; then `session`, the
+ * reason the Node's Session gives (it runs, or has not started), if any.
+ */
+const archiveBlock = (node: { keep: boolean; pinned: boolean }, session: string | null): string | null =>
+  node.keep ? 'Kept on the Canvas: press Kept to let it go first' : node.pinned ? 'Pinned to the screen: unpin it first' : session
+
+function ArchiveButton({ projectId, id, blocked, readOnly, onProblem }: { projectId: string; id: string; blocked: string | null; readOnly: string | null; onProblem: (problem: string) => void }) {
+  const archive = () =>
+    void archiveSessionNode(projectId, id, screenChannel(projectId)).then((problem) => {
+      if (problem !== undefined) onProblem(problem)
+    })
+  return (
+    <button
+      type="button"
+      className="nodrag"
+      style={styles.archive}
+      data-testid="session-node-archive"
+      disabled={blocked !== null}
+      {...writeAction(readOnly, archive, blocked ?? 'Archive this Session: it leaves the Canvas, nothing is deleted; Restore in the Archive brings it back')}
+    >
+      Archive
+    </button>
+  )
+}
+
+/**
  * The id that names the Node's React Flow wrapper (flow-nodes.ts), on the Canvas copy alone: focus
  * mode draws the Node in a tile while the Canvas keeps its own copy, and an id twice in the document
  * is invalid, with the wrapper named by whichever copy comes first.
@@ -269,7 +326,14 @@ function KeepButton({ id, keep, readOnly }: { id: string; keep: boolean; readOnl
 const useTitleElementId = (id: string): string | undefined => (useInFocusTile() ? undefined : sessionTitleElementId(id))
 
 /** A Session worfy runs, or ran: main's view while it runs, its saved session id otherwise. */
-function LiveSessionNode({ id, selected, info, project, keep }: Pick<CanvasNodeProps, 'id' | 'selected'> & { info: WorfySessionNodeData; project: ProjectView; keep: boolean }) {
+function LiveSessionNode({
+  id,
+  selected,
+  info,
+  project,
+  keep,
+  pinned,
+}: Pick<CanvasNodeProps, 'id' | 'selected'> & { info: WorfySessionNodeData; project: ProjectView; keep: boolean; pinned: boolean }) {
   const ops = useLayoutOps()
   const titleId = useTitleElementId(id)
   const { history } = useClaudeHome(project.path)
@@ -513,6 +577,13 @@ function LiveSessionNode({ id, selected, info, project, keep }: Pick<CanvasNodeP
           <span className="w-mono" style={styles.source} data-testid="session-node-source" title={cwd}>
             worfy · {cwd}
           </span>
+            <ArchiveButton
+              projectId={project.id}
+              id={id}
+              blocked={archiveBlock({ keep, pinned }, running ? 'Close the Session before archiving its Node' : saved === undefined ? 'Nothing to archive yet: the Session has not started' : null)}
+              readOnly={readOnly}
+              onProblem={setProblem}
+            />
         </div>
         {answer !== null ? (
           <pre className="w-mono nodrag nowheel" style={styles.answer} data-testid="session-node-answer">
@@ -579,7 +650,7 @@ function SessionNode({ id, data, selected }: CanvasNodeProps) {
   const [asking, setAsking] = useState(false)
   const [resumeProblem, setResumeProblem] = useState<string | null>(null)
 
-  if (worfy !== null && project !== undefined) return <LiveSessionNode id={id} selected={selected} info={worfy} project={project} keep={data.node.keep === true} />
+  if (worfy !== null && project !== undefined) return <LiveSessionNode id={id} selected={selected} info={worfy} project={project} keep={data.node.keep === true} pinned={data.node.pinned === true} />
 
   if (info === null || project === undefined) {
     return (
@@ -659,6 +730,13 @@ function SessionNode({ id, data, selected }: CanvasNodeProps) {
           <span className="w-mono" style={styles.source} data-testid="session-node-source" title={sessionSourceLabel(info)}>
             {sessionSourceLabel(info)}
           </span>
+            <ArchiveButton
+              projectId={project.id}
+              id={id}
+              blocked={archiveBlock({ keep: data.node.keep === true, pinned: data.node.pinned === true }, session !== undefined ? 'The Session still runs; archive its Node once it ends' : null)}
+              readOnly={readOnly}
+              onProblem={setResumeProblem}
+            />
         </div>
         {codex && !asking ? (
           <div className="nodrag" style={styles.question}>

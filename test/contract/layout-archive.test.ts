@@ -969,6 +969,82 @@ describe('review debt of Wave 1 (worfy-canvas ticket 16; ADR-0076, Amendments)',
   })
 })
 
+describe('a Product Session leaves the Canvas only by the user (worfy-product-session ticket 37; ADR-0076, Amendments)', () => {
+  /** A Product Session's Node as main writes it (src/main/agent/node-sessions.ts): a worfy Session Node of kind `product`. */
+  const productNode = (sessionId: string, x = 0, y = 0): LayoutOpInput => ({
+    op: 'create',
+    node: { id: `session:${sessionId}`, kind: 'session', x, y, w: 340, h: 220, data: { origin: 'worfy', vendor: 'claude', kind: 'product', sessionId } },
+  })
+
+  it('the timer leaves it at every threshold and by the ticket-done rule, and starts no clock for it; a plain Session of the same age goes', async () => {
+    apply(productNode('p'))
+    apply(productNode('timeless', 1200, 0))
+    apply(sessionNode('w', 400, 0))
+    world.history = transcripts(['p', 300 * HOUR], ['w', 300 * HOUR])
+    const done = { epics: ['e'], tickets: [{ epic: 'e', num: 7, state: 'done' }] }
+    const bound = archiver({ workflow: () => Promise.resolve(done), bindings: () => Promise.resolve(new Map([['p', { kind: 'ticket' as const, epic: 'e', num: 7 }]])) })
+    expect(await bound.run({ id: PROJECT, path: repo })).toBe(1)
+    expect(nodes().filter(isArchived).map((node) => node.id)).toEqual(['session:w'])
+    for (const idleMs of [6, 24, 72, 168].map((hours) => hours * HOUR)) {
+      expect(await archiver({ settings: () => ({ idleMs, ticketDone: true }) }).run({ id: PROJECT, path: repo })).toBe(0)
+    }
+    expect(isArchived(nodeOf('session:p')!)).toBe(false)
+    expect(nodeOf('session:timeless')?.touchedAt).toBeUndefined()
+  })
+
+  it('«Archive finished sessions now» does not offer it, under «Never» or any other threshold', async () => {
+    apply(productNode('p'))
+    apply(sessionNode('w', 400, 0))
+    world.history = transcripts(['p', 300 * HOUR], ['w', 300 * HOUR])
+    let idleMs: number | null = null
+    appArchiver(() => ({ idleMs, ticketDone: true }))
+    expect(await call('layout.archiveCandidates', { projectId: PROJECT })).toEqual({ ok: true, value: [{ id: 'session:w', sessionId: 'w', rule: 'idle' }] })
+    idleMs = 6 * HOUR
+    expect(await call('layout.archiveCandidates', { projectId: PROJECT })).toEqual({ ok: true, value: [{ id: 'session:w', sessionId: 'w', rule: 'idle' }] })
+  })
+
+  it('the user\'s own `archive` of it from a screen still archives it, Restore brings it back, and the next run leaves it', async () => {
+    appArchiver()
+    apply(productNode('p'))
+    world.history = transcripts(['p', 300 * HOUR])
+    const op: LayoutOpInput = { op: 'archive', batch: 'mine-1', nodes: [{ id: 'session:p', rule: 'idle' }] }
+    expect(await call('layout.apply', { projectId: PROJECT, op, screen: 'screen-1' })).toMatchObject({ ok: true })
+    expect(nodeOf('session:p')?.archived).toMatchObject({ batch: 'mine-1' })
+
+    expect(await call('layout.apply', { projectId: PROJECT, op: { op: 'restore', ids: ['session:p'] }, screen: 'screen-1' })).toMatchObject({ ok: true })
+    expect(nodeOf('session:p')).toMatchObject({ x: 0, y: 0, archived: null })
+    world.now += 300 * HOUR
+    expect(await archiver().run({ id: PROJECT, path: repo })).toBe(0)
+    expect(isArchived(nodeOf('session:p')!)).toBe(false)
+  })
+
+  it('Archive on a Session Node (archiveSessionNode) archives that Node alone, as one step of ⌘Z; a live Session is refused with the reason', async () => {
+    const { historyOf, resetHistories } = await import('../../src/renderer/canvas/history')
+    const { archiveSessionNode } = await import('../../src/renderer/canvas/archive-node')
+    resetHistories()
+    appArchiver()
+    apply(productNode('p'))
+    apply(sessionNode('w', 400, 0))
+    apply(sessionNode('live', 800, 0))
+    world.history = transcripts(['p', HOUR], ['w', HOUR], ['live', HOUR])
+
+    expect(await archiveSessionNode(PROJECT, 'session:p', ipcChannel())).toBeUndefined()
+    expect(nodes().filter(isArchived).map((node) => node.id)).toEqual(['session:p'])
+    expect(historyOf(PROJECT).size).toBe(1)
+    expect(await historyOf(PROJECT).undo()).toBe(true)
+    expect(nodes().filter(isArchived)).toEqual([])
+    expect(nodeOf('session:p')).toMatchObject({ x: 0, y: 0 })
+
+    // A plain Session, fresh: the user's Archive does not wait for the threshold.
+    expect(await archiveSessionNode(PROJECT, 'session:w', ipcChannel())).toBeUndefined()
+    expect(nodes().filter(isArchived).map((node) => node.id)).toEqual(['session:w'])
+
+    world.live = () => Promise.resolve([{ sessionId: 'live', status: 'busy' }])
+    expect(await archiveSessionNode(PROJECT, 'session:live', ipcChannel())).toMatch(/nothing to archive/)
+    expect(isArchived(nodeOf('session:live')!)).toBe(false)
+  })
+})
+
 /** The layout.archived events window `window` got. */
 const batchEvents = (window: number) => electron.sent.filter((message) => message.window === window && message.channel === `${IPC_CHANNEL_PREFIX}layout.archived`).map((message) => message.payload)
 

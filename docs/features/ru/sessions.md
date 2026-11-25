@@ -81,7 +81,7 @@ Product Session в Project-е получает ещё MCP-сервер `worfy-mi
 изменение — ошибка, которую читает агент, а файл остаётся прежним. `mind_map_decide` сохраняет прежний статус и причину
 Decision в её истории; `mind_map_remove` берёт только узел без детей, который не Decision; `mind_map_add` отклоняет тему, у
 которой ещё нет папки. Product Session никогда не запускает git: её tool `product_save`, Close её Node-а и архивирование её
-Node-а (автоматическое или вручную) проверяют `git status` папок `docs/product/<topic>` Project-а и, если файлы там
+Node-а пользователем (автоматический архив её Node не берёт) проверяют `git status` папок `docs/product/<topic>` Project-а и, если файлы там
 изменились, шлют Orchestrator-у Project-а сообщение со списком изменённых файлов и просьбой сохранить их docs PR-ом. Об одних
 и тех же изменениях просят один раз. Без изменений и в Silent mode ничего не шлётся; `product_save` отвечает «nothing to
 save» или «Silent mode: nothing to save». Пока Autopilot ведёт Orchestrator, ничего не шлётся, и `product_save` об этом

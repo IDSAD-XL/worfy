@@ -12,6 +12,7 @@
 // these Sessions go to every window on `agent.event`, and the `agent.*` channels take their ids.
 import { z } from 'zod'
 import { sessionState } from '../agent/events'
+import type { LayoutNode } from '../layout/types'
 import { vendorIdSchema, type VendorId } from '../vendors/vendor'
 import { eventChannel, invokeChannel } from './channels'
 
@@ -53,6 +54,15 @@ export const worfySessionNodeDataSchema = z.object({
   sessionId: z.string().min(1).optional(),
 })
 export type WorfySessionNodeData = z.output<typeof worfySessionNodeDataSchema>
+
+/**
+ * Whether a Layout Node is a Product Session's: a Session Node worfy runs whose data names the kind
+ * `product`. main reads it for the save signal of an archived Node (src/main/agent/node-sessions.ts)
+ * and to keep the Node out of the automatic archive (src/main/layout/archive.ts; ADR-0076, Amendments).
+ */
+export function isProductSessionNode(node: Pick<LayoutNode, 'kind' | 'data'>): boolean {
+  return node.kind === SESSION_NODE_KIND && node.data.origin === 'worfy' && node.data.kind === 'product'
+}
 
 /** Size of a new live Session Node: room for the last answer and the input field. */
 export const LIVE_SESSION_WIDTH = 340
