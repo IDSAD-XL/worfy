@@ -67,24 +67,29 @@ Code: `src/main/assistant/budget/wake-gate.ts:36-40` · key lines: 36, 38
 
 ## 4. Счёт пробуждений и вызовов — в файле данных worfy
 
-Code: `src/main/assistant/budget/ledger.ts:55-73` · key lines: 58, 64, 72
+Code: `src/main/assistant/budget/ledger.ts:63-86` · key lines: 67, 75, 81
 
 ```ts
   /** An automatic wake starts now; `id` names it for the calls of its Session. */
   noteWake(id: string, urgent: boolean): void {
     const at = this.now()
-    this.write({ ...this.ledger, wakes: [...this.ledger.wakes, { id, at, urgent }] }, at)
+    const wake = usageWakeSchema.safeParse({ id, at, urgent })
+    if (!wake.success) return console.warn(`worfy: an Assistant wake was not noted: ${z.prettifyError(wake.error)}`)
+    this.write({ ...this.ledger, wakes: [...this.ledger.wakes, wake.data] }, at)
   }
 
   /** One call of the Assistant ended now. */
   noteCall(call: UsageCallInput): void {
     const at = this.now()
-    this.write({ ...this.ledger, calls: [...this.ledger.calls, { ...call, at }] }, at)
+    const parsed = usageCallSchema.safeParse({ ...call, at })
+    if (!parsed.success) return console.warn(`worfy: an Assistant call was not noted: ${z.prettifyError(parsed.error)}`)
+    this.write({ ...this.ledger, calls: [...this.ledger.calls, parsed.data] }, at)
   }
 
-  /** A turn of another Session worfy runs ended now, at `costUsd`. */
+  /** A turn of another Session worfy runs ended now, at `costUsd`; a turn that cost nothing changes nothing. */
   noteOtherTurn(costUsd: number): void {
-    if (!(costUsd > 0)) return
+    if (!Number.isFinite(costUsd)) return console.warn(`worfy: the cost of a turn was not noted: ${costUsd}`)
+    if (costUsd <= 0) return
     const at = this.now()
     const hour = hourKey(at)
     this.write({ ...this.ledger, otherCost: { ...this.ledger.otherCost, [hour]: (this.ledger.otherCost[hour] ?? 0) + costUsd } }, at)
@@ -93,31 +98,53 @@ Code: `src/main/assistant/budget/ledger.ts:55-73` · key lines: 58, 64, 72
 
 - Что делает: каждая запись сразу пишется в `<WORFY_DATA_DIR>/assistant/usage.json` и выбрасывает старше 8 суток.
   Пробуждение пишется в момент решения; вызов — с `usage` и `costUsd` события `result`; ходы других Session-ов — суммой
-  по часам.
+  по часам. Запись вне схемы (стоимость NaN, отрицательные token-ы, бесконечная стоимость хода) выбрасывается с
+  предупреждением.
 - Почему здесь: ADR 0005 — своё состояние worfy только в папке данных. Файл переживает перезапуск, поэтому перезапуск
-  не обнуляет дневной предел.
-- Без него: после перезапуска счёт пробуждений начинался бы с нуля, а сводка за неделю терялась бы.
+  не обнуляет дневной предел. Проверку на входе попросил review PR #2197, раунд 1.
+- Без него: после перезапуска счёт пробуждений начинался бы с нуля. Одна запись с NaN навсегда ломала бы журнал:
+  `writeJsonFile` отказывал бы каждой следующей записи.
 - Требование: [Готово, когда, пункт 3](../issues/05-проверка-limits-и-мониторинг-расхода.md#готово-когда)
 - Риски и пробелы test-ов: `noteCall` и `noteOtherTurn` пока никто не вызывает — их подключают Ticket-ы 06, 10 и 11.
-  Запись синхронная, как у остальных файлов состояния main.
+  Вызовы пробуждения сводка считает в день самого пробуждения (`countedAt` в `src/shared/assistant/budget.ts`).
 
-## 5. Доля Assistant-а в окне Limits — оценка по стоимости
+## 5. Журнал в памяти меняется только после записи файла
 
-Code: `src/shared/assistant/budget.ts:191-207` · key lines: 196, 198, 204
+Code: `src/main/assistant/budget/ledger.ts:106-110` · key lines: 108, 109
+
+```ts
+
+  private write(next: UsageLedger, now: number): void {
+    const pruned = pruneUsage(next, now)
+    writeJsonFile(this.file, usageLedgerSchema, pruned)
+    this.ledger = pruned
+```
+
+- Что делает: сначала пишет файл, потом обновляет журнал в памяти. Ошибка записи бросает исключение, и в памяти от
+  записи ничего не остаётся.
+- Почему здесь: review PR #2197, раунд 1, пункт 1: память и файл не должны расходиться.
+- Без него: при ошибке записи память и файл расходились бы, и после перезапуска счёт был бы другим.
+- Требование: [Готово, когда, пункт 3](../issues/05-проверка-limits-и-мониторинг-расхода.md#готово-когда)
+- Риски и пробелы test-ов: при сбое диска пробуждение не засчитывается, а `noteWake` бросает исключение — решать,
+  будить ли тогда, будет Ticket 06.
+
+## 6. Доля Assistant-а в окне Limits — оценка по стоимости
+
+Code: `src/shared/assistant/budget.ts:198-214` · key lines: 201, 205, 207, 209
 
 ```ts
 export function limitsShare(ledger: UsageLedger, windows: Readonly<Record<string, { utilization: number | null; resetsAt: number | null }>>, now: number): LimitsShareEstimate[] {
   const out: LimitsShareEstimate[] = []
   for (const [window, state] of Object.entries(windows)) {
-    const length = LIMIT_WINDOW_LENGTH_MS[window]
-    if (length === undefined || state.utilization === null || state.resetsAt === null || state.resetsAt * 1000 <= now) continue
-    const since = state.resetsAt * 1000 - length
+    const minutes = claudeWindowMinutes(window)
+    if (minutes === null || state.utilization === null || state.resetsAt === null || state.resetsAt * 1000 <= now) continue
+    const since = state.resetsAt * 1000 - minutes * 60_000
+    // Both sides from the start of the hour the window began in: the other turns are kept by the hour.
+    const from = Number(hourKey(since))
     let assistant = 0
-    for (const call of ledger.calls) if (call.at >= since && call.at <= now) assistant += call.costUsd
-    // An hour that began before the window is counted whole: the turns are kept by the hour.
+    for (const call of ledger.calls) if (call.at >= from) assistant += call.costUsd
     let other = 0
-    const firstHour = Number(hourKey(since))
-    for (const [hour, cost] of Object.entries(ledger.otherCost)) if (Number(hour) >= firstHour && Number(hour) <= now) other += cost
+    for (const [hour, cost] of Object.entries(ledger.otherCost)) if (Number(hour) >= from) other += cost
     const all = assistant + other
     out.push({ window, estimate: true, method: 'cost-share', utilization: state.utilization, share: all > 0 ? (state.utilization * assistant) / all : 0, since })
   }
@@ -125,23 +152,28 @@ export function limitsShare(ledger: UsageLedger, windows: Readonly<Record<string
 }
 ```
 
-- Что делает: доля окна × часть Assistant-а в стоимости всех ходов, которые worfy видел с начала окна. Ответ всегда с
-  `estimate: true` и `method: 'cost-share'`.
+- Что делает: доля окна × часть Assistant-а в стоимости всех ходов, которые worfy видел с начала часа, в котором
+  началось окно. Длину окна даёт `claudeWindowMinutes` по началу имени, поэтому `seven_day_opus` тоже получает оценку.
+  Ответ всегда с `estimate: true` и `method: 'cost-share'`.
 - Почему здесь: spec, «Мониторинг расхода»: доли одного вызова worfy не знает, способ оценки выбирает Ticket. Стоимость
-  SDK взвешивает модель и cache, поэтому ближе к счёту окна, чем сумма token-ов.
+  SDK взвешивает модель и cache, поэтому ближе к счёту окна, чем сумма token-ов. Общее начало для обеих сторон — review
+  PR #2197, раунд 1: ходы других Session-ов хранятся по часам.
 - Без него: экран Assistant-а (Ticket-ы 14 и 15) мог бы показать только общий процент окна.
 - Требование: [Мониторинг расхода](../spec.md#мониторинг-расхода-решение-владельца)
-- Риски и пробелы test-ов: Claude вне worfy не виден, оценка завышает долю. Пока `noteOtherTurn` не подключён, доля
-  равна доле всего окна.
+- Риски и пробелы test-ов: Claude вне worfy не виден, оценка завышает долю. До часа ходов из прошлого окна попадает в
+  обе стороны. Пока `noteOtherTurn` не подключён, доля равна доле всего окна.
 
-## 6. Что сознательно не меняли
+## 7. Что сознательно не меняли
 
 - Ни один вызов не подключён: Assistant-а, проверок источников и общей шины событий `result` в main ещё нет.
-- Feature page не правилась: поведение Terminal AI то же, страницы Assistant-а нет до Ticket-а 19.
+- Страницы Assistant-а в `docs/features` нет до Ticket-а 19; в `storage-and-diagnostics.md` добавлена только папка `assistant`.
 
-## 7. Как проверено
+## 8. Как проверено
 
-- `pnpm test test/unit/assistant-wake-gate.test.ts test/unit/assistant-usage-ledger.test.ts test/unit/terminal-ai-limits-gate.test.ts` — exit 0, 23 test-а.
+- `pnpm test test/unit/assistant- test/unit/no-rmsync test/unit/limits test/contract/limits test/unit/terminal-ai test/contract/terminal-ai test/unit/check-feature-docs` — exit 0, 672 test-а.
+- Раунд 1 review: по одному mutant-у на каждую правку (запись до коммита в память, без проверки вызова, без проверки
+  бесконечной стоимости, верхняя граница счёта дня, точные имена окон, Assistant от `since`, вызов по своему времени) —
+  каждый красный на своём test-е.
 - `pnpm lint`, `pnpm typecheck` — exit 0.
 
 ## Проверить себя
@@ -151,7 +183,7 @@ export function limitsShare(ledger: UsageLedger, windows: Readonly<Record<string
    - Строки: `src/main/assistant/budget/wake-gate.ts:36-36`, `src/main/agent/limits-gate.ts:45-47`
 2. Почему перезапуск worfy не обнуляет дневной предел?
    - Ответ: пробуждение сразу пишется в файл папки данных, и новый журнал читает его оттуда.
-   - Строки: `src/main/assistant/budget/ledger.ts:56-58`
+   - Строки: `src/main/assistant/budget/ledger.ts:64-68`
 3. Что покажет оценка доли, пока ходы других Session-ов не подключены?
    - Ответ: всю долю окна: стоимость «других» равна нулю, и часть Assistant-а — единица.
-   - Строки: `src/shared/assistant/budget.ts:203-204`
+   - Строки: `src/shared/assistant/budget.ts:210-211`
