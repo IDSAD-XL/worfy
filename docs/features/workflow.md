@@ -568,6 +568,8 @@ binds and removes as here.
   branch because the Orchestrator's checkout often holds the branch of a Ticket it merges rather than works on.
 - **The forms a signal reads.**
   - A claim is `ticket claim <epic> <NN>` or `<epic>/<NN>` as a word of a Bash command, with any path before `ticket`.
+    It counts from the call. When its tool result is an error, or carries the refusal `ticket claim` prints for a
+    Ticket another branch holds, the claim before it counts again.
   - A branch names a Ticket by that Ticket's `Branch:` line when exactly one Ticket has it, else by `<epic>/<NN>[-<slug>]`.
   - A folder is `.claude/worktrees/<NN>[-<slug>]` or `<Harness home>/worktrees/<project>/<NN>`. It carries no Epic, so it binds
     only when one Epic has that number, or only one Ticket with it is not done.

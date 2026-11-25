@@ -33,7 +33,7 @@ const styles = {
   text: { margin: 0, fontSize: 'var(--text-12)', color: 'var(--text-secondary)' },
 } satisfies Record<string, CSSProperties>
 
-const FILES = 'The tickets, epic specs, ADRs, glossary, lessons kept in the repository and state file'
+const FILES = 'The tickets, epic specs, ADRs, glossary, lessons kept in the repository, state file and the Product Session folder (docs/product in the repository, product in the Workflow folder)'
 const STOPS = 'Uncommitted changes, a Session at work or an open PR of a ticket stop the move before anything changes.'
 const DEFAULT_FOLDER = 'the default Workflow folder beside the profile'
 

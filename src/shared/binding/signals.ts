@@ -14,6 +14,11 @@ export interface SignalState {
   signals: AgentSignals
   /** A Subagent's first prompt (its task) has been read: later prompts are not its task. */
   promptSeen: boolean
+  /**
+   * The last `ticket claim` whose tool result has not been read yet: its tool use id and the claim before it, which
+   * comes back when the result says the claim was refused.
+   */
+  pendingClaim: { id: string; previous: AgentSignals['claim'] } | null
 }
 
 export interface SignalOptions {
@@ -25,7 +30,7 @@ export interface SignalOptions {
   subagent: boolean
 }
 
-export const emptySignalState = (): SignalState => ({ signals: EMPTY_AGENT_SIGNALS, promptSeen: false })
+export const emptySignalState = (): SignalState => ({ signals: EMPTY_AGENT_SIGNALS, promptSeen: false, pendingClaim: null })
 
 type Json = Record<string, unknown>
 const isObject = (value: unknown): value is Json => typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -35,6 +40,12 @@ const cap = (value: string, max: number): string => (value.length > max ? value.
 const CLAIM = /(?:^|[\s;&|()/\\'"`])ticket\s+claim\s+([A-Za-z0-9][A-Za-z0-9._-]*?)(?:\/|\s+)(\d+)(?![\w-])/gu
 /** A Ticket file's path: `.scratch/<epic>/issues/<NN>-…`, with `/` or, on Windows, `\` (worfy-windows ticket 08). */
 const TICKET_PATH = /(?:^|[^A-Za-z0-9._-])\.scratch[\\/]([A-Za-z0-9][A-Za-z0-9._-]*)[\\/]issues[\\/](\d+)-/u
+
+/**
+ * The refusal `ticket claim` prints for a ticket another branch holds (harness/bin/ticket): it shows in the tool result
+ * even when the command goes on after the claim (`; echo "EXIT=$?"`) and the result is no error.
+ */
+const CLAIM_REFUSED = /: already claimed\b[^\n]*\bby branch\b/u
 
 /** The last claim in a Bash command; null when it has none. */
 export function claimIn(command: string): (TicketRef & { command: string }) | null {
@@ -72,7 +83,7 @@ function promptText(record: Json): string | null {
 /** Folds one record into the signals. */
 function extendOne(state: SignalState, record: Json, options: SignalOptions): SignalState {
   if (!options.subagent && record.isSidechain === true) return state
-  let { signals, promptSeen } = state
+  let { signals, promptSeen, pendingClaim } = state
   const set = (change: Partial<AgentSignals>) => {
     signals = { ...signals, ...change }
   }
@@ -97,17 +108,26 @@ function extendOne(state: SignalState, record: Json, options: SignalOptions): Si
       const input = event.input
       if (event.name === 'Bash' && typeof input.command === 'string') {
         const claim = claimIn(input.command)
-        if (claim) set({ claim })
+        if (claim) {
+          // A claim counts from its call, as before; a result that says it was refused takes it back.
+          pendingClaim = { id: event.id, previous: signals.claim }
+          set({ claim })
+        }
       } else if (event.name === 'Skill' && typeof input.skill === 'string') {
         const name = skillName(input.skill)
         if (name) set({ skill: { name, args: cap(typeof input.args === 'string' ? input.args.trim() : '', ARGS_MAX) } })
       }
+    } else if (event.type === 'tool_result' && pendingClaim !== null && event.toolUseId === pendingClaim.id) {
+      // An error result is the claim's exit code when the claim is the command's last one; the refusal text, when a
+      // command after it hides that code. A claim refused otherwise behind such a command still counts.
+      if (event.isError || CLAIM_REFUSED.test(event.content)) set({ claim: pendingClaim.previous })
+      pendingClaim = null
     } else if (event.type === 'command') {
       const name = skillName(event.name)
       if (name) set({ skill: { name, args: cap(event.args.trim(), ARGS_MAX) } })
     }
   }
-  return { signals, promptSeen }
+  return { signals, promptSeen, pendingClaim }
 }
 
 /** Folds transcript lines (JSONL, in file order) into the state; lines that are not records are skipped. */

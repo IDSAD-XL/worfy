@@ -164,6 +164,16 @@ run "$SET" -C "$R" --expect "$FP" --move silent --folder "$T/pre" >/dev/null 2>"
 check "a file already at the new place: exit 1" [ $? -eq 1 ]
 check "already at the new place: the reason names it" grep -q "HANDOFF.md is already in the Workflow folder" "$T/err"
 check "already at the new place: their file untouched" [ "$(cat "$T/pre/HANDOFF.md")" = theirs ]
+# The Product Session folder already at its place in the Workflow folder, product/ (not docs/product).
+mkdir -p "$T/pre2/product"
+g -C "$T/pre2" init -q
+printf 'theirs\n' >"$T/pre2/product/map.md"
+g -C "$T/pre2" add -A
+g -C "$T/pre2" commit -q -m init
+run "$SET" -C "$R" --expect "$FP" --move silent --folder "$T/pre2" >/dev/null 2>"$T/err"
+check "product/ already in the Workflow folder: exit 1" [ $? -eq 1 ]
+check "product/ already in the Workflow folder: the reason names it" grep -q "product is already in the Workflow folder" "$T/err"
+check "product/ already in the Workflow folder: their file untouched" [ "$(cat "$T/pre2/product/map.md")" = theirs ]
 check "the refusals: no commit in the repository" [ "$(git -C "$R" rev-parse HEAD)" = "$repo_head" ]
 check "the refusals: still Full mode" [ "$(mode_now)" = full ]
 

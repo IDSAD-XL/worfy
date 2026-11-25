@@ -15,13 +15,11 @@ test-ы (21).
 
 ## 2. claim не берёт Ticket, который держит другая branch
 
-Code: `harness/bin/ticket:669-681` · key lines: 669, 673, 675
+Code: `harness/bin/ticket:669-679` · key lines: 669, 670, 671
 
 ```js
 if (cmd === "claim" && !forceArg && sh.kind === "new" && STATUS_NEW.exec(lines[sh.first])[1] === "claimed") {
-    // Only the header counts: a "Branch:" line of the body or of a code block is text.
-    const at = lines.findIndex((l, i) => i < sh.end && !sh.code[i] && headerLineMatch("Branch", l))
-    const held = at === -1 ? "" : headerLineMatch("Branch", lines[at])[2].replace(/\*+[ \t]*$/, "").trim()
+    const held = branchOf(lines, sh.code)
     if (held && held !== branchArg) {
         const since = STATUS_NEW.exec(lines[sh.first])[2]
         die(
@@ -33,17 +31,21 @@ if (cmd === "claim" && !forceArg && sh.kind === "new" && STATUS_NEW.exec(lines[s
 }
 ```
 
-- Что делает: Ticket в состоянии `claimed` со строкой `Branch:` в шапке принадлежит этой branch. claim с другой
-  `--branch` или без неё — exit 1, файл не тронут, в ошибке прежняя branch и время claim-а. Та же `--branch`
-  проходит, как раньше; `--force` перезаписывает. Ticket в `open`, `blocked` или без `Branch:` берётся как раньше.
+- Что делает: Ticket в состоянии `claimed` со строкой `Branch:` принадлежит этой branch. claim с другой `--branch`
+  или без неё — exit 1, файл не тронут, в ошибке прежняя branch и время claim-а. Та же `--branch` проходит, как
+  раньше; `--force` перезаписывает. Ticket в `open`, `blocked` или без `Branch:` берётся как раньше. Branch читает
+  `branchOf` (`harness/bin/ticket:776-784`) так же, как `epic-status`: последняя строка `Branch:` вне блоков кода,
+  без `*` и обратных кавычек (review round 1, п. 1: ``Branch: `fix/a` `` с `--branch fix/a` давал отказ своей же
+  branch).
 - Почему здесь: Ticket называет `harness/bin/ticket:600-700` (разбор `claim`, запись Status) и задаёт правило в
   «Что делаем», п. 2. Проверка стоит после проверок `--repo`: ошибка аргументов («named twice») по-прежнему
   выигрывает.
 - Без него: вторая Session молча заменяла время и `Branch:` первой, и обе делали один Ticket.
 - Требование: [Что делаем, п. 2](../issues/145-аудит-повторного-review-ticket-claim-review-history-и-перенос-workflow.md#что-делаем)
-- Риски и пробелы test-ов: повторный claim без `--branch` своего же Ticket-а теперь отказан — ship-ticket, шаг 1, и
-  `TICKETS.md` говорят повторять его с той же `--branch`. Строка `Branch:` в теле Ticket-а не считается — test на
-  это не написан.
+- Риски и пробелы test-ов: повторный claim без `--branch` своего же Ticket-а теперь отказан, поэтому команда шага 1
+  ship-ticket, ответ владельца в epic-wave, пример `--repo` в `TICKETS.md` и подсказка `claim --branch … --repo …`
+  в `ticket` дают `--branch`. В Full mode с worktree на каждую Session у каждой branch своя копия файла Ticket-а:
+  claim в другом worktree проверка не видит (`TICKETS.md` так и говорит).
 
 ## 3. Product Session folder едет из одного места в другое
 
@@ -78,8 +80,10 @@ Code: `harness/lib/workflow-move.cjs:329-343` · key lines: 334, 336, 340
   пустую `<Workflow folder>/product`.
 - Требование: [Что делаем, п. 4](../issues/145-аудит-повторного-review-ticket-claim-review-history-и-перенос-workflow.md#что-делаем)
 - Риски и пробелы test-ов: когда другой workflow path содержит `docs/product` (например, lessons в `docs`), папка
-  едет внутри него и в Silent mode окажется в `docs/product`, а не в `product` — решено без владельца, test-а на этот
-  случай нет.
+  едет внутри него и в Silent mode окажется в `docs/product`, а не в `product` — решено без владельца. Это и отказ
+  «`product` уже в Workflow folder» закреплены test-ами (`profile-set-move.test.sh`, project `nest`;
+  `profile-set-move-recover.test.sh`, папка `pre2`); mutant без каждой из двух проверок — красный. Текст
+  подтверждения переноса в worfy (`src/renderer/projects/MoveWorkflow.tsx`) называет папку Product Session.
 
 ## 4. Имя файла на принимающей стороне
 
@@ -170,7 +174,39 @@ done
 - Риски и пробелы test-ов: код `review-history` не менялся. Три mutant-а (без `readOn` для `reviewThreads`, для
   `comments`, для comments thread-а) — каждый красный.
 
-## 7. Как проверено
+## 7. Binding не берёт отказанный claim
+
+Code: `src/shared/binding/signals.ts:110-124` · key lines: 113, 120, 123
+
+```ts
+        const claim = claimIn(input.command)
+        if (claim) {
+          // A claim counts from its call, as before; a result that says it was refused takes it back.
+          pendingClaim = { id: event.id, previous: signals.claim }
+          set({ claim })
+        }
+      } else if (event.name === 'Skill' && typeof input.skill === 'string') {
+        const name = skillName(input.skill)
+        if (name) set({ skill: { name, args: cap(typeof input.args === 'string' ? input.args.trim() : '', ARGS_MAX) } })
+      }
+    } else if (event.type === 'tool_result' && pendingClaim !== null && event.toolUseId === pendingClaim.id) {
+      // An error result is the claim's exit code when the claim is the command's last one; the refusal text, when a
+      // command after it hides that code. A claim refused otherwise behind such a command still counts.
+      if (event.isError || CLAIM_REFUSED.test(event.content)) set({ claim: pendingClaim.previous })
+      pendingClaim = null
+```
+
+- Что делает: claim, как раньше, считается с вызова. Когда приходит его tool result и это ошибка (exit code не 0)
+  или в тексте есть отказ `ticket claim` («already claimed … by branch»), Binding возвращается к claim-у до него.
+- Почему здесь: review round 1, п. 6 — Binding брал последнюю команду `ticket claim` без её исхода, и Session,
+  которой отказала новая проверка, привязывалась к чужому Ticket-у.
+- Без него: узел отказанной Session на холсте стоял бы у Ticket-а другой Session.
+- Требование: [Что происходит, 97](../issues/145-аудит-повторного-review-ticket-claim-review-history-и-перенос-workflow.md#что-происходит)
+- Риски и пробелы test-ов: claim, отказанный по другой причине (старая шапка, неизвестный флаг) за командой вроде
+  `; echo "EXIT=$?"`, по-прежнему считается: tool result не ошибка, а текста отказа нет. Binding Codex
+  (`src/main/vendors/codex/binding.ts`) исход команды не читает.
+
+## 8. Как проверено
 
 - `bash harness/bin/tests/ticket-header.test.sh` — exit 0; на origin/main четыре новых case-а красные.
 - `bash harness/bin/tests/profile-set-move.test.sh` — exit 0; на origin/main семь case-ов красные.
@@ -185,7 +221,7 @@ done
    получает?
    - Ответ: отказ только когда `Branch:` в шапке есть и отличается от `--branch`; своя Session повторяет claim с
      той же `--branch`, чужая даёт другую или никакую.
-   - Строки: `harness/bin/ticket:669-673`
+   - Строки: `harness/bin/ticket:669-671`
 2. Что сломалось бы в откате переноса Full → Silent, если бы копии записывались в `state.copied` под именами
    стороны-источника?
    - Ответ: копии лежат в `product/…`, а откат удалял бы `docs/product/…` на стороне Workflow folder — файлов там

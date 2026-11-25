@@ -98,13 +98,15 @@ Read it once, before the plan.
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/bin/epic-status" <epic>              # what is done, what is free
-"${CLAUDE_PLUGIN_ROOT}/bin/ticket" claim <epic> <NN>       # writes `Status: claimed <time>`; an old header — exit 1, run `ticket migrate` first
+"${CLAUDE_PLUGIN_ROOT}/bin/ticket" claim <epic> <NN> --branch <branch>   # writes `Status: claimed <time>` and `Branch:`; an old header — exit 1, run `ticket migrate` first
 ```
 
-A ticket already `claimed` with a `Branch:` line belongs to that branch: `claim` refuses it (exit 1)
-and names the branch and the time. Resuming your own ticket — repeat the claim with that
-`--branch`; another session's ticket — leave it; `--force` takes it over only when that session is
-gone (its worktree removed, its agent stopped).
+`<branch>` is the ticket's branch: `F tickets.branch` with the ticket's values; in Silent mode the
+branch is chosen in step 2, so the first claim there goes without `--branch`. A ticket already
+`claimed` with a `Branch:` line belongs to that branch: `claim` refuses it (exit 1) and names the
+branch and the time. Resuming your own ticket (after a compaction, a re-dispatch, "continue") is
+the same claim with the same `--branch`; another session's ticket — leave it; `--force` takes it
+over only when that session is gone (its worktree removed, its agent stopped).
 
 If the project keeps no tickets in this form (`F tickets.path` is `null` or `ticket` refuses) — say
 that ticket status is not tracked here, and move it the way the repository's `CLAUDE.md` says.

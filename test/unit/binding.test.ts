@@ -258,6 +258,27 @@ describe('extendSignals', () => {
     expect(state.signals.claim).toMatchObject({ num: 16 })
   })
 
+  it('drops a `ticket claim` its result says was refused, and keeps the claim before it', () => {
+    const result = (id: string, content: string, isError: boolean): string =>
+      line({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content, is_error: isError }] } })
+    const own = '~/.claude/bin/ticket claim worfy-mvp 07 --branch worfy-mvp/07'
+    let state = extendSignals(emptySignalState(), [bash(own), result(`t-${own.length}`, '.scratch/worfy-mvp/issues/07-x.md:4', false)], { subagent: false })
+    expect(state.signals.claim).toMatchObject({ epic: 'worfy-mvp', num: 7 })
+    // Another Session's ticket: the claim exits 1, the tool result is an error.
+    const taken = '~/.claude/bin/ticket claim worfy-mvp 12 --branch worfy-mvp/07'
+    state = extendSignals(state, [bash(taken)], { subagent: false })
+    expect(state.signals.claim).toMatchObject({ num: 12 })
+    state = extendSignals(state, [result(`t-${taken.length}`, 'Exit code 1\n.scratch/worfy-mvp/issues/12-x.md: already claimed 2026-11-10T09:00Z by branch fix/other; …; nothing written', true)], { subagent: false })
+    expect(state.signals.claim).toMatchObject({ num: 7 })
+    // The same refusal behind `; echo EXIT=$?`: the tool result is no error, its text names the refusal.
+    const echoed = 'ticket claim worfy-mvp 13; echo "EXIT=$?"'
+    state = extendSignals(state, [bash(echoed), result(`t-${echoed.length}`, '.scratch/worfy-mvp/issues/13-x.md: already claimed 2026-11-10T09:00Z by branch fix/other; nothing written\nEXIT=1', false)], { subagent: false })
+    expect(state.signals.claim).toMatchObject({ num: 7 })
+    // A claim whose result has not come yet counts, as before.
+    state = extendSignals(state, [bash('ticket claim worfy-mvp 16')], { subagent: false })
+    expect(state.signals.claim).toMatchObject({ num: 16 })
+  })
+
   it('keeps the cwd and the branch of the last record that names them', () => {
     const state = extendSignals(
       emptySignalState(),

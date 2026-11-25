@@ -250,6 +250,19 @@ out="$(mt claim mr 05 --branch fix/first 2>&1)"; rc=$?
 out="$(mt claim mr 05 --branch fix/second --force 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && [ "$(hdr 05)" = "Status: claimed T|Branch: fix/second|Blocked by: —|" ] && [[ "$out" == *"branch: Branch: fix/first -> Branch: fix/second"* ]] \
     && ok "claim --force takes a ticket claimed by another branch over: Branch: rewritten" || bad "claim --force: exit $rc, $out, header $(hdr 05)"
+# The branch is read as epic-status reads it: the last Branch: line, bold markers and backticks dropped.
+printf '%s\n' '# 06 — a ticket' '' 'Type: task' 'Status: claimed 2026-11-10T09:00Z' 'Branch: `fix/a`' 'Blocked by: —' '' '## What to build' '' 'text' >"$ME/06-t.md"
+out="$(mt claim mr 06 --branch fix/a 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && [ "$(hdr 06)" = "Status: claimed T|Branch: fix/a|Blocked by: —|" ] \
+    && ok "claim of a ticket held by Branch: \`fix/a\` with --branch fix/a: its own branch, allowed" || bad "claim own backticked branch: exit $rc, $out, header $(hdr 06)"
+printf '%s\n' '# 07 — a ticket' '' 'Type: task' 'Status: claimed 2026-11-10T09:00Z' '**Branch:** fix/old' 'Blocked by: —' '' '## What to build' '' 'text' 'Branch: fix/b' >"$ME/07-t.md"
+"$STATUS" --json --root "$M" | jq -r '.tickets[] | select(.epic == "mr" and .num == 7) | .branch' >"$T/b07"
+cp "$ME/07-t.md" "$T/m07"
+out="$(mt claim mr 07 --branch fix/old 2>&1)"; rc=$?
+[ "$(cat "$T/b07")" = fix/b ] && [ "$rc" -eq 1 ] && [[ "$out" == *"by branch fix/b"* ]] && cmp -s "$T/m07" "$ME/07-t.md" \
+    && ok "claim reads the branch epic-status shows (the last Branch: line): another branch is refused" || bad "claim last Branch line: epic-status $(cat "$T/b07"), exit $rc, $out"
+out="$(mt claim mr 07 --branch fix/b 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && ok "claim with the branch epic-status shows is allowed" || bad "claim fix/b: exit $rc, $out"
 out="$(mt open mr 05 --force 2>&1)"; rc=$?
 [ "$rc" -eq 1 ] && [[ "$out" == *"--force goes only with claim"* ]] && ok "--force with another command -> exit 1" || bad "open --force: exit $rc, $out"
 mt open mr 05 >/dev/null 2>&1

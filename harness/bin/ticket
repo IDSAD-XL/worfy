@@ -667,9 +667,7 @@ if (repoArgs.length && Array.isArray(prof?._resolved?.repos) && prof._resolved.r
 // a claim from another branch, or with no --branch, is refused, and --force takes the ticket over on purpose. The
 // same --branch claims it again: a session resuming its own ticket, or changing its Repo: lines.
 if (cmd === "claim" && !forceArg && sh.kind === "new" && STATUS_NEW.exec(lines[sh.first])[1] === "claimed") {
-    // Only the header counts: a "Branch:" line of the body or of a code block is text.
-    const at = lines.findIndex((l, i) => i < sh.end && !sh.code[i] && headerLineMatch("Branch", l))
-    const held = at === -1 ? "" : headerLineMatch("Branch", lines[at])[2].replace(/\*+[ \t]*$/, "").trim()
+    const held = branchOf(lines, sh.code)
     if (held && held !== branchArg) {
         const since = STATUS_NEW.exec(lines[sh.first])[2]
         die(
@@ -695,7 +693,7 @@ if (cmd === "claim" && repoArgs.length) {
         const bare = sh.all.PR.filter((v) => !REPO_PR.test(v))
         const owner = sh.repos.length === 1 && repoArgs.includes(sh.repos[0]) ? sh.repos[0] : null
         if (bare.some((v) => owner === null || !/^#\d+$/.test(v)))
-            refuse(`the header has ${bare.map((v) => `PR: ${v}`).join(", ")}, which names no repository: claim --repo <its repository> first, then add the others; nothing written`)
+            refuse(`the header has ${bare.map((v) => `PR: ${v}`).join(", ")}, which names no repository: claim --branch <its branch> --repo <its repository> first, then add the others; nothing written`)
         grownPrs = sh.all.PR.map((v) => (REPO_PR.test(v) ? v : `${owner}${v}`))
     }
 }
@@ -772,6 +770,18 @@ if (cmd === "done") {
     }
 }
 process.exit(0)
+
+// The branch of the ticket as epic-status reads it, so that the claim and the status shown agree: the last `Branch:`
+// line outside code blocks in any spelling (`**Branch:**`), its bold markers and backticks dropped; "" without one.
+function branchOf(lines, code) {
+    let value = ""
+    lines.forEach((raw, i) => {
+        if (code[i]) return
+        const l = raw.replace(/\r$/, "")
+        if (/^\*?\*?branch[ \t]*\*?\*?[ \t]*:/.test(l.toLowerCase())) value = l.replace(/^\*?\*?[^:]*:\*?\*?[ \t]*/, "")
+    })
+    return value.replace(/\*|`/g, "").trim()
+}
 
 // The line `<key>: <value>` in either spelling (`**Branch:**` or `Branch:`): [prefix, value] as a match, or null.
 function headerLineMatch(key, line) {

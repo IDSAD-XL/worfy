@@ -479,6 +479,7 @@ describe('Edit profile', () => {
     fireEvent.click(within(form).getByRole('button', { name: 'Move to Silent mode…' }))
     expect(within(form).getByTestId('move-workflow-summary').textContent).toContain('move out of the repository /repos/shop into the default Workflow folder beside the profile')
     expect(within(form).getByTestId('move-workflow-summary').textContent).toContain('lessons kept in the repository')
+    expect(within(form).getByTestId('move-workflow-summary').textContent).toContain('the Product Session folder')
     fireEvent.change(within(form).getByTestId('move-workflow-folder'), { target: { value: '/work/shop-workflow' } })
     expect(within(form).getByTestId('move-workflow-summary').textContent).toContain('into the Workflow folder /work/shop-workflow:')
     await act(async () => {

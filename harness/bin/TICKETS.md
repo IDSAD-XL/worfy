@@ -46,7 +46,10 @@ Source: …
   with a `Branch:` line is held by that branch: a claim with another `--branch`, or with none, is exit 1, the branch
   and the time of the claim named and nothing written — two sessions would otherwise work on one ticket, the second
   claim silently replacing the first. The same `--branch` claims it again (a session resuming its own ticket);
-  `--force` takes it over on purpose.
+  `--force` takes it over on purpose. The branch is read as `epic-status` reads it: the last `Branch:` line outside
+  code blocks, bold markers and backticks dropped. The check sees only the ticket file it writes: in Silent mode
+  (the Workflow folder) and in one shared checkout that is every session's copy, but in Full mode with a worktree
+  per session each ticket branch has its own copy of the file, and a claim in another worktree is not seen.
 - `Who: <who does it>` — optional: `agent`, or `owner` for a ticket the owner does himself (an acceptance), the
   value may go on after the word (`Who: owner, with the orchestrator.`). A ticket written in another language uses
   its words for the key and for `owner` (lib/input-words.json, `ticketWho` and `ticketWhoOwner`). Only `owner` is
@@ -83,8 +86,9 @@ Repo: app
 ```
 
 - `Repo:` — a line per repository, a name from `_resolved.repos` of the profile. The order of the lines is the
-  order of merge: the library first, its consumers after it. `ticket claim <epic> <NN> --repo lib --repo app`
-  writes them in the order of the arguments; a later claim with `--repo` replaces the set. A name given twice is
+  order of merge: the library first, its consumers after it. `ticket claim <epic> <NN> --branch <B> --repo lib --repo
+  app` writes them in the order of the arguments; a later claim with `--branch <B>` (the ticket's own branch) and
+  `--repo` replaces the set. A name given twice is
   refused. A claim that leaves out a repository whose `PR:` or `Release:` line the header still has is exit 2, the
   lines named and nothing written: those lines would stand for a repository the ticket no longer names. When one
   repository grows into several, its bare `PR: #N` becomes `PR: <repo>#N`; a bare `PR: #N` that no `Repo:` line

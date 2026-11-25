@@ -50,7 +50,7 @@ trap 'rm -rf "$T"' EXIT
 H="$T/home"
 HH="$T/hh"
 R="$T/r/demo"
-mkdir -p "$H" "$HH/gate" "$HH/projects/demo" "$HH/projects/multi" "$R" "$T/r/m1" "$T/r/m2" "$T/ghcfg"
+mkdir -p "$H" "$HH/gate" "$HH/projects/demo" "$HH/projects/multi" "$HH/projects/nest" "$R" "$T/r/m1" "$T/r/m2" "$T/r/nest" "$T/ghcfg"
 
 g() { git -c user.name=t -c user.email=t@t -c init.defaultBranch=main "$@"; }
 
@@ -76,7 +76,7 @@ g -C "$R" config user.email t@t
 for m in m1 m2; do g -C "$T/r/$m" init -q && g -C "$T/r/$m" commit -q --allow-empty -m init; done
 
 cat >"$HH/gate/config.json" <<EOF
-{"repos":[{"key":"demo","match":"$R","profile":"demo"},{"key":"m1","match":"$T/r/m1","profile":"multi"},{"key":"m2","match":"$T/r/m2","profile":"multi"}]}
+{"repos":[{"key":"demo","match":"$R","profile":"demo"},{"key":"m1","match":"$T/r/m1","profile":"multi"},{"key":"m2","match":"$T/r/m2","profile":"multi"},{"key":"nest","match":"$T/r/nest","profile":"nest"}]}
 EOF
 cat >"$HH/projects/demo/profile.json" <<'EOF'
 {
@@ -92,6 +92,13 @@ cat >"$HH/projects/demo/profile.json" <<'EOF'
 }
 EOF
 printf '{"schema":2,"name":"multi","mode":"silent","workflow":{"folder":null}}\n' >"$HH/projects/multi/profile.json"
+# A project whose lessons folder docs holds the Product Session folder docs/product.
+printf '{"schema":2,"name":"nest","mode":"full","lessons":"repo:docs","workflow":{"folder":null}}\n' >"$HH/projects/nest/profile.json"
+mkdir -p "$T/r/nest/docs/product" "$T/r/nest/.scratch/e/issues"
+printf '# lesson\n' >"$T/r/nest/docs/lesson.md"
+printf '# map\n' >"$T/r/nest/docs/product/map.md"
+printf '# 01\n\nStatus: open\n' >"$T/r/nest/.scratch/e/issues/01-a.md"
+g -C "$T/r/nest" init -q && g -C "$T/r/nest" add -A && g -C "$T/r/nest" commit -q -m init
 printf '/*\n!/.gitignore\n!/projects/\n/projects/*/workflow/\n!/gate/\n/gate/*\n!/gate/config.json\n' >"$HH/.gitignore"
 g -C "$HH" init -q
 g -C "$HH" add -A
@@ -318,6 +325,20 @@ run "$SET" -C "$T/r/m1" --expect "$FPM" --move full >/dev/null 2>"$T/err"
 check "several repositories -> Full: exit 1" [ $? -eq 1 ]
 check "several repositories -> Full: the reason" grep -q "always in Silent mode: it cannot move to Full mode" "$T/err"
 check "several repositories -> Full: profile unchanged" cmp -s "$HH/projects/multi/profile.json" "$T/multi-before"
+
+# --- a workflow path that holds the Product Session folder ---------------------------------------------------------
+# lessons: "repo:docs" holds docs/product: the folder moves inside docs, once, and not also to product/.
+NW="$HH/projects/nest/workflow"
+FPN="$(run "$SET" -C "$T/r/nest" --field mode --field workflow.folder --read | json_get fingerprint)"
+out="$(run "$SET" -C "$T/r/nest" --expect "$FPN" --move silent 2>"$T/err")"
+check "docs holds docs/product -> Silent: exit 0" [ $? -eq 0 ]
+check "docs holds docs/product: it moved inside docs" present "$NW/docs/product/map.md" "$NW/docs/lesson.md"
+check "docs holds docs/product: not also to product/" absent "$NW/product"
+check "docs holds docs/product: the report names docs once, no docs/product" [ "$(json_get moved <<<"$out" | json_get paths)" = '[".scratch","docs"]' ]
+FPN="$(run "$SET" -C "$T/r/nest" --field mode --field workflow.folder --read | json_get fingerprint)"
+run "$SET" -C "$T/r/nest" --expect "$FPN" --move full >/dev/null 2>"$T/err"
+check "docs holds docs/product -> Full: exit 0" [ $? -eq 0 ]
+check "docs holds docs/product -> Full: back at docs/product" present "$T/r/nest/docs/product/map.md"
 
 home_after="$(real_home_snapshot "$REAL_HOME")"
 check "the real ~/.claude and ~/.claude/worfy-harness are unchanged" [ "$home_before" = "$home_after" ]
