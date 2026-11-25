@@ -47,11 +47,15 @@ Project-а пишет `assistant-items.json` синхронно и с прове
 
 - [ ] Стоимость старта attention core на Project-е из 155 Ticket-ов замерена (CPU profile или timing marks), числа в
       «Итог».
+  - evidence: test-run pass · `WORFY_QUARANTINE=only pnpm test:e2e test/e2e/epic-frame.spec.ts --repeat-each=5` exit 0 with temporary timing marks: core 96 writes 51 ms before, 1 write 9 ms after, numbers in Итог · mac - · 86087d6f7976e1f236cf139246d6674dce0586db
 - [ ] Если записи заметны — одно сохранение на scope за tick, test на ядро это проверяет; иначе в «Итог» — почему
       код не тронут.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-attention-core.test.ts test/unit/assistant-attention-sources.test.ts` exit 0 (36 passed) · mac - · 86087d6f7976e1f236cf139246d6674dce0586db
 - [ ] Предел Auberge-test-а на CI зависит от замеренной базы, не от потолка; `START_MS` = 3000 не поднят;
       `test/unit/e2e-start-budget.test.ts` проверяет новое правило.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/e2e-start-budget.test.ts` exit 0 (6 passed) · mac - · 86087d6f7976e1f236cf139246d6674dce0586db
 - [ ] Карантин снят: записи и метки нет; `test/unit/quarantine.test.ts` зелёный.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/quarantine.test.ts test/unit/quarantine-suggest.test.ts` exit 0; `pnpm test:e2e test/e2e/epic-frame.spec.ts` exit 0 (8 passed) · mac - · 86087d6f7976e1f236cf139246d6674dce0586db
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast зелёный; `ci-ok` зелёный на head PR, test идёт в
       `macos-e2e` и зелёный.
 
