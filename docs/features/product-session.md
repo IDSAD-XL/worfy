@@ -306,7 +306,8 @@ and the reason.
   percent, "+" (zoom in) and "Fit". It stays one row: a narrow map tightens its gaps, and a row that still does not fit scrolls sideways. The wheel zooms, from 10 % to 250 %, and a drag of the background pans.
 - When the map's area changes size (the window, the divider beside the chat), the map fits into it again. After the
   owner zooms or pans by hand, the map keeps that view instead; "Fit", or another topic or view, fits it again.
-- A node is as tall as its text needs, measured in the app's font, up to four lines; a longer text ends in "…", and
+- A node is as tall as its text needs, measured in the app's font, up to four lines. A text that needs a fifth line
+  gets a wider node, up to 120 px wider, when that fits it into four; only a text too long for that ends in "…", and
   the node's card shows it whole.
 - "Tree" is the default: a tidy tree with text of 15 px that grows left to right, the topic at the left, each node to
   the right of the node it grew from. "Graph" is radial, with text of 12 px: the topic in the middle, the branches

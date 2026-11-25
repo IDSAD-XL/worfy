@@ -1,7 +1,7 @@
 # 34: Rework of worfy-product-session 23, item 10
 
 Type: task
-Status: open
+Status: claimed 2026-11-24T23:33Z
 Blocked by: None — can start immediately
 Source: owner-check fail 2026-11-24 of worfy-product-session 23, item 10 — 23-mind-map-размер-текст-и-карточка-узла-как-в-прототипе.md
 
@@ -21,3 +21,6 @@ Source: owner-check fail 2026-11-24 of worfy-product-session 23, item 10 — 23-
 
 - [ ] (manual) Сделай: найди узел «Очень длинный текст узла…» и наведи на него → Должно быть: в узле 4 строки и «…», ни одна буква не выходит за контур; tooltip — полный текст. У других узлов текст целиком, без обрезки.
   - needs: mac stable
+- [ ] Unit test (`test/unit/mind-map-node-width.test.ts`): на карте LONG_MAP ни в Tree, ни в Graph не обрезан ни один узел, кроме «Очень длинный текст узла…»; узел-ветка «Отдельный экран продуктовой работы…» шире обычного и вмещает все строки; узел с текстом, которому не хватает и самого широкого узла, обычной ширины и в четыре строки. На коде origin/main test красный.
+- [ ] e2e test (`test/e2e/product-session.spec.ts`, карта LONG_MAP): в окне «…» только у `very-long`, в Tree и в Graph, и ни одна строка не выходит за контур узла.
+- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast зелёный.

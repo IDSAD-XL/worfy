@@ -291,17 +291,36 @@ export function wrappedLines(text: string, room: number, measure: (text: string)
 }
 
 /**
+ * How much wider than the view's width a node's box may grow so its text fits in MAX_LINES, px, and the step
+ * it grows by (ticket 34): a text of a few words more than four lines hold, or one beside a branch's fold
+ * mark, is shown whole; a text too long for the widest box keeps the view's width and is cut at MAX_LINES.
+ */
+const WIDEN = { most: 120, step: 20 } as const
+
+/**
  * The size of a node's box: the root and the Tickets are larger; the height follows the lines its text
  * takes, measured in its font (setTextMeasure) and at most MAX_LINES. The text
  * has the node's width less its padding, its icon and, on a branch, the fold mark. The text is wrapped 2 px
- * narrower than the box it gets, so a measure a hair off makes the box a line taller, never too short.
+ * narrower than the box it gets, so a measure a hair off makes the box a line taller, never too short. A text
+ * that needs more than MAX_LINES gets the narrowest wider box (WIDEN) that holds it in MAX_LINES with a
+ * further 4 px to spare, so the browser does not cut it where it measures a hair wider.
  */
 export function nodeSize(node: MapNode, view: MindMapView): { width: number; height: number } {
   const big = node.kind === 'topic' || node.kind === 'ticket'
   const size = MIND_MAP_FONT[view] + (big ? 2 : 0)
-  const width = WIDTH[view] + (big ? 40 : 0)
+  const base = WIDTH[view] + (big ? 40 : 0)
   const inset = (NODE_PAD[node.kind].left + ICON_EM[node.kind] + NODE_PAD[node.kind].right) * size + (node.branch === true ? FOLD_PX + 0.52 * size : 0)
-  const lines = Math.min(MAX_LINES, wrappedLines(node.text, Math.max(size, width - inset - 2), (text) => measureText(text, size, big)))
+  const measure = (text: string) => measureText(text, size, big)
+  const linesAt = (width: number, spare: number) => wrappedLines(node.text, Math.max(size, width - inset - spare), measure)
+  let width = base
+  if (linesAt(base, 2) > MAX_LINES) {
+    for (let wider = base + WIDEN.step; wider <= base + WIDEN.most; wider += WIDEN.step) {
+      if (linesAt(wider, 6) > MAX_LINES) continue
+      width = wider
+      break
+    }
+  }
+  const lines = Math.min(MAX_LINES, linesAt(width, 2))
   return { width, height: Math.ceil(lines * size * LINE + NODE_PAD_Y) }
 }
 

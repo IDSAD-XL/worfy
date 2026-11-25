@@ -321,8 +321,9 @@ test('the Mind map keeps long texts inside their nodes, opens the card beside it
     // it takes more than the four lines a node shows (the measure never counts fewer lines than the browser
     // draws), as the longest one does.
     await expect.poll(async () => (await texts()).filter((each) => !each.inside).map((each) => each.id)).toEqual([])
+    // Only the longest text is cut (ticket 34): a text that fits four lines of a somewhat wider box gets one.
     const clamped = (await texts()).filter((each) => each.clamped)
-    expect(clamped.map((each) => each.id)).toContain('very-long')
+    expect(clamped.map((each) => each.id)).toEqual(['very-long'])
     expect(clamped.filter((each) => each.lines !== 4).map((each) => each.id)).toEqual([])
     // The accepted Decision `split` sits right under the one it overturned (ticket 33): its red dashed
     // arrow bows round their right side, long enough to be seen as a dashed line and not only an arrowhead.
