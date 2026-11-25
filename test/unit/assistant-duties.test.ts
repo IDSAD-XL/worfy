@@ -411,7 +411,9 @@ describe('review round 1', () => {
     const w = world()
     const rule = { id: 'land-then-asleep', title: 'land finished, and the Orchestrator sleeps', when: { task: 'land' }, quietMinutes: 10 }
     writeProjectAssistantRules(w.projectDir(PROJECT), [rule], 'plugin')
-    const { assistantRules: _saved, ...rest } = readProjectSettings(w.projectDir(PROJECT), 'plugin')
+    const rest = { ...readProjectSettings(w.projectDir(PROJECT), 'plugin') }
+    delete rest.assistantRules
+    expect(rest).not.toHaveProperty('assistantRules')
     writeProjectSettings(w.projectDir(PROJECT), rest, 'plugin')
     expect(readProjectAssistantRules(w.projectDir(PROJECT), 'plugin')).toEqual([rule])
     writeProjectSettings(w.projectDir(PROJECT), { ...rest, assistantRules: [] }, 'plugin')
