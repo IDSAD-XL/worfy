@@ -34,81 +34,95 @@ Code: `electron-builder.yml:42-49` · key lines: 46, 47, 49
 - Риски и пробелы test-ов: настоящая сборка `pnpm package` не запускалась (правило владельца); contract test сверяет
   запись в конфиге с константой папки main и с папками репозитория, а не содержимое `.app`.
 
-## 3. Поиск находит страницу, только если в ней все слова вопроса
+## 3. Страница находится, только если её раздел — о вопросе
 
-Code: `src/main/assistant/help/feature-pages.ts:84-108` · key lines: 87, 97, 104, 105
+Code: `src/main/assistant/help/feature-pages.ts:176-194` · key lines: 186, 187, 192
 
 ```ts
-/** The words of a question, lower case, each as the prefix it matches. */
-function terms(query: string): string[] {
-  const words = query.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []
-  return [...new Set(words.filter((word) => word.length >= 2).map((word) => (word.length > 5 ? word.slice(0, -2) : word)))]
-}
-
-const escape = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
-
-/** How many words of `text` start with `term`. */
-function hits(text: string, term: string): number {
-  return text.toLowerCase().match(new RegExp(`(?<![\\p{L}\\p{N}])${escape(term)}`, 'gu'))?.length ?? 0
-}
-
-/** The score of a page for the terms: null when a term is not in it; the title counts most, then the headings. */
-function score(text: string, words: readonly string[]): number | null {
-  const page = outline(text)
-  const headings = page.headings.map((heading) => heading.title).join('\n')
-  let total = 0
-  for (const term of words) {
-    const inText = hits(text, term)
-    if (inText === 0) return null
-    total += inText + 10 * hits(page.title ?? '', term) + 3 * hits(headings, term)
-  }
-  return total
+/**
+ * How much a section is about the question, or null when it is not. Every word of the question is in its headings (the
+ * page's title and the headings above it count) or in its own text, and the words of its text stand close together
+ * (NEAR_WORDS); the one word of a one-word question is in its headings or twice in its text — once is in passing.
+ * The headings count most.
+ */
+function about(block: Block, words: readonly Term[]): number | null {
+  const count = (where: readonly string[], matches: Term): number => where.filter(matches).length
+  const inChain = words.map((matches) => count(block.chain, matches))
+  const inBody = words.map((matches) => count(block.body, matches))
+  if (words.some((_, index) => inChain[index]! + inBody[index]! === 0)) return null
+  if (words.length === 1 && inChain[0] === 0 && inBody[0]! < 2) return null
+  const near = span(
+    block.body,
+    words.filter((_, index) => inChain[index] === 0),
+  )
+  if (near === null || near > NEAR_WORDS) return null
+  return inBody.reduce((sum, each) => sum + each, 0) + 3 * inChain.reduce((sum, each) => sum + each, 0)
 }
 ```
 
-- Что делает: слово вопроса совпадает с началом слова страницы (у слов длиннее пяти букв отрезаются две последние,
-  чтобы находились другие окончания); страница без хоть одного слова не годится; заголовок страницы весит больше
-  заголовков разделов, а те — больше текста.
-- Почему здесь: Ticket требует, чтобы поиск без подходящей страницы отдавал пустой ответ, а не чужую страницу; правило
-  «все слова» — решение без владельца.
-- Без него: вопрос, на который нет страницы, получал бы ближайшую по одному слову страницу, и Assistant отвечал бы не
-  по теме вместо «не знаю».
+- Что делает: все слова вопроса должны быть в одном разделе — в его заголовках (вместе с заголовком страницы и
+  заголовками выше) или в его тексте, а слова из текста — не дальше 12 слов друг от друга; слово вопроса из одного слова
+  — в заголовках или дважды в тексте. Латинское слово совпадает только с тем же словом в единственном или
+  множественном числе (`term`), кириллическое — по основе без окончания; «ё» приравнена к «е».
+- Почему здесь: Ticket требует, чтобы поиск без подходящей страницы отдавал пустой ответ, а не чужую страницу. Review
+  1-го раунда нашёл, что правило «все слова где-то на странице» отдавало чужие страницы на настоящих вопросах («voice
+  input», «spell check», «dark mode», «emoji»); правило раздела и близости слов — решение без владельца.
+- Без него: вопрос, на который нет страницы, получал бы страницу, где те же слова сказаны мимоходом в разных местах, и
+  Assistant отвечал бы не по теме вместо «не знаю».
 - Требование: [Готово, когда, п. 2 и 3](../issues/17-помощь-по-worfy.md#готово-когда)
-- Риски и пробелы test-ов: поиск по словам, не по смыслу; вопрос, сформулированный другими словами, чем страница, не
-  найдёт её — правила велят модели попробовать другие слова один раз. Индекс `README` в результаты не попадает.
+- Риски и пробелы test-ов: поиск по словам, не по смыслу: вопрос другими словами, чем страница, её не найдёт — правила
+  велят модели попробовать другие слова один раз. Латинские слова с другим окончанием («stopped» и «stop») не
+  совпадают. Порог 12 слов подобран по запросам к настоящим страницам; test-ы — `test/contract/feature-pages-in-build.test.ts`.
 
 ## 4. Ответ — страница на языке Guide со ссылкой
 
-Code: `src/main/assistant/help/feature-pages.ts:137-150` · key lines: 140, 142, 150
+Code: `src/main/assistant/help/feature-pages.ts:232-260` · key lines: 241, 257, 258
 
 ```ts
 export function searchFeaturePages(files: readonly FeaturePageFile[], query: string, limit: number, options: FeatureHelpOptions): FeatureHit[] {
   const words = terms(query)
   if (words.length === 0) return []
-  const best = new Map<string, number>()
+  const best = new Map<string, { score: number; page: Outline; sections: number[] }>()
   for (const file of files) {
     if (file.name === INDEX) continue
-    const found = score(file.text, words)
-    if (found !== null && found > (best.get(file.name) ?? 0)) best.set(file.name, found)
+    const page = outline(file.text)
+    let score: number | null = null
+    const sections: number[] = []
+    for (const block of blocks(page)) {
+      const found = about(block, words)
+      if (found === null) continue
+      score = Math.max(score ?? 0, found)
+      if (block.heading >= 0) sections.push(block.heading)
+    }
+    if (score !== null && score > (best.get(file.name)?.score ?? 0)) best.set(file.name, { score, page, sections })
   }
   return [...best.entries()]
-    .sort(([a, left], [b, right]) => right - left || a.localeCompare(b))
+    .sort(([a, left], [b, right]) => right.score - left.score || a.localeCompare(b))
     .slice(0, limit)
-    .map(([name]) => {
+    .map(([name, matched]) => {
       const file = pageIn(files, name, options.language)!
+      const page = outline(file.text)
+      const path = featurePagePath(name, file.language)
+      // The words may have matched the other language's version: its sections, named as this page names them.
+      const sections = headingsIn(matched.page, page, matched.sections)
+      return { page: name, language: file.language, title: page.title ?? name, path, url: githubFileUrl(path, options.version), sections: sections.slice(0, HIT_SECTIONS_MAX) }
+    })
+}
 ```
 
-- Что делает: страница подходит, если слова есть в английской версии или в переводе; в ответ идёт версия на языке
-  Guide, а без перевода — английская; путь и ссылка на GitHub на commit сборки строятся так же, как «Full page» в Guide.
+- Что делает: страница подходит, если её раздел — о вопросе в английской версии или в переводе; в ответ идёт версия на
+  языке Guide, а без перевода — английская. Разделы берутся из версии, где совпали слова, и называются так, как их
+  называет отданная страница (`headingsIn`: то же место в оглавлении перевода). Путь и ссылка на GitHub на commit
+  сборки строятся так же, как «Full page» в Guide.
 - Почему здесь: spec, «Знакомство и помощь»: ответ со ссылкой на страницу описания, язык — язык Guide.
-- Без него: при Guide на русском английский термин вопроса (`badge`) не нашёл бы русскую страницу, а ответ ссылался бы
-  на английскую.
+- Без него: при Guide на русском английский вопрос (`badge`) не нашёл бы русскую страницу или пришёл бы без разделов.
 - Требование: [Готово, когда, п. 5](../issues/17-помощь-по-worfy.md#готово-когда)
-- Риски и пробелы test-ов: ссылка ведёт на GitHub, а не на файл внутри сборки; без commit-а в версии сборки — на `main`.
+- Риски и пробелы test-ов: если у перевода другое число заголовков, разделы называются по-английски, и `features_read`
+  читает такой раздел из английской версии. Ссылка ведёт на GitHub, а не на файл внутри сборки.
 
 ## 5. Два tool-а `worfy-app`
 
-Code: `src/main/mcp/app-server.ts:346-360` · key lines: 346, 349, 356
+Code: `src/main/mcp/app-server.ts:346-360` · key lines: 347, 349, 355
 
 ```ts
     // The pages are worfy's own text, shipped in the build: not outside text. They pass redactSecrets like every answer.
@@ -158,7 +172,8 @@ of such an answer:
 
 - Что делает: правила велят отвечать по странице и со ссылкой, а без страницы — говорить «не знаю», не по памяти.
   `worfyAppInstructions(language)` добавляет раздел `## Language`: говорить на языке Guide; `worfyAppForSession` берёт
-  язык из `guideLanguage` настроек, без выбора — из языка системы.
+  язык из `guideLanguage` настроек, без выбора — из языка системы, один раз: правила и tool-ы этой Session держат его,
+  даже если пользователь переключит Guide посреди Session (`src/main/mcp/app-server.ts:459-461`).
 - Почему здесь: правила сервера уже добавляются к system prompt Session Assistant-а (Ticket 09, Ticket 10).
 - Без него: модель отвечала бы по памяти и на языке вопроса.
 - Требование: [Готово, когда, п. 4 и 5](../issues/17-помощь-по-worfy.md#готово-когда)
@@ -180,12 +195,13 @@ renderer-а их реэкспортируют. Страницы `docs/features` 
 
 ## Проверить себя
 
-1. Почему вопрос «shelf espresso» не возвращает страницу Epic frames, хотя слово `shelf` в ней есть?
-   - Ответ: страница годится, только если в ней есть все слова вопроса; без одного слова `score` отдаёт null.
-   - Lines: `src/main/assistant/help/feature-pages.ts:102-104`
-2. Guide на русском, у страницы нет перевода. Что ответит `features_read`?
-   - Ответ: английскую страницу с `language: 'en'` и `guideLanguage: 'ru'`, путь без `ru/`.
-   - Lines: `src/main/assistant/help/feature-pages.ts:137-150`
-3. Откуда main знает язык, если пользователь ни разу не переключал EN / RU в Guide?
-   - Ответ: из первого языка системы, по тому же правилу, что и Guide в renderer-е (`guideLanguage` из `src/shared/guide/language.ts`).
-   - Lines: `src/main/mcp/app-server.ts:536-555`
+1. Почему вопрос «dark mode» не находит страницу Sessions, хотя в её разделе есть и «dark», и «modes»?
+   - Ответ: слова стоят дальше 12 слов друг от друга, а «model» и «mode» для латинского слова — разные слова; раздел не
+     о вопросе, и `about` отдаёт null.
+   - Lines: `src/main/assistant/help/feature-pages.ts:186-192`
+2. Guide на русском, вопрос `badge` совпал только в английской версии. Какие разделы придут в ответе?
+   - Ответ: разделы русской страницы на тех же местах оглавления («Значки CI»), если число заголовков совпадает.
+   - Lines: `src/main/assistant/help/feature-pages.ts:226-229`, `src/main/assistant/help/feature-pages.ts:256-257`
+3. Пользователь переключил Guide на EN посреди Session. На каком языке ответят tool-ы?
+   - Ответ: на языке, взятом при создании Session: `worfyAppForSession` подменяет `guideLanguage` значением, взятым один раз.
+   - Lines: `src/main/mcp/app-server.ts:459-461`
