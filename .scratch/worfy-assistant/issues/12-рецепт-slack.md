@@ -1,7 +1,8 @@
 # 12 — Рецепт Slack: что касается пользователя с прошлой проверки
 
 Type: task
-Status: claimed 2026-11-25T19:53Z
+Status: done 2026-11-25T22:07Z
+PR: #2239
 Branch: worfy-assistant/12
 Blocked by: 04, 11
 Source: [spec.md](../spec.md), «Ticket-ы», строка 12; «Решения владельца», 5 и 19; «Решения по реализации» → «Проверка
@@ -40,18 +41,24 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 12; «Решения 
 
 - [ ] Рецепт Slack задаёт поиск «что касается пользователя» с прошлой проверки и список разрешённых read tools.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-slack-recipe.test.ts` exit 0 · mac - · 389fc7d42
+  - evidence: review pass · PR #2239 · - - · 2c131984da0dca51c19dcbeac0d4c46ec4afd246
 - [ ] Unit test на записанном ответе: из ответа вызова получаются пункты; пункт, который не касается пользователя, не
       показывается.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-slack-recipe.test.ts` exit 0 · mac - · 389fc7d42
+  - evidence: review pass · PR #2239 · - - · 2c131984da0dca51c19dcbeac0d4c46ec4afd246
 - [ ] Unit test: следующая проверка ищет с времени прошлой.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-slack-recipe.test.ts` exit 0 · mac - · 389fc7d42
+  - evidence: review pass · PR #2239 · - - · 2c131984da0dca51c19dcbeac0d4c46ec4afd246
 - [ ] Проверка Slack зарегистрирована в планировщике Ticket-а 04 с интервалом около 10 минут по умолчанию.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-slack-recipe.test.ts` exit 0 · mac - · 389fc7d42
   - evidence: commit pass · worfy-assistant/12: the Slack recipe — what concerns the user since the last check, read tools only · - - · 389fc7d42
+  - evidence: review pass · PR #2239 · - - · 2c131984da0dca51c19dcbeac0d4c46ec4afd246
 - [ ] Записанные ответы лежат как fixture-ы; test-ы не вызывают модель и не ходят в сеть.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-slack-recipe.test.ts` exit 0 · mac - · 389fc7d42
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45699584423/job/139540482140 · ci - · 2c131984da0dca51c19dcbeac0d4c46ec4afd246
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: test-run pass · `pnpm lint` exit 0, `pnpm typecheck` exit 0 · mac - · 389fc7d42
+  - evidence: review pass · PR #2239 · - - · 2c131984da0dca51c19dcbeac0d4c46ec4afd246
 
 ## Итог
 

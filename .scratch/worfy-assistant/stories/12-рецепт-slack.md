@@ -126,3 +126,27 @@ Code: `src/main/index.ts:250-255` · key lines: 252
 3. Меняет ли отброшенный пункт, который не касается пользователя, время, докуда дошла проверка?
    - Ответ: нет: фильтр стоит только на пути в ядро, а `coveredUntil` считается по всем прошедшим проверку пунктам.
    - Строки: `src/main/assistant/sources/connector-check.ts:113-118`
+
+## 7. Что нашёл review и что осталось
+
+> VERIFIED — worfy-assistant 12 (the Slack recipe: the Assistant's check of Slack through the claude.ai Slack connector, read and search tools only, items for messages that concern the user), head 2c131984da0dca51c19dcbeac0d4c46ec4afd246
+>
+> Gate (depth medium, one round): reviewer (lens: correctness) — MERGE, no findings.
+>
+> - What it does (nothing runs by default; the slack check kind is off until the user turns it on):
+>   - slackRecipe asks the connector `claude.ai Slack` for direct messages, mentions, replies in the user's threads and messages naming the user's Projects, from `since` to `now`, with five read and search tools named exactly.
+>   - A new optional ConnectorRecipe.keeps (in the shared connector check of ticket 11) drops items that do not concern the user before the attention core. coveredUntil still runs to the newest item checked, including dropped ones.
+>   - registerSlackCheck registers it on the scheduler of ticket 04 under kind slack, every 10 minutes by default, looking back a day at the first check.
+> - Evidence:
+>   - The reviewer confirmed that the default makes no connector call, no model call and no ledger write (scheduler.ts:207, settings.ts:41), and that tools are matched by exact name (vendors/claude/connector-check.ts:133).
+>   - No Slack text is in main's message to the call. An injection message lands only as item text with source and author.
+>   - Slack `after:` two days before since's UTC day covers UTC−12..UTC+14.
+>   - The reviewer's run of 201 assistant tests, typecheck and eslint of the changed files: EXIT=0. The implementer's 286 assistant tests, lint and typecheck: EXIT=0. A mutant without keeps is caught. story-check ok.
+> - Not verified: the real Slack connector's tool names, the `after:` syntax and how Haiku 5.5 follows the task (first real call at owner acceptance, ticket 20). Gate fast red on this Mac only on land.test.sh killed at 360 s under load (untouched); CI decides.
+> - Noted: the conflict with ticket 13 (PR #2238) is mechanical, in src/main/index.ts only. Outside the diff, ticket 11's revision is the model's time string as written, so a repeat in another time form makes a new item (connector-check.ts:77).
+>
+> Decided without the owner (to confirm):
+> - what «concerns the user» means (DM or group DM, mention of the user or their group, a reply in a thread they started or wrote in, a message naming their Project; not their own messages);
+> - what «urgent» means (a request for today, a same-day deadline, an incident, a red deploy, a blocker);
+> - the five read tools; the connector known by its exact name;
+> - dropped items are not journaled.
