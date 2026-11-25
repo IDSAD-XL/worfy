@@ -2,6 +2,7 @@
 
 Type: task
 Status: claimed 2026-11-25T19:11Z
+PR: #2240
 Branch: worfy-assistant/09
 Blocked by: 03, 07
 Source: [spec.md](../spec.md), «Ticket-ы», строка 09; «Решение», слой 2; «Решения по реализации» → «MCP-сервер
