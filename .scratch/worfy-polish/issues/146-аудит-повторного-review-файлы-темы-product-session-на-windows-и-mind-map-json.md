@@ -1,7 +1,8 @@
 # 146 — Аудит повторного review: файлы темы Product Session на Windows и mind-map.json
 
 Type: bug
-Status: claimed 2026-11-25T14:11Z
+Status: done 2026-11-25T16:38Z
+PR: #2216
 Blocked by: none
 Source: audit-pr-rereview-2026-11-13, triage.md «В Ticket-ы»; checked open on main b0e073620 2026-11-25
 
@@ -55,26 +56,32 @@ b0e073620: все открыты.
       читается, тема называет файл в ошибках. Красный на origin/main.
   - evidence: test-run pass · `vitest run test/unit/product-topic.test.ts` exit 0; 3 new link tests exit 1 on origin/main sources · mac - · 15b8d03a4
   - evidence: test-run pass · `vitest run` of 23 product, mind-map, docs, query-factory and remote-links files exit 0; topic link tests exit 1 on origin/main, unchecked mutant exit 1 · mac - · e6c221a0f
+  - evidence: review pass · PR #2216 · - - · 335d015a48fb7e620854558bef06ded1945ee5e1
 - [ ] 58: test `test/contract/mind-map-tools.test.ts` — `mind_map_read` темы со ссылкой на удалённый host не читает
       файл. Красный на origin/main.
   - evidence: test-run pass · `vitest run test/contract/mind-map-tools.test.ts` exit 0; 2 new tests exit 1 on origin/main sources · mac - · 15b8d03a4
   - evidence: test-run pass · `vitest run test/contract/mind-map-tools.test.ts` exit 0; read and write link tests exit 1 before the fix, documents-root mutant exit 1, writer-check mutant exit 1 · mac - · e6c221a0f
+  - evidence: review pass · PR #2216 · - - · 335d015a48fb7e620854558bef06ded1945ee5e1
 - [ ] 59, 80: unit test `test/unit/product-share.test.ts` — папка Product Session и файл `critic/*.md` ведут на
       удалённый host: `readdir` и `readFile` не зовутся, share без них. Красный на origin/main.
   - evidence: test-run pass · `vitest run test/unit/product-share.test.ts` exit 0; 2 new tests exit 1 on origin/main sources · mac - · 15b8d03a4
   - evidence: test-run pass · `vitest run test/unit/product-share.test.ts` exit 0; share link tests exit 1 on origin/main, critic folder mutant exit 1 · mac - · e6c221a0f
+  - evidence: review pass · PR #2216 · - - · 335d015a48fb7e620854558bef06ded1945ee5e1
 - [ ] 79: unit test `test/unit/product-topic.test.ts` — `mind-map.json` нечитаем (папка вместо файла): ошибка в
       `errors`, карта не пустая; `Status: someword` даёт `none`. Mutant «убрать проверку `'error' in mindMap`» и mutant
       «убрать `STATUS_WORDS.has`» — красные.
   - evidence: test-run pass · `vitest run test/unit/product-topic.test.ts` exit 0; mutant without the mind-map error check exit 1, mutant without STATUS_WORDS.has exit 1 · mac - · 15b8d03a4
   - evidence: test-run pass · `vitest run test/unit/product-topic.test.ts` exit 0; mutant without the mind-map error check exit 1, mutant without STATUS_WORDS.has exit 1 · mac - · e6c221a0f
+  - evidence: review pass · PR #2216 · - - · 335d015a48fb7e620854558bef06ded1945ee5e1
 - [ ] 93: unit test `test/unit/agent-query-factory.test.ts` в `describe('sdkQueryFactory')` — Session `kind: 'product'`
       получает `productWrites`; mutant «убрать `productWrites` в `query.ts:476`» — красный.
   - evidence: test-run pass · `vitest run test/unit/agent-query-factory.test.ts` exit 0; mutant without productWrites in query.ts exit 1 · mac - · 15b8d03a4
   - evidence: test-run pass · `vitest run test/unit/agent-query-factory.test.ts` exit 0; mutant without productWrites in query.ts exit 1 · mac - · e6c221a0f
+  - evidence: review pass · PR #2216 · - - · 335d015a48fb7e620854558bef06ded1945ee5e1
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR, job-ы Windows CI зелёные.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 15b8d03a4
   - evidence: gate pass · `gate fast` exit 0 · mac - · e6c221a0f
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45646169399/job/139337452625 · ci - · 335d015a48fb7e620854558bef06ded1945ee5e1
 
 ## Решено без владельца (подтвердить)
 
