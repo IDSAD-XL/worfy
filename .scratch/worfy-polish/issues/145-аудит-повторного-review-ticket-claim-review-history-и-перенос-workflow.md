@@ -61,20 +61,26 @@ PR (ADR-0056): вердикт Windows — job-ы Windows в CI.
 - [ ] 21: test в `harness/bin/tests/review-history.test.sh` — текст со второй страницы threads, comments PR и comments
       thread-а есть в `raw/`; mutant «не звать `readOn` для `reviewThreads`» (`review-history:422`) — красный.
   - evidence: test-run pass · `bash harness/bin/tests/review-history.test.sh` exit 0; mutants without readOn for reviewThreads, comments, thread comments each exit 1 · mac - · fb1591375c55906323f3b1e1570ebe050f000436
+  - evidence: test-run pass · `bash harness/bin/tests/review-history.test.sh` exit 0 (review round 1 head) · mac - · af6a038cd17648c1a706c91b16868a0d33349bdc
 - [ ] 97: test в `harness/bin/tests/ticket-header.test.sh` — второй `claim` с другой `--branch` — exit 1, Status и
       `Branch:` не изменились; с `--force` — перезаписаны; с той же `--branch` — разрешён. Красный на origin/main.
   - evidence: test-run pass · `bash harness/bin/tests/ticket-header.test.sh` exit 0; on origin/main code 4 new cases FAIL · mac - · fb1591375c55906323f3b1e1570ebe050f000436
+  - evidence: test-run pass · `bash harness/bin/tests/ticket-header.test.sh` exit 0; the branch read as epic-status reads it (review round 1) · mac - · af6a038cd17648c1a706c91b16868a0d33349bdc
 - [ ] 113: test в `harness/bin/tests/profile-set-move.test.sh` — stand-in `$PROFILE_SET_GH` печатает полученный
       `GH_TOKEN`; при `github.account` в profile это token этого аккаунта. Красный на origin/main.
   - evidence: test-run pass · `bash harness/bin/tests/profile-set-move.test.sh` exit 0; on origin/main code the github.account token cases FAIL · mac - · fb1591375c55906323f3b1e1570ebe050f000436
+  - evidence: test-run pass · `bash harness/bin/tests/profile-set-move.test.sh` exit 0 (review round 1 head) · mac - · af6a038cd17648c1a706c91b16868a0d33349bdc
 - [ ] 114: test в `harness/bin/tests/profile-set-move.test.sh` — перенос Full → Silent переносит `docs/product/` в
       `<Workflow folder>/product/`, обратный — назад; откат при сбое возвращает её. Красный на origin/main.
   - evidence: test-run pass · `bash harness/bin/tests/profile-set-move.test.sh` exit 0 and `bash harness/bin/tests/profile-set-move-recover.test.sh` exit 0; on origin/main code both FAIL · mac - · fb1591375c55906323f3b1e1570ebe050f000436
+  - evidence: test-run pass · `bash harness/bin/tests/profile-set-move.test.sh` exit 0 and `bash harness/bin/tests/profile-set-move-recover.test.sh` exit 0; overlap and product-already-there mutants exit 1 · mac - · af6a038cd17648c1a706c91b16868a0d33349bdc
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `bash harness/bin/tests/review-history.test.sh`,
       `ticket-header.test.sh`, `profile-set-move.test.sh`, `profile-set-move-recover.test.sh` — exit 0; `ci-ok`
       зелёный на head PR, job-ы Windows CI зелёные (платформенный PR).
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0; the four shell tests exit 0 · mac - · fb1591375c55906323f3b1e1570ebe050f000436
   - evidence: gate pass · `gate fast` exit 0 · mac - · fb1591375c55906323f3b1e1570ebe050f000436
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0; multi-repo, silent-mode, tickets-root, wave-brief, worktree-lock-prune shell tests exit 0 · mac - · af6a038cd17648c1a706c91b16868a0d33349bdc
+  - evidence: gate pass · `gate fast` exit 0 (review round 1 head) · mac - · af6a038cd17648c1a706c91b16868a0d33349bdc
 
 ## Где в коде
 
