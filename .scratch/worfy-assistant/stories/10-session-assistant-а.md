@@ -221,7 +221,7 @@ export function composeAssistant(parts: AssistantParts): Assistant | null {
 - До реализации: `node scripts/vitest-electron.mjs test/unit/assistant-session-options.test.ts
   test/unit/assistant-session.test.ts test/contract/worfy-app-tools.test.ts` — exit 1, три файла не грузятся;
   `bash harness/hooks/tests/rules-hooks.test.sh` — exit 1.
-- После: `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0 (933 файла, 21 042 test-а); `gate fast` — exit 0,
+- После: `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0 (934 файла, 21 071 test, после rebase на origin/main); `gate fast` — exit 0,
   `[gate] green (fast)`; `pnpm build` — exit 0.
 
 ## Проверить себя

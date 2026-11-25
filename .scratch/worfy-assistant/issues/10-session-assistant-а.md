@@ -43,24 +43,24 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 10; «Решение�
 
 - [ ] Session Assistant-а стартует с cwd в папке данных worfy вне всех Project-ов; `CLAUDE.md` и hooks Project-ов не
       грузятся; на Canvas Project-ов её нет.
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-session-options.test.ts` exit 0 · mac - · f457909d9e56b88ef9ca560e6eaa13fecf20ca11
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-session-options.test.ts` exit 0 · mac - · 40355bf4ae53c6465b0fee95eeda7c650da70bfc
 - [ ] `WORFY_SESSION_KIND` получает новое значение; Harness для него печатает свой файл правил.
-  - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0; `node scripts/vitest-electron.mjs test/contract/harness-plugin.test.ts` exit 0 · mac - · f457909d9e56b88ef9ca560e6eaa13fecf20ca11
+  - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0; `node scripts/vitest-electron.mjs test/contract/harness-plugin.test.ts` exit 0 · mac - · 40355bf4ae53c6465b0fee95eeda7c650da70bfc
 - [ ] Unit test: у Session Assistant-а нет Bash, записи файлов и сети; есть только tools `worfy-app`.
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-session-options.test.ts` exit 0 · mac - · f457909d9e56b88ef9ca560e6eaa13fecf20ca11
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-session-options.test.ts` exit 0 · mac - · 40355bf4ae53c6465b0fee95eeda7c650da70bfc
 - [ ] Unit test: каждое пробуждение — новая Session.
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-session.test.ts` exit 0 · mac - · f457909d9e56b88ef9ca560e6eaa13fecf20ca11
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-session.test.ts` exit 0 · mac - · 40355bf4ae53c6465b0fee95eeda7c650da70bfc
 - [ ] Файл памяти хранит обязанности, открытые предложения, обязательства, правила из оценок и ответы пользователя; новая
       Session его читает.
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-session.test.ts` exit 0 · mac - · f457909d9e56b88ef9ca560e6eaa13fecf20ca11
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-session.test.ts` exit 0 · mac - · 40355bf4ae53c6465b0fee95eeda7c650da70bfc
 - [ ] Session Assistant-а идёт не на Haiku.
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-session-options.test.ts` exit 0 · mac - · f457909d9e56b88ef9ca560e6eaa13fecf20ca11
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-session-options.test.ts` exit 0 · mac - · 40355bf4ae53c6465b0fee95eeda7c650da70bfc
 - [ ] pr-follow и autopilot-start, которые запустил Assistant, пишутся в журнал Assistant-а (Ticket 08) вместе с
       пунктом, который их вызвал (ADR-0114, граница 6). Сейчас `journal` в `appWorfyAppDeps`
       (`src/main/mcp/app-server.ts`) пишет их только в log main (review PR #2240 Ticket-а 09).
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/worfy-app-tools.test.ts` exit 0 · mac - · f457909d9e56b88ef9ca560e6eaa13fecf20ca11
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 40355bf4ae53c6465b0fee95eeda7c650da70bfc
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
-  - evidence: gate pass · `gate fast` exit 0 · mac - · f457909d9e56b88ef9ca560e6eaa13fecf20ca11
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 40355bf4ae53c6465b0fee95eeda7c650da70bfc
 
 ## Итог
 
