@@ -4,7 +4,7 @@
 // app.ts gives it the app's sources.
 import { join } from 'node:path'
 import { readJsonFile, writeJsonFile } from '../../storage/json-file'
-import { MAX_TIMER_MS } from '../schedule/scheduler'
+import { MAX_TIMER_MS, type PowerEvents } from '../schedule/scheduler'
 import { wakeStateSchema, type AssistantWake, type WakeDecision, type WakePlanner, type WakeStore } from './planner'
 
 /** How long the loop waits after a look that failed (the planner's file could not be written) before the next one. */
@@ -18,12 +18,25 @@ export function fileWakeStore(file: string): WakeStore {
   return { read: () => readJsonFile(file, wakeStateSchema), write: (state) => writeJsonFile(file, wakeStateSchema, state) }
 }
 
+/**
+ * The system's wake as a change: the loop looks at once when the Mac wakes, as the scheduler of the checks does
+ * (src/main/assistant/schedule/scheduler.ts, followPower), instead of up to MAX_TIMER_MS later.
+ */
+export function onResume(power: PowerEvents): (listener: () => void) => () => void {
+  return (listener) => {
+    power.on('resume', listener)
+    // A stand-in without removeListener (a test's mock of powerMonitor) keeps the listener; it does nothing once the
+    // loop is stopped.
+    return () => void power.removeListener?.('resume', listener)
+  }
+}
+
 export interface WakeLoopOptions {
   planner: WakePlanner
   now: () => number
   /** Starts the Session of a wake; a throw is logged, the wake stays handed over and counted. */
   onWake: (wake: AssistantWake) => void
-  /** What makes a wake due besides the clock: a changed item, changed Limits. Each answers its unsubscribe. */
+  /** What makes a wake due besides the clock: a changed item, changed Limits, the Mac's wake. Each answers its unsubscribe. */
   changes: readonly ((listener: () => void) => () => void)[]
   log?: (message: string, error?: unknown) => void
   setTimer?: (run: () => void, ms: number) => unknown
@@ -31,10 +44,10 @@ export interface WakeLoopOptions {
 }
 
 export interface WakeLoop {
-  /** The closed list did not help with item `id`: the model wakes at once (ticket 08). */
+  /** The closed list did not help with item `id`: the model wakes at once (ticket 08). Null once stopped. */
   escalate(id: string): WakeDecision | null
-  /** The user wrote to the Assistant (ticket 14). */
-  userMessage(): AssistantWake
+  /** The user wrote to the Assistant (ticket 14). Null once stopped. */
+  userMessage(): AssistantWake | null
   stop(): void
 }
 
@@ -91,11 +104,13 @@ export function runWakeLoop(options: WakeLoopOptions): WakeLoop {
   look()
   return {
     escalate: (id) => {
+      if (stopped) return null
       const decision = hand(options.planner.escalate(id))
       plan()
       return decision
     },
     userMessage: () => {
+      if (stopped) return null
       const wake = options.planner.userMessage()
       hand(wake)
       plan()

@@ -2,6 +2,7 @@
 // after a change of the items or the Limits, and when the clock makes a wake due, and hands each wake to the Session
 // starter. The clock is vitest's fake one; the planner's file is a real one in a temporary folder, so a restart is a
 // second loop over it.
+import { EventEmitter } from 'node:events'
 import { mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -9,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AttentionItem } from '../../src/shared/assistant/attention'
 import type { WorkHours } from '../../src/shared/assistant/schedule/work-hours'
 import { MAX_TIMER_MS } from '../../src/main/assistant/schedule/scheduler'
-import { fileWakeStore, LOOK_AFTER_ERROR_MS, runWakeLoop, type WakeLoop } from '../../src/main/assistant/wake/loop'
+import { fileWakeStore, LOOK_AFTER_ERROR_MS, onResume, runWakeLoop, type WakeLoop } from '../../src/main/assistant/wake/loop'
 import { BATCH_GATHER_MS, WakePlanner, type AssistantWake } from '../../src/main/assistant/wake/planner'
 import { removeTestTree } from '../remove'
 
@@ -165,5 +166,49 @@ describe('runWakeLoop', () => {
     await vi.advanceTimersByTimeAsync(2 * MAX_TIMER_MS)
     expect(wakes).toEqual([])
     expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('after stop() a message of the user and an escalation wake nothing', () => {
+    vi.setSystemTime(wed(23))
+    const wakes: AssistantWake[] = []
+    const loop = start((wake) => wakes.push(wake))
+    const quiet = arrive({ state: 'seen' })
+    loop.stop()
+    expect(loop.userMessage()).toBeNull()
+    expect(loop.escalate(quiet.id)).toBeNull()
+    expect(wakes).toEqual([])
+  })
+
+  it('a burst of changes gives one look', async () => {
+    vi.setSystemTime(wed(23))
+    const planner = new WakePlanner({ now: () => Date.now(), items: () => items, workHours: () => OFFICE, limits: () => ({ windows: {} }), ledger: { automaticWakesToday: () => 0, noteWake: () => undefined }, store: fileWakeStore(join(dir, 'wake.json')) })
+    const evaluate = vi.spyOn(planner, 'evaluate')
+    let changed: () => void = () => undefined
+    loops.push(runWakeLoop({ planner, now: () => Date.now(), onWake: () => undefined, changes: [(listener) => ((changed = listener), () => undefined)] }))
+    expect(evaluate).toHaveBeenCalledTimes(1)
+    changed()
+    changed()
+    changed()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(evaluate).toHaveBeenCalledTimes(2)
+  })
+
+  it('looks again when the Mac wakes: the morning summary comes then, not with the next timer', async () => {
+    vi.setSystemTime(wed(18, 30))
+    const power = new EventEmitter()
+    const wakes: AssistantWake[] = []
+    const planner = new WakePlanner({ now: () => Date.now(), items: () => items, workHours: () => OFFICE, limits: () => ({ windows: {} }), ledger: { automaticWakesToday: () => 0, noteWake: () => undefined }, store: fileWakeStore(join(dir, 'wake.json')) })
+    const loop = runWakeLoop({ planner, now: () => Date.now(), onWake: (wake) => wakes.push(wake), changes: [onResume(power)] })
+    loops.push(loop)
+    // The Mac sleeps through the night; its timers do not run. It opens at 10:00 on Thursday.
+    vi.setSystemTime(wed(34))
+    power.emit('suspend')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(wakes).toEqual([])
+    power.emit('resume')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(wakes.map((wake) => [wake.reason, wake.at])).toEqual([['morning', wed(34)]])
+    loop.stop()
+    expect(power.listenerCount('resume')).toBe(0)
   })
 })

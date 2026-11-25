@@ -13,11 +13,15 @@ import { appSettingsStore } from '../../settings/store'
 import { dataRoot } from '../../storage/paths'
 import { appAssistantUsage } from '../budget/ledger'
 import { appAttentionCore } from '../core/app'
-import { fileWakeStore, runWakeLoop, WAKE_FILE, type WakeLoop } from './loop'
+import type { PowerEvents } from '../schedule/scheduler'
+import { fileWakeStore, onResume, runWakeLoop, WAKE_FILE, type WakeLoop } from './loop'
 import { WakePlanner, type AssistantWake } from './planner'
 
-/** Starts the decision to wake over the app's attention core; null while the core is not running. */
-export function startAssistantWake(onWake: (wake: AssistantWake) => void): WakeLoop | null {
+/**
+ * Starts the decision to wake over the app's attention core and follows the system's wake (`power`: Electron's
+ * powerMonitor); null while the core is not running.
+ */
+export function startAssistantWake(onWake: (wake: AssistantWake) => void, power: PowerEvents): WakeLoop | null {
   const core = appAttentionCore()
   if (core === null) return null
   const projects = projectStore()
@@ -30,5 +34,5 @@ export function startAssistantWake(onWake: (wake: AssistantWake) => void): WakeL
     ledger: appAssistantUsage(),
     store: fileWakeStore(join(dataRoot(), WAKE_FILE)),
   })
-  return runWakeLoop({ planner, now: appNow, onWake, changes: [(listener) => core.subscribe(listener), (listener) => limits.subscribe(listener)] })
+  return runWakeLoop({ planner, now: appNow, onWake, changes: [(listener) => core.subscribe(listener), (listener) => limits.subscribe(listener), onResume(power)] })
 }

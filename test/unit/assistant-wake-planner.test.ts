@@ -155,10 +155,88 @@ describe('an urgent item wakes at once', () => {
     const gone = arrive({ state: 'closed' })
     expect(wake.escalate(gone.id)).toBeNull()
     expect(wake.escalate('no such item')).toBeNull()
+    // The closed item comes back with a new event: it is pending, not escalated.
+    clock = wed(23, 5)
+    Object.assign(gone, { state: 'new', events: 2, updatedAt: clock })
+    expect(wake.evaluate()).toBeNull()
+  })
+
+  it('a stop that comes while worfy restarts stays urgent: the first look writes when the planner started', () => {
+    planner().evaluate()
+    // worfy is closed at 03:00; a Run of the Orchestrator stops at 03:01; worfy opens at 03:02.
+    clock = wed(3, 1)
+    const late = runStopped()
+    clock = wed(3, 2)
+    const decision = planner().evaluate()
+    expect(decision).toMatchObject({ type: 'wake', reason: 'urgent' })
+    expect(decision?.type === 'wake' && decision.items.map((item) => item.id)).toEqual([late.id])
+  })
+
+  it('a held urgent stop stays urgent across a restart', () => {
+    planner().evaluate()
+    clock = wed(3, 10)
+    limits = { windows: { five_hour: window({ utilization: 1, status: 'rejected' }) } }
+    const stop = runStopped()
+    expect(planner().evaluate()).toMatchObject({ type: 'held', reason: 'urgent' })
+    // worfy restarts before the window resets.
+    clock = wed(3, 20)
+    const restarted = planner()
+    expect(restarted.evaluate()).toMatchObject({ type: 'held', reason: 'urgent' })
+    clock = wed(4)
+    limits = { windows: {} }
+    const decision = restarted.evaluate()
+    expect(decision).toMatchObject({ type: 'wake', reason: 'urgent' })
+    expect(decision?.type === 'wake' && decision.items.map((item) => item.id)).toEqual([stop.id])
+  })
+
+  it('a usage ledger that cannot write loses the count, not the wake', () => {
+    const logged: string[] = []
+    const failing = { automaticWakesToday: () => 0, noteWake: () => { throw new Error('disk full') } }
+    const wake = new WakePlanner({ now: () => clock, items: () => items, workHours: () => hours, limits: () => limits, ledger: failing, store, log: (message) => logged.push(message) })
+    clock = wed(3, 10)
+    const stop = runStopped()
+    const decision = wake.evaluate()
+    expect(decision).toMatchObject({ type: 'wake', reason: 'urgent' })
+    expect(decision?.type === 'wake' && decision.items.map((item) => item.id)).toEqual([stop.id])
+    expect(logged).toEqual(['[assistant] a wake was not noted in the usage ledger'])
   })
 })
 
 describe('non-urgent items go in one batch in work hours', () => {
+  it('counts the gathering from when an item became pending, not from its latest event', () => {
+    const wake = planner()
+    clock = wed(9)
+    wake.evaluate()
+    clock = wed(10)
+    const busy = arrive()
+    expect(wake.evaluate()).toBeNull()
+    // A new event is glued into the item every 5 minutes.
+    for (const minute of [5, 10]) {
+      clock = wed(10, minute)
+      Object.assign(busy, { events: busy.events + 1, updatedAt: clock })
+      expect(wake.evaluate()).toBeNull()
+    }
+    clock = wed(10) + BATCH_GATHER_MS
+    Object.assign(busy, { events: busy.events + 1, updatedAt: clock })
+    const batch = wake.evaluate()
+    expect(batch).toMatchObject({ type: 'wake', reason: 'batch' })
+    expect(batch?.type === 'wake' && batch.items.map((item) => item.id)).toEqual([busy.id])
+  })
+
+  it('keeps when an item became pending across a restart', () => {
+    clock = wed(9)
+    planner().evaluate()
+    clock = wed(10)
+    const busy = arrive()
+    expect(planner().evaluate()).toBeNull()
+    clock = wed(10, 10)
+    Object.assign(busy, { events: 2, updatedAt: clock })
+    expect(planner().evaluate()).toBeNull()
+    clock = wed(10) + BATCH_GATHER_MS
+    Object.assign(busy, { events: 3, updatedAt: clock })
+    expect(planner().evaluate()).toMatchObject({ type: 'wake', reason: 'batch' })
+  })
+
   it('gathers the items that come close together into one wake, and not before the gathering time', () => {
     const wake = planner()
     clock = wed(9)

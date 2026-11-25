@@ -100,3 +100,10 @@ worfy ничего не пишет в репозитории Project-ов — н
   - Поле `assistantRules` в `<Project data folder>/settings.json` — правила Assistant-а для процесса этого Project-а
     (например «land закончился, а Orchestrator спит»). Пишет только `writeProjectAssistantRules`
     (`src/main/projects/settings.ts`); Save диалога настроек Project-а это поле сохраняет как было.
+- 2026-11-25 — Epic `worfy-assistant`, Ticket 06 (ADR-0114): ещё одно место состояния Assistant-а —
+  `<WORFY_DATA_DIR>/assistant/wake.json`, файл решения о пробуждении. Пишет `src/main/assistant/wake/planner.ts`
+  через `src/main/storage/json-file.ts` (`fileWakeStore` в `src/main/assistant/wake/loop.ts`): какие пункты переданы
+  модели и сколько событий каждого (`delivered`), с какого момента ждёт каждый ещё не переданный пункт
+  (`pendingSince`), пункты, по которым закрытый список не помог (`escalated`), время последнего пробуждения
+  (`lastWakeAt`), день последней утренней сводки (`morningDay`) и время первого запуска (`since`). Пункты, которых ядро
+  внимания больше не держит, уходят из файла при следующем пробуждении.
