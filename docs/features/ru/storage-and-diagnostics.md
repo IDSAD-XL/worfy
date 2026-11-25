@@ -175,6 +175,7 @@ Windows дерево удаляется собственным обходом wo
 | `terminal-ai` (папка) | Пустая папка, где идут запросы Terminal AI, обновление Limits, черновик Project profile, запрос Code story и вопрос о её строках, чтобы ни один из них не стал Session-ом Project-а | `src/main/terminal-ai/options.ts` |
 | `attachments` (папка) | `images/<sha256>.<ext>`, копии отправленных изображений, и `<id>/<name>`, копии файлов, приложенных вне любого Project-а | `src/main/agent/attachments.ts` |
 | `autopilot` (папка) | `<run>.jsonl`, journal каждого запуска | `src/main/autopilot/journal.ts` |
+| `assistant` (папка) | `usage.json`, учёт расхода Assistant-а: его автоматические пробуждения, token-ы и стоимость каждого его вызова и проверки источника, стоимость ходов других Session-ов суммой по часам; старше 8 суток ничего нет | `src/main/assistant/budget/ledger.ts` |
 | `link` (папка) | `machine.json`, `linked.json`, `settings.json`, `secrets.json` и `link.log` | `src/main/link/` ([Link](link.md)) |
 | `logs` (папка) | `process-gone.jsonl` и `hang-<time>-<pid>.txt` | См. [Диагностика](#диагностика) |
 
