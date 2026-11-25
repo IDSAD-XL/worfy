@@ -2,6 +2,7 @@
 
 Type: bug
 Status: claimed 2026-11-25T08:05Z
+PR: #2201
 Blocked by: none
 Source: audit-pr-rereview-2026-11-13, triage.md «Чинить сейчас»; checked open on main 3c9c06e8c 2026-11-25
 
