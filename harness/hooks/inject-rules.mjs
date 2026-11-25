@@ -140,7 +140,9 @@ function withLanguage(base, cwd, here) {
     }
     const own = userReports(cwd)
     if (!own) return base
-    return `${base}\n\n## Language of this session\n\nReports and messages to the user: ${languageName(own)}, the user's own setting (\`language.reports\` in \`user.json\` of the Harness state folder); no project profile covers this folder. ${tail}`
+    // Exit 3 is "no profile covers this folder"; any other failure is a profile that could not be read.
+    const why = run.status === 3 ? "no project profile covers this folder" : "the project profile could not be read"
+    return `${base}\n\n## Language of this session\n\nReports and messages to the user: ${languageName(own)}, the user's own setting (\`language.reports\` in \`user.json\` of the Harness state folder); ${why}. ${tail}`
 }
 
 // language.reports of $HARNESS_HOME/user.json, or undefined. The same reading as bin/profile's (a byte order

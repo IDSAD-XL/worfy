@@ -490,9 +490,10 @@ lang_inject "$LPLAIN" SessionStart
 [ "$(ctx)" = "$(part_with_root common)${LANG_HEAD}Russian (\`ru\`)${USER_TAIL}" ] \
     && ok "user.json with a byte order mark: the part names Russian (\`ru\`)" || bad "user.json with a byte order mark: tail '$(ctx | tail -n 2 | tr '\n' '|')'"
 echo '{"language":{"reports":"ru"}}' >"$LH/user.json"
-# bin/profile that fails (a missing script) is the same as no profile: the user's own setting alone.
+# bin/profile that fails (a missing script): the user's own setting alone, and the profile named as unread, not
+# as absent (only exit 3 means no profile covers the folder).
 lang_inject "$LREPO" SessionStart CLAUDE_PROFILE_BIN="$T/no-such-profile"
-[ "$rc" -eq 0 ] && [ "$(ctx)" = "$(part_with_root common)${LANG_HEAD}Russian (\`ru\`)${USER_TAIL}" ] \
+[ "$rc" -eq 0 ] && [ "$(ctx)" = "$(part_with_root common)${LANG_HEAD}Russian (\`ru\`)${USER_TAIL/no project profile covers this folder/the project profile could not be read}" ] \
     && ok "bin/profile fails: the part names the user's own setting" || bad "bin/profile fails: rc=$rc, tail '$(ctx | tail -n 2 | tr '\n' '|')'"
 
 # The user rules come after the language section.
