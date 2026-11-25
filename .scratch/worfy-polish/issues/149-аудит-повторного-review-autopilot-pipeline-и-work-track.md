@@ -73,6 +73,7 @@ Source: audit-pr-rereview-2026-11-13, triage.md «В Ticket-ы»; checked open o
       красным CI цвет группы красный; render-test (`test/unit/work-track-panel.test.tsx` или
       `work-track-view.test.tsx`) видит счётчик. Красный на origin/main.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/workflow-release.test.ts test/unit/pipeline.test.ts test/unit/work-track-lanes.test.ts test/unit/work-track-view.test.tsx test/unit/work-track-panel.test.tsx test/contract/orchestrator-continue.test.ts test/contract/autopilot-queue.test.ts` exit 0 (224 passed); red on origin/main (markGroups missing, 19 CI marks) · mac - · 0cf57a82c6c299cde2f7f7f473d0d77a9e20c302
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs <7 touched test files>` exit 0 (225 passed); review round 1 layouts red on the 4/8 px grouping ([17, 1]), role img red without it · mac - · 86071e2ec6a14f60777e719a9aefa8a8f6af3fc8
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
 
 ## Где в коде
@@ -160,3 +161,6 @@ origin/main 2af5f760e.
   `land.test.sh`, `pr-search-view`), при load average 60–88; в первом прогоне все четыре были зелёными.
 - gate fast на 0cf57a82c: exit 2, красный один test — `harness-scripts-2` `bin/tests/land.test.sh` убит после
   360 s (load average 65–88). Правка не трогает `harness/`. Повтор ради зелёного не делался.
+- Review round 1 (86071e2ec): 7 изменённых PR-ом файлов test-ов и `test/unit/work-track-panel.test.tsx` — exit 0,
+  225 test-ов; `pnpm lint` и `pnpm typecheck` — exit 0; gate fast — exit 0, `[gate] green (fast)` (lint, typecheck,
+  test) при load average 55–68.
