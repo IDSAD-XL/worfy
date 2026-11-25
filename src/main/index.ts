@@ -10,6 +10,7 @@ import { sharedOrchestratorContinue, startOrchestrators } from './agent/app-orch
 import { madeRegistry, sharedRegistry } from './agent/app-registry'
 import { installLimitsRefresh } from './agent/limits-usage'
 import { appUserModelId } from './app-id'
+import { startCheckScheduler } from './assistant/schedule/app'
 import { toEveryWindow } from './broadcast'
 import { stopLiveBrowsers } from './browser/live'
 import { browserProfilePartitions } from './browser/profiles'
@@ -235,6 +236,13 @@ function start(): void {
         app.on('will-quit', startGettingStarted())
       } catch (error) {
         console.error('[getting-started] Getting started did not start', error)
+      }
+      // The scheduler of the Assistant's checks of sources (worfy-assistant ticket 04): it pauses while the Mac
+      // sleeps and catches up on waking and after a restart. Not a startup step: worfy runs without it.
+      try {
+        app.on('will-quit', startCheckScheduler(powerMonitor))
+      } catch (error) {
+        console.error('[assistant] the scheduler of the checks did not start', error)
       }
       // The Acceptance queue (worfy-acceptance ticket 01): main follows the Tickets of every Project for it from the
       // start, over the workflow hub, so a Sent decision whose line came meanwhile is dropped and the first window gets

@@ -66,8 +66,11 @@
 //   a Project with no entry is off. Set only by the Auto-continue item of the Orchestrator's Modes menu,
 //   through the `autoContinue` IPC domain (src/shared/ipc/auto-continue.ts), never by `appSettings.set`.
 //   Main reads it with autoContinueOn() of src/main/settings/store.ts;
+// - `assistantSchedule` — the work hours and the checks of sources of the Assistant (worfy-assistant
+//   ticket 04, src/shared/assistant/schedule/settings.ts); absent while nothing is chosen;
 // - `revision` — grows with every write, so a renderer keeps the newest of the states it hears.
 import { z } from 'zod'
+import { assistantScheduleChoiceSchema } from '../assistant/schedule/settings'
 import { DEFAULT_START_WINDOW, RUN_MODES, type RunMode, type StartWindow } from '../autopilot/run-mode'
 import { PROJECT_ID_HASH_LENGTH, PROJECT_ID_HASH_SUFFIX } from '../projects/project-id'
 
@@ -328,6 +331,8 @@ export const appSettingsSchema = z.object({
   autoApproval: autoApprovalSchema.optional(),
   /** The Projects with Auto-continue on; absent while it is off everywhere (see autoContinueOf). */
   autoContinue: autoContinueSchema.optional(),
+  /** The Assistant's work hours and checks (worfy-assistant ticket 04); absent while nothing is chosen (see checkSettingsOf). */
+  assistantSchedule: assistantScheduleChoiceSchema.optional(),
   /** The Product Session screen the person chose; absent while nothing is (see productSessionSplitOf). */
   productSession: productSessionChoiceSchema.optional(),
   /** Notifications of the PR inbox (worfy-pr-inbox ticket 07); absent while not chosen: on (see prInboxNotifyOf). */
@@ -376,6 +381,8 @@ export const appSettingsPatchSchema = z.object({
   autopilotRun: autopilotRunChoiceSchema.optional(),
   /** The language of the Guide; once chosen it stays chosen. */
   guideLanguage: guideLanguageSchema.optional(),
+  /** Each check field given is chosen, as in `sessionArchive`; work hours given replace the old ones whole. */
+  assistantSchedule: assistantScheduleChoiceSchema.optional(),
   /**
    * The divider of a Product Session — a share outside PRODUCT_SESSION_SPLIT_MIN … 1 − PRODUCT_SESSION_SPLIT_MIN is
    * refused — and its live summary; a field left out stays as it is, and a change that names neither is refused.

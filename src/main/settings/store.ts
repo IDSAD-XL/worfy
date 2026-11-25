@@ -33,6 +33,7 @@
 // (ticket 32) is the switch of the live summary in Settings → Sessions; absent or not a boolean reads as on.
 // `prInboxNotify` and `prInboxDigest` (worfy-pr-inbox ticket 07) are the switches of Settings → Pull requests, kept
 // only once chosen; absent or not a boolean reads as on.
+// `assistantSchedule` (worfy-assistant ticket 04) is read, merged and compared by src/shared/assistant/schedule/settings.ts.
 //
 // The file is read once, on first use; the store then answers from memory and every write puts the
 // whole state back. An edit of the file made outside worfy (by hand, or by an agent's shell command)
@@ -47,6 +48,7 @@ import { url as inspectorUrl } from 'node:inspector'
 import { app } from 'electron'
 import { join } from 'node:path'
 import { z } from 'zod'
+import { assistantScheduleAfter, assistantScheduleField, assistantScheduleFileSchema, sameAssistantSchedule } from '../../shared/assistant/schedule/settings'
 import {
   appSettingsSchema,
   AUTO_COMPACT_WINDOW_DEFAULTS,
@@ -185,6 +187,7 @@ const appSettingsFileSchema = z.object({
     .transform(continuesOf)
     .optional()
     .catch(undefined),
+  assistantSchedule: assistantScheduleFileSchema,
   productSession: z
     .object({ split: productSessionSplitSchema.optional().catch(undefined), liveSummary: z.boolean().optional().catch(undefined) })
     .optional()
@@ -312,6 +315,7 @@ function copy(settings: AppSettings): AppSettings {
     ...prInboxChoice(settings),
     ...modesChoice(settings.autoApproval),
     ...continuesChoice(settings.autoContinue),
+    ...assistantScheduleField(settings.assistantSchedule),
     revision: settings.revision,
   }
 }
@@ -349,6 +353,7 @@ function merge(current: AppSettings, patch: AppSettingsPatch): AppSettings {
     ...modesChoice(current.autoApproval),
     // Nor Auto-continue: setAutoContinue() is the one way to change it.
     ...continuesChoice(current.autoContinue),
+    ...assistantScheduleField(assistantScheduleAfter(current.assistantSchedule, patch.assistantSchedule)),
     revision: current.revision,
   }
 }
@@ -372,6 +377,7 @@ function same(a: AppSettings, b: AppSettings): boolean {
   return (
     sameModes(a.autoApproval, b.autoApproval) &&
     sameContinues(a.autoContinue, b.autoContinue) &&
+    sameAssistantSchedule(a.assistantSchedule, b.assistantSchedule) &&
     a.interfaceScale === b.interfaceScale &&
     a.sidebar.visible.normal === b.sidebar.visible.normal &&
     a.sidebar.visible.focus === b.sidebar.visible.focus &&
