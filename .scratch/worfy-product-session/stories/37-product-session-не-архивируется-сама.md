@@ -88,7 +88,7 @@ export function archiveSessionNode(projectId: string, nodeId: string, channel: L
 
 ## 5. Кнопка Archive на каждом Session Node
 
-Code: `src/renderer/canvas/nodes/SessionNode.tsx:294-314` · key lines: 295, 299, 307
+Code: `src/renderer/canvas/nodes/SessionNode.tsx:299-319` · key lines: 300, 304, 312
 
 ```tsx
 const archiveBlock = (node: { keep: boolean; pinned: boolean }, session: string | null): string | null =>
@@ -126,7 +126,7 @@ function ArchiveButton({ projectId, id, blocked, readOnly, onProblem }: { projec
 
 ## 6. Archive — под шапкой, не в ней
 
-Code: `src/renderer/canvas/nodes/SessionNode.tsx:140-153` · key lines: 144, 145
+Code: `src/renderer/canvas/nodes/SessionNode.tsx:145-158` · key lines: 149, 150
 
 ```tsx
   // Archive sits at the end of the line under the header, not in the header: there the chip and the
@@ -146,16 +146,19 @@ Code: `src/renderer/canvas/nodes/SessionNode.tsx:140-153` · key lines: 144, 145
 ```
 
 - Что делает: кнопка стоит в конце строки под шапкой (метка Product Session, badge Vendor-а, источник), прижата вправо
-  и не сжимается; сжимается источник, у которого есть многоточие.
+  и не сжимается. Место отдают по порядку: сначала источник (`flex: '1 1 0'`), потом метка Product Session (многоточие),
+  так что на Node-е 240 px Archive целая, а на 340 px метка не обрезана.
 - Почему здесь: в шапке рядом с chip-ом, Keep, Hide и Remove кнопка не оставила заголовку Node-а Codex шириной 300 px
   места совсем: CI windows-e2e упал в `codex-sessions-on-canvas.spec.ts`, двойной щелчок по заголовку нашёл его
   невидимым. Метка Product Session и Resume Node-а Codex уже вынесены под шапку по той же причине (комментарии в
   `SessionNode.tsx`). Шапка теперь такая же, как до этого PR.
 - Без него: на узком Node-е заголовок пропадает, и двойной щелчок по нему не открывает Session.
 - Требование: [Где в коде](../issues/37-product-session-не-архивируется-сама.md#где-в-коде)
-- Риски и пробелы test-ов: e2e проверяют, что заголовок видим и занимает больше 5% ширины Node-а. Заголовок
-  законченного Node-а worfy (Resume, Keep, Hide, Remove) и до этого PR был узким, около десятой части Node-а; этот PR его
-  не меняет. Что новый test красный с кнопкой в шапке, проверено только на Windows в CI, локально не проверялось.
+- Риски и пробелы test-ов: e2e проверяют, что Archive кончается внутри своей строки у каждого Node-а, в том числе у
+  Product Session шириной 240 px, и что метка на 340 px целая. Долю заголовка они проверяют по виду шапки: больше 0,08
+  у read-only Node-а и у Codex (на Mac около 0,12–0,14), больше 0,05 у законченного Node-а worfy (около 0,09). Заголовок
+  законченного Node-а worfy (Resume, Keep, Hide, Remove) и до этого PR был узким, около десятой части Node-а, а на 240 px
+  шапка main не оставляет ему места совсем и обрезает Remove; этот PR шапку не меняет. Что новый test красный с кнопкой в шапке, проверено только на Windows в CI, локально не проверялось.
 
 ## 7. Как проверено
 
@@ -180,4 +183,4 @@ Code: `src/renderer/canvas/nodes/SessionNode.tsx:140-153` · key lines: 144, 145
    - Строки: `src/main/layout/archive.ts:386-388`
 3. Почему кнопка Archive неактивна на Node с Keep, хотя Keep говорит только об автоархиве?
    - Ответ: кнопка идёт через `archiveFromScreen`, а он отбрасывает Node с Keep; активная кнопка получила бы отказ.
-   - Строки: `src/renderer/canvas/nodes/SessionNode.tsx:294-295`
+   - Строки: `src/renderer/canvas/nodes/SessionNode.tsx:299-300`

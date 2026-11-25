@@ -43,6 +43,8 @@ Product Session, простоявшая дольше порога «Archive fini
   контекстного меню у Session Node нет; в шапке рядом с Keep, Hide, Remove она отнимала у заголовка всё место — CI
   windows-e2e, `codex-sessions-on-canvas.spec.ts`, Node Codex шириной 300 px). Неактивна с причиной в tooltip, пока
   Session работает или ещё не начиналась; на read-only экране — как прочие действия записи.
+  На строке под шапкой место отдают сначала источник, потом метка «Product Session»: на live Node-е минимальной ширины
+  240 px Archive остаётся целой (ревью PR #2194).
 - `src/renderer/canvas/archive-node.ts` (новый; в `tsconfig.test.node.json`, чтобы его грузил contract test) —
   `archiveSessionNode`: `archive` одного Node-а с экрана через `applyRecorded` (шаг ⌘Z), main проверяет его в
   `archiveFromScreen` и не берёт Node с Keep или закреплённый — кнопка тогда неактивна. Правило в записи — `idle`:
