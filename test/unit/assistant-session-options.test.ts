@@ -64,21 +64,19 @@ describe('the Session of the Assistant: only the tools of worfy-app (boundary 1)
     const opts = options()
     expect(Object.keys(opts.mcpServers ?? {})).toEqual([WORFY_APP_SERVER_NAME])
     expect(opts.mcpServers?.[WORFY_APP_SERVER_NAME]).toBe(server)
-    expect(opts.managedSettings).toMatchObject({ allowManagedMcpServersOnly: true, allowedMcpServers: [], allowManagedPermissionRulesOnly: true })
+    expect(opts.managedSettings).toEqual({ allowManagedMcpServersOnly: true, allowedMcpServers: [] })
   })
 
-  it('allows exactly the tools of worfy-app and asks about nothing: whatever else is denied', async () => {
+  it('allows exactly the tools of worfy-app by name and asks about nothing: whatever else dontAsk denies', () => {
     const opts = options()
     expect([...(opts.allowedTools ?? [])].sort()).toEqual(APP_TOOL_NAMES.map(appToolUseName).sort())
     expect(opts.permissionMode).toBe('dontAsk')
     expect(opts.allowDangerouslySkipPermissions).toBeUndefined()
-    const ask = opts.canUseTool!
-    const signal = new AbortController().signal
-    for (const tool of [...FORBIDDEN, 'Read', 'Glob', 'Grep', 'mcp__worfy-canvas__create_card', 'mcp__claude_ai_Slack__slack_send_message', 'mcp__plugin_worfy_qmd__query']) {
-      const answer = await ask(tool, {}, { signal, toolUseID: 't1' } as never)
-      expect(answer?.behavior, tool).toBe('deny')
-    }
-    expect((await ask(appToolUseName('items_list'), {}, { signal, toolUseID: 't2' } as never))?.behavior).toBe('allow')
+    // allowManagedPermissionRulesOnly would make Claude Code ignore allowedTools: under dontAsk every tool of
+    // worfy-app would be denied (test/contract/assistant-session-claude.test.ts runs it).
+    expect(opts.managedSettings).not.toHaveProperty('allowManagedPermissionRulesOnly')
+    // Under dontAsk Claude Code never calls canUseTool: containment rests on tools: [], dontAsk and allowedTools.
+    expect(opts.canUseTool).toBeUndefined()
   })
 
   it("puts worfy-app's instructions in the system prompt", () => {

@@ -241,9 +241,10 @@ Claude Code runs these commands on its events. The limit is in seconds.
 
 | Event | Command | Limit | What it does |
 |---|---|---|---|
-| `SessionStart` | `inject-rules.mjs orchestrator` | 10 | The rules of a main Session; nothing in a Product Session |
-| `SessionStart` | `inject-rules.mjs common` | 10 | The common rules, the language of reports and the user's rules |
+| `SessionStart` | `inject-rules.mjs orchestrator` | 10 | The rules of a main Session; nothing in a Product Session or the Session of the Assistant |
+| `SessionStart` | `inject-rules.mjs common` | 10 | The common rules, the language of reports and the user's rules; nothing in the Session of the Assistant |
 | `SessionStart` | `inject-rules.mjs product` | 10 | The rules of a Product Session; nothing in any other Session |
+| `SessionStart` | `inject-rules.mjs assistant` | 10 | The rules of the Session of the Assistant (`WORFY_SESSION_KIND=assistant`); nothing in any other Session |
 | `SessionStart` | `session-start.mjs` | 15 | The context of the Project |
 | `SessionStart` on `compact` | `after-compact.mjs` | 30 | After a compaction, the state of the work from the files: `wave-brief` of the Epic in the main checkout, the Ticket file and `git status --short` in an implementer's worktree. Nothing at the start of a Session, outside a Project that keeps Tickets, or without a Ticket or an Epic |
 | `SessionStart` | `gh-token-env.mjs` | 10 | `GH_TOKEN` of the Project's account |
@@ -355,7 +356,7 @@ the home folder shown as `~` is `USERPROFILE`. The Gate's launcher is on the [Ga
 
 - `harness/hooks/hooks.json` wires every hook, through the plugin root.
 - `harness/hooks/inject-rules.mjs` with `harness/hooks/rules/orchestrator.md`, `harness/hooks/rules/common.md`,
-  `harness/hooks/rules/product.md` and `harness/hooks/rules/compaction.md`. On `PreCompact` it prints the part as
+  `harness/hooks/rules/product.md`, `harness/hooks/rules/assistant.md` and `harness/hooks/rules/compaction.md`. On `PreCompact` it prints the part as
   plain text, and nothing when the input comes from Codex. A Product Session is the one whose environment has `WORFY_SESSION_KIND=product`,
   which worfy sets when it starts one.
 - `harness/hooks/session-start.mjs`, which asks `bin/profile` for the Project. A Profile may still carry the removed field

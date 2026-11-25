@@ -11,13 +11,17 @@
 //   Bash, no file write, no web — and the tools that would be anyway are named in `disallowedTools` too. One MCP server,
 //   worfy-app, in-process; the policy tier lets no other server in (`allowedMcpServers: []` cuts the user's servers and
 //   the connectors of claude.ai; an SDK server is not cut by it), and none of the Harness plugin is passed. The tools of
-//   worfy-app are allowed by name under `dontAsk`, and canUseTool refuses every other one.
+//   worfy-app are allowed by name (`allowedTools`) under `dontAsk`, which denies every other tool without asking:
+//   containment rests on `tools: []`, `dontAsk` and `allowedTools`. No canUseTool: under dontAsk Claude Code never
+//   calls it. No `allowManagedPermissionRulesOnly` either: it makes Claude Code ignore allowedTools, and dontAsk then
+//   denies every tool of worfy-app (test/contract/assistant-session-claude.test.ts runs the real Claude Code); with
+//   `settingSources: []` no allow rule of a settings file loads anyway.
 // - Its model: the strong one (ASSISTANT_SESSION_MODEL). Haiku 5.5 only sorts the text of outside sources (ticket 11).
 // - Each wake is a new Session: the id it is given, never `resume` or `continue`, and no transcript under
 //   ~/.claude/projects (`persistSession: false`) — what the next Session must know is in the memory file.
 // - No API key: it runs on the user's subscription, as every Session of worfy.
 import { join } from 'node:path'
-import type { CanUseTool, Options } from '@anthropic-ai/claude-agent-sdk'
+import type { Options } from '@anthropic-ai/claude-agent-sdk'
 import { APP_TOOL_NAMES, appToolUseName, WORFY_APP_SERVER_NAME } from '../../../shared/assistant/app-tools'
 import { withoutApiKeys, type Env } from '../../agent/env'
 import { sdkServerConfig, type ClaudeMcpServer } from './mcp'
@@ -71,13 +75,8 @@ export interface AssistantSessionOptionsInput {
 
 const ALLOWED_TOOLS: readonly string[] = APP_TOOL_NAMES.map(appToolUseName)
 
-/** What a tool that is not of worfy-app is refused with. */
-export const ASSISTANT_TOOL_DENIED = 'The Assistant has only the tools of worfy-app: no shell, no file, no web.'
-
 /** The options of one Session of the Assistant; see the header. */
 export function assistantSessionOptions(input: AssistantSessionOptionsInput): Options {
-  const canUseTool: CanUseTool = (toolName, toolInput) =>
-    Promise.resolve(ALLOWED_TOOLS.includes(toolName) ? { behavior: 'allow', updatedInput: toolInput } : { behavior: 'deny', message: ASSISTANT_TOOL_DENIED })
   const executable = claudeExecutablePath(input.runtime)
   return {
     cwd: input.cwd,
@@ -89,11 +88,10 @@ export function assistantSessionOptions(input: AssistantSessionOptionsInput): Op
     systemPrompt: { type: 'preset', preset: 'claude_code', append: input.instructions },
     tools: [],
     mcpServers: { [WORFY_APP_SERVER_NAME]: sdkServerConfig(input.server) },
-    managedSettings: { allowManagedMcpServersOnly: true, allowedMcpServers: [], allowManagedPermissionRulesOnly: true },
+    managedSettings: { allowManagedMcpServersOnly: true, allowedMcpServers: [] },
     allowedTools: [...ALLOWED_TOOLS],
     disallowedTools: [...ONE_SHOT_DISALLOWED_TOOLS],
     permissionMode: 'dontAsk',
-    canUseTool,
     maxTurns: ASSISTANT_MAX_TURNS,
     ...(input.harnessPlugin === null ? {} : { plugins: [{ type: 'local' as const, path: input.harnessPlugin, skipMcpDiscovery: true }] }),
     ...(executable === undefined ? {} : { pathToClaudeCodeExecutable: executable }),

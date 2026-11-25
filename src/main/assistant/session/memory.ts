@@ -6,8 +6,13 @@
 //   the user. A new answer on the same topic replaces the old one.
 // - memoryView: what each new Session gets in its first message — the five, without the counters and the items the
 //   duties keep for themselves. A proposal names its item by the id `worfy-app` knows it by.
+// - memoryForPrompt: the view as the first message carries it. Every text in it is an outside-text object, as text
+//   other people wrote is in `worfy-app`'s answers: a note an earlier Session wrote may hold text it read somewhere,
+//   and must read as data, never as an instruction. At most MEMORY_PROMPT_MAX_CHARS characters: the duties and the
+//   rules always, then the proposals, commitments and answers newest first; how many older ones stayed out is counted.
 import { randomUUID } from 'node:crypto'
 import { ANSWERS_MAX, COMMITMENTS_MAX, commitmentSchema, userAnswerSchema, type Commitment, type UserAnswer } from '../../../shared/assistant/memory'
+import { outsideText, type OutsideText } from '../../mcp/app-server'
 import { readJsonFile } from '../../storage/json-file'
 import { assistantMemorySchema, type AssistantMemory, type SessionMemoryStore } from '../duties/memory'
 
@@ -101,4 +106,65 @@ export function memoryView(memory: AssistantMemory | undefined, itemId: (id: str
 /** The view of the memory file `file`; an unreadable file is set aside by readJsonFile and reads as an empty memory. */
 export function readMemoryView(file: string, itemId: (id: string) => string): MemoryView {
   return memoryView(readJsonFile(file, assistantMemorySchema), itemId)
+}
+
+/**
+ * The most characters of memory one first message carries (about 8k tokens): a full memory — 100 answers of 2,000
+ * characters and 50 commitments — would cost some 55k tokens of the strong model on every wake. Decided without the
+ * owner (ticket 10, result section).
+ */
+export const MEMORY_PROMPT_MAX_CHARS = 32_000
+
+/** The source of the memory's texts in their outside-text objects. */
+export const MEMORY_TEXT_SOURCE = 'assistant-memory'
+
+const note = (text: string): OutsideText => outsideText(text, MEMORY_TEXT_SOURCE)
+
+/** The memory as the first message carries it: its texts as outside-text objects. */
+export interface PromptMemory {
+  pauseAfter: MemoryView['pauseAfter']
+  duties: MemoryView['duties']
+  rules: (Omit<MemoryView['rules'][number], 'text'> & { text: OutsideText })[]
+  proposals: (Omit<MemoryView['proposals'][number], 'title' | 'why' | 'prepare'> & { title: OutsideText; why: OutsideText; prepare: { projectId: string; text: OutsideText } | null })[]
+  commitments: (Omit<MemoryView['commitments'][number], 'text'> & { text: OutsideText })[]
+  answers: (Omit<MemoryView['answers'][number], 'topic' | 'text'> & { topic: OutsideText; text: OutsideText })[]
+}
+
+type Dated = 'proposals' | 'commitments' | 'answers'
+type Entry = { [K in Dated]: { list: K; at: string; value: PromptMemory[K][number] } }[Dated]
+
+/** `view` within `maxChars` characters, and how many entries of each dated list stayed out (the oldest). */
+export function memoryForPrompt(view: MemoryView, maxChars: number = MEMORY_PROMPT_MAX_CHARS): { memory: PromptMemory; leftOut: Record<Dated, number> } {
+  const memory: PromptMemory = {
+    pauseAfter: view.pauseAfter,
+    duties: view.duties,
+    rules: view.rules.map((rule) => ({ ...rule, text: note(rule.text) })),
+    proposals: [],
+    commitments: [],
+    answers: [],
+  }
+  const entries: Entry[] = [
+    ...view.proposals.map((each): Entry => ({
+      list: 'proposals',
+      at: each.createdAt,
+      value: { ...each, title: note(each.title), why: note(each.why), prepare: each.prepare === null ? null : { projectId: each.prepare.projectId, text: note(each.prepare.text) } },
+    })),
+    ...view.commitments.map((each): Entry => ({ list: 'commitments', at: each.at, value: { ...each, text: note(each.text) } })),
+    ...view.answers.map((each): Entry => ({ list: 'answers', at: each.at, value: { ...each, topic: note(each.topic), text: note(each.text) } })),
+  ].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0))
+  const leftOut: Record<Dated, number> = { proposals: 0, commitments: 0, answers: 0 }
+  let size = JSON.stringify(memory).length
+  let full = false
+  for (const entry of entries) {
+    // One more element of a JSON array: its text and a comma.
+    const cost = JSON.stringify(entry.value).length + 1
+    full = full || size + cost > maxChars
+    if (full) {
+      leftOut[entry.list] += 1
+      continue
+    }
+    ;(memory[entry.list] as unknown[]).push(entry.value)
+    size += cost
+  }
+  return { memory, leftOut }
 }

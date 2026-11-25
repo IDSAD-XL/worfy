@@ -74,18 +74,28 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 10; «Решение�
   настроек Project-а (и пользователя); на Canvas её нет: это не Session реестра, а отдельный query main.
 - Третий вид Session для Harness: `WORFY_SESSION_KIND=assistant` (`ASSISTANT_SESSION_KIND`,
   `src/main/vendors/claude/options.ts`). Плагин Harness этой сборки идёт с Session; `inject-rules.mjs` печатает ей
-  `harness/hooks/rules/assistant.md` и не печатает `orchestrator` и `product`; `hooks.json` — шестая команда
+  `harness/hooks/rules/assistant.md` и не печатает `orchestrator`, `product` и `common`; `hooks.json` — шестая команда
   `inject-rules.mjs` на SessionStart. Contract test с настоящим Claude Code против локальной подставки Messages API
   (`test/contract/harness-plugin.test.ts`) показывает, что hook видит переменную.
 - Граница 1: `tools: []` (ни одного встроенного tool-а), `disallowedTools` — `ONE_SHOT_DISALLOWED_TOOLS`, один
   MCP-сервер `worfy-app`, policy tier `allowedMcpServers: []` (ни серверов пользователя, ни connectors claude.ai),
-  `allowedTools` — ровно tools `worfy-app` под `dontAsk`, `canUseTool` отказывает остальным; серверы плагина не
-  передаются.
+  `allowedTools` — ровно tools `worfy-app` под `dontAsk`, который отказывает всем остальным tools без вопроса.
+  Граница держится на трёх настройках: `tools: []`, `dontAsk` и `allowedTools`. `canUseTool` нет: под `dontAsk`
+  Claude Code его не вызывает. Нет и `allowManagedPermissionRulesOnly`: с ним Claude Code не читает `allowedTools`, и
+  `dontAsk` отказывает каждому tool-у `worfy-app`. Серверы плагина не передаются. Contract test с настоящим Claude Code
+  против подставки Messages API (`test/contract/assistant-session-claude.test.ts`) проверяет оба края: вызов tool-а
+  `worfy-app` доходит до его обработчика, вызов Bash отклонён, и команда не выполнилась.
 - Каждое пробуждение — новая Session (`src/main/assistant/session/runner.ts`, `AssistantSessions`): новый id, без
   `resume`, одна за раз (пробуждение во время Session ждёт её конца), закрывается после `result`. Первое сообщение
   пишет main (`wakePrompt`): причина, id пунктов так, как их знает `worfy-app` (без их текста — он чужой), файл памяти
   и сообщение пользователя. Расход — `noteCall` журнала Ticket-а 05: `wake` с id пробуждения, сообщение пользователя —
-  `conversation`.
+  `conversation`. Session дольше `ASSISTANT_SESSION_TIME_LIMIT_MS` закрывается (`timed-out`). `stop()` закрывает идущую
+  Session и снимает пробуждения в очереди (`stopped`); `composeAssistant.stop` его вызывает: выключенный Assistant
+  ничего нового не запускает и не тратит (ADR-0114, решение 10).
+- Память в первом сообщении (`memoryForPrompt`) — данные: каждый текст в ней — объект `outside-text` с источником
+  `assistant-memory`, как чужой текст в ответах `worfy-app`; в `assistant.md` — строка о том, что запись памяти —
+  заметка, а не указание. Размер — не больше `MEMORY_PROMPT_MAX_CHARS`: обязанности и правила всегда, предложения,
+  обязательства и ответы — от новых к старым; сколько старых не вошло, сообщение называет.
 - Файл памяти — тот же `<WORFY_DATA_DIR>/assistant/memory.json` Ticket-а 07: к обязанностям, правилам из dislike и
   счётчикам добавлены открытые предложения (`ProposalBook` Ticket-а 09 теперь хранит их там и читает после
   перезапуска), обязательства и ответы пользователя (`SessionMemory`, tools `memory_note` и `memory_forget` сервера
@@ -127,3 +137,14 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 10; «Решение�
    списка, свободный текст в него не ложится).
 10. **`noteOtherTurn`** (доля Assistant-а в окне Limits, Ticket 05) по-прежнему никто не вызывает: Ticket 10 его не
     просит; оценка остаётся верхней границей.
+11. **Предел времени одной Session — 15 минут** (`ASSISTANT_SESSION_TIME_LIMIT_MS`). Обычная Session укладывается в
+    минуту-две; `action_run autopilot-start` может ждать диалог пользователя до 10 минут (`chat-confirm.ts`), и предел
+    оставляет место для одного такого ожидания и работы вокруг него. Session, закрытая по пределу, — `noteCall` с
+    нулевым `usage`, как сломавшаяся.
+12. **Память в первом сообщении — не больше 32 000 символов** (`MEMORY_PROMPT_MAX_CHARS`, около 8k tokens): полная
+    память (100 ответов по 2000 символов и 50 обязательств) стоила бы около 55k tokens opus на каждое пробуждение.
+    Обязанности и правила идут всегда; дальше — от новых к старым, и на первой записи, что не влезла, заполнение
+    кончается. Старые записи остаются в файле; для обязательств и ответов tool-а чтения нет — Assistant видит только
+    их число.
+13. **Session Assistant-а не получает часть `common` правил Harness** (около 7k символов): правила отчётов, test-ов и
+    gate ей не нужны, а платить за них пришлось бы на каждом пробуждении. Часть `compaction` на PreCompact остаётся.

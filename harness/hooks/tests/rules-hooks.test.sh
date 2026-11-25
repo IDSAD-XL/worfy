@@ -170,12 +170,13 @@ run_inject orchestrator 'not json' CLAUDE_PLUGIN_ROOT=/opt/worfy-plugin WORFY_SE
 expect_silent "Product Session: orchestrator with stdin that is not JSON"
 
 # The Session of the Assistant: worfy starts it with WORFY_SESSION_KIND=assistant.
-# It gets common + assistant, neither orchestrator nor product; any other Session never gets assistant.
+# It gets assistant alone: neither orchestrator nor product, and not common either (a Session with no tool
+# but those of worfy-app has no use for the rules of reports, tests and the gate); any other Session never gets assistant.
 run_inject assistant "$SS" CLAUDE_PLUGIN_ROOT=/opt/worfy-plugin WORFY_SESSION_KIND=assistant
 [ "$rc" -eq 0 ] && [ "$(event)" = SessionStart ] && [ "$(ctx)" = "$(sed 's#${CLAUDE_PLUGIN_ROOT}#/opt/worfy-plugin#g' "$RULES/assistant.md")" ] && [ ! -s "$T/err" ] \
     && ok "Assistant Session: assistant is the part with the plugin root substituted" \
     || bad "Assistant Session: assistant rc=$rc, stderr '$(head -c 200 "$T/err")', first line '$(ctx | head -n 1)'"
-for part in orchestrator product; do
+for part in orchestrator product common; do
     run_inject "$part" "$SS" CLAUDE_PLUGIN_ROOT=/opt/worfy-plugin WORFY_SESSION_KIND=assistant
     expect_silent "Assistant Session: $part"
 done
@@ -883,7 +884,7 @@ got="$(session_parts product)"
 got="$(session_parts '')"
 [ "$got" = "common orchestrator" ] && ok "hooks.json SessionStart, no kind: orchestrator + common" || bad "hooks.json SessionStart, no kind: '$got'"
 got="$(session_parts assistant)"
-[ "$got" = "assistant common" ] && ok "hooks.json SessionStart, WORFY_SESSION_KIND=assistant: common + assistant" || bad "hooks.json SessionStart, Assistant Session: '$got'"
+[ "$got" = "assistant" ] && ok "hooks.json SessionStart, WORFY_SESSION_KIND=assistant: assistant alone" || bad "hooks.json SessionStart, Assistant Session: '$got'"
 
 # --- 7b. Compaction: the summary instructions and the line for after it --------------------------
 # Claude Code runs PreCompact just before the model writes the summary that replaces the conversation:
@@ -933,9 +934,10 @@ cflat="$(tr '\n' ' ' <"$RULES/common.md" 2>/dev/null | tr -s ' ')"
 [[ "$cflat" == *"$FALLBACK_1"'`${CLAUDE_PLUGIN_ROOT}/bin/epic-status` '"$FALLBACK_2"* ]] \
     && ok "common.md: the line for after a compaction" || bad "common.md: no line for after a compaction"
 node -e 'for (let i = 1; i <= 600; i++) process.stdout.write(`Rule ${i}: keep the Klingon words as they are in every report.\n`)' >"$USER_RULES"
-# $1 role, $2 WORFY_SESSION_KIND, $3 the start event: the PreCompact hooks of hooks.json run with it.
+# $1 role, $2 WORFY_SESSION_KIND, $3 the start event: the PreCompact hooks of hooks.json run with it;
+# $4 "no-common" for a role that gets no common part (the Session of the Assistant).
 role_chunks() {
-    local role="$1" kind="$2" start="$3" ev cmd n text over="" parts="" flat=""
+    local role="$1" kind="$2" start="$3" common="${4:-}" ev cmd n text over="" parts="" flat=""
     while IFS='|' read -r ev cmd; do
         [ "$ev" = "$start" ] || [ "$ev" = PreCompact ] || continue
         printf '{"hook_event_name":"%s","trigger":"auto"}' "$ev" | CLAUDE_PLUGIN_ROOT="$HARNESS_N" WORFY_SESSION_KIND="$kind" sh -c "$cmd" >"$T/out" 2>"$T/err"
@@ -949,12 +951,16 @@ role_chunks() {
     [ -z "$over" ] && [[ "$parts" == *" compaction"* ]] \
         && ok "$role: every hook text within $LIMIT characters, compaction among them ($parts )" \
         || bad "$role: over $LIMIT:${over:- none}; parts:$parts"
+    if [ "$common" = no-common ]; then
+        [[ "$parts" != *" common"* ]] && ok "$role: no common part" || bad "$role: got the common part ($parts )"
+        return
+    fi
     [[ "$flat" == *"$FALLBACK_1\`$HARNESS_N/bin/epic-status\` $FALLBACK_2"* ]] \
         && ok "$role: the common part carries the line for after a compaction" || bad "$role: no line for after a compaction in common"
 }
 role_chunks "main Session (orchestrator)" '' SessionStart
 role_chunks "Product Session" product SessionStart
-role_chunks "Assistant Session" assistant SessionStart
+role_chunks "Assistant Session" assistant SessionStart no-common
 role_chunks "Subagent (implementer, reviewer, scout)" '' SubagentStart
 rm -f "$USER_RULES"
 

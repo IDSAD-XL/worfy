@@ -24,8 +24,10 @@
 // The kind of Session decides three parts. worfy starts a Product Session with WORFY_SESSION_KIND=product
 // and the Session of the Assistant with WORFY_SESSION_KIND=assistant in its environment, which Claude Code
 // hands on to its hooks: there "product" or "assistant" prints rules/<kind>.md and "orchestrator" prints
-// nothing. In any other Session (no variable, or another value) "orchestrator" prints its part and
-// "product" and "assistant" print nothing. A part that is not for this Session prints nothing on stdout or
+// nothing. The Session of the Assistant gets no "common" either: it has no tool but those of its own MCP
+// server, so the rules of reports, tests and the gate are text it pays for on each wake and never uses.
+// In any other Session (no variable, or another value) "orchestrator" prints its part and "product" and
+// "assistant" print nothing. A part that is not for this Session prints nothing on stdout or
 // stderr: that is not a failure.
 //
 // Always exits 0: a broken hook must not break the session. When it cannot do its job (no part
@@ -52,12 +54,13 @@ const KINDS = ["product", "assistant"]
 
 /**
  * Whether `part` is for a Session of this kind: product and assistant only in a Session of their kind,
- * orchestrator only in a Session of neither.
+ * orchestrator only in a Session of neither, common in every Session but the Assistant's.
  */
 function forThisSession(part) {
     const kind = process.env[KIND_VARIABLE]
     if (KINDS.includes(part)) return kind === part
     if (part === "orchestrator") return !KINDS.includes(kind)
+    if (part === "common") return kind !== "assistant"
     return true
 }
 
