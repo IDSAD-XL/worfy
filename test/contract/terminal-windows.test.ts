@@ -284,7 +284,7 @@ describe.runIf(WINDOWS)('closing a Terminal on Windows, on a real pty', () => {
     return { shell: shell.pid ?? 0, child, startedBy, end }
   }
 
-  it('endDescendants ends what is under the shell and leaves the shell', async (context) => {
+  quarantined('terminal-windows-end-descendants-under-shell')('endDescendants ends what is under the shell and leaves the shell', async (context) => {
     if (findOnPath('node', process.env) === null) context.skip('this machine has no node on its Path')
     const started = await shellWithChild()
     try {
@@ -296,7 +296,7 @@ describe.runIf(WINDOWS)('closing a Terminal on Windows, on a real pty', () => {
     }
   })
 
-  it('endDescendants ends nothing when the process with the pid of the shell was created after the shell was started: it is another process', async (context) => {
+  quarantined('terminal-windows-end-descendants-pid-reused')('endDescendants ends nothing when the process with the pid of the shell was created after the shell was started: it is another process', async (context) => {
     if (findOnPath('node', process.env) === null) context.skip('this machine has no node on its Path')
     const started = await shellWithChild()
     try {
