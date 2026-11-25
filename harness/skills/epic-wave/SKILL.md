@@ -397,7 +397,7 @@ branch. So:
   orchestrator's own tree, stays invisible until the documents PR merges, and Autopilot goes on
   sending continuations. A ticket with no worktree (not dispatched yet, or its worktree removed)
   gets the block on the main branch, the way the documents PR carries statuses.
-- The owner's answer: `ticket claim <epic> <NN> --branch <branch>` in the ticket's worktree, committed the same way.
+- The owner's answer: `ticket claim <epic> <NN>` in the ticket's worktree, committed the same way.
   When the main branch already says `blocked` (the documents PR merged the block, or the ticket had
   no worktree), the main branch gets the answer too, by the same documents path: `ticket claim`
   when the ticket goes on in its worktree, `ticket open` when it has none, so that a later wave
