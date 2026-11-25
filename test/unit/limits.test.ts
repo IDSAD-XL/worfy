@@ -269,15 +269,35 @@ describe('limitUpdatesFromUsage (the answer of the SDK usage request)', () => {
 // missing there is "no data yet", and one the usage answer leaves out or gives as null is "no such window".
 describe('a plan without the five_hour window', () => {
   const SEVEN_DAY = { utilization: 41, resets_at: '2026-10-12T09:00:00Z' }
-  const weekOnly = (at: number) => limitUpdatesFromUsage({ rate_limits_available: true, rate_limits: { seven_day: SEVEN_DAY } }, at)
+  const weekOnly = (at: number) => limitUpdatesFromUsage({ rate_limits_available: true, rate_limits: { five_hour: null, seven_day: SEVEN_DAY } }, at)
 
-  it('the usage answer that leaves five_hour out, or gives it as null, says the plan has no such window', () => {
-    for (const rateLimits of [{ seven_day: SEVEN_DAY }, { five_hour: null, seven_day: SEVEN_DAY }]) {
-      expect(limitUpdatesFromUsage({ rate_limits_available: true, rate_limits: rateLimits }, AT)).toEqual([
-        { window: 'five_hour', absentAt: AT },
-        { window: 'seven_day', state: { utilization: 0.41, resetsAt: 1791795600, status: null, receivedAt: AT, source: 'usage' } },
-      ])
-    }
+  it('the usage answer that gives five_hour as null says the plan has no such window', () => {
+    expect(limitUpdatesFromUsage({ rate_limits_available: true, rate_limits: { five_hour: null, seven_day: SEVEN_DAY } }, AT)).toEqual([
+      { window: 'five_hour', absentAt: AT },
+      { window: 'seven_day', state: { utilization: 0.41, resetsAt: 1791795600, status: null, receivedAt: AT, source: 'usage' } },
+    ])
+  })
+
+  // Claude Code answers from earlier rate-limit headers when the usage endpoint fails (a 429): a window
+  // whose reset has passed is then left out although the plan has it (review of PR #2186).
+  it('a window the answer leaves out is unknown, not absent: earlier data and its bar stay; {} marks nothing absent', () => {
+    expect(limitUpdatesFromUsage({ rate_limits_available: true, rate_limits: { seven_day: SEVEN_DAY } }, AT)).toEqual([
+      { window: 'seven_day', state: { utilization: 0.41, resetsAt: 1791795600, status: null, receivedAt: AT, source: 'usage' } },
+    ])
+    expect(limitUpdatesFromUsage({ rate_limits_available: true, rate_limits: {} }, AT)).toEqual([])
+    const passedReset = { window: 'five_hour', state: { utilization: 0.7, resetsAt: Math.floor(AT / 1000) - 60, status: null, receivedAt: AT - 6 * 60 * 60 * 1000, source: 'sdk' } }
+    const known = mergeLimits(emptyLimits(), [passedReset])
+    const after = mergeLimits(known, limitUpdatesFromUsage({ rate_limits_available: true, rate_limits: { seven_day: SEVEN_DAY } }, AT))
+    expect(after.windows.five_hour).toEqual(passedReset.state)
+    expect(after.absent).toBeUndefined()
+    expect(limitBars(after, AT, { timeZone: TZ })?.map((bar) => bar.window)).toEqual(['five_hour', 'seven_day'])
+  })
+
+  it('an absence that removes no known window is still recorded: five_hour null next to a 7-day window without data draws no 5-hour bar', () => {
+    const known = mergeLimits(emptyLimits(), [{ window: 'seven_day', state: { utilization: 0.41, resetsAt: 1791795600, status: 'allowed', receivedAt: AT - 1000, source: 'sdk' } }])
+    expect(mergeLimits(known, [{ window: 'five_hour', absentAt: AT }]).absent).toEqual({ five_hour: AT })
+    const answer = limitUpdatesFromUsage({ rate_limits_available: true, rate_limits: { five_hour: null, seven_day: { utilization: null, resets_at: null } } }, AT)
+    expect(limitBars(mergeLimits(known, answer), AT, { timeZone: TZ })?.map((bar) => bar.window)).toEqual(['seven_day'])
   })
 
   it('a window the answer gives but cannot be read is not an absent one', () => {

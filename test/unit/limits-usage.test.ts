@@ -265,6 +265,21 @@ describe('LimitsRefresher', () => {
     expect(read).toHaveBeenCalledTimes(1)
   })
 
+  // worfy-resource-planner ticket 13: a window the plan does not have is not waited for to be fresh.
+  it('skips a tick while the windows of the plan are fresh: a window it does not have (absent) is not asked for', async () => {
+    store.state = { windows: { seven_day: window(START - 5 * MINUTE, 'sdk') }, absent: { five_hour: START - 60 * MINUTE } }
+    start()
+    await settle()
+    expect(read).not.toHaveBeenCalled()
+  })
+
+  it('asks when every window is absent: nothing fresh is known', async () => {
+    store.state = { windows: {}, absent: { five_hour: START - MINUTE, seven_day: START - MINUTE } }
+    start()
+    await settle()
+    expect(read).toHaveBeenCalledTimes(1)
+  })
+
   it('an answer without rate limits (null, an API key) is logged once and not asked again before the next tick', async () => {
     read.mockResolvedValue(null)
     start()

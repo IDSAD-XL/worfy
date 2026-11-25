@@ -228,10 +228,11 @@ any data arrives it says "no data yet". A window without data says "no data".
   [ADR-0047](../adr/0047-harness-lessons-by-pr-early-owner-switch.md)). The user's status line keeps its output and exit code.
 - **One merge rule.** A newer update replaces the older one of the same window. An update without a reset time keeps a known reset
   still ahead, and one without a status keeps the known status within the same window: resets at most an hour apart.
-- **A window the plan does not have.** Only the usage request lists the plan's windows: a window its answer leaves out or gives as
-  null is one the plan does not have, and `limits.json` keeps that in `absent`. The other two sources leave out a window they have
-  no data for, so it stays "no data". The newer word wins: the answer removes a window known before it, and data received after it
-  brings the window back.
+- **A window the plan does not have.** Only the usage request can say so: a window its answer gives as null is one the plan does
+  not have, and `limits.json` keeps that in `absent`. A window the answer leaves out says nothing: when the usage endpoint fails,
+  Claude Code answers from earlier data and leaves out a window whose reset has passed. The other two sources leave out a window
+  they have no data for, so it stays "no data". The newer word wins: the answer removes a window known before it, and data received
+  after it brings the window back. The usage request is skipped while the windows the plan has are fresh.
 - **Codex's windows.** Two sources, both full lists that replace what was known: a background poll at the start and every 30 minutes
   (it asks the account first and forgets the windows once the user is signed out), and the `account/rateLimits/updated` notification
   during a Codex Session's turn. They are kept in memory only; `limits.json` keeps Claude's form.

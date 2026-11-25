@@ -230,11 +230,13 @@ const usageAnswer = z.object({ rate_limits: z.object({ five_hour: usageWindow, s
  * (an API key, Bedrock, Vertex) or is not an object. `utilization` is 0..100 and `resets_at` an
  * ISO 8601 time; one that does not parse counts as missing.
  *
- * The answer lists the plan's windows (the SDK types each as optional and nullable): a window it
- * leaves out or gives as null the plan does not have, and the update says so (`absentAt`) — Claude
- * Code's own `/usage` draws no line for it either. This is the only source that can tell: the SDK
- * event and the status line leave out a window they have no data for yet as well. A window given in a
- * shape this build cannot read is neither: it may be there.
+ * The answer gives each window of the plan (the SDK types each as optional and nullable): a window it
+ * gives as null the plan does not have, and the update says so (`absentAt`) — Claude Code's own
+ * `/usage` draws no line for it either. This is the only source that can tell: the SDK event and the
+ * status line leave out a window they have no data for yet. A window the answer leaves out says
+ * nothing: when the usage endpoint fails (a 429), Claude Code answers from earlier rate-limit headers
+ * and leaves out a window whose reset has passed although the plan has it. A window given in a shape
+ * this build cannot read says nothing either.
  */
 export function limitUpdatesFromUsage(value: unknown, receivedAt: number): LimitUpdate[] {
   const parsed = usageAnswer.safeParse(value)
@@ -244,7 +246,7 @@ export function limitUpdatesFromUsage(value: unknown, receivedAt: number): Limit
   // The parse succeeded with `rate_limits` an object, so the answer's own value of each window is there to look at.
   const given = (value as { rate_limits: Record<string, unknown> }).rate_limits
   return LIMIT_WINDOWS.flatMap((window): LimitUpdate[] => {
-    if (given[window] === null || given[window] === undefined) return [{ window, absentAt: receivedAt }]
+    if (given[window] === null) return [{ window, absentAt: receivedAt }]
     const reported = limits[window]
     if (reported === null || reported === undefined) return []
     const percent = orNull(reported.utilization)
@@ -274,7 +276,8 @@ function clean(state: LimitWindowState): LimitWindowState {
  */
 export function mergeLimits(state: LimitsState, updates: readonly LimitUpdate[]): LimitsState {
   let windows = state.windows
-  let absent = state.absent ?? {}
+  const absentBefore = state.absent ?? {}
+  let absent = absentBefore
   for (const update of updates) {
     const { window } = update
     const known = windows[window]
@@ -292,7 +295,7 @@ export function mergeLimits(state: LimitsState, updates: readonly LimitUpdate[])
     windows = { ...windows, [window]: next }
     if (absentAt !== undefined) absent = Object.fromEntries(Object.entries(absent).filter(([id]) => id !== window))
   }
-  if (windows === state.windows && absent === (state.absent ?? absent)) return state
+  if (windows === state.windows && absent === absentBefore) return state
   // The spread keeps what else the state holds: the keys of a newer build's limits.json (src/main/agent/limits.ts).
   const next: LimitsState = { ...state, windows, absent }
   if (Object.keys(absent).length === 0) delete next.absent
