@@ -90,6 +90,10 @@ function proposalText(action: DutyAction, item: AttentionItem): string | null {
       return item.source === 'ci' ? fixText(item) : null
     case 'summary':
       return null
+    case 'pr-follow':
+      return item.source === 'pr-inbox' && item.subject.kind === 'pr' ? `Follow ${item.subject.label}: Fix checks, Resolve conflicts or Address comments, as the pull request needs` : null
+    case 'autopilot-start':
+      return item.source === 'autopilot' ? 'Start Autopilot again: its dialog asks you to confirm' : null
   }
 }
 
