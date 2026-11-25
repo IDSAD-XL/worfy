@@ -187,3 +187,46 @@ export function limitsShare(ledger: UsageLedger, windows: Readonly<Record<string
 3. Что покажет оценка доли, пока ходы других Session-ов не подключены?
    - Ответ: всю долю окна: стоимость «других» равна нулю, и часть Assistant-а — единица.
    - Строки: `src/shared/assistant/budget.ts:210-211`
+
+## 9. Что нашёл review и что осталось
+
+> VERIFIED — worfy-assistant 05 (the Assistant's Limits check before a wake, the daily wake limit and the usage ledger with the estimated share of the Limits windows), head 38eb1eef98006c7580813597a120f0d01aa3d8da
+>
+> Gate (depth medium, two rounds): reviewer (lens: correctness) — FIX in round 1 (one med: one invalid entry, e.g. a NaN cost, stayed in memory and made every later note throw, so nothing reached the file and the daily limit forgot wakes after a restart; five lows); round 1 checked by the Orchestrator against the diff a854a6728..38eb1eef9 (rebased onto 23a241a7a).
+>
+> - What it does (no UI yet; tickets 06, 10, 11 call it): a non-urgent wake is refused while the 5-hour window is above 80 %, an urgent one only on `rejected`; at most 20 automatic wakes per local day, counted from <WORFY_DATA_DIR>/assistant/usage.json so a restart does not reset it; tokens and cost of every Assistant call by source, per day and week; the Assistant's share of each window is marked as an estimate.
+> - Fixed in round 1: a note outside the schema is dropped with a warning and the in-memory ledger changes only after the write succeeds (src/main/assistant/budget/ledger.ts:63-86, 106-110); a wake stamped after now (clock moved back) still counts; window lengths come from the prefix rule of src/shared/agent/limits.ts, so seven_day_opus/sonnet get an estimate; both sides of the share count from the start hour of the window; a wake's calls count on the wake's day; the data-folder table of docs/features/storage-and-diagnostics.md (en, ru) names assistant/usage.json.
+> - Evidence: reviewer 14 mutants caught in round 1 and 797 tests of limits/terminal-ai/assistant EXIT=0; round 1: 6 new tests red first, 7 mutants red, lint+typecheck EXIT=0, touched test families EXIT=0, gate fast green on the rebased branch, story-check ok.
+> - Moved without a change: limitsCheck from src/main/terminal-ai/limits-gate.ts to src/main/agent/limits-gate.ts; Terminal AI keeps a wrapper, its test unchanged and green.
+> - Not verified: real SDK costs (no caller yet).
+>
+> Decided without the owner (to confirm): daily limit 20 automatic wakes, urgent wakes count, a user's message does not; a non-urgent wake waits above 80 % of the 5-hour window; the day is the machine's time zone; the share is window share × the Assistant's part of the cost of all turns worfy saw.
+
+Code: `src/main/assistant/budget/ledger.ts:63-86` · key lines: 63
+
+```ts
+  /** An automatic wake starts now; `id` names it for the calls of its Session. */
+  noteWake(id: string, urgent: boolean): void {
+    const at = this.now()
+    const wake = usageWakeSchema.safeParse({ id, at, urgent })
+    if (!wake.success) return console.warn(`worfy: an Assistant wake was not noted: ${z.prettifyError(wake.error)}`)
+    this.write({ ...this.ledger, wakes: [...this.ledger.wakes, wake.data] }, at)
+  }
+
+  /** One call of the Assistant ended now. */
+  noteCall(call: UsageCallInput): void {
+    const at = this.now()
+    const parsed = usageCallSchema.safeParse({ ...call, at })
+    if (!parsed.success) return console.warn(`worfy: an Assistant call was not noted: ${z.prettifyError(parsed.error)}`)
+    this.write({ ...this.ledger, calls: [...this.ledger.calls, parsed.data] }, at)
+  }
+
+  /** A turn of another Session worfy runs ended now, at `costUsd`; a turn that cost nothing changes nothing. */
+  noteOtherTurn(costUsd: number): void {
+    if (!Number.isFinite(costUsd)) return console.warn(`worfy: the cost of a turn was not noted: ${costUsd}`)
+    if (costUsd <= 0) return
+    const at = this.now()
+    const hour = hourKey(at)
+    this.write({ ...this.ledger, otherCost: { ...this.ledger.otherCost, [hour]: (this.ledger.otherCost[hour] ?? 0) + costUsd } }, at)
+  }
+```

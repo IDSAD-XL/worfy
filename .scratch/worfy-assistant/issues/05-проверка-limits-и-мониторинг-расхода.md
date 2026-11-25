@@ -1,7 +1,7 @@
 # 05 — Проверка Limits для Assistant-а, дневной предел пробуждений и мониторинг расхода
 
 Type: task
-Status: claimed 2026-11-25T08:12Z
+Status: done 2026-11-25T11:06Z
 PR: #2197
 Blocked by: —
 Source: [spec.md](../spec.md), «Ticket-ы», строка 05; «Решения владельца», 13 и 20; «Решения по реализации» → «Ядро
@@ -45,20 +45,25 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 05; «Решения 
       — пускает.
   - evidence: test-run pass · `pnpm test test/unit/assistant-wake-gate.test.ts` exit 0 · mac - · 2fa4a5519c5c61eaf7880667b4bc5c1d5fb8fbad
   - evidence: test-run pass · `pnpm test test/unit/assistant-wake-gate.test.ts` exit 0 · mac - · a7986c7b54a3185d3ffb2343ff94a9a6a2f1f219
+  - evidence: review pass · PR #2197 · - - · 38eb1eef98006c7580813597a120f0d01aa3d8da
 - [ ] Unit test: дневной предел автоматических пробуждений — пробуждение сверх предела не идёт; в новый день счёт
       начинается заново.
   - evidence: test-run pass · `pnpm test test/unit/assistant-wake-gate.test.ts` exit 0 · mac - · 2fa4a5519c5c61eaf7880667b4bc5c1d5fb8fbad
   - evidence: test-run pass · `pnpm test test/unit/assistant-wake-gate.test.ts` exit 0 · mac - · a7986c7b54a3185d3ffb2343ff94a9a6a2f1f219
+  - evidence: review pass · PR #2197 · - - · 38eb1eef98006c7580813597a120f0d01aa3d8da
 - [ ] Token-ы пишутся по каждому вызову — Session Assistant-а и проверки источника; unit test: сумма за день и за неделю,
       разбивка по источникам, по пробуждениям и по разговору.
   - evidence: test-run pass · `pnpm test test/unit/assistant-usage-ledger.test.ts` exit 0 · mac - · 2fa4a5519c5c61eaf7880667b4bc5c1d5fb8fbad
   - evidence: test-run pass · `pnpm test test/unit/assistant-usage-ledger.test.ts` exit 0 · mac - · a7986c7b54a3185d3ffb2343ff94a9a6a2f1f219
+  - evidence: review pass · PR #2197 · - - · 38eb1eef98006c7580813597a120f0d01aa3d8da
 - [ ] Доля Assistant-а в окнах Limits отдаётся с пометкой, что это оценка; способ оценки записан в «Итог».
   - evidence: test-run pass · `pnpm test test/unit/assistant-usage-ledger.test.ts` exit 0 · mac - · 2fa4a5519c5c61eaf7880667b4bc5c1d5fb8fbad
   - evidence: test-run pass · `pnpm test test/unit/assistant-usage-ledger.test.ts` exit 0 · mac - · a7986c7b54a3185d3ffb2343ff94a9a6a2f1f219
+  - evidence: review pass · PR #2197 · - - · 38eb1eef98006c7580813597a120f0d01aa3d8da
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 2fa4a5519c5c61eaf7880667b4bc5c1d5fb8fbad
   - evidence: gate pass · `gate fast` exit 0 · mac - · a7986c7b54a3185d3ffb2343ff94a9a6a2f1f219
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45591947103/job/139159915091 · ci - · 38eb1eef98006c7580813597a120f0d01aa3d8da
 
 ## Итог
 
