@@ -1,7 +1,8 @@
 // Connects the attention core (attention-core.ts) to its sources (sources.ts) for every Project of this Machine,
 // whether a window shows the Project or not (worfy-assistant ticket 03; spec, implementation decisions, the attention core). At the start it
 // catches up: the workflow model of each Project, the Health check report and the Limits as they are now, and the
-// Autopilot journal lines written since the core first kept the Project; the keys taken drop what it had already.
+// Autopilot journal lines written since the core first kept the Project, 14 days back at most (catchUpFrom); the keys
+// taken drop what it had already.
 import type { AgentEvent } from '../../../shared/agent/events'
 import type { LimitsState } from '../../../shared/agent/limits'
 import type { JournalEvent } from '../../../shared/autopilot/journal'
@@ -76,8 +77,8 @@ export function installAttentionCore(sources: AttentionSources): { core: Attenti
   for (const project of sources.projects()) {
     sources.journal.recent(project.id).then(
       guard('the Autopilot journal', (runs: JournalEvent[][]) => {
-        const since = core.since(project.id)
-        for (const line of runs.flat()) if (Date.parse(line.at) >= since) autopilotAttention(core, line)
+        const from = core.catchUpFrom(project.id)
+        for (const line of runs.flat()) if (Date.parse(line.at) >= from) autopilotAttention(core, line)
       }),
       (error: unknown) => log(`[assistant] ${project.id}: the Autopilot journal could not be read`, error),
     )

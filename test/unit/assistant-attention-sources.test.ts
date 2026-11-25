@@ -4,7 +4,7 @@
 // (the events measurement of the proactive-runtime map, docs/product/proactive-runtime/): rules (d), (e) and (f).
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import type { LimitsState } from '../../src/shared/agent/limits'
@@ -20,8 +20,10 @@ import { removeTree } from '../../src/main/storage/remove'
 const temp = mkdtempSync(join(tmpdir(), 'worfy-attention-sources-'))
 afterAll(() => removeTree(temp))
 
-const ALPHA = { id: 'p-alpha', path: '/work/alpha' }
-const BETA = { id: 'p-beta', path: '/work/beta' }
+// Native paths: a Project's folder as the Project list spells it on this system.
+const WORK = resolve(sep, 'work')
+const ALPHA = { id: 'p-alpha', path: join(WORK, 'alpha') }
+const BETA = { id: 'p-beta', path: join(WORK, 'beta') }
 const MIN = 60_000
 
 const ticket = (epic: string, num: number, extra: Partial<Ticket> = {}): Ticket => ({
@@ -102,13 +104,13 @@ describe('the seven sources', () => {
     const { core, stop } = installAttentionCore(h.sources)
     await settle()
 
-    h.session('s-1', { type: 'init', cwd: '/work/alpha/.claude/worktrees/07' } as AgentEvent)
+    h.session('s-1', { type: 'init', cwd: join(ALPHA.path, '.claude', 'worktrees', '07') } as AgentEvent)
     h.session('s-1', { type: 'question_request', requestId: 'q1', toolUseId: null, questions: [{ question: 'Which port?' }] } as AgentEvent)
-    h.session('s-2', { type: 'init', cwd: '/work/beta' } as AgentEvent)
+    h.session('s-2', { type: 'init', cwd: BETA.path } as AgentEvent)
     h.session('s-2', { type: 'state', state: 'error', error: 'rate_limit' } as AgentEvent)
-    h.session('s-3', { type: 'init', cwd: '/work/beta' } as AgentEvent)
+    h.session('s-3', { type: 'init', cwd: BETA.path } as AgentEvent)
     h.session('s-3', { type: 'permission_request', requestId: 'p1', toolName: 'Bash', input: {} } as unknown as AgentEvent)
-    h.session('s-4', { type: 'init', cwd: '/work/beta' } as AgentEvent)
+    h.session('s-4', { type: 'init', cwd: BETA.path } as AgentEvent)
     h.session('s-4', { type: 'quiet', quietSince: h.time.now() - 10 * MIN } as AgentEvent)
     h.journalLine(runStopped('2026-11-13T11:00:00.000Z'))
     h.prChanged(ALPHA.id)
@@ -155,6 +157,18 @@ describe('the seven sources', () => {
     expect(core.items(ALPHA.id).map((item) => item.state)).toEqual(['closed', 'closed'])
     stop()
   })
+
+  it('a Session that closes after its turn closes its items and its «nothing happened» condition never fires', async () => {
+    const h = harness({})
+    const { core, stop } = installAttentionCore(h.sources)
+    h.session('s-1', { type: 'init', cwd: ALPHA.path } as AgentEvent)
+    h.session('s-1', { type: 'result', isError: false, interrupted: false, at: h.time.now() } as AgentEvent)
+    h.session('s-1', { type: 'state', state: 'closed', error: null } as AgentEvent)
+    h.time.add(SESSION_WAIT_MS)
+    core.tick()
+    expect(core.items(ALPHA.id).map((item) => [item.kind, item.state])).toEqual([['turn-end', 'closed']])
+    stop()
+  })
 })
 
 describe('every Project of the Machine', () => {
@@ -168,10 +182,20 @@ describe('every Project of the Machine', () => {
   })
 
   it('projectOfPath: a worktree inside a Project belongs to it, the longest folder wins, a folder of none is the Machine’s', () => {
-    const nested = { id: 'p-nested', path: '/work/alpha/sub' }
-    expect(projectOfPath([ALPHA, nested], '/work/alpha/sub/x')).toBe('p-nested')
-    expect(projectOfPath([ALPHA, nested], '/work/alpha')).toBe(ALPHA.id)
-    expect(projectOfPath([ALPHA], '/work/alphabet')).toBeNull()
+    const nested = { id: 'p-nested', path: join(ALPHA.path, 'sub') }
+    expect(projectOfPath([ALPHA, nested], join(ALPHA.path, 'sub', 'x'))).toBe('p-nested')
+    expect(projectOfPath([ALPHA, nested], ALPHA.path)).toBe(ALPHA.id)
+    expect(projectOfPath([ALPHA, nested], join(ALPHA.path, 'sub', '..', 'other'))).toBe(ALPHA.id)
+    expect(projectOfPath([{ ...ALPHA, path: ALPHA.path + sep }], join(ALPHA.path, 'x'))).toBe(ALPHA.id)
+    expect(projectOfPath([ALPHA], join(WORK, 'alphabet'))).toBeNull()
+  })
+
+  it('projectOfPath on Windows: backslashes, either case of the letters, a drive letter', () => {
+    const projects = [{ id: 'p-win', path: 'C:\\Work\\Alpha' }]
+    expect(projectOfPath(projects, 'c:\\work\\alpha\\.claude\\worktrees\\07', 'win32')).toBe('p-win')
+    expect(projectOfPath(projects, 'C:/Work/Alpha', 'win32')).toBe('p-win')
+    expect(projectOfPath(projects, 'C:\\Work\\Alphabet', 'win32')).toBeNull()
+    expect(projectOfPath(projects, 'c:\\work\\alpha', 'darwin')).toBeNull()
   })
 })
 
@@ -202,6 +226,18 @@ describe('catching up after the start', () => {
     const two = installAttentionCore(harness({}, { root, start: '2026-11-14T08:00:00Z', journal }).sources)
     await settle()
     expect(two.core.items(ALPHA.id).map((item) => [item.kind, item.startedAt])).toEqual([['run-stopped', Date.parse('2026-11-13T22:00:00.000Z')]])
+    two.stop()
+  })
+
+  it('a start over 14 days after the core began reads the journal back only 14 days: older lines, whose keys are gone, give no item again', async () => {
+    const root = join(temp, 'restart-journal-old')
+    const one = installAttentionCore(harness({}, { root, start: '2026-11-01T12:00:00Z' }).sources)
+    one.stop()
+
+    const journal = [[runStopped('2026-11-05T09:00:00.000Z'), runStopped('2026-11-20T09:00:00.000Z', 'app-quit')]]
+    const two = installAttentionCore(harness({}, { root, start: '2026-11-25T08:00:00Z', journal }).sources)
+    await settle()
+    expect(two.core.items(ALPHA.id).map((item) => [item.kind, item.startedAt])).toEqual([['run-stopped', Date.parse('2026-11-20T09:00:00.000Z')]])
     two.stop()
   })
 })

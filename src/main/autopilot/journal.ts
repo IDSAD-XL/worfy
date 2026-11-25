@@ -81,14 +81,21 @@ export class RunJournal {
    */
   append(fields: JournalEventFields, epic: string = this.epic): Promise<void> {
     let line: string
-    const event = { ...fields, at: this.now().toISOString(), run: this.run, project: this.project, epic } as JournalEvent
     try {
-      line = formatJournalLine(event)
+      line = formatJournalLine({
+        ...fields,
+        at: this.now().toISOString(),
+        run: this.run,
+        project: this.project,
+        epic,
+      } as JournalEvent)
     } catch (error) {
       return Promise.reject(error instanceof Error ? error : new Error(String(error)))
     }
     const write = this.tail.then(async () => {
       await appendFile(this.file, line)
+      // The listeners hear the line as written: the parsed event, without the keys the format dropped.
+      const event = JSON.parse(line) as JournalEvent
       for (const listener of lineListeners) {
         try {
           listener(event)

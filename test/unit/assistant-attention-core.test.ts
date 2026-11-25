@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import type { AttentionEvent } from '../../src/shared/assistant/attention'
 import { AttentionCore } from '../../src/main/assistant/core/attention-core'
-import { attentionFileStore, attentionPaths, ATTENTION_FILE } from '../../src/main/assistant/core/store'
+import { attentionFileStore, attentionPaths, ATTENTION_FILE, type AttentionFile } from '../../src/main/assistant/core/store'
 import { removeTree } from '../../src/main/storage/remove'
 
 const temp = mkdtempSync(join(tmpdir(), 'worfy-attention-'))
@@ -248,14 +248,54 @@ describe('keeping the items', () => {
     expect(core.items(PROJECT)).toEqual([])
   })
 
-  it('an item closed over 14 days ago is dropped; an open one is kept', () => {
+  it('the store is bounded: an item, open or not, that took no event for 14 days is dropped, with the keys of that time', () => {
     const time = clock('2026-11-01T09:00:00Z')
     const core = coreOver(dataRoot(), time.now)
     core.ingest(waits(1, 'r1'))
     core.ingest(waits(2, 'r1'))
-    core.resolve(PROJECT, waits(1, '').subject)
-    time.add(15 * 24 * HOUR)
     core.ingest(waits(3, 'r1'))
-    expect(core.items(PROJECT).map((item) => item.subject.id)).toEqual(['worfy-x/2', 'worfy-x/3'])
+    core.resolve(PROJECT, waits(1, '').subject)
+    time.add(10 * 24 * HOUR)
+    core.ingest(waits(3, 'r2'))
+    time.add(5 * 24 * HOUR)
+    core.ingest(waits(4, 'r1'))
+    expect(core.items(PROJECT).map((item) => [item.subject.id, item.revision])).toEqual([
+      ['worfy-x/3', 'r2'],
+      ['worfy-x/4', 'r1'],
+    ])
+  })
+
+  it('an event with the revision of an item it already has does not reopen it, though its key is gone (a restart past the keys)', () => {
+    const time = clock('2026-11-13T09:00:00Z')
+    const files = new Map<string | null, AttentionFile>()
+    const store = { read: (scope: string | null) => structuredClone(files.get(scope)), write: (scope: string | null, file: AttentionFile) => void files.set(scope, structuredClone(file)) }
+    const first = new AttentionCore({ now: time.now, store, settings: () => ({ timeZone: 'Europe/Berlin' }), projects: () => [PROJECT] })
+    const item = first.ingest(waits(1, 'r1'))!
+    first.mark(PROJECT, item.id, 'dismissed')
+    // The keys are gone (dropped or never kept), the item is still there.
+    files.set(PROJECT, { ...files.get(PROJECT)!, seen: {} })
+    const second = new AttentionCore({ now: time.now, store, settings: () => ({ timeZone: 'Europe/Berlin' }), projects: () => [PROJECT] })
+    expect(second.ingest(waits(1, 'r1'))).toBeNull()
+    expect(second.items(PROJECT).map((each) => [each.state, each.events])).toEqual([['dismissed', 1]])
+  })
+
+  it('a Project whose file cannot be read or written does not stop the tick of the others', () => {
+    const time = clock('2026-11-13T09:00:00Z')
+    const root = dataRoot()
+    const files = attentionFileStore(attentionPaths(root.projectDir, root.root))
+    const logs: string[] = []
+    const store = {
+      read: (scope: string | null) => {
+        if (scope === 'p-broken') throw new Error('EACCES: permission denied')
+        return files.read(scope)
+      },
+      write: files.write,
+    }
+    const core = new AttentionCore({ now: time.now, store, settings: () => ({ timeZone: 'Europe/Berlin' }), projects: () => ['p-broken', PROJECT], log: (message) => logs.push(message) })
+    core.expect({ source: 'session', id: 's-1:waiting', revision: 'turn-1', projectId: PROJECT, subject: { kind: 'session', id: 's-1', label: 's-1' }, kind: 'waiting', text: 'waits', quietMs: 15 * MIN })
+    time.add(HOUR)
+    expect(() => core.tick()).not.toThrow()
+    expect(core.items(PROJECT).map((item) => item.kind)).toEqual(['waiting'])
+    expect(logs).toEqual([expect.stringContaining('p-broken')])
   })
 })

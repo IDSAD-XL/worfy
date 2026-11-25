@@ -1,7 +1,7 @@
 // The sources of the attention core (worfy-assistant ticket 03; spec, implementation decisions, the attention core, its sources): what main
 // already has, turned into the core's events. Each function here reads one source and calls the core; none runs a
 // timer, gh, git or a model. install.ts connects them to the app.
-import { sep } from 'node:path'
+import { posix, win32 } from 'node:path'
 import type { AttentionSubject } from '../../../shared/assistant/attention'
 import type { AgentEvent } from '../../../shared/agent/events'
 import type { LimitsState } from '../../../shared/agent/limits'
@@ -24,10 +24,21 @@ export const SESSION_WAIT_MS = 15 * 60_000
 /** The Autopilot journal lines that are items (rules (d) and the failure lines of the measurement). */
 export const AUTOPILOT_ITEM_KINDS: ReadonlySet<string> = new Set(['run-stopped', 'ticket-set-aside', 'session-error', 'limits-hit', 'retry-refused'])
 
-/** The Project whose folder holds `cwd` (a worktree under it too); null when none does. */
-export function projectOfPath(projects: readonly { id: string; path: string }[], cwd: string): string | null {
-  const holder = projects.filter((project) => cwd === project.path || cwd.startsWith(project.path.endsWith(sep) ? project.path : project.path + sep))
-  return holder.sort((a, b) => b.path.length - a.path.length)[0]?.id ?? null
+/**
+ * The Project whose folder holds `cwd` (a worktree under it too); null when none does. Both paths are resolved by the
+ * rules of `platform`; on Windows `/` and `\` are one separator and letters compare in either case.
+ */
+export function projectOfPath(projects: readonly { id: string; path: string }[], cwd: string, platform: NodeJS.Platform = process.platform): string | null {
+  const path = platform === 'win32' ? win32 : posix
+  const plain = (folder: string): string => (platform === 'win32' ? path.resolve(folder).toLowerCase() : path.resolve(folder))
+  const at = plain(cwd)
+  let best: { id: string; length: number } | null = null
+  for (const project of projects) {
+    const root = plain(project.path)
+    const inside = at === root || at.startsWith(root.endsWith(path.sep) ? root : root + path.sep)
+    if (inside && (best === null || root.length > best.length)) best = { id: project.id, length: root.length }
+  }
+  return best?.id ?? null
 }
 
 const clip = (text: string): string => (text.length > 160 ? `${text.slice(0, 159)}…` : text)
@@ -62,7 +73,11 @@ export function sessionAttention(core: Core, projectOf: (cwd: string) => string 
         return take('permission', event.requestId, `Needs permission: ${event.toolName}`)
       case 'state':
         if (event.state === 'error') take('error', String(at), event.error ?? 'The Session stopped with an error')
-        if (event.state === 'closed') projects.delete(sessionId)
+        if (event.state === 'closed') {
+          // A closed Session waits for no one: its items close and its «nothing happened» condition is disarmed.
+          core.resolve(projectId, subject)
+          projects.delete(sessionId)
+        }
         return
       case 'quiet':
         if (event.quietSince !== null) take('quiet', String(event.quietSince), 'The turn has gone quiet')

@@ -53,7 +53,9 @@ export const attentionItemSchema = z.object({
   /** The kind of the latest event glued into the item. */
   kind: z.string(),
   text: z.string(),
+  /** When its first event happened (the event's own time). */
   startedAt: z.number(),
+  /** When the core last took an event into it, by the core's clock: an item that takes none for 14 days is dropped. */
   updatedAt: z.number(),
   /** The revision of the latest event glued into the item. */
   revision: z.string(),

@@ -9,7 +9,9 @@
 //   a changed one (a new revision) gives a new item and makes the open one of the old revision stale;
 // - the items in the Project's data folder (store.ts), so they live through a restart; a source that reads its state
 //   again at the start (the Tickets that wait, the PR inbox, the Autopilot journal) catches up on what came while worfy
-//   was closed, and the keys taken drop what was there before.
+//   was closed, and the keys taken drop what was there before. An item that takes no event for ATTENTION_KEEP_DAYS is
+//   dropped with the keys of that time, so the file stays bounded; a state still true then (a Ticket that still waits)
+//   comes back as a new item at the next read of its source.
 //
 // Input: events, the clock, the settings (the time zone of the day) and the Limits (as events of their source).
 // Output: items. Waking the model is ticket 06; the duty of an item is ticket 07.
@@ -17,8 +19,9 @@ import { OPEN_STATES, type AttentionEvent, type AttentionItem, type AttentionSou
 import type { AttentionCondition, AttentionFile, AttentionStore } from './store'
 
 /**
- * How long items no longer open, and keys of events taken, are kept: 14 days, the period of the events measurement
- * (the events measurement of the proactive-runtime map, docs/product/proactive-runtime/). Decided without the owner (ticket 03, result section).
+ * How long an item that takes no event is kept, open or not, and the key of an event taken: 14 days, the period of the
+ * events measurement of the proactive-runtime map (docs/product/proactive-runtime/). It bounds the file, and how far back
+ * a source reads past events at the start (catchUpFrom). Decided without the owner (ticket 03, result section).
  */
 export const ATTENTION_KEEP_DAYS = 14
 
@@ -43,6 +46,8 @@ export interface AttentionCoreOptions {
   settings?: () => AttentionSettings
   /** The Projects whose conditions tick() looks at, besides the Machine's own. */
   projects: () => readonly string[]
+  /** Where a Project whose file failed in tick() is told of; console.warn when absent. */
+  log?: (message: string, error: unknown) => void
 }
 
 export type AttentionListener = (scope: string | null, items: readonly AttentionItem[]) => void
@@ -86,7 +91,7 @@ export class AttentionCore {
 
   private save(scope: string | null, file: AttentionFile): void {
     const oldest = this.options.now() - ATTENTION_KEEP_DAYS * DAY_MS
-    file.items = file.items.filter((item) => isOpen(item) || item.updatedAt >= oldest)
+    file.items = file.items.filter((item) => item.updatedAt >= oldest)
     file.seen = Object.fromEntries(Object.entries(file.seen).filter(([, at]) => at >= oldest))
     this.options.store.write(scope, file)
     for (const listener of this.listeners) listener(scope, file.items)
@@ -97,9 +102,12 @@ export class AttentionCore {
     return [...this.load(scope).items]
   }
 
-  /** When the core first kept the scope: a source that reads past events back skips the older ones. */
-  since(scope: string | null): number {
-    return this.load(scope).since
+  /**
+   * From when a source that reads past events back (the Autopilot journal) takes them: since the core first kept the
+   * scope, and no further back than ATTENTION_KEEP_DAYS, whose keys are gone.
+   */
+  catchUpFrom(scope: string | null): number {
+    return Math.max(this.load(scope).since, this.options.now() - ATTENTION_KEEP_DAYS * DAY_MS)
   }
 
   subscribe(listener: AttentionListener): () => void {
@@ -115,18 +123,23 @@ export class AttentionCore {
     const now = this.options.now()
     const at = event.at ?? now
     file.seen[key] = now
+    // An item already holds this revision (its key is gone, a source read its state again): it stays as it is.
+    if (file.items.some((item) => item.condition === undefined && item.source === event.source && sameSubject(item.subject, event.subject) && item.revision === event.revision)) {
+      this.save(event.projectId, file)
+      return null
+    }
     // Something happened on the subject: its pending condition ends, and an open «nothing happened» item is stale.
     this.settle(file, event.subject, 'stale')
     const day = dayOf(at, this.timeZone())
     const glued = file.items.find((item) => item.condition === undefined && sameSubject(item.subject, event.subject) && dayOf(item.startedAt, this.timeZone()) === day)
     let item: AttentionItem
     if (glued !== undefined) {
-      Object.assign(glued, { source: event.source, kind: event.kind, text: event.text, revision: event.revision, updatedAt: Math.max(glued.updatedAt, at), events: glued.events + 1 })
+      Object.assign(glued, { source: event.source, kind: event.kind, text: event.text, revision: event.revision, updatedAt: now, events: glued.events + 1 })
       // A dismissed or snoozed item stays so; a seen, closed or stale one asks again.
       if (glued.state === 'seen' || glued.state === 'closed' || glued.state === 'stale') glued.state = 'new'
       item = glued
     } else {
-      item = { ...this.fresh(event, at), events: 1 }
+      item = { ...this.fresh(event, at, now), events: 1 }
       file.items.push(item)
     }
     this.save(event.projectId, file)
@@ -153,17 +166,26 @@ export class AttentionCore {
   tick(): void {
     const now = this.options.now()
     for (const scope of [null, ...this.options.projects()]) {
-      const file = this.load(scope)
-      const due = file.conditions.filter((condition) => condition.dueAt <= now)
-      if (due.length === 0) continue
-      file.conditions = file.conditions.filter((condition) => condition.dueAt > now)
-      for (const condition of due) {
-        file.seen[keyOf('condition', condition.id, condition.revision)] = now
-        for (const item of file.items) if (item.condition === condition.id && isOpen(item)) item.state = 'stale'
-        file.items.push({ ...this.fresh(condition, condition.dueAt), events: 1, condition: condition.id })
+      // One scope whose file fails (no permission, a full disk) costs only its own conditions.
+      try {
+        this.raise(scope, now)
+      } catch (error) {
+        ;(this.options.log ?? ((message, cause) => console.warn(message, cause)))(`[assistant] the attention core could not look at the conditions of ${scope ?? 'the Machine'}`, error)
       }
-      this.save(scope, file)
     }
+  }
+
+  private raise(scope: string | null, now: number): void {
+    const file = this.load(scope)
+    const due = file.conditions.filter((condition) => condition.dueAt <= now)
+    if (due.length === 0) return
+    file.conditions = file.conditions.filter((condition) => condition.dueAt > now)
+    for (const condition of due) {
+      file.seen[keyOf('condition', condition.id, condition.revision)] = now
+      for (const item of file.items) if (item.condition === condition.id && isOpen(item)) item.state = 'stale'
+      file.items.push({ ...this.fresh(condition, condition.dueAt, now), events: 1, condition: condition.id })
+    }
+    this.save(scope, file)
   }
 
   /** Changes the state of an item (the user saw, snoozed or dismissed it). */
@@ -175,9 +197,9 @@ export class AttentionCore {
     this.save(scope, file)
   }
 
-  private fresh(event: Omit<AttentionEvent, 'at'>, at: number): Omit<AttentionItem, 'events'> {
+  private fresh(event: Omit<AttentionEvent, 'at'>, at: number, now: number): Omit<AttentionItem, 'events'> {
     const id = [event.projectId ?? 'machine', event.subject.kind, event.subject.id, event.kind, at].join('|')
-    return { id, source: event.source, projectId: event.projectId, subject: event.subject, kind: event.kind, text: event.text, startedAt: at, updatedAt: at, revision: event.revision, state: 'new', duty: null }
+    return { id, source: event.source, projectId: event.projectId, subject: event.subject, kind: event.kind, text: event.text, startedAt: at, updatedAt: now, revision: event.revision, state: 'new', duty: null }
   }
 
   /** Ends the subject's pending conditions and puts its open items (only «nothing happened» ones for `stale`) in `state`. */
