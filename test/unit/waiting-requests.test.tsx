@@ -134,6 +134,15 @@ describe('useWaitingRequests', () => {
     expect(asked.filter((each) => each === 'agent.requests')).toHaveLength(1)
   })
 
+  // A closed Session has no live requests, and main refuses to be asked about it («No live Session»): a badge
+  // mounted again and again on the canvas must not ask each time.
+  it('a closed Session: asks main nothing on mounting', async () => {
+    const { useWaitingRequests, ASK_OPEN_REQUESTS_AFTER_MS } = await modules()
+    renderHook(() => useWaitingRequests('s', 'closed'))
+    await act(() => new Promise((resolve) => setTimeout(resolve, ASK_OPEN_REQUESTS_AFTER_MS + 150)))
+    expect(asked).toEqual([])
+  })
+
   it('a Session that is not at needs_permission, with its request already in this window: asks main nothing', async () => {
     const { useWaitingRequests, acceptAgentEvent, ASK_OPEN_REQUESTS_AFTER_MS } = await modules()
     acceptAgentEvent({ sessionId: 's', event: QUESTION })

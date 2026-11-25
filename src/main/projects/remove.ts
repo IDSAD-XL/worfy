@@ -18,16 +18,20 @@
 //      must all be the folder or inside it: a Profile that also covers paths outside it (the folder is
 //      one repository of a Project over several) is refused, since removing it would take the others;
 //   2. a default Workflow folder that holds files or commits is refused here, before anything closes;
-//   3. the Orchestrators of the Project and of every other listed Project inside its folder (they share
-//      the Profile) stop and stay closed, and every Session whose folder is inside the Project's is
-//      closed and waited for; then worfy's own watches of those Projects (Tickets, documents) close
+//   3. the Orchestrators of the Project and of every other listed Project inside its folder that shares
+//      its Profile (one whose Profile cannot be told counts as sharing it) stop and stay closed, and every
+//      Session whose folder is inside the Project's is closed and waited for — except the Sessions inside a
+//      listed Project with a Profile of its own (a repository registered on its own inside a monorepo,
+//      worfy-polish ticket 147), which the removal leaves alone; then worfy's own watches of the Projects
+//      that go or share the Profile (Tickets, documents) close
 //      until the end: a Silent Project's Workflow folder lies in the Profile folder, and Windows
 //      refuses the script's rename of a folder while a watch holds a handle inside it (EPERM);
 //   4. `project-connect --remove <profile>`; a refusal or a failure leaves the Project in the list, with
 //      the script's words. "No such profile" counts as done only when no registry entry of the Profile
 //      is left: otherwise nothing was freed;
 //   5. the Project leaves worfy's list (its data folder stays, as with "Remove from list"); the other
-//      listed Projects inside its folder stay, without a Profile, and the answer says so;
+//      listed Projects inside its folder that shared its Profile stay, without a Profile, and the answer
+//      says so; one with a Profile of its own stays as it was, and the answer does not name it;
 //   6. whatever the answer, the Orchestrators are let go and the watches are made again.
 //
 // Everything that reaches outside comes in through ProjectRemovalDeps (src/main/ipc/projects.ts wires

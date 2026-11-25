@@ -208,7 +208,8 @@ refuses the call. The card has no "Always allow".
 
 **A window that missed the request.** A window that opened or reloaded after a request or a question went out asks main
 for the open ones and draws their cards, so a Session at "needs permission" always has its card. It asks once when it
-shows the Session in any state too, since a background task can wait for an answer while the Session itself is idle. The Node's badge then
+shows a Session that is not closed, in any other state too, since a background task can wait for an answer while the
+Session itself is idle. The Node's badge then
 tells a question ("Waits for answer") from a permission request ("Needs permission") as before. Should main have no open
 request either, the chat says the Session waits for an answer this window cannot show; Interrupt refuses it.
 

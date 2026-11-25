@@ -303,6 +303,19 @@ describe('an answered question read back from the Session file', () => {
     expect(screen.getAllByTestId('question-answer-text').map((each) => each.textContent)).toEqual(['Teams', 'Free for a year, then per seat'])
   })
 
+  it('an answer of the owner’s own words with `", ` inside it is read whole, up to the next question', () => {
+    const own = 'Teams, then "Solo", once it pays'
+    render(
+      <Product
+        events={[
+          ask('ask-7', [...ONE, { question: PRICE, header: 'Price', labels: ['Per seat', 'Flat'] }]),
+          told('ask-7', `The user answered: "${SEGMENT}"="${own}", "${PRICE}"="Flat". Read the answers carefully — they may request clarification, changes, or that you not proceed — and follow what they actually say.`),
+        ]}
+      />,
+    )
+    expect(screen.getAllByTestId('question-answer-text').map((each) => each.textContent)).toEqual([own, 'Flat'])
+  })
+
   it('a live question is drawn once, by its request: its call and result add no second card', () => {
     const request: AgentEvent = {
       type: 'question_request',

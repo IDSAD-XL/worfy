@@ -56,7 +56,7 @@ export const ASK_OPEN_REQUESTS_AFTER_MS = 250
  * (worfy-product-session ticket 30): the Session would wait for an answer with no card to give it. It
  * asks once per such stretch, after ASK_OPEN_REQUESTS_AFTER_MS; `unseen` holds from main's answer to the
  * end of the stretch, and a new stretch starts without it. Holding none of them on mounting, it asks once
- * as well, in any state (worfy-polish ticket 147): a background task's request leaves the Session `idle`.
+ * as well, in any state but `closed` (worfy-polish ticket 147): a background task's request leaves the Session `idle`.
  */
 export function useWaitingRequests(sessionId: string | null, state: string | null): WaitingRequests {
   const requests = useOpenRequests(sessionId)
@@ -65,7 +65,8 @@ export function useWaitingRequests(sessionId: string | null, state: string | nul
   // The Session this mount has asked main about, or found its requests in the window for: it asks no more on mounting.
   const checked = useRef<string | null>(null)
   useEffect(() => {
-    if (sessionId === null || checked.current === sessionId) return
+    // A closed Session has no live requests, and main refuses to be asked about it.
+    if (sessionId === null || state === 'closed' || checked.current === sessionId) return
     // At needs_permission the stretch's own ask below is the one.
     if (missing) return
     if (!none) {
@@ -77,7 +78,7 @@ export function useWaitingRequests(sessionId: string | null, state: string | nul
       void loadOpenRequests(sessionId)
     }, ASK_OPEN_REQUESTS_AFTER_MS)
     return () => clearTimeout(timer)
-  }, [sessionId, missing, none])
+  }, [sessionId, state, missing, none])
   // The Session whose requests main was asked for in this stretch, once its answer is in.
   const [asked, setAsked] = useState<string | null>(null)
   useEffect(() => {
