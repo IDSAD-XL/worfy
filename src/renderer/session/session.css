@@ -886,8 +886,11 @@ body.w-split-dragging * {
   white-space: pre-wrap;
 }
 
-/* A message still in the Session's queue (ticket 28): the owner's bubble, dimmed, last in the chat. */
-.w-pmsg--queued {
+/*
+ * A message still in the Session's queue (ticket 28): the owner's bubble, dimmed, last in the chat. One not
+ * sent is an error the user must see: it is not dimmed, and its label stays readable (worfy-polish ticket 140).
+ */
+.w-pmsg--queued:not([data-status='not-sent']) {
   opacity: 0.55;
 }
 

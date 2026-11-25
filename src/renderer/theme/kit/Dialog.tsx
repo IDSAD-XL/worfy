@@ -87,8 +87,9 @@ export function Dialog(props: DialogProps) {
   // before the focus moves into the window; given back in a passive one, after the commit that
   // closes: Base UI keeps the closing window in the DOM for that commit, and React gives the focus
   // back to the element that had it when the commit began — the window — at its end.
-  // Only when the focus is lost — still in this window, fallen to the page, or on an element gone from it:
-  // a newer window that took the focus keeps it (worfy-polish ticket 140).
+  // Only when the focus is lost — still in this window or fallen to the page (an element taken off the page
+  // leaves the focus on <body>): a newer window, or the element an action of the window focused, keeps it
+  // (worfy-polish ticket 140).
   const previous = useRef<HTMLElement | null>(null)
   const shownPopup = useRef<HTMLElement | null>(null)
   useLayoutEffect(() => {
@@ -101,7 +102,7 @@ export function Dialog(props: DialogProps) {
       const closing = shownPopup.current
       previous.current = null
       const focused = document.activeElement
-      const lost = focused === null || focused === document.body || !focused.isConnected || closing?.contains(focused) === true
+      const lost = focused === null || focused === document.body || closing?.contains(focused) === true
       // Without scrolling: a transcript scrolled away from the opener stays where it is.
       if (lost && back?.isConnected === true) back.focus({ preventScroll: true })
     }

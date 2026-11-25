@@ -530,9 +530,20 @@ describe('one kit window replacing another', () => {
         <button type="button" onClick={() => setFirst(true)}>
           opener
         </button>
+        {/* A panel of the page that is no window, as Getting started: a command focuses its heading. */}
+        <h2 tabIndex={-1}>Panel heading</h2>
         <Dialog open={first} onClose={() => setFirst(false)} label="First window" className="probe">
           <button type="button" onClick={() => setSecond(true)}>
             Open second
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              document.querySelector<HTMLElement>('h2')?.focus()
+              setFirst(false)
+            }}
+          >
+            Focus the panel
           </button>
           <button
             type="button"
@@ -583,6 +594,16 @@ describe('one kit window replacing another', () => {
     expect(screen.queryByRole('dialog', { name: 'First window' })).toBeNull()
     const second = screen.getByRole('dialog', { name: 'Second window' })
     expect(second.contains(document.activeElement)).toBe(true)
+  })
+
+  // Audit finding 142: the Command palette is a kit window, and its command «Getting started» focuses the
+  // heading of a panel of the page; the palette closing must leave the focus there.
+  it('a window whose action put the focus on the page before it closed leaves the focus there', async () => {
+    await openFirst()
+    fireEvent.click(screen.getByRole('button', { name: 'Focus the panel' }))
+    await flush()
+    expect(screen.queryByRole('dialog', { name: 'First window' })).toBeNull()
+    expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Panel heading' }))
   })
 
   it('a window closing alone still gives the focus back to its opener', async () => {

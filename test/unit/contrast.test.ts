@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -142,29 +143,67 @@ for (const [scheme, veil] of [
 }
 
 // The «not sent» label of a queued message in a Product Session's chat (session/session.css, worfy-polish
-// ticket 140): red text on the chat's ground in both themes. Its colour is a token of tokens.css or of
-// autopilot/autopilot-modal.css, where `--danger` lives; the rule is read from the stylesheet the app ships.
+// ticket 140): red text the user can read on the chat's ground in both themes — its colour as the user sees
+// it, blended with the ground by the opacity of the label and of every element around it. The rules come from
+// the stylesheet the app ships; the colour is a token of tokens.css or of autopilot/autopilot-modal.css, where
+// `--danger` lives.
 describe('the «not sent» label of a queued message', () => {
   const read = (path: string): string => readFileSync(join(import.meta.dirname, '../../src/renderer', path), 'utf8')
-  const session = read('session/session.css')
   const modal = read('autopilot/autopilot-modal.css')
-  const selector = ".w-pmsg--queued[data-status='not-sent'] .w-pmsg__queued"
-  const rule = blockAfter(`${selector} {`, 0, session)
-  const token = /color\s*:\s*var\((--[\w-]+)\)/.exec(rule)?.[1]
+  // Every rule of session.css with its selectors, in source order; a rule inside @media counts as applying.
+  const rules = [...read('session/session.css').replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(([, selectors = '', body = '']) => ({
+    selectors: selectors.split(',').map((each) => each.trim()),
+    body,
+  }))
+  /** The value of `property` the last rule matching `element` declares: source order, as the rules of these elements do not compete by specificity. */
+  const declared = (element: Element, property: string): string | undefined => {
+    let value: string | undefined
+    for (const rule of rules) {
+      const found = new RegExp(`(?:^|[;\\s])${property}\\s*:\\s*([^;]+)`).exec(rule.body)?.[1]?.trim()
+      if (found === undefined) continue
+      const matched = rule.selectors.some((selector) => {
+        try {
+          return element.matches(selector)
+        } catch {
+          return false // @keyframes steps and the like
+        }
+      })
+      if (matched) value = found
+    }
+    return value
+  }
+  /** The label of a queued message as session/QueuedMessages.tsx draws it, with its `status`. */
+  const labelOf = (status: string): Element => {
+    document.body.innerHTML = `<div class="w-pmsg w-pmsg--you w-pmsg--queued" data-status="${status}"><div class="w-pmsg__meta"><span class="w-pmsg__queued">${status}</span></div><div class="w-pmsg__bubble"></div></div>`
+    return document.querySelector('.w-pmsg__queued')!
+  }
+  /** The opacity the label is drawn with: its own times that of every element around it. */
+  const opacityOf = (label: Element): number => {
+    let opacity = 1
+    for (let element: Element | null = label; element !== null; element = element.parentElement) opacity *= Number(declared(element, 'opacity') ?? 1)
+    return opacity
+  }
   const schemes = {
     light: { ...light, ...tokensIn(blockAfter(':root {', 0, modal)) },
     dark: { ...dark, ...tokensIn(blockAfter(':root {', 0, modal)), ...tokensIn(blockAfter('@media (prefers-color-scheme: dark)', 0, modal)) },
   }
+  const label = labelOf('not-sent')
+  const token = /^var\((--[\w-]+)\)$/.exec(declared(label, 'color') ?? '')?.[1]
+  const opacity = opacityOf(label)
 
-  it('takes its colour from a token', () => {
-    expect(token, rule).toBeDefined()
+  it('takes its colour from a token; a message still queued stays dimmed, one not sent is not', () => {
+    expect(token).toBeDefined()
+    expect(opacityOf(labelOf('queued'))).toBeLessThan(1)
+    expect(opacity).toBe(1)
   })
 
   for (const [scheme, tokens] of Object.entries(schemes)) {
-    it.each(['--bg', '--surface'])(`${scheme} theme: reads on %s at a contrast of at least 4.5:1`, (ground) => {
+    it.each(['--bg', '--surface'])(`${scheme} theme: reads on %s, as the user sees it, at a contrast of at least 4.5:1`, (ground) => {
       const colour = tokens[token ?? ''] ?? ''
       expect(colour, `${token} in the ${scheme} theme`).toMatch(/^#[0-9a-f]{6}$/i)
-      expect(contrast(colour, tokens[ground] ?? ''), `${token} ${colour} on ${ground} ${tokens[ground]}`).toBeGreaterThanOrEqual(4.5)
+      const channel = (offset: number) => Number.parseInt(colour.slice(offset, offset + 2), 16)
+      const seen = veiled(tokens[ground] ?? '', [channel(1), channel(3), channel(5), opacity])
+      expect(contrast(seen, tokens[ground] ?? ''), `${token} ${colour} at opacity ${opacity} (${seen}) on ${ground} ${tokens[ground]}`).toBeGreaterThanOrEqual(4.5)
     })
   }
 })
