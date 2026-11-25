@@ -153,6 +153,14 @@ export class OrchestratorContinue {
     this.entries.set(view.projectId, this.entry(view.projectId, view.sessionId, view.vendor ?? UNNAMED_VENDOR))
   }
 
+  /**
+   * The Session of the Project's Orchestrator as its views last named it; null before the first. The closed list of
+   * the Assistant (worfy-assistant ticket 08) wakes it, and leaves its refused turns to this module.
+   */
+  sessionOf(projectId: string): string | null {
+    return this.entries.get(projectId)?.sessionId ?? null
+  }
+
   /** What the Project's Orchestrator waits for to be continued; null when nothing waits. */
   wait(projectId: string): ContinueWait | null {
     const entry = this.entries.get(projectId)
