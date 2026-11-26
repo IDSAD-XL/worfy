@@ -2,6 +2,7 @@
 
 Type: bug
 Status: claimed
+PR: #2294
 Branch: worfy-polish/163
 Blocked by: —
 Source: баг владельца 2026-11-26: «при нажатии на Journal походу крашится рендер». На снимке — всё окно Stable
