@@ -131,6 +131,11 @@ describe('the scheduler in the running app', () => {
     try {
       expect(kinds).toEqual([])
       appSettingsStore().set({ assistantSchedule: { checks: { slack: { enabled: true, sleepOutsideWorkHours: false } } } })
+      // The Assistant is off until the person turns it on (ticket 15): a check turned on does not go before. The
+      // change plans at once, so a run it started would be there now.
+      expect(kinds).toEqual([])
+      expect(checkScheduler().runNow('slack')).toBe(false)
+      appSettingsStore().set({ assistant: { on: true } })
       await expect.poll(() => kinds).toEqual(['slack'])
       expect(JSON.parse(readFileSync(join(env.scratch, 'data', CHECK_MARKS_FILE), 'utf8'))).toMatchObject({ slack: { startedAt: expect.any(Number) } })
       power.emit('suspend')

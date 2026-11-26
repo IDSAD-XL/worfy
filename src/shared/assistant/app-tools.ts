@@ -11,6 +11,7 @@ import { z } from 'zod'
 import { PR_FOLLOW_ACTIONS } from '../projects/action-templates'
 import { answerTopicSchema, ANSWER_TEXT_MAX, COMMITMENT_TEXT_MAX } from './memory'
 import { preparedSessionSchema, proposalTitleSchema, proposalWhySchema } from './proposals'
+import { settingsChangeSchema } from './settings-change'
 
 export const WORFY_APP_SERVER_NAME = 'worfy-app'
 
@@ -43,7 +44,7 @@ export const appToolShapes = {
   features_search: { query: z.string().trim().min(2).max(200), limit: z.number().int().min(1).max(FEATURES_SEARCH_MAX).optional() },
   features_read: { page: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9-]*$/u).max(100), section: z.string().trim().min(1).max(200).optional() },
   proposals_list: {},
-  proposal_create: { title: proposalTitleSchema, why: proposalWhySchema, item: id.optional(), prepare: preparedSessionSchema.optional() },
+  proposal_create: { title: proposalTitleSchema, why: proposalWhySchema, item: id.optional(), prepare: preparedSessionSchema.optional(), change: settingsChangeSchema.optional() },
   proposal_update: { id, title: proposalTitleSchema.optional(), why: proposalWhySchema.optional(), prepare: preparedSessionSchema.nullable().optional() },
   proposal_remove: { id },
   action_run: { item: id, action: z.enum(APP_ACTIONS), follow: z.enum(PR_FOLLOW_ACTIONS).optional(), epic: z.string().regex(EPIC_NAME).optional() },
@@ -89,7 +90,7 @@ export const appToolDescriptions: Record<AppToolName, string> = {
     'Read a feature page found by features_search: its text in the language of the Guide (English when it has no translation yet), its path, its link (url), its sections and the Guide topics that cover it. section reads one section; a long page is cut at 40000 characters (truncated: true) — read its sections then.',
   proposals_list: 'Your open proposals.',
   proposal_create:
-    'Propose a step to the user: title, why, the item it answers, and with prepare the Session you would start — its Project of this Machine and its exact text. Nothing starts: the user sees the text and starts it with a click.',
+    'Propose a step to the user: title, why, the item it answers, and with prepare the Session you would start — its Project of this Machine and its exact text. Nothing starts: the user sees the text and starts it with a click. With change, propose a change of your own settings — workHours, checks (slack, jira, main-ci: enabled, intervalMinutes 5-1440, sleepOutsideWorkHours), dailyWakeLimit (1-200), duties by id (enabled, thresholdMinutes, modes of its actions): the user sees each setting before and after, and nothing changes until they press Apply.',
   proposal_update: 'Change a proposal\'s title, why or prepared Session (prepare: null drops it). Answers the proposal as kept.',
   proposal_remove: 'Remove a proposal that no longer holds.',
   action_run:

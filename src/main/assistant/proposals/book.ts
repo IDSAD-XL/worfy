@@ -7,6 +7,7 @@
 // nothing.
 import { randomUUID } from 'node:crypto'
 import type { AssistantProposal, PreparedSession } from '../../../shared/assistant/proposals'
+import type { ChangeRow, SettingsChange } from '../../../shared/assistant/settings-change'
 import { appNow } from '../../clock'
 import { dataRoot } from '../../storage/paths'
 import { assistantMemoryPath, sessionMemoryStore } from '../duties/memory'
@@ -30,9 +31,12 @@ export interface ProposalDraft {
   why: string
   item: string | null
   prepare: PreparedSession | null
+  /** A change of the Assistant's settings for the card «before → after» (ticket 15); absent: none. */
+  change?: SettingsChange | null
 }
 
-export type ProposalChange = Partial<ProposalDraft>
+/** What may change of a proposal; `applied` only by the user's Apply (AssistantWindow.apply), never by `worfy-app`. */
+export type ProposalChange = Partial<ProposalDraft> & { applied?: { at: number; rows: ChangeRow[] } | null }
 
 export type ProposalListener = (proposals: readonly AssistantProposal[]) => void
 

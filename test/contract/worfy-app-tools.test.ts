@@ -444,6 +444,27 @@ describe('worfy-app: proposals', () => {
     expect((await rpc.call('proposal_create', { title: 'x', why: 'y', item: 'no-such-item' })).isError).toBe(true)
     expect(proposals.list()).toEqual([])
   })
+
+  it('a change of the settings is only proposed: kept on the proposal for the card «before → after», applied by nothing here (ticket 15)', async () => {
+    const { rpc, proposals, duties } = await world()
+    const change = { checks: { slack: { intervalMinutes: 20 } }, duties: { 'work-stalled': { modes: { 'wake-orchestrator': 'pre-approved' } } } }
+    const created = json<{ proposal: { id: string; change: unknown; applied?: unknown } }>(await rpc.call('proposal_create', { title: 'Check Slack less often', why: 'You asked for it', change }))
+    expect(created.proposal).toMatchObject({ id: 'prop-1', change })
+    expect(proposals.list()[0]).toMatchObject({ change })
+    // The duty is as it was: only the user's Apply in the window changes it.
+    expect(duties.look([], { countShown: false }).duties.find((duty) => duty.id === 'work-stalled')?.modes['wake-orchestrator']).toBe('ask')
+    // proposal_update takes no `applied`: the server drops the key, so the agent cannot mark a change as applied.
+    await rpc.call('proposal_update', { id: 'prop-1', applied: { at: NOW, rows: [] } })
+    expect(proposals.list()[0]?.applied ?? null).toBeNull()
+  })
+
+  it('refuses a change the settings could never take: a duty there is not, a mode its action may not have, an interval off its bounds', async () => {
+    const { rpc, proposals } = await world()
+    for (const change of [{ duties: { 'no-such-duty': { enabled: false } } }, { duties: { 'waits-for-user': { modes: { 'pr-follow': 'self' } } } }, { checks: { slack: { intervalMinutes: 2 } } }, {}]) {
+      expect((await rpc.call('proposal_create', { title: 'x', why: 'y', change })).isError, JSON.stringify(change)).toBe(true)
+    }
+    expect(proposals.list()).toEqual([])
+  })
 })
 
 describe('worfy-app: actions', () => {

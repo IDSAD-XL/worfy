@@ -491,6 +491,18 @@ describe('the Limits and the daily limit before an automatic wake', () => {
     expect(decision?.type === 'wake' && decision.items.map((item) => item.id)).toEqual([stop.id])
   })
 
+  it('holds at the daily limit the user chose in Settings (worfy-assistant ticket 15), read at each look', () => {
+    let limit = 2
+    const wake = new WakePlanner({ now: () => clock, items: () => items, workHours: () => hours, limits: () => limits, ledger, store, dailyWakeLimit: () => limit })
+    ledger.noteWake('filler-1', false)
+    ledger.noteWake('filler-2', false)
+    clock = wed(23)
+    runStopped()
+    expect(wake.evaluate()).toMatchObject({ type: 'held', verdict: { reason: 'daily-limit', wakes: 2, limit: 2 } })
+    limit = 3
+    expect(wake.evaluate()).toMatchObject({ type: 'wake', reason: 'urgent' })
+  })
+
   it('an escalation the Limits hold stays urgent until they let it go', () => {
     const wake = planner()
     clock = wed(9)

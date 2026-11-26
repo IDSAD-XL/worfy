@@ -207,6 +207,11 @@ export class Duties {
     })
   }
 
+  /** How many ignored proposals or dislikes in a row pause a duty now: the user's number, else DEFAULT_PAUSE_AFTER. */
+  pauseAfter(): number {
+    return this.load().pauseAfter ?? DEFAULT_PAUSE_AFTER
+  }
+
   /** Ends the pause of a duty; its run of ignored proposals and dislikes starts again from none. */
   resume(id: string): void {
     this.change((memory) => {

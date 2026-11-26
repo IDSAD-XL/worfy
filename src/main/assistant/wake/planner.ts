@@ -91,6 +91,8 @@ export interface WakePlannerOptions {
   /** The usage ledger of ticket 05: it counts the automatic wakes of the day. */
   ledger: { automaticWakesToday(): number; noteWake(id: string, urgent: boolean): void }
   store: WakeStore
+  /** The daily limit of automatic wakes the user chose (worfy-assistant ticket 15), read at each look; ASSISTANT_DAILY_WAKE_LIMIT when absent. */
+  dailyWakeLimit?: () => number
   /** Where a wake the ledger could not note is told of; console.warn when absent. */
   log?: (message: string, error: unknown) => void
 }
@@ -129,7 +131,7 @@ export class WakePlanner {
       this.held = null
       return null
     }
-    const verdict = assistantWakeGate({ limits: this.options.limits(), urgent, wakesToday: this.options.ledger.automaticWakesToday(), now })
+    const verdict = assistantWakeGate({ limits: this.options.limits(), urgent, wakesToday: this.options.ledger.automaticWakesToday(), limit: this.options.dailyWakeLimit?.(), now })
     if (!verdict.ok) {
       this.held = { type: 'held', reason, verdict }
       return this.held

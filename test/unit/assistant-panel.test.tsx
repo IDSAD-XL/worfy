@@ -146,7 +146,7 @@ describe('the Assistant section', () => {
   })
 
   it('Prepare of a proposal of no item names its Project, not its id', async () => {
-    const proposal = { id: 'proposal-1', title: 'Check PR #87', why: 'You asked.', prepare: { projectId: 'mobile-0001', projectName: 'mobile-app', text: 'Review #87.', by: 'assistant' as const }, createdAt: NOW, rating: null }
+    const proposal = { id: 'proposal-1', title: 'Check PR #87', why: 'You asked.', prepare: { projectId: 'mobile-0001', projectName: 'mobile-app', text: 'Review #87.', by: 'assistant' as const }, change: null, createdAt: NOW, rating: null }
     render(
       <>
         <AssistantPanel view={view({ items: [], proposals: [proposal] })} />
@@ -232,5 +232,38 @@ describe('the Linked machine in the section', () => {
   it('shows no Linked machine part without one', () => {
     render(<AssistantPanel view={view()} />)
     expect(screen.queryByTestId('assistant-linked')).toBeNull()
+  })
+})
+
+describe('a card «before → after» with Apply (worfy-assistant ticket 15)', () => {
+  const change = (applied: number | null) => ({
+    id: 'proposal-9',
+    title: 'Check Slack less often',
+    why: 'You asked for every 20 minutes.',
+    prepare: null,
+    change: { rows: [{ label: 'Slack interval', before: 'Every 10 min', after: 'Every 20 min' }], applied },
+    createdAt: NOW,
+    rating: null,
+  })
+
+  it('shows each setting before and after; Apply sends the proposal to main, Not now dismisses it', async () => {
+    render(<AssistantPanel view={view({ items: [], proposals: [change(null)] })} />)
+    const card1 = screen.getByTestId('assistant-change')
+    expect(within(card1).getByText('Slack interval')).toBeTruthy()
+    expect(within(card1).getByText('Every 10 min')).toBeTruthy()
+    expect(within(card1).getByText('Every 20 min')).toBeTruthy()
+    expect(card1.textContent).toContain('Nothing changes until you press Apply')
+    fireEvent.click(within(card1).getByRole('button', { name: 'Apply' }))
+    await waitFor(() => expect(ipc.invoke).toHaveBeenCalledWith('assistant.apply', { proposalId: 'proposal-9' }))
+    fireEvent.click(within(card1).getByRole('button', { name: 'Not now' }))
+    await waitFor(() => expect(ipc.invoke).toHaveBeenCalledWith('assistant.dismissProposal', { proposalId: 'proposal-9' }))
+  })
+
+  it('once applied: no Apply, the time it was applied, and Dismiss to clear the card', () => {
+    render(<AssistantPanel view={view({ items: [], proposals: [change(Date.now())] })} />)
+    const card1 = screen.getByTestId('assistant-change')
+    expect(within(card1).queryByRole('button', { name: 'Apply' })).toBeNull()
+    expect(card1.textContent).toMatch(/Applied at \d\d:\d\d/)
+    expect(within(card1).getByRole('button', { name: 'Dismiss' })).toBeTruthy()
   })
 })

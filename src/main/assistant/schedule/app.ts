@@ -4,6 +4,7 @@
 // folder (ADR-0005). startCheckScheduler() starts it once the app is ready and follows the system's sleep
 // and the changes of the settings; the checks of sources register on checkScheduler() by their kind.
 import { join } from 'node:path'
+import { assistantOn } from '../../../shared/assistant/settings'
 import { appNow } from '../../clock'
 import { appSettingsStore } from '../../settings/store'
 import { readJsonFile, writeJsonFile } from '../../storage/json-file'
@@ -34,7 +35,10 @@ let shared: CheckScheduler | undefined
 
 /** The scheduler of the running app; creating it reads no disk. */
 export function checkScheduler(): CheckScheduler {
-  shared ??= new CheckScheduler({ now: appNow, settings: () => appSettingsStore().get(), marks: fileCheckMarks(join(dataRoot(), CHECK_MARKS_FILE)) })
+  shared ??= new CheckScheduler({ now: appNow, settings: () => appSettingsStore().get(), marks: fileCheckMarks(join(dataRoot(), CHECK_MARKS_FILE)),
+    // Turned off in Settings, the Assistant checks no source (ticket 15); the change reschedules below.
+    active: () => assistantOn(appSettingsStore().get()),
+  })
   return shared
 }
 

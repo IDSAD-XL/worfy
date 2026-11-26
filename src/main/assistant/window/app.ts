@@ -6,8 +6,8 @@
 // What waits on the Linked machines (worfy-assistant ticket 18, linked.ts) is read over the link at the start, on every
 // look and on every change RemoteCalls tells of (a connection, an unlink, a change of access), and shown read-only.
 //
-// The conversation reaches the Assistant's Session of ticket 10 (src/main/assistant/session/app.ts, appAssistant) once
-// that ticket is in: until then the Assistant is off and a message is refused with ASSISTANT_OFF.
+// The conversation reaches the Assistant's Session of ticket 10 (src/main/assistant/session/app.ts, appAssistant) while
+// it runs: the switch of Settings → Assistant (ticket 15) starts it; while it is off a message is refused with ASSISTANT_OFF.
 import { workHoursOf } from '../../../shared/assistant/schedule/settings'
 import { assistantReveal, assistantWaiting } from '../../../shared/ipc/assistant'
 import { appLimits } from '../../agent/limits'
@@ -27,6 +27,7 @@ import { appAssistantUsage } from '../budget/ledger'
 import { appAttentionCore } from '../core/app'
 import { appDuties } from '../duties/app'
 import { appProposals } from '../proposals/book'
+import { applySettingsChange } from '../settings/panel'
 import { appAssistant, onAssistantRun } from '../session/app'
 import { AssistantNotices } from './notices'
 import { LinkedWaits } from './linked'
@@ -63,8 +64,8 @@ export function appLinkedWaits(): LinkedWaits {
 }
 
 /**
- * The Assistant while it runs; null while it is off (ticket 10, appAssistant). Nothing in the app turns it on before the
- * switch of ticket 15, so until then the section says «Assistant is off on this machine» and refuses a message.
+ * The Assistant while it runs; null while it is off (ticket 10, appAssistant). The switch of Settings → Assistant (ticket
+ * 15) turns it on; while it is off the section says «Assistant is off on this machine» and refuses a message.
  */
 function runningAssistant(): AssistantConversation | null {
   return appAssistant()
@@ -85,6 +86,11 @@ export function appAssistantWindow(): AssistantWindow {
       return { today: summary.day.total.tokens, week: summary.week.total.tokens, shares: ledger.limitsShare(appLimits().snapshot()) }
     },
     workHours: () => workHoursOf(appSettingsStore().get()),
+    // A card «before → after» reads the settings and the duties as they are, and its Apply changes them (ticket 15).
+    settings: {
+      now: () => ({ settings: appSettingsStore().get(), duties: appDuties().look([], { countShown: false }).duties }),
+      apply: (change) => applySettingsChange(change, { duties: appDuties(), setSettings: (patch) => void appSettingsStore().set(patch) }),
+    },
     store: windowStateFile(windowStatePath(dataRoot())),
     assistant: runningAssistant,
     nodeOf: (projectId, sessionId) => sharedNodeSessions().list(projectId).find((view) => view.sessionId === sessionId || view.sdkSessionId === sessionId)?.nodeId ?? null,

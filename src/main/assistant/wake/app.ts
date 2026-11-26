@@ -6,6 +6,7 @@
 // list of actions (ticket 08) calls escalate() of the answer, the conversation (ticket 14) userMessage().
 import { join } from 'node:path'
 import { workHoursOf } from '../../../shared/assistant/schedule/settings'
+import { dailyWakeLimitOf } from '../../../shared/assistant/settings'
 import { appLimits } from '../../agent/limits'
 import { appNow } from '../../clock'
 import { projectStore } from '../../projects/store'
@@ -33,6 +34,7 @@ export function startAssistantWake(onWake: (wake: AssistantWake) => void, power:
     limits: () => limits.snapshot(),
     ledger: appAssistantUsage(),
     store: fileWakeStore(join(dataRoot(), WAKE_FILE)),
+    dailyWakeLimit: () => dailyWakeLimitOf(appSettingsStore().get()),
   })
   return runWakeLoop({ planner, now: appNow, onWake, changes: [(listener) => core.subscribe(listener), (listener) => limits.subscribe(listener), onResume(power)] })
 }

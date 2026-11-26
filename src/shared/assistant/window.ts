@@ -7,6 +7,7 @@
 import { z } from 'zod'
 import { attentionSourceSchema, attentionStateSchema, attentionSubjectSchema, isUrgentStop, type AttentionItem } from './attention'
 import { linkedMachineWaitsSchema } from './linked'
+import { changeRowSchema } from './settings-change'
 
 /**
  * Where Open takes the user: a Session on the Canvas, the Pull requests view on a PR, the Pipeline board of a Project, a
@@ -73,12 +74,20 @@ export const windowItemSchema = z.object({
 })
 export type WindowItem = z.output<typeof windowItemSchema>
 
-/** A proposal of the Assistant that answers no item shown now (one the user asked for in the conversation). */
+/**
+ * A proposal of the Assistant that answers no item shown now (one the user asked for in the conversation), or one that
+ * changes a setting: its card is always among the proposals, never on an item.
+ */
 export const windowProposalSchema = z.object({
   id: z.string(),
   title: z.string(),
   why: z.string(),
   prepare: prepareViewSchema.nullable(),
+  /**
+   * The card «before → after» of a change of the settings (ticket 15): each setting as it is now and as it would be;
+   * once the user applied it, the rows as they were then and when. Null for a proposal that changes no setting.
+   */
+  change: z.object({ rows: z.array(changeRowSchema), applied: z.number().nullable() }).nullable(),
   createdAt: z.number(),
   rating: ratingSchema.nullable(),
 })

@@ -1,12 +1,18 @@
 // The `assistant` domain (worfy-assistant ticket 14): the Assistant's section of the rail and its own notifications. The
 // window opens the view (`assistant.open`) and then receives every change (`assistant.changed`); each click goes to main,
 // which changes the attention core, the duties and the proposals through their own functions
-// (src/main/assistant/window/view.ts). A system notification of the Assistant, clicked, raises the window and tells it to
-// show the section (`assistant.reveal`). Every channel but one is `local`: the Assistant is this Machine's, and a Linked
-// machine never reaches it (spec, two machines). The one is `assistant.waiting` (worfy-assistant ticket 18), `project` and
-// `read`: a Linked machine reads what waits here and shows it read-only (src/shared/assistant/linked.ts).
+// (src/main/assistant/window/view.ts). Settings → Assistant (ticket 15) reads and changes the duties and the checks here
+// too, and Apply under a card «before → after» goes here. A system notification of the Assistant, clicked, raises the
+// window and tells it to show the section (`assistant.reveal`). Every channel but one is `local`: the Assistant is this
+// Machine's, and a Linked machine never reaches it (spec, two machines). The one is `assistant.waiting` (worfy-assistant
+// ticket 18), `project` and `read`: a Linked machine reads what waits here and shows it read-only
+// (src/shared/assistant/linked.ts).
 import { z } from 'zod'
+import { DUTY_ACTIONS, dutyActionModeSchema } from '../assistant/duties'
 import { linkedWaitsSchema } from '../assistant/linked'
+import { checkKindSchema } from '../assistant/schedule/settings'
+import { dutyThresholdSchema } from '../assistant/settings-change'
+import { assistantSettingsViewSchema } from '../assistant/settings-view'
 import { assistantViewSchema, ratingSchema, snoozeChoiceSchema } from '../assistant/window'
 import { eventChannel, invokeChannel } from './channels'
 
@@ -77,6 +83,36 @@ export const assistantShown = invokeChannel('assistant.shown', z.object({ itemId
  */
 export const assistantWaiting = invokeChannel('assistant.waiting', z.void(), linkedWaitsSchema, 'project', 'read')
 
+/**
+ * Apply under a card «before → after» (ticket 15; story 26): the change of the settings the proposal carries is applied,
+ * and the card then says when. Refused, with the reason, for a proposal that is gone, changes no setting or was applied.
+ */
+export const assistantApply = invokeChannel('assistant.apply', z.object({ proposalId: id }), z.object({}), 'local')
+
+/**
+ * Settings → Assistant (ticket 15): the duties, the rules, the checks with their failures in a row, the wakes of today
+ * and the usage. The app settings of the Assistant go through `appSettings`; the window asks this again on each
+ * `assistant.changed`.
+ */
+export const assistantSettings = invokeChannel('assistant.settings', z.void(), assistantSettingsViewSchema, 'local')
+
+/** Changes what the user chose of a duty: whether it is on, its threshold, the mode of an action. Refused, with the reason, for a mode the action may not have. */
+export const assistantConfigureDuty = invokeChannel(
+  'assistant.configureDuty',
+  z.object({ dutyId: id, enabled: z.boolean().optional(), thresholdMinutes: dutyThresholdSchema.optional(), modes: z.partialRecord(z.enum(DUTY_ACTIONS), dutyActionModeSchema).optional() }),
+  z.object({}),
+  'local',
+)
+
+/** Ends the pause of a duty. */
+export const assistantResumeDuty = invokeChannel('assistant.resumeDuty', z.object({ dutyId: id }), z.object({}), 'local')
+
+/** How many ignored proposals or dislikes in a row pause a duty. */
+export const assistantPauseAfter = invokeChannel('assistant.pauseAfter', z.object({ count: z.number().int().min(1).max(100) }), z.object({}), 'local')
+
+/** Check now: a run of the check of `kind` at once, whatever its time; `started: false` when it runs already, or the Assistant is off. */
+export const assistantCheckNow = invokeChannel('assistant.checkNow', z.object({ kind: checkKindSchema }), z.object({ started: z.boolean() }), 'local')
+
 declare module './channels' {
   interface IpcContract {
     'assistant.open': typeof assistantOpen
@@ -91,5 +127,11 @@ declare module './channels' {
     'assistant.send': typeof assistantSend
     'assistant.shown': typeof assistantShown
     'assistant.waiting': typeof assistantWaiting
+    'assistant.apply': typeof assistantApply
+    'assistant.settings': typeof assistantSettings
+    'assistant.configureDuty': typeof assistantConfigureDuty
+    'assistant.resumeDuty': typeof assistantResumeDuty
+    'assistant.pauseAfter': typeof assistantPauseAfter
+    'assistant.checkNow': typeof assistantCheckNow
   }
 }

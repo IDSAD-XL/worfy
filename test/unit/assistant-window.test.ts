@@ -22,7 +22,7 @@ import { ProposalBook } from '../../src/main/assistant/proposals/book'
 import { AssistantNotices } from '../../src/main/assistant/window/notices'
 import { AssistantReveal, type RevealClient } from '../../src/main/assistant/window/reveal'
 import { memoryWindowState } from '../../src/main/assistant/window/store'
-import { ASSISTANT_OFF, AssistantWindow, ITEM_GONE, nextWorkHoursAfter, type AssistantRunLike } from '../../src/main/assistant/window/view'
+import { ASSISTANT_OFF, AssistantWindow, ITEM_GONE, nextWorkHoursAfter, type AssistantRunLike, type AssistantWindowDeps } from '../../src/main/assistant/window/view'
 import { removeTree } from '../../src/main/storage/remove'
 
 const temp = mkdtempSync(join(tmpdir(), 'worfy-assistant-window-'))
@@ -51,7 +51,7 @@ interface World {
 }
 
 let n = 0
-function world(options: { demo?: boolean } = {}): World {
+function world(options: { demo?: boolean } = {}, extra: Partial<AssistantWindowDeps> = {}): World {
   const dir = join(temp, `w${++n}`)
   const clock = { now: T0 }
   const now = () => clock.now
@@ -92,6 +92,7 @@ function world(options: { demo?: boolean } = {}): World {
     },
     newId: () => `m${++id}`,
     linked: () => w.linked,
+    ...extra,
   })
   return w
 }
@@ -666,7 +667,7 @@ describe('the proposals of no item', () => {
   it('lists a proposal the user asked for, with Prepare, and Dismiss removes it', () => {
     const w = world()
     const made: AssistantProposal = w.book.create({ title: 'Prepare a check of #87', why: 'You asked in the conversation.', item: null, prepare: { projectId: MOBILE, text: '/worfy:code-review mobile-app#87' } })
-    expect(w.window.view().proposals).toEqual([{ id: made.id, title: 'Prepare a check of #87', why: 'You asked in the conversation.', prepare: { projectId: MOBILE, projectName: 'mobile-app', text: '/worfy:code-review mobile-app#87', by: 'assistant' }, createdAt: T0, rating: null }])
+    expect(w.window.view().proposals).toEqual([{ id: made.id, title: 'Prepare a check of #87', why: 'You asked in the conversation.', prepare: { projectId: MOBILE, projectName: 'mobile-app', text: '/worfy:code-review mobile-app#87', by: 'assistant' }, change: null, createdAt: T0, rating: null }])
     w.window.dismissProposal(made.id)
     expect(w.window.view().proposals).toEqual([])
   })
@@ -818,5 +819,71 @@ describe('two machines (worfy-assistant ticket 18)', () => {
 
   it('without Linked machines the list of them is empty', () => {
     expect(w.window.view().linked).toEqual([])
+  })
+})
+
+describe('a card «before → after» with Apply (worfy-assistant ticket 15; story 26)', () => {
+  /** The settings as a test keeps them: the work hours, the checks and the daily limit; Apply writes them here. */
+  function settingsWorld() {
+    let settings: { assistantSchedule?: { checks?: { slack?: { intervalMinutes?: number } } }; assistant?: { dailyWakeLimit?: number } } = {}
+    const applied: unknown[] = []
+    const w = world({}, {
+      settings: {
+        now: () => ({ settings, duties: w.duties.look([], { countShown: false }).duties }),
+        apply: (change) => {
+          applied.push(change)
+          if (change.checks?.slack?.intervalMinutes !== undefined) settings = { ...settings, assistantSchedule: { checks: { slack: { intervalMinutes: change.checks.slack.intervalMinutes } } } }
+          if (change.dailyWakeLimit !== undefined) settings = { ...settings, assistant: { dailyWakeLimit: change.dailyWakeLimit } }
+        },
+      },
+    })
+    return { w, applied, settings: () => settings }
+  }
+
+  it('a proposal with a change shows its rows, the setting as it is and as it would be; nothing changes without Apply', () => {
+    const { w, applied, settings } = settingsWorld()
+    w.book.create({ title: 'Check Slack less often', why: 'You asked for it in the conversation', item: null, prepare: null, change: { checks: { slack: { intervalMinutes: 20 } }, dailyWakeLimit: 10 } })
+    const [card] = w.window.view().proposals
+    expect(card?.change).toEqual({
+      rows: [
+        { label: 'Slack interval', before: 'Every 10 min', after: 'Every 20 min' },
+        { label: 'Daily limit of automatic wakes', before: '20', after: '10' },
+      ],
+      applied: null,
+    })
+    w.clock.now += HOUR
+    w.window.tick()
+    w.window.view()
+    expect(applied).toEqual([])
+    expect(settings()).toEqual({})
+  })
+
+  it('Apply changes the settings once, and the card then says when, with the rows as they were', () => {
+    const { w, applied, settings } = settingsWorld()
+    const proposal = w.book.create({ title: 'Check Slack less often', why: 'You asked', item: null, prepare: null, change: { checks: { slack: { intervalMinutes: 20 } } } })
+    w.clock.now += MIN
+    w.window.apply(proposal.id)
+    expect(applied).toEqual([{ checks: { slack: { intervalMinutes: 20 } } }])
+    expect(settings()).toEqual({ assistantSchedule: { checks: { slack: { intervalMinutes: 20 } } } })
+    expect(w.window.view().proposals[0]?.change).toEqual({ rows: [{ label: 'Slack interval', before: 'Every 10 min', after: 'Every 20 min' }], applied: T0 + MIN })
+    expect(() => w.window.apply(proposal.id)).toThrow('This change is applied already')
+    expect(applied).toHaveLength(1)
+  })
+
+  it('Apply is refused for a proposal that is gone or changes nothing, and when this window cannot change the settings', () => {
+    const { w } = settingsWorld()
+    const plain = w.book.create({ title: 'Look at PR 12', why: 'Its CI is red', item: null, prepare: null })
+    expect(() => w.window.apply('proposal-404')).toThrow('This proposal is no longer there')
+    expect(() => w.window.apply(plain.id)).toThrow('This proposal changes no setting')
+    const bare = world()
+    const change = bare.book.create({ title: 'Check Slack less often', why: 'You asked', item: null, prepare: null, change: { dailyWakeLimit: 5 } })
+    expect(() => bare.window.apply(change.id)).toThrow('Settings cannot be changed here')
+  })
+
+  it('a change the settings refuse leaves the card as it was, to Apply again or dismiss', () => {
+    const w = world({}, { settings: { now: () => ({ settings: {}, duties: [] }), apply: () => { throw new Error('The change cannot apply: there is no duty x') } } })
+    const proposal = w.book.create({ title: 'Turn a duty off', why: 'You asked', item: null, prepare: null, change: { duties: { x: { enabled: false } } } })
+    expect(() => w.window.apply(proposal.id)).toThrow('there is no duty x')
+    expect(w.window.view().proposals[0]?.change?.applied).toBeNull()
   })
 })
