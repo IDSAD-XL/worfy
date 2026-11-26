@@ -58,44 +58,28 @@ Card-а из «Итог» Ticket-а 02.
 
 - [ ] Раздел Assistant-а открывается из rail рядом с Canvas и показывает список «что ждёт» с причиной, источником и
       обязанностью у каждого пункта.
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx` exit 0 · mac - · 2b9c65933
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx` exit 0 · mac - · 6fceafc4f
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-window-app.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 4f87a815f
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-window-app.test.ts test/unit/assistant-session.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 15f38aea7
 - [ ] У предложения есть Dismiss, Snooze, Open и Prepare; Prepare показывает точный текст Session, Session стартует
       только по щелчку пользователя.
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx` exit 0 · mac - · 2b9c65933
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx` exit 0 · mac - · 6fceafc4f
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx` exit 0 · mac - · dad4d1019
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-window-app.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 4f87a815f
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-window-app.test.ts test/unit/assistant-session.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 15f38aea7
 - [ ] Like и dislike стоят на каждом сообщении Assistant-а и доходят до обязанности (Ticket 07).
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx` exit 0 · mac - · 2b9c65933
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx` exit 0 · mac - · 6fceafc4f
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx` exit 0 · mac - · dad4d1019
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-window-app.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 4f87a815f
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-window-app.test.ts test/unit/assistant-session.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 15f38aea7
 - [ ] Журнал показывает действия Assistant-а, у каждой строки — пункт, который её вызвал.
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx` exit 0 · mac - · 2b9c65933
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-window-app.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 4f87a815f
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-window-app.test.ts test/unit/assistant-session.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 15f38aea7
 - [ ] Раздел показывает сводку и разговор; пользователь может написать Assistant-у в любой момент.
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-window-app.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 4f87a815f
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-window-app.test.ts test/unit/assistant-session.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 15f38aea7
 - [ ] Строка расхода показывает token-ы и долю Limits Assistant-а; доля помечена как оценка.
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx` exit 0 · mac - · 2b9c65933
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-window-app.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 4f87a815f
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-window-app.test.ts test/unit/assistant-session.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 15f38aea7
 - [ ] Уведомление Assistant-а — карточка у его значка в rail, со значком и цветом Assistant-а, like и dislike,
       Open, Prepare, Snooze; одна карточка за раз, остальное — число на значке.
 - [ ] Когда worfy не впереди, системное уведомление уходит только о срочном и только в work hours, с
       заголовком «worfy Assistant»; щелчок открывает раздел Assistant-а.
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx` exit 0 · mac - · 2b9c65933
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx` exit 0 · mac - · 6fceafc4f
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-window-app.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 4f87a815f
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-window-app.test.ts test/unit/assistant-session.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 15f38aea7
 - [ ] e2e с `WORFY_AGENT=fake`: список, like и dislike — зелёный.
 - [ ] Тексты UI — английские.
-  - evidence: test-run pass · `pnpm lint` exit 0 · mac - · 2b9c65933
-  - evidence: test-run pass · `pnpm lint` exit 0 · mac - · 4f87a815f
+  - evidence: test-run pass · `pnpm lint` exit 0 · mac - · 15f38aea7
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
-  - evidence: gate pass · `gate fast` exit 0 · mac - · 2b9c65933
-  - evidence: gate pass · `gate fast` exit 0 · mac - · 6fceafc4f
-  - evidence: gate pass · `gate fast` exit 0 · mac - · dad4d1019
-  - evidence: gate pass · `gate fast` exit 0 · mac - · 4f87a815f
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 15f38aea7
 
 ## Решено без владельца (подтвердить)
 
@@ -145,7 +129,13 @@ Card-а из «Итог» Ticket-а 02.
 - После merge Ticket-а 10 (PR #2247):
   - Разговор раздела идёт в `appAssistant()` Ticket-а 10. Переключателя нет — его добавит Ticket 15, — поэтому в
     приложении Assistant пока выключен, и раздел отвечает «Assistant is off on this machine».
-  - Тексты утреннего и пакетного пробуждения в раздел не подаются: у Ticket-а 10 нет hook-а для текста прогона пробуждения
-    (`composeAssistant` держит `lastRun` внутри). `noteAssistantMessage` готов принять их, когда такой hook появится.
+  - Тексты пробуждений приходят в раздел через новый необязательный hook `onRun` в `composeAssistant` (Ticket 10,
+    `src/main/assistant/session/runner.ts`) и слушателей `onAssistantRun` в `src/main/assistant/session/app.ts`. Текст
+    утреннего, пакетного и срочного пробуждения, на которое Assistant ответил, встаёт в разговор (утренний — ещё и в
+    сводку). Ответ на сообщение пользователя второй раз не пишется: его уже показывает отправка. Прогон без ответа ничего
+    не пишет. Без `onRun` Session Ticket-а 10 ведёт себя как раньше.
+  - Для Ticket-а 15: когда переключатель включает или выключает Assistant-а (`startAssistant` и его stop), нужно вызвать
+    `appAssistantWindow().changed()`. Иначе раздел увидит, что Assistant включён, только при следующем изменении или
+    минутном тике.
   - Чтения Assistant-а (`worfy-app` items_list и action_run) и закрытый список действий не считают пункты показанными
     (`countShown: false`).

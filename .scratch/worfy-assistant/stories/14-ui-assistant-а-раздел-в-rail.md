@@ -253,9 +253,37 @@ function runningAssistant(): AssistantConversation | null {
 - Требование: [Готово, когда, пункт 5](../issues/14-ui-assistant-а-раздел-в-rail.md#готово-когда)
 - Риски и пробелы test-ов: `test/unit/assistant-window-app.test.ts` проверяет путь через настоящий `composeAssistant` с
   подменёнными Session-ами; настоящий Claude Code не запускался. В приложении Assistant не включается до Ticket-а 15.
-  Тексты утреннего и пакетного пробуждения в раздел не попадают: у Ticket-а 10 нет hook-а для текста прогона.
+  Тексты пробуждений — следующий шаг.
 
-## 10. Как проверено
+## 10. Тексты пробуждений Assistant-а встают в разговор
+
+Code: `src/main/assistant/session/runner.ts:200-208` · key lines: 204, 205, 206
+
+```ts
+  loop = parts.startWake((wake) => {
+    const message = wake.reason === 'user' ? said : undefined
+    said = undefined
+    lastRun = parts.sessions.wake(wake, message)
+    const onRun = parts.onRun
+    if (onRun !== undefined) {
+      lastRun.then(onRun).catch((error: unknown) => console.warn('[assistant] the text of a run was not passed on', error))
+    }
+  })
+```
+
+- Что делает: `composeAssistant` Ticket-а 10 сообщает необязательному `onRun` о каждом законченном прогоне: пробуждении
+  или сообщении пользователя. `startAssistant` передаёт прогоны слушателям `onAssistantRun`, а раздел (`followAssistantRuns`
+  в `src/main/assistant/window/app.ts`) кладёт текст ответившего пробуждения в разговор через `noteWakeRun`: утренний ещё
+  и в сводку. Ответ на сообщение пользователя второй раз не пишется, прогон без ответа ничего не пишет.
+- Почему здесь: `composeAssistant` держит прогон пробуждения внутри (`lastRun`), другого места, где виден его текст, нет;
+  оркестратор попросил закрыть этот пробел в этом PR.
+- Без него: утренняя сводка и пакетные сообщения Assistant-а не попадали бы в раздел.
+- Требование: [Готово, когда, пункт 5](../issues/14-ui-assistant-а-раздел-в-rail.md#готово-когда)
+- Риски и пробелы test-ов: без `onRun` поведение Session Ticket-а 10 не меняется. Путь `startAssistant` → слушатели не
+  покрыт test-ом: `startAssistant` собран из синглтонов приложения; покрыты `composeAssistant` с `onRun`, `noteWakeRun` и
+  `followAssistantRuns`.
+
+## 11. Как проверено
 
 - `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts` — exit 1 до кода (нет модуля), exit 0 после.
 - `node scripts/vitest-electron.mjs test/unit/assistant-speech.test.tsx` — exit 1 без `speech.ts`, exit 0 с ним.
@@ -272,6 +300,8 @@ function runningAssistant(): AssistantConversation | null {
 - После merge Ticket-а 10: `test/unit/assistant-window-app.test.ts` красный, пока `runningAssistant()` отвечал null,
   зелёный после; два test-а в `test/contract/worfy-app-tools.test.ts` (items_list и action_run ничего не считают
   показанным) красные до правки (5 показанных), зелёные после; `pnpm build` — exit 0.
+- Тексты пробуждений: пять новых test-ов (`assistant-session`, `assistant-window`, `assistant-window-app`) красные до
+  правки, зелёные после; два mutant-а фильтра `noteWakeRun` — exit 1.
 - `test/e2e/assistant.spec.ts` (список, like, dislike, Undo) локально не запускался: e2e запускает CI.
 
 ## Проверить себя
