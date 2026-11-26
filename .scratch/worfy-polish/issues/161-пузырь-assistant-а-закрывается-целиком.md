@@ -73,9 +73,14 @@ Snooze, like и dislike, × в заголовке и строкой внизу �
 - [ ] × и Escape закрывают пузырь целиком; пункты остаются в Waits в своём состоянии, число на значке прежнее; пузырь
       снова — только о том, что пришло после закрытия; отметка переживает перезапуск; первый запуск с хвостом — одна
       строка «N waiting in Assistant»; Open, Snooze, like и dislike ведут к следующему новому пункту.
+  - evidence: commit pass · worfy-polish/161: the Assistant's speech card closes as a whole · - - · 1f7dda15b5ad610f8912551f741e0c1bc6371c6a
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-speech-card.test.tsx test/unit/assistant-speech.test.tsx test/unit/assistant-window.test.ts test/contract/assistant-card-closed.test.ts` exit 0 · mac - · 73baca2bedbc938c7ed1307ec24b97fbe72ed0ff
 - [ ] Test-ы пузыря, логики main и канала зелёные; красные до правки.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-*.test.ts test/unit/assistant-*.test.tsx test/contract/assistant-*.test.ts test/contract/worfy-app-tools.test.ts test/contract/main-ipc-wiring.test.ts` exit 0 · mac - · 73baca2bedbc938c7ed1307ec24b97fbe72ed0ff
 - [ ] `docs/features/assistant.md` описывает × пузыря, Escape, отметку и строку хвоста.
+  - evidence: commit pass · worfy-polish/161: the Assistant's speech card closes as a whole · - - · 1f7dda15b5ad610f8912551f741e0c1bc6371c6a
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast зелёный; `ci-ok` на head PR.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 73baca2bedbc938c7ed1307ec24b97fbe72ed0ff
 - [ ] (вручную) Сделай: в Stable worfy с накопленными пунктами Assistant-а нажми × на пузыре, перезапусти worfy →
       Должно быть: пузырь исчез с одного ×, пункты в разделе и число на значке на месте; после перезапуска пузырь не
       появляется, пока не придёт новый пункт.
