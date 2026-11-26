@@ -2,6 +2,7 @@
 
 Type: task
 Status: claimed 2026-11-26T07:43Z
+PR: #2269
 Branch: worfy-polish/157
 Blocked by: —
 Source: решение владельца 2026-11-26, второй раунд (Q1–Q6, «все да»), Q3; замер qmd против `grep` 2026-11-26 (три
