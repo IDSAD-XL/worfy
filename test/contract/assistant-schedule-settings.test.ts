@@ -3,16 +3,18 @@
 // changed through the `appSettings` channels, which are `local` — a Linked machine neither reads nor
 // writes them. A mocked `electron` with one fake window and a temporary WORFY_DATA_DIR.
 import { EventEmitter } from 'node:events'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterAll, describe, expect, it, vi } from 'vitest'
+import { z } from 'zod'
 import { CHECK_MARKS_FILE, checkScheduler, fileCheckMarks, startCheckScheduler } from '../../src/main/assistant/schedule/app'
 import { registerIpc, type ModuleLoader } from '../../src/main/ipc/index'
 import { createLinkIpc, LinkPeer } from '../../src/main/link/ipc-adapter'
 import { APP_SETTINGS_FILE, AppSettingsStore, appSettingsStore } from '../../src/main/settings/store'
-import { checkSettingsOf, workHoursOf } from '../../src/shared/assistant/schedule/settings'
+import { readJsonFile } from '../../src/main/storage/json-file'
+import { checkKindSchema, checkSettingsOf, workHoursOf } from '../../src/shared/assistant/schedule/settings'
 import type { WorkHours } from '../../src/shared/assistant/schedule/work-hours'
 import { appSettingsGet, appSettingsSet } from '../../src/shared/ipc/app-settings'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
@@ -105,6 +107,19 @@ describe('the scheduler in the running app', () => {
     expect(fileCheckMarks(file).read()).toEqual({ slack: { startedAt: 1, succeededAt: 1 } })
     writeFileSync(file, '{ not json')
     expect(fileCheckMarks(file).read()).toEqual({})
+  })
+
+  it('the count of failures in a row (ticket 22) is kept in the file; a build before it reads the file and does not set it aside; a count it refuses reads as none', () => {
+    const file = join(freshFile(), '..', CHECK_MARKS_FILE)
+    fileCheckMarks(file).write({ slack: { startedAt: 1, succeededAt: 1, failures: 4 } })
+    expect(fileCheckMarks(file).read()).toEqual({ slack: { startedAt: 1, succeededAt: 1, failures: 4 } })
+    // The schema of the marks before ticket 22, word for word.
+    const before = z.partialRecord(checkKindSchema, z.object({ startedAt: z.number().optional(), succeededAt: z.number().optional() }))
+    expect(readJsonFile(file, before)).toEqual({ slack: { startedAt: 1, succeededAt: 1 } })
+    expect(readdirSync(dirname(file))).toEqual([CHECK_MARKS_FILE])
+    writeFileSync(file, JSON.stringify({ slack: { startedAt: 1, succeededAt: 1, failures: -2 } }))
+    expect(fileCheckMarks(file).read()).toEqual({ slack: { startedAt: 1, succeededAt: 1 } })
+    expect(readdirSync(dirname(file))).toEqual([CHECK_MARKS_FILE])
   })
 
   it('startCheckScheduler plans again when the settings change, pauses while the system sleeps and lets go of both on stop', async () => {

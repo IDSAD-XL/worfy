@@ -5,7 +5,7 @@
 // (UTC+2 in winter, UTC+3 in summer).
 import { EventEmitter } from 'node:events'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { CHECK_RUN_TIMEOUT_MS, CheckScheduler, followPower, MAX_TIMER_MS, memoryCheckMarks, SCHEDULE_JITTER, type CheckMarksStore, type CheckRunContext } from '../../src/main/assistant/schedule/scheduler'
+import { BACKOFF_AFTER_FAILURES, BACKOFF_CEILING_MS, CHECK_RUN_TIMEOUT_MS, CheckScheduler, followPower, MAX_TIMER_MS, memoryCheckMarks, SCHEDULE_JITTER, type CheckMarksStore, type CheckRunContext } from '../../src/main/assistant/schedule/scheduler'
 import type { AssistantScheduleChoice, AssistantScheduleSettings } from '../../src/shared/assistant/schedule/settings'
 import type { WorkHours } from '../../src/shared/assistant/schedule/work-hours'
 
@@ -476,5 +476,150 @@ describe('the Mac sleeps, worfy restarts', () => {
     expect(slack.runs).toHaveLength(0)
     await vi.advanceTimersByTimeAsync(MINUTE)
     expect(slack.runs).toEqual([{ kind: 'slack', since: evening, now: utc(2026, 11, 26, 7, 0) + startDelay(30) }])
+  })
+})
+
+describe('failures in a row (worfy-assistant ticket 22)', () => {
+  /** A run that records its start and fails while `state.fail` is set. */
+  function failing(state: { fail: boolean }): { starts: number[]; run: (context: CheckRunContext) => Promise<void> } {
+    const starts: number[] = []
+    return {
+      starts,
+      run: async (context) => {
+        starts.push(context.now)
+        if (state.fail) throw new Error('the connector did not answer')
+      },
+    }
+  }
+
+  /** Moves the clock to the next run of `kind` and lets it end. */
+  async function toNextRun(checks: CheckScheduler, kind: 'slack' | 'jira' | 'main-ci'): Promise<void> {
+    const next = checks.nextRun(kind)
+    if (next === null) throw new Error(`${kind} has no next run`)
+    await vi.advanceTimersByTimeAsync(next - Date.now())
+  }
+
+  const gapsOf = (starts: number[]): number[] => starts.slice(1).map((at, index) => (at - (starts[index] ?? at)) / MINUTE)
+
+  it(`after ${BACKOFF_AFTER_FAILURES} failures in a row the interval doubles with each further one up to a day; the first success brings the usual interval back`, async () => {
+    const start = utc(2026, 11, 25, 8, 0)
+    vi.setSystemTime(start)
+    choose({ checks: { slack: { enabled: true, intervalMinutes: 10, sleepOutsideWorkHours: false } } })
+    const state = { fail: true }
+    const slack = failing(state)
+    const checks = scheduler()
+    checks.register('slack', slack.run)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined)
+    checks.start()
+    await vi.advanceTimersByTimeAsync(0)
+    for (let run = 2; run <= 11; run += 1) await toNextRun(checks, 'slack')
+    expect(gapsOf(slack.starts)).toEqual([10, 10, 20, 40, 80, 160, 320, 640, 1280, 24 * 60])
+    expect(BACKOFF_CEILING_MS).toBe(24 * HOUR)
+    expect(marks.read().slack?.failures).toBe(11)
+
+    state.fail = false
+    await toNextRun(checks, 'slack')
+    expect(gapsOf(slack.starts).at(-1)).toBe(24 * 60)
+    expect(checks.nextRun('slack')).toBe(Date.now() + 10 * MINUTE)
+    expect(marks.read().slack?.failures).toBeUndefined()
+    await toNextRun(checks, 'slack')
+    expect(gapsOf(slack.starts).at(-1)).toBe(10)
+
+    // One line per failed run as before, one when the backoff began, one when the success lifted it.
+    const lines = warn.mock.calls.map((call) => String(call[0]))
+    expect(lines.filter((line) => /check failed:/u.test(line))).toHaveLength(11)
+    expect(lines.filter((line) => !/check failed:/u.test(line))).toEqual([
+      `[assistant] the slack check failed ${BACKOFF_AFTER_FAILURES} times in a row: it backs off, the next run at ${new Date((slack.starts[2] ?? 0) + 20 * MINUTE).toISOString()}`,
+    ])
+    expect(info.mock.calls.map((call) => String(call[0]))).toEqual(['[assistant] the slack check succeeded after 11 failures in a row: back to its usual interval'])
+    warn.mockRestore()
+    info.mockRestore()
+  })
+
+  it('the spread of ±10 % applies to the longer interval too', async () => {
+    const start = utc(2026, 11, 25, 8, 0)
+    vi.setSystemTime(start)
+    choose({ checks: { jira: { enabled: true, intervalMinutes: 60, sleepOutsideWorkHours: false } } })
+    const jira = failing({ fail: true })
+    const checks = scheduler({ random: () => 0 })
+    checks.register('jira', jira.run)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    checks.start()
+    await vi.advanceTimersByTimeAsync(0)
+    for (let run = 2; run <= 4; run += 1) await toNextRun(checks, 'jira')
+    expect(gapsOf(jira.starts)).toEqual([54, 54, 108])
+    warn.mockRestore()
+  })
+
+  it('a backed-off check that falls due outside work hours still waits for their start', async () => {
+    // Wednesday 16:00 Kyiv: the usual 60 minutes would land at 17:00, inside work hours; the third failure doubles them
+    // to 18:00, past their end, so the next run is Thursday 09:00 and the spread.
+    const start = utc(2026, 11, 25, 14, 0)
+    marks.write({ jira: { startedAt: start - HOUR, succeededAt: start - 3 * HOUR, failures: 2 } })
+    vi.setSystemTime(start)
+    choose({ workHours: OFFICE, checks: { jira: { enabled: true, intervalMinutes: 60 } } })
+    const jira = failing({ fail: true })
+    const checks = scheduler()
+    checks.register('jira', jira.run)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    checks.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(jira.starts).toEqual([start])
+    expect(checks.nextRun('jira')).toBe(utc(2026, 11, 26, 7, 0) + startDelay(60))
+    warn.mockRestore()
+  })
+
+  it('a run that does not end in time counts as a failure in a row', async () => {
+    vi.setSystemTime(utc(2026, 11, 25, 8, 0))
+    choose({ checks: { slack: { enabled: true, intervalMinutes: 30, sleepOutsideWorkHours: false } } })
+    const checks = scheduler()
+    checks.register('slack', () => new Promise<void>(() => undefined))
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    checks.start()
+    await vi.advanceTimersByTimeAsync(CHECK_RUN_TIMEOUT_MS)
+    expect(marks.read().slack?.failures).toBe(1)
+    warn.mockRestore()
+  })
+
+  it('the CI of the main branch keeps its interval however often it fails, and counts no failures', async () => {
+    const start = utc(2026, 11, 25, 8, 0)
+    vi.setSystemTime(start)
+    choose({ checks: { 'main-ci': { enabled: true, intervalMinutes: 10 } } })
+    const ci = failing({ fail: true })
+    const checks = scheduler()
+    checks.register('main-ci', ci.run)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    checks.start()
+    await vi.advanceTimersByTimeAsync(0)
+    for (let run = 2; run <= 6; run += 1) await toNextRun(checks, 'main-ci')
+    expect(gapsOf(ci.starts)).toEqual([10, 10, 10, 10, 10])
+    expect(marks.read()['main-ci']?.failures).toBeUndefined()
+    warn.mockRestore()
+  })
+
+  it('the count outlives a restart: a new scheduler over the same marks keeps the longer interval; marks without the count read as no failures', async () => {
+    const start = utc(2026, 11, 25, 8, 0)
+    vi.setSystemTime(start)
+    choose({ checks: { slack: { enabled: true, intervalMinutes: 10, sleepOutsideWorkHours: false } } })
+    const first = scheduler()
+    const before = failing({ fail: true })
+    first.register('slack', before.run)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    first.start()
+    await vi.advanceTimersByTimeAsync(0)
+    for (let run = 2; run <= 3; run += 1) await toNextRun(first, 'slack')
+    first.stop()
+    const third = before.starts.at(-1) ?? 0
+
+    const second = scheduler()
+    second.register('slack', failing({ fail: true }).run)
+    expect(second.nextRun('slack')).toBe(third + 20 * MINUTE)
+    warn.mockRestore()
+
+    const now = Date.now()
+    const old = scheduler({ marks: memoryCheckMarks({ slack: { startedAt: now, succeededAt: now } }) })
+    old.register('slack', failing({ fail: false }).run)
+    expect(old.nextRun('slack')).toBe(now + 10 * MINUTE)
   })
 })
