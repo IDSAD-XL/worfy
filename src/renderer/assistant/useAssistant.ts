@@ -151,6 +151,22 @@ export async function sendMessage(text: string): Promise<boolean> {
   return result.ok
 }
 
+let lastShown = ''
+
+/**
+ * Tells main which items the window shows the user now (`assistant.shown`), so their duties count them as shown; the
+ * same list twice in a row is told once.
+ */
+export function reportShown(itemIds: readonly string[]): void {
+  const key = itemIds.join('\n')
+  if (key === lastShown) return
+  lastShown = key
+  if (itemIds.length === 0) return
+  void invoke('assistant.shown', { itemIds: [...itemIds] }).then((result) => {
+    if (!result.ok) console.warn('assistant.shown failed:', result.error)
+  })
+}
+
 /** Closes a speech card: its item stays in the list. */
 export function closeCard(itemId: string): void {
   useAssistant.setState((state) => ({ closed: [...state.closed, itemId] }))
@@ -160,6 +176,6 @@ export function closeCard(itemId: string): void {
 export function prepareItem(item: WindowItem): void {
   if (item.prepare === null) return
   useAssistant.setState({
-    prepare: { title: item.title, projectId: item.prepare.projectId, projectName: item.projectName, text: item.prepare.text, by: item.prepare.by, itemId: item.id, proposalId: item.proposalId },
+    prepare: { title: item.title, projectId: item.prepare.projectId, projectName: item.prepare.projectName, text: item.prepare.text, by: item.prepare.by, itemId: item.id, proposalId: item.proposalId },
   })
 }

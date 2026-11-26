@@ -25,7 +25,16 @@ export type Snooze = z.output<typeof snoozeSchema>
 export const windowStateSchema = z.object({
   snoozes: z.array(snoozeSchema),
   /** The rating of each message by its key (`item:<id>`, `journal:<id>`…), and the rule a dislike of an item wrote. */
-  ratings: z.array(z.object({ key: z.string(), rating: ratingSchema, at: z.number(), rule: z.string().optional() })),
+  ratings: z.array(
+    z.object({
+      key: z.string(),
+      rating: ratingSchema,
+      at: z.number(),
+      rule: z.string().optional(),
+      /** The duty and the item the rating was counted for (Duties.rate), so taking it back uncounts it (Duties.unrate). */
+      counted: z.object({ duty: z.string(), item: z.string() }).optional(),
+    }),
+  ),
   conversation: z.array(conversationMessageSchema),
 })
 export type WindowState = z.output<typeof windowStateSchema>

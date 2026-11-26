@@ -9,8 +9,8 @@ import { setRailBadge, useSidebarScope } from '../shell/sidebar-scope'
 import { Icon, Spark } from './icons'
 import { ItemActions, ItemHead, ItemMeta, ItemSource } from './parts'
 import { PrepareDialog } from './PrepareDialog'
-import { assistantBadge, speechQueue } from './speech'
-import { ASSISTANT_SECTION, closeCard, followAssistant, revealAssistant, useAssistant } from './useAssistant'
+import { assistantBadge, shownItemIds, speechQueue } from './speech'
+import { ASSISTANT_SECTION, closeCard, followAssistant, reportShown, revealAssistant, useAssistant } from './useAssistant'
 
 /** Where the card stands: right of the rail button, its top at the button's, or the left edge under the toolbar. */
 function useAnchor(): { left: number; top: number } {
@@ -38,6 +38,7 @@ function useAnchor(): { left: number; top: number } {
 export function AssistantSpeech({ sidebarVisible }: { sidebarVisible: boolean }): ReactElement | null {
   const view = useAssistant((state) => state.view)
   const closed = useAssistant((state) => state.closed)
+  const tab = useAssistant((state) => state.tab)
   const saved = useSidebarScope((state) => state.section)
   const anchor = useAnchor()
   useEffect(() => followAssistant(), [])
@@ -49,6 +50,9 @@ export function AssistantSpeech({ sidebarVisible }: { sidebarVisible: boolean })
   const badge = windowMachine() === null ? assistantBadge(view, queue) : undefined
   useEffect(() => setRailBadge(ASSISTANT_SECTION, badge), [badge?.count, badge?.label]) // eslint-disable-line react-hooks/exhaustive-deps -- the badge is a fresh object each render
   useEffect(() => () => setRailBadge(ASSISTANT_SECTION, undefined), [])
+  // What the user sees now counts as shown at its duty; the view main sends counts nothing.
+  const shown = windowMachine() === null ? shownItemIds(view, sectionShown, tab, queue).join('\n') : ''
+  useEffect(() => reportShown(shown === '' ? [] : shown.split('\n')), [shown])
   const item = queue[0]
   return (
     <>

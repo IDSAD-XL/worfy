@@ -37,7 +37,7 @@ function ProposalCard({ proposal }: { proposal: WindowProposal }): ReactElement 
             data-action="prepare"
             onClick={() => {
               const prepare = proposal.prepare
-              if (prepare !== null) useAssistant.setState({ prepare: { title: proposal.title, projectId: prepare.projectId, projectName: null, text: prepare.text, by: prepare.by, itemId: null, proposalId: proposal.id } })
+              if (prepare !== null) useAssistant.setState({ prepare: { title: proposal.title, projectId: prepare.projectId, projectName: prepare.projectName, text: prepare.text, by: prepare.by, itemId: null, proposalId: proposal.id } })
             }}
           >
             <Icon name="doc" />

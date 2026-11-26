@@ -19,6 +19,7 @@ import { Duties } from '../../src/main/assistant/duties/duties'
 import { assistantMemoryPath, memoryFileStore } from '../../src/main/assistant/duties/memory'
 import { ProposalBook } from '../../src/main/assistant/proposals/book'
 import { AssistantNotices } from '../../src/main/assistant/window/notices'
+import { AssistantReveal, type RevealClient } from '../../src/main/assistant/window/reveal'
 import { memoryWindowState } from '../../src/main/assistant/window/store'
 import { ASSISTANT_OFF, AssistantWindow, nextWorkHoursAfter, type AssistantRunLike } from '../../src/main/assistant/window/view'
 import { removeTree } from '../../src/main/storage/remove'
@@ -161,8 +162,16 @@ describe('what waits', () => {
     w.book.create({ title: 'Answer checkout 04', why: 'Tickets 05 and 06 of its Wave wait for the answer.', item: asks.id, prepare: { projectId: MOBILE, text: 'Decide the SDK version for checkout.' } })
     const after = byTitle(w.window.view(), 'Asks: Use payments SDK v4 now?')!
     expect(after.why).toBe('Tickets 05 and 06 of its Wave wait for the answer.')
-    expect(after.prepare).toEqual({ projectId: MOBILE, text: 'Decide the SDK version for checkout.', by: 'assistant' })
+    expect(after.prepare).toEqual({ projectId: MOBILE, projectName: 'mobile-app', text: 'Decide the SDK version for checkout.', by: 'assistant' })
     expect(after.proposalId).toBe('proposal-1')
+  })
+
+  it('names in Prepare the Project the Session starts in, not the Project of the item (review round 1)', () => {
+    const ci = byTitle(w.window.view(), 'CI of main is red for 52 min')!
+    w.book.create({ title: 'Fix it from mobile', why: 'The fix lives in the mobile app.', item: ci.id, prepare: { projectId: MOBILE, text: 'Pin the date library.' } })
+    const after = byTitle(w.window.view(), 'CI of main is red for 52 min')!
+    expect(after.projectName).toBe('shop-api')
+    expect(after.prepare).toMatchObject({ projectId: MOBILE, projectName: 'mobile-app' })
   })
 
   it("offers worfy's own fix Session for a red main branch: the duty's text, in the item's Project", () => {
@@ -268,7 +277,8 @@ describe('like and dislike', () => {
     id = w.window.view().items[0]!.id
   })
 
-  const counters = (duty: string) => w.duties.look([]).duties.find((each) => each.id === duty)!.counters
+  const status = (duty: string) => w.duties.look([]).duties.find((each) => each.id === duty)!
+  const counters = (duty: string) => status(duty).counters
 
   it('a like of an item reaches its duty once, and shows on the item', () => {
     w.window.rate({ kind: 'item', id }, 'like')
@@ -292,6 +302,33 @@ describe('like and dislike', () => {
     expect(w.window.rate({ kind: 'item', id }, null)).toBeNull()
     expect(w.duties.rules()).toEqual([])
     expect(w.window.view().items.map((item) => [item.id, item.rating])).toEqual([[id, null]])
+  })
+
+  it('five rounds of dislike and Undo leave the duty as it was: no dislike counted, no run of dislikes, no pause (review round 1)', () => {
+    for (let round = 0; round < 5; round++) {
+      w.window.rate({ kind: 'item', id }, 'dislike')
+      w.window.rate({ kind: 'item', id }, null)
+    }
+    expect(counters('source:slack').disliked).toBe(0)
+    expect(status('source:slack').paused).toBeNull()
+    expect(w.window.view().items.map((item) => item.id)).toEqual([id])
+  })
+
+  it('Undo of the dislike that paused its duty ends that pause', () => {
+    w.duties.setPauseAfter(1)
+    w.window.rate({ kind: 'item', id }, 'dislike')
+    expect(status('source:slack').paused?.by).toBe('disliked')
+    w.window.rate({ kind: 'item', id }, null)
+    expect(status('source:slack').paused).toBeNull()
+  })
+
+  it('like, none, like counts one like; a like turned into a dislike counts the dislike alone', () => {
+    w.window.rate({ kind: 'item', id }, 'like')
+    w.window.rate({ kind: 'item', id }, null)
+    w.window.rate({ kind: 'item', id }, 'like')
+    expect(counters('source:slack').liked).toBe(1)
+    w.window.rate({ kind: 'item', id }, 'dislike')
+    expect(counters('source:slack')).toMatchObject({ liked: 0, disliked: 1 })
   })
 
   it('Show again deletes the rule by its id', () => {
@@ -324,6 +361,44 @@ describe('like and dislike', () => {
 
   it('refuses a rating of a message that is not there', () => {
     expect(() => w.window.rate({ kind: 'journal', id: 'nope' }, 'like')).toThrow(/no longer/i)
+  })
+})
+
+describe('what counts as shown (review round 1)', () => {
+  let w: World
+  let id: string
+  beforeEach(() => {
+    w = world()
+    w.core.ingest(slack())
+    id = w.window.view().items[0]!.id
+  })
+
+  const status = (duty: string) => w.duties.look([]).duties.find((each) => each.id === duty)!
+
+  it('the view counts nothing: a day of looks by the background loop leaves the duty with nothing shown, ignored or paused', () => {
+    w.window.view()
+    w.clock.now += 25 * HOUR
+    w.window.tick()
+    w.window.view()
+    expect(status('source:slack').counters).toMatchObject({ shown: 0, ignored: 0 })
+    expect(status('source:slack').paused).toBeNull()
+  })
+
+  it('an item the window reports shown counts once, and only while the Assistant is on', () => {
+    w.window.shown([id])
+    expect(status('source:slack').counters.shown).toBe(0)
+    w.assistant = { said: [], answer: () => null }
+    w.window.shown([id])
+    w.window.shown([id])
+    expect(status('source:slack').counters.shown).toBe(1)
+  })
+
+  it('an item shown and left alone for a day counts as ignored on a later look', () => {
+    w.assistant = { said: [], answer: () => null }
+    w.window.shown([id])
+    w.clock.now += 25 * HOUR
+    w.window.view()
+    expect(status('source:slack').counters).toMatchObject({ shown: 1, ignored: 1 })
   })
 })
 
@@ -505,8 +580,46 @@ describe('the proposals of no item', () => {
   it('lists a proposal the user asked for, with Prepare, and Dismiss removes it', () => {
     const w = world()
     const made: AssistantProposal = w.book.create({ title: 'Prepare a check of #87', why: 'You asked in the conversation.', item: null, prepare: { projectId: MOBILE, text: '/worfy:code-review mobile-app#87' } })
-    expect(w.window.view().proposals).toEqual([{ id: made.id, title: 'Prepare a check of #87', why: 'You asked in the conversation.', prepare: { projectId: MOBILE, text: '/worfy:code-review mobile-app#87', by: 'assistant' }, createdAt: T0, rating: null }])
+    expect(w.window.view().proposals).toEqual([{ id: made.id, title: 'Prepare a check of #87', why: 'You asked in the conversation.', prepare: { projectId: MOBILE, projectName: 'mobile-app', text: '/worfy:code-review mobile-app#87', by: 'assistant' }, createdAt: T0, rating: null }])
     w.window.dismissProposal(made.id)
     expect(w.window.view().proposals).toEqual([])
+  })
+})
+
+describe('the reveal of a clicked notification (review round 1)', () => {
+  const client = (): RevealClient & { got: number; gone: boolean } => {
+    const each = { got: 0, gone: false, isDestroyed: () => each.gone }
+    return each
+  }
+
+  it('goes to the windows that follow the section, and nothing waits for a later window', () => {
+    const reveal = new AssistantReveal()
+    const a = client()
+    reveal.follow(a)
+    reveal.request((target) => (target as typeof a).got++)
+    expect(a.got).toBe(1)
+    expect(reveal.take()).toBe(false)
+  })
+
+  it('waits for the first window that opens the section when none follows it, and only for that one', () => {
+    const reveal = new AssistantReveal()
+    const gone = client()
+    reveal.follow(gone)
+    gone.gone = true
+    reveal.request(() => {
+      throw new Error('no window follows the section')
+    })
+    expect(reveal.take()).toBe(true)
+    expect(reveal.take()).toBe(false)
+  })
+
+  it('a window that stopped following gets nothing', () => {
+    const reveal = new AssistantReveal()
+    const a = client()
+    const stop = reveal.follow(a)
+    stop()
+    reveal.request((target) => (target as typeof a).got++)
+    expect(a.got).toBe(0)
+    expect(reveal.take()).toBe(true)
   })
 })

@@ -7,7 +7,7 @@
 //   with the item that caused each line, the conversation, worfy's own summary of the night and the line of usage (ticket
 //   05: the share of the Limits is always an estimate).
 // - The clicks: Open, Dismiss and Snooze change the item in the attention core (ticket 03) and are counted by its duty;
-//   like and dislike reach the duty (Duties.rate), and a dislike's rule is taken back by deleting it; Start of a prepared
+//   like and dislike reach the duty (Duties.rate), and taking one back uncounts it (Duties.unrate); Start of a prepared
 //   Session starts a new Session with exactly the text the user read, and nothing else starts one (boundary 3); a message
 //   of the user goes to the Assistant's Session (ticket 10), refused while the Assistant is off.
 //
@@ -66,8 +66,9 @@ export interface WindowCore {
 }
 
 export interface WindowDuties {
-  look(items: readonly AttentionItem[]): DutyLook
+  look(items: readonly AttentionItem[], options?: { countShown?: boolean }): DutyLook
   rate(item: AttentionItem, rating: 'like' | 'dislike'): MemoryRule | null
+  unrate(duty: string, itemId: string, rating: 'like' | 'dislike', ruleId: string | null): void
   react(item: AttentionItem, reaction: 'accepted' | 'declined'): void
   rules(): MemoryRule[]
   deleteRule(id: string): void
@@ -263,11 +264,24 @@ export class AssistantWindow {
     return this.load().ratings.find((each) => each.key === ratingKey(target))?.rating ?? null
   }
 
+  /**
+   * The window showed these items to the user: in the open section or on a speech card. Their duties count them as shown
+   * — once each, and only while the Assistant is on, so that nothing counts, ignores or pauses a duty before the user
+   * turned it on. An id no longer there is skipped.
+   */
+  shown(itemIds: readonly string[]): void {
+    if (this.deps.assistant() === null || itemIds.length === 0) return
+    const ids = new Set(itemIds)
+    const items = this.allItems().filter((item) => ids.has(item.id))
+    if (items.length > 0) this.deps.duties.look(items)
+  }
+
   /** The view the window draws. */
   view(): AssistantView {
     const now = this.deps.now()
     const items = this.allItems()
-    const look = this.deps.duties.look(items)
+    // The view counts no item as shown: the background loop and the notifications ask for it too. shown() counts.
+    const look = this.deps.duties.look(items, { countShown: false })
     const projects = this.deps.projects()
     const names = new Map(projects.map((project) => [project.id, project.name]))
     const titles = new Map(look.duties.map((duty) => [duty.id, duty.title]))
@@ -281,9 +295,9 @@ export class AssistantWindow {
       const fix = shown?.proposals.find((each) => each.action === 'fix-session')
       const prepare =
         proposal?.prepare != null
-          ? { ...proposal.prepare, by: 'assistant' as const }
+          ? { ...proposal.prepare, projectName: names.get(proposal.prepare.projectId) ?? null, by: 'assistant' as const }
           : fix !== undefined && item.projectId !== null && names.has(item.projectId)
-            ? { projectId: item.projectId, text: fix.text, by: 'worfy' as const }
+            ? { projectId: item.projectId, projectName: names.get(item.projectId) ?? null, text: fix.text, by: 'worfy' as const }
             : null
       const duty = item.duty === null ? null : { id: item.duty, title: titles.get(item.duty) ?? item.duty }
       const snooze = snoozes.get(item.id)
@@ -330,7 +344,7 @@ export class AssistantWindow {
         id: proposal.id,
         title: proposal.title,
         why: proposal.why,
-        prepare: proposal.prepare === null ? null : { ...proposal.prepare, by: 'assistant' as const },
+        prepare: proposal.prepare === null ? null : { ...proposal.prepare, projectName: names.get(proposal.prepare.projectId) ?? null, by: 'assistant' as const },
         createdAt: proposal.createdAt,
         rating: this.rating({ kind: 'proposal', id: proposal.id }),
       }))
@@ -428,6 +442,8 @@ export class AssistantWindow {
       this.deps.duties.react(item, 'accepted')
     } else if (op === 'dismiss') {
       this.mark(item, 'dismissed')
+      // The user saw the item to dismiss it: the view counts nothing as shown, so the reaction counts it here.
+      this.deps.duties.react(item, 'declined')
     } else if (item.state === 'snoozed') {
       this.mark(item, 'new')
     }
@@ -477,13 +493,15 @@ export class AssistantWindow {
       const rule = before?.rule === undefined ? undefined : this.deps.duties.rules().find((each) => each.id === before.rule)
       return rule === undefined ? null : { id: rule.id, text: rule.text }
     }
-    // Taking a dislike back deletes the rule it wrote: the items it hid wait again.
-    if (before?.rule !== undefined) this.deps.duties.deleteRule(before.rule)
+    // Taking a rating back uncounts it at its duty; a dislike's rule goes with it, and the items it hid wait again.
+    if (before?.counted !== undefined) this.deps.duties.unrate(before.counted.duty, before.counted.item, before.rating, before.rule ?? null)
+    else if (before?.rule !== undefined) this.deps.duties.deleteRule(before.rule)
     let rule: MemoryRule | null = null
     if (rating !== null && item !== null) rule = this.deps.duties.rate(item, rating)
+    const counted = rating !== null && item !== null && item.duty !== null ? { duty: item.duty, item: item.id } : undefined
     this.save((state) => {
       state.ratings = state.ratings.filter((each) => each.key !== key)
-      if (rating !== null) state.ratings.push({ key, rating, at: this.deps.now(), ...(rule === null ? {} : { rule: rule.id }) })
+      if (rating !== null) state.ratings.push({ key, rating, at: this.deps.now(), ...(rule === null ? {} : { rule: rule.id }), ...(counted === undefined ? {} : { counted }) })
     })
     return rule === null ? null : { id: rule.id, text: rule.text }
   }

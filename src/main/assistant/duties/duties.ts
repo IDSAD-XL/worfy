@@ -265,6 +265,26 @@ export class Duties {
     return rule
   }
 
+  /**
+   * Takes back a like or a dislike that rate() counted for the item (worfy-assistant ticket 14): its counter; for a
+   * dislike also its step of the run of dislikes, the pause that run began when it falls short again, and the rule
+   * `ruleId` when this item wrote it. A like's end of the run of ignored proposals is not taken back.
+   */
+  unrate(duty: string, itemId: string, rating: 'like' | 'dislike', ruleId: string | null): void {
+    const memory = this.load()
+    const state = memory.duties[duty]
+    if (state !== undefined) {
+      if (rating === 'like') state.counters.liked = Math.max(0, state.counters.liked - 1)
+      else {
+        state.counters.disliked = Math.max(0, state.counters.disliked - 1)
+        state.streak = Math.max(0, state.streak - 1)
+        if (state.paused?.by === 'disliked' && state.streak < (memory.pauseAfter ?? DEFAULT_PAUSE_AFTER)) delete state.paused
+      }
+    }
+    if (ruleId !== null) memory.rules = memory.rules.filter((rule) => rule.id !== ruleId || rule.from !== itemId)
+    this.save()
+  }
+
   /** Counts what became of an item once; false when it was counted before. */
   private settle(duty: string, itemId: string, outcome: 'accepted' | 'declined' | 'ignored'): boolean {
     const memory = this.load()
@@ -289,8 +309,13 @@ export class Duties {
     if (state.paused === undefined && state.streak >= (this.load().pauseAfter ?? DEFAULT_PAUSE_AFTER)) state.paused = { at: this.options.now(), by }
   }
 
-  /** What the duties show of `items` now (and the state of each duty); counts what is shown and what was ignored. */
-  look(items: readonly AttentionItem[]): DutyLook {
+  /**
+   * What the duties show of `items` now (and the state of each duty); counts what is shown and what was ignored.
+   * `countShown: false` (the Assistant's section, worfy-assistant ticket 14) counts no item as shown: only an item the
+   * user really saw is one, and the section tells of it itself. An item counted as shown before still counts as ignored
+   * a day later, and a dismissed one as declined.
+   */
+  look(items: readonly AttentionItem[], { countShown = true }: { countShown?: boolean } = {}): DutyLook {
     const now = this.options.now()
     const known = this.known()
     const memory = this.load()
@@ -315,6 +340,10 @@ export class Duties {
       if (memory.rules.some((rule) => rule.duty === id && rule.projectId === item.projectId && rule.source === item.source && rule.kind === item.kind)) continue
       const counted = memory.items[item.id]
       if (counted === undefined || counted.duty !== id) {
+        if (!countShown) {
+          shown.push({ item, duty: id, proposals: this.proposals(duty.definition, item) })
+          continue
+        }
         memory.items[item.id] = { duty: id, shownAt: now }
         this.state(id).counters.shown += 1
         changed = true

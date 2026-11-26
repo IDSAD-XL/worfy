@@ -14,6 +14,17 @@ export function speechQueue(view: AssistantView | null, closed: ReadonlySet<stri
 }
 
 /**
+ * The items the window shows the user now, which their duties count as shown (`assistant.shown`): the item of the speech
+ * card, and every item of the list while the section is in front on its tab of what waits. Nothing while the Assistant is
+ * off: its duties count nothing before the user turns it on.
+ */
+export function shownItemIds(view: AssistantView | null, sectionShown: boolean, tab: string, queue: readonly WindowItem[]): string[] {
+  if (view === null || !view.on) return []
+  if (sectionShown) return tab === 'waits' ? view.items.map((item) => item.id) : []
+  return queue.length > 0 ? [queue[0]!.id] : []
+}
+
+/**
  * The badge of the Assistant's rail button: while a card speaks, how many more wait behind it («+2»); without a card, how
  * many items wait. None while the Assistant is off, or nothing waits.
  */

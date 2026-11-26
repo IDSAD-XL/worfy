@@ -30,7 +30,13 @@ export type Rating = z.output<typeof ratingSchema>
  * (a proposal of `worfy-app`) or worfy's own (the fix of a red main branch, a text of the duty). Nothing starts it but the
  * user's Start (ADR-0114, boundary 3).
  */
-export const prepareViewSchema = z.object({ projectId: z.string(), text: z.string(), by: z.enum(['assistant', 'worfy']) })
+export const prepareViewSchema = z.object({
+  projectId: z.string(),
+  /** The name of the Project the Session starts in (projectId), which may not be the item's; null for one this Machine lacks. */
+  projectName: z.string().nullable(),
+  text: z.string(),
+  by: z.enum(['assistant', 'worfy']),
+})
 export type PrepareView = z.output<typeof prepareViewSchema>
 
 export const windowItemSchema = z.object({

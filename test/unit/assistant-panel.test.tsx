@@ -52,7 +52,7 @@ const RED = item({
   subject: { kind: 'pr', id: 'shop/412', label: 'PR #412' },
   kind: 'main-red',
   duty: { id: 'main-ci-red', title: 'Main CI red' },
-  prepare: { projectId: 'shop', text: 'The CI of main went red after PR #412.\nFind the cause and fix it.', by: 'worfy' },
+  prepare: { projectId: 'shop', projectName: 'shop-api', text: 'The CI of main went red after PR #412.\nFind the cause and fix it.', by: 'worfy' },
 })
 
 const view = (over: Partial<AssistantView> = {}): AssistantView => ({
@@ -127,6 +127,35 @@ describe('the Assistant section', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: /Start Session/ }))
     await waitFor(() => expect(ipc.invoke).toHaveBeenCalledWith('assistant.start', { projectId: 'shop', text: RED.prepare!.text, itemId: 'item-2', proposalId: null }))
     await waitFor(() => expect(screen.queryByTestId('assistant-prepare')).toBeNull())
+  })
+
+  it('Prepare names the Project the Session starts in, not the Project of the item (review round 1)', async () => {
+    ipc.invoke.mockResolvedValue({ ok: true, value: { projectId: 'mobile', nodeId: 'n1', sessionId: 's1' } })
+    const elsewhere = item({ id: 'item-3', prepare: { projectId: 'mobile', projectName: 'mobile-app', text: 'Pin the SDK.', by: 'assistant' } })
+    render(
+      <>
+        <AssistantPanel view={view({ items: [elsewhere] })} />
+        <PrepareDialog />
+      </>,
+    )
+    fireEvent.click(within(card('item-3')).getByRole('button', { name: /Prepare/ }))
+    const dialog = await screen.findByTestId('assistant-prepare')
+    expect(dialog.textContent).toContain('mobile-app')
+    expect(dialog.textContent).not.toContain('shop-api')
+  })
+
+  it('Prepare of a proposal of no item names its Project, not its id', async () => {
+    const proposal = { id: 'proposal-1', title: 'Check PR #87', why: 'You asked.', prepare: { projectId: 'mobile-0001', projectName: 'mobile-app', text: 'Review #87.', by: 'assistant' as const }, createdAt: NOW, rating: null }
+    render(
+      <>
+        <AssistantPanel view={view({ items: [], proposals: [proposal] })} />
+        <PrepareDialog />
+      </>,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /Prepare/ }))
+    const dialog = await screen.findByTestId('assistant-prepare')
+    expect(dialog.textContent).toContain('mobile-app')
+    expect(dialog.textContent).not.toContain('mobile-0001')
   })
 
   it('an edit in Prepare is the text the Session starts with', async () => {

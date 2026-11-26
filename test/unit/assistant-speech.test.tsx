@@ -3,7 +3,7 @@
 // is in front of the user.
 import { describe, expect, it } from 'vitest'
 import type { AssistantView, WindowItem } from '../../src/shared/assistant/window'
-import { assistantBadge, speechQueue } from '../../src/renderer/assistant/speech'
+import { assistantBadge, shownItemIds, speechQueue } from '../../src/renderer/assistant/speech'
 
 const item = (id: string, over: Partial<WindowItem> = {}): WindowItem => ({
   id,
@@ -65,5 +65,26 @@ describe('the speech cards of the Assistant', () => {
     expect(assistantBadge(view([item('a')]), [item('a')])).toBeUndefined()
     expect(assistantBadge(view(items, false), [])).toBeUndefined()
     expect(assistantBadge(view([]), [])).toBeUndefined()
+  })
+})
+
+describe('what the window reports as shown to the user (review round 1)', () => {
+  const items = [item('a'), item('b', { state: 'seen' })]
+
+  it('nothing while the section is out of sight and no card speaks', () => {
+    expect(shownItemIds(view(items), false, 'waits', [])).toEqual([])
+  })
+
+  it('the item of the speech card', () => {
+    expect(shownItemIds(view(items), false, 'waits', [items[0]!])).toEqual(['a'])
+  })
+
+  it('every item of the list while the section is in front on its list of what waits, and none on another tab', () => {
+    expect(shownItemIds(view(items), true, 'waits', [])).toEqual(['a', 'b'])
+    expect(shownItemIds(view(items), true, 'journal', [])).toEqual([])
+  })
+
+  it('nothing while the Assistant is off', () => {
+    expect(shownItemIds(view(items, false), true, 'waits', [items[0]!])).toEqual([])
   })
 })

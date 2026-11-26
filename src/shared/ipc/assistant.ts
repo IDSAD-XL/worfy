@@ -62,6 +62,12 @@ export const assistantStart = invokeChannel(
 /** The user writes to the Assistant; refused, with the reason, while it is off. Its answer comes in `assistant.changed`. */
 export const assistantSend = invokeChannel('assistant.send', z.object({ text: z.string().min(1).max(10_000) }), z.object({}), 'local')
 
+/**
+ * The window showed these items to the user, in the open section or on a speech card: their duties count them as shown
+ * (Duties.look). The view itself counts nothing, so a section nobody looks at never pauses a duty.
+ */
+export const assistantShown = invokeChannel('assistant.shown', z.object({ itemIds: z.array(id).max(500) }), z.object({}), 'local')
+
 declare module './channels' {
   interface IpcContract {
     'assistant.open': typeof assistantOpen
@@ -74,5 +80,6 @@ declare module './channels' {
     'assistant.dismissProposal': typeof assistantDismissProposal
     'assistant.start': typeof assistantStart
     'assistant.send': typeof assistantSend
+    'assistant.shown': typeof assistantShown
   }
 }

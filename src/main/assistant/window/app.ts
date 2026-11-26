@@ -10,7 +10,7 @@ import { assistantReveal } from '../../../shared/ipc/assistant'
 import { appLimits } from '../../agent/limits'
 import { sharedNodeSessions } from '../../agent/app-node-sessions'
 import { sharedRegistry } from '../../agent/app-registry'
-import { toEveryWindow } from '../../broadcast'
+import type { Client } from '../../clients'
 import { appNow } from '../../clock'
 import { emit } from '../../ipc/index'
 import { electronWindowNoteDeps, openNote } from '../../notify'
@@ -23,6 +23,7 @@ import { appAttentionCore } from '../core/app'
 import { appDuties } from '../duties/app'
 import { appProposals } from '../proposals/book'
 import { AssistantNotices } from './notices'
+import { AssistantReveal } from './reveal'
 import { windowStateFile, windowStatePath } from './store'
 import { AssistantWindow, type AssistantConversation } from './view'
 
@@ -33,8 +34,7 @@ export const WINDOW_LOOK_MS = 60_000
 const PREPARED_VENDOR = 'claude'
 
 let shared: AssistantWindow | null = null
-/** A notification was clicked while no window was there to show the section: the next window shows it. */
-let revealPending = false
+let sharedReveal: AssistantReveal<Client> | null = null
 
 /** The Assistant while it runs; null while it is off. Ticket 10 (appAssistant) answers it. */
 function runningAssistant(): AssistantConversation | null {
@@ -69,18 +69,16 @@ export function appAssistantWindow(): AssistantWindow {
   return shared
 }
 
-/** Whether a clicked notification waits for a window to show the section; asking takes it. */
-export function takeReveal(): boolean {
-  const pending = revealPending
-  revealPending = false
-  return pending
+/** The reveal of a clicked notification in the running app: the windows that follow the section, and what waits. */
+export function appAssistantReveal(): AssistantReveal<Client> {
+  sharedReveal ??= new AssistantReveal<Client>()
+  return sharedReveal
 }
 
 /** Raises worfy's window (or opens one) and has it show the Assistant's section. */
 function reveal(): void {
-  revealPending = true
   openNote({ title: '', body: '', sessionId: null })
-  toEveryWindow((client) => emit(client, assistantReveal, {}))
+  appAssistantReveal().request((client) => emit(client, assistantReveal, {}))
 }
 
 /**
