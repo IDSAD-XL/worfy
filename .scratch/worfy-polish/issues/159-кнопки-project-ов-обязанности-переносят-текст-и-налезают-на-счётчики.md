@@ -1,7 +1,8 @@
 # 159 — Кнопки Project-ов обязанности переносят текст и налезают на счётчики
 
 Type: bug
-Status: claimed 2026-11-26T18:33Z
+Status: done 2026-11-26T19:33Z
+PR: #2286
 Branch: worfy-polish/159
 Blocked by: —
 Source: замечание владельца 2026-11-26 («вот еще небольшой недочет», снимок экрана Settings → Assistant → Duties).
@@ -59,11 +60,14 @@ jsdom не раскладывает страницу, поэтому test про
       ряда; длинное имя — с многоточием и полным именем в tooltip; режимы действий не переносят текст.
   - evidence: commit pass · worfy-polish/159: duty Project buttons keep one line and wrap as a row · - - · 511a6e8419e9521243737fc0a4e701e0a6b2ebd9
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/settings-assistant.test.tsx` exit 0 · mac - · 511a6e8419e9521243737fc0a4e701e0a6b2ebd9
+  - evidence: review pass · PR #2286 · - - · 2e3c92b78ac5fe5e9d45837617f95fea96df0112
 - [ ] Unit test в `test/unit/settings-assistant.test.tsx` проверяет строение строки и правила стилей; красный до
       правки.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/settings-assistant.test.tsx` exit 0 · mac - · 511a6e8419e9521243737fc0a4e701e0a6b2ebd9
+  - evidence: review pass · PR #2286 · - - · 2e3c92b78ac5fe5e9d45837617f95fea96df0112
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast зелёный; `ci-ok` на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 511a6e8419e9521243737fc0a4e701e0a6b2ebd9
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45880256931/job/140130825769 · ci - · 2e3c92b78ac5fe5e9d45837617f95fea96df0112
 - [ ] (вручную) Владелец смотрит строку «Projects» обязанности «Work stands» в Stable copy: кнопки в одну строку текста,
       ряд переносится, счётчики ниже ряда.
   - needs: mac stable
