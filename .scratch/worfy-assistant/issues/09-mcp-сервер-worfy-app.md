@@ -64,7 +64,7 @@ MCP-сервер `worfy-app` — единственный набор tools Sessi
 - [ ] Contract test: действие идёт через функцию main с её проверками — pr-follow отказывает, пока идёт Autopilot;
       `autopilot_start` открывает диалог, а не запускает Run.
   - evidence: test-run pass · `ELECTRON_RUN_AS_NODE=1 npx electron node_modules/vitest/vitest.mjs run test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 9e8a44265326a4be8260c1a1613bbe239445e59c
-  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45703607531/job/139551775088 · ci - · 3bb2cd3a08653717b7c5a0794f714aaddaeb2aa1
+  - evidence: review pass · PR #2240 · - - · 3bb2cd3a08653717b7c5a0794f714aaddaeb2aa1
 - [ ] Contract test: чужой текст в ответе помечен как данные, с источником и автором.
   - evidence: test-run pass · `ELECTRON_RUN_AS_NODE=1 npx electron node_modules/vitest/vitest.mjs run test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 9e8a44265326a4be8260c1a1613bbe239445e59c
   - evidence: review pass · PR #2240 · - - · 3bb2cd3a08653717b7c5a0794f714aaddaeb2aa1
@@ -75,7 +75,7 @@ MCP-сервер `worfy-app` — единственный набор tools Sessi
   - evidence: test-run pass · `ELECTRON_RUN_AS_NODE=1 npx electron node_modules/vitest/vitest.mjs run test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 9e8a44265326a4be8260c1a1613bbe239445e59c
   - evidence: review pass · PR #2240 · - - · 3bb2cd3a08653717b7c5a0794f714aaddaeb2aa1
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
-  - evidence: review pass · PR #2240 · - - · 3bb2cd3a08653717b7c5a0794f714aaddaeb2aa1
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45703607531/job/139551775088 · ci - · 3bb2cd3a08653717b7c5a0794f714aaddaeb2aa1
 
 ## Итог
 

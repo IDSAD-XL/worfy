@@ -62,7 +62,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 10; «Решение�
       Session его читает.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-session.test.ts` exit 0 · mac - · cc37261043a60dadb508a0aa4014999a025a1073
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-session.test.ts` exit 0 (memory as data, size cap) · mac - · 269b2a6a3f7a003114e78f29b121a99f0436a6c2
-  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45741581364/job/139670734653 · ci - · 81b96cb0fead7b614c0dea90ec3b3db55b60290b
+  - evidence: review pass · PR #2247 · - - · 81b96cb0fead7b614c0dea90ec3b3db55b60290b
 - [ ] Session Assistant-а идёт не на Haiku.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-session-options.test.ts` exit 0 · mac - · cc37261043a60dadb508a0aa4014999a025a1073
   - evidence: review pass · PR #2247 · - - · 81b96cb0fead7b614c0dea90ec3b3db55b60290b
@@ -74,7 +74,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 10; «Решение�
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · cc37261043a60dadb508a0aa4014999a025a1073
   - evidence: gate pass · `gate fast` exit 0 · mac - · 269b2a6a3f7a003114e78f29b121a99f0436a6c2
-  - evidence: review pass · PR #2247 · - - · 81b96cb0fead7b614c0dea90ec3b3db55b60290b
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45741581364/job/139670734653 · ci - · 81b96cb0fead7b614c0dea90ec3b3db55b60290b
 
 ## Итог
 
