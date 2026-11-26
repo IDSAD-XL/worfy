@@ -128,3 +128,18 @@ worfy ничего не пишет в репозитории Project-ов — н
     (`src/main/vendors/claude/assistant-session.ts`): вне всех Project-ов, без файлов настроек. worfy в неё ничего не
     пишет; транскрипта Claude Code этой Session не хранит (`persistSession: false`), так что и в `~/.claude/projects`
     она ничего не оставляет.
+- 2026-11-26 — Epic `worfy-assistant`, Ticket-ы 11, 14 и 16 (ADR-0114): три места состояния Assistant-а, которые эти
+  Ticket-ы завели, а инвентарь пропустил. Все в `WORFY_DATA_DIR`, вне репозиториев Project-а; файлы пишет только main,
+  через `src/main/storage/json-file.ts`.
+  - `<WORFY_DATA_DIR>/assistant/window.json` — состояние раздела Assistant-а (Ticket 14,
+    `src/main/assistant/window/store.ts`): отложенные пункты (пункт, его Project, до какого времени или до новой
+    ревизии пункта), like и dislike сообщений Assistant-а с правилом, которое записал dislike, и разговор с
+    пользователем. Разговор хранит не больше 200 сообщений, оценки — не больше 1000; старые уходят первыми. Сами
+    пункты, обязанности и предложения остаются там, где их держат Ticket-ы 03, 07 и 09.
+  - `<WORFY_DATA_DIR>/assistant/intro.json` — знакомство с Assistant-ом (Ticket 16, `src/main/assistant/intro/intro.ts`):
+    что человек сделал с единственным предложением включить Assistant (принял, отказался или ещё нет), показано ли
+    сообщение после обновления и должно ли знакомство или уже прошло.
+  - `<WORFY_DATA_DIR>/assistant-sources/` — пустая папка, cwd каждой проверки источника через connector claude.ai
+    (Ticket 11, `src/main/vendors/claude/connector-check.ts`, `CONNECTOR_CHECK_DIR`): вне всех Project-ов, без файлов
+    настроек; main создаёт её перед проверкой. worfy в неё ничего не пишет; транскрипта Claude Code проверки не
+    хранит (`persistSession: false`), так что и в `~/.claude/projects` она ничего не оставляет.
