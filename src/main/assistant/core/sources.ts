@@ -14,7 +14,7 @@ import { ticketKey, type Ticket, type WorkflowDelta, type WorkflowModel } from '
 import { waitBody, waitKey, waitsForPerson } from '../../workflow/waits-notify'
 import type { AttentionCore } from './attention-core'
 
-type Core = Pick<AttentionCore, 'ingest' | 'resolve' | 'expect'>
+type Core = Pick<AttentionCore, 'ingest' | 'resolve' | 'expect' | 'batch'>
 
 /**
  * How long a Session may stay silent after the end of its turn before it waits for the user: 15 minutes, the
@@ -130,6 +130,11 @@ const ticketSubject = (ticket: Pick<Ticket, 'epic' | 'num' | 'title'>): Attentio
  * unless it was taken before (the key is the wait's, waitKey).
  */
 export function workflowAttention(core: Core, projectId: string, read: WorkflowModel | WorkflowDelta): void {
+  // One write of the Project's file for the whole read, not one per Ticket (worfy-polish 151).
+  core.batch(() => takeWorkflowRead(core, projectId, read))
+}
+
+function takeWorkflowRead(core: Core, projectId: string, read: WorkflowModel | WorkflowDelta): void {
   for (const ticket of read.tickets) {
     const subject = ticketSubject(ticket)
     const person = waitsForPerson(ticket.waits)
@@ -154,6 +159,10 @@ export function workflowAttention(core: Core, projectId: string, read: WorkflowM
 
 /** A read of a Project's PR inbox: a PR in a group that needs the user is an item; one in another group closes its items. */
 export function prInboxAttention(core: Core, snapshot: PrInboxSnapshot): void {
+  core.batch(() => takePrInbox(core, snapshot))
+}
+
+function takePrInbox(core: Core, snapshot: PrInboxSnapshot): void {
   if (!snapshot.enabled || snapshot.readAt === null) return
   for (const { group, rows } of snapshot.groups) {
     for (const row of rows) {
@@ -189,6 +198,10 @@ export function autopilotAttention(core: Core, line: JournalEvent): void {
 
 /** The Health check report: a row that fails or warns is an item of its Project (the Machine's without one); `ok` closes it. */
 export function healthAttention(core: Core, report: FirstRunReport): void {
+  core.batch(() => takeHealth(core, report))
+}
+
+function takeHealth(core: Core, report: FirstRunReport): void {
   for (const check of report.checks) {
     if (check.status === 'unknown') continue
     const projectId = check.project?.id ?? null
@@ -203,6 +216,10 @@ export function healthAttention(core: Core, report: FirstRunReport): void {
 
 /** The Limits: a window that is reached (`rejected`) or warned of is an item of the Machine; allowed again closes it. */
 export function limitsAttention(core: Core, state: LimitsState): void {
+  core.batch(() => takeLimits(core, state))
+}
+
+function takeLimits(core: Core, state: LimitsState): void {
   for (const [name, window] of Object.entries(state.windows)) {
     const subject: AttentionSubject = { kind: 'limit', id: name, label: name }
     const kind = window.status === 'rejected' ? 'limit-reached' : window.status === 'allowed_warning' ? 'limit-warning' : null

@@ -229,6 +229,30 @@ describe('every Project of the Machine', () => {
     stop()
   })
 
+  // worfy-polish 151: the start of the e2e Project of 682 Tickets (test/e2e/epic-frame.spec.ts) wrote the file 96
+  // times, once per item, in the main process before the window became interactive.
+  it('one read of a Project — 682 Tickets, 111 of them blocked or waiting — is one write of its file and one call of the listeners', async () => {
+    const tickets = Array.from({ length: 682 }, (_, n) =>
+      n % 7 === 6 ? ticket('worfy-big', n + 1, { state: 'blocked', statusRaw: 'blocked', blockedReason: 'waiting for review' }) : n % 49 === 0 ? owner('worfy-big', n + 1) : ticket('worfy-big', n + 1),
+    )
+    const h = harness({ [ALPHA.path]: model(ALPHA.path, tickets) })
+    const files = h.sources.store
+    const writes: (string | null)[] = []
+    h.sources.store = { read: files.read, write: (scope, file) => (writes.push(scope), files.write(scope, file)) }
+    let told = 0
+    const { core, stop } = installAttentionCore(h.sources)
+    core.subscribe((scope) => (scope === ALPHA.id ? (told += 1) : undefined))
+    // The start keeps the new scope at once (its `since`); the workflow read comes after, from the hub.
+    expect(writes.filter((scope) => scope === ALPHA.id)).toHaveLength(1)
+    writes.length = 0
+    await settle()
+    expect(core.items(ALPHA.id).length).toBe(tickets.filter((each) => each.state === 'blocked').length)
+    expect(core.items(ALPHA.id).length).toBe(111)
+    expect(writes.filter((scope) => scope === ALPHA.id)).toHaveLength(1)
+    expect(told).toBe(1)
+    stop()
+  })
+
   it('projectOfPath: a worktree inside a Project belongs to it, the longest folder wins, a folder of none is the Machine’s', () => {
     const nested = { id: 'p-nested', path: join(ALPHA.path, 'sub') }
     expect(projectOfPath([ALPHA, nested], join(ALPHA.path, 'sub', 'x'))).toBe('p-nested')
