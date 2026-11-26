@@ -90,11 +90,17 @@ Ticket 24 запретил для него `self`, но оставил `pre-appr
 
 - [ ] Unit test: `pre-approved` и `self` для `pr-follow` нельзя выбрать в `Duties.configure`; `ask`, `hand-over` и
       режимы остальных действий — как сейчас.
+  - evidence: test-run pass · `pnpm test test/unit/assistant-duties.test.ts` exit 0 · mac - · 193eca821
 - [ ] Unit test: `pre-approved` для `pr-follow` из файла памяти читается как `ask`.
+  - evidence: test-run pass · `pnpm test test/unit/assistant-duties.test.ts test/unit/assistant-session.test.ts` exit 0 · mac - · 193eca821
 - [ ] Contract test: `action_run` не запускает `pr-follow` в режиме `pre-approved`.
+  - evidence: test-run pass · `pnpm test test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 193eca821
 - [ ] Settings не предлагает `pre-approved` для `pr-follow` (test, если Ticket 15 влит; иначе строка в «Итог»).
+  - evidence: test-run pass · `pnpm test test/unit/assistant-settings-panel.test.ts test/unit/settings-assistant.test.tsx test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 193eca821
 - [ ] «Итог»: все места, где `pre-approved` для `pr-follow` теперь отклоняется, с `file:line`.
+  - evidence: commit pass · worfy-assistant/26: pr-follow is only ask or hand-over; action_run no longer runs it · - - · 193eca821
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 193eca821
 
 ## Итог
 
@@ -139,7 +145,7 @@ Ticket 24 запретил для него `self`, но оставил `pre-appr
    `pr-follow` она не делает. Цена: test-ы ветки `pr-follow` (отказ launcher-а, пока идёт Autopilot; строка журнала
    этого отказа) ушли вместе с ней; строку журнала и «журнал не записан — ответ остаётся» теперь проверяет
    `autopilot-start`. Отказ launcher-а при Autopilot проверяют его собственные test-ы. Если владелец снова разрешит
-   `pre-approved`, ветку придётся вернуть (PR #2266 и раньше — её прежний вид).
+   `pre-approved`, ветку придётся вернуть (её прежний вид — в коде после PR #2260 Ticket-а 24).
 2. **Проверка режима в `act` осталась** (Ticket 24): она общая для любого действия `action_run` и сработает, если список
    режимов сузят для `autopilot-start` или действия закрытого списка. Сегодня она не срабатывает: у оставшихся действий
    разрешены все четыре режима.
