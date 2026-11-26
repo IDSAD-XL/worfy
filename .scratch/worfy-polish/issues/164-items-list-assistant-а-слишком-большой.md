@@ -82,3 +82,26 @@ Source: отчёт владельца 2026-11-26 (снимок чата Assistan
       «Что ждёт меня?» → Должно быть: Assistant называет пункты, ради которых его разбудили, их Project и что в них, и
       не пишет, что ответ слишком большой или сохранён в файл.
   - needs: mac stable
+
+## Итог
+
+- Порог Claude Code — 50 000 знаков: в бинарнике Claude Code 2.1.323 модуль сохранения результатов (`<persisted-output>`)
+  берёт `Math.min(maxResultSizeChars, vE)` при `var vE=50000`; общий шаблон MCP tool-а объявляет `maxResultSizeChars:1e5`.
+  Удалённая настройка `tengu_velvet_ibis` может задать порог tool-а иначе. Отдельный предел MCP — `MAX_MCP_OUTPUT_TOKENS`,
+  25 000 token-ов (обрезка, не файл), он выше. Константа — `CLAUDE_CODE_RESULT_TO_FILE_CHARS`
+  (`src/shared/assistant/app-tools.ts`).
+- `items_list`: `ids` (до 50), `project`, `kind`, `state` (`open` по умолчанию без `ids`, `all` с `ids`), `limit` (20 по
+  умолчанию, до 50), `cursor`; ответ — `total`, `nextCursor`, `items`, `missing` (неизвестные `ids`), `linked` (каждая
+  Linked machine с `problem` и числом `waiting`). Пункты этой машины и Linked machine — в одном списке, срочные первыми,
+  потом новые; пункт Linked machine несёт `readOnly: true` и `machine`. Страница кончается по `limit` или раньше, чем ответ
+  перейдёт 20 000 знаков (`ITEMS_LIST_ANSWER_MAX_CHARS`).
+- Короткая запись (`compactItemView`): id, Project, source, kind, state, urgent, duty, время, subject (kind, id), `pr`
+  (repo, number), заголовок до 300 знаков объектом `outside-text`, действия duty с режимом без текста. Целиком — `ids` и
+  `full: true`; `full` без `ids` — отказ. Нового tool-а нет.
+- По `ids` находится любой пункт ядра, не только показанный duty: пункт Session, закончившей ход (`duty: null`), раньше
+  в `items_list` не попадал вовсе.
+- Первое сообщение (`wakePrompt`) несёт записи до 20 переданных пунктов JSON-блоком, остальные — по id
+  (`WAKE_ITEM_RECORDS_MAX`, решено без владельца: 20 записей — около 10 000 знаков рядом с памятью до 32 000). Правило
+  Ticket-а `worfy-assistant` 10 «id без текста» заменено на «текст только объектом `outside-text`», как у памяти.
+- 200 больших пунктов и 200 пунктов Linked machine: каждая страница по умолчанию — не больше 20 000 знаков и меньше
+  50 000 байт; обход всех страниц читает 400 пунктов по разу; `full: true` по 50 `ids` идёт страницами и тоже в пределе.
