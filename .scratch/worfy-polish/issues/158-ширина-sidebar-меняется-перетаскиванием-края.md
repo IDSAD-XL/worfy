@@ -90,6 +90,7 @@ Sidebar — колонка слева в окне: полоса под кноп�
 - [ ] Край sidebar тянется мышью и стрелками в пределах 220…640 и «окно минус 480 px»; двойной щелчок — 264;
       Escape отменяет drag; во время drag ширина живая, запись одна.
   - evidence: test-run pass · `pnpm test test/unit/sidebar-resize.test.tsx` exit 0 · mac - · 57aaf3eb106299ddc7d961e8e795557accb99e39
+  - evidence: test-run pass · `pnpm test test/unit/sidebar-resize.test.tsx` exit 0 · mac - · 3ecde9b3848477e7b5633e383ba0c8a6236ab8d7
 - [ ] `sidebar.width` хранится в app settings и переживает перезапуск; старый файл без поля читается как раньше.
   - evidence: test-run pass · `pnpm test test/contract/app-settings.test.ts` exit 0 · mac - · 57aaf3eb106299ddc7d961e8e795557accb99e39
 - [ ] Hide/show (Cmd/Ctrl+B) и focus mode работают как раньше, sidebar возвращается сохранённой ширины.
@@ -101,6 +102,7 @@ Sidebar — колонка слева в окне: полоса под кноп�
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast зелёный; `ci-ok` зелёный на head PR, job
       `macos-e2e` с `test/e2e/sidebar-resize.spec.ts`.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 57aaf3eb106299ddc7d961e8e795557accb99e39
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 3ecde9b3848477e7b5633e383ba0c8a6236ab8d7
 - [ ] (вручную) Сделай: в Stable worfy потяни правый край sidebar вправо, перезапусти worfy, потом дважды щёлкни по
       краю → Должно быть: раздел Assistant шире и строки длиннее; после перезапуска ширина та же; двойной щелчок
       возвращает прежнюю ширину.
