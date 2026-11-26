@@ -175,3 +175,16 @@ gate fast — exit 0, green. e2e локально не запускали (пр�
 3. Как человек прочтёт имя Project-а, обрезанное многоточием?
    - Ответ: полное имя лежит в `title` кнопки и показывается tooltip-ом.
    - Строки: `src/renderer/settings/AssistantSection.tsx:247`, `src/renderer/settings/assistant-settings.css:195-200`
+
+## 8. Что нашёл review и что осталось
+
+> VERIFIED — worfy-polish 159 (the Projects chips of an Assistant duty in Settings no longer wrap their text or overlap the stats row: chips nowrap and size to their text, the row wraps, long names end in an ellipsis with a title tooltip; mode and day chips nowrap too), head 2e3c92b78ac5fe5e9d45837617f95fea96df0112
+>
+> Gate (depth medium, one round):
+> - Round 1, reviewer (lens: correctness of the CSS layout and TSX) — MERGE.
+>   - Measured in headless Chromium with the new CSS at 550px: with 2 Projects the chips sit on one line, bottom at 52px, and the stats begin at 58px; with 6 long names the chips take two lines, bottom at 80px, and the stats begin at 86px. The ellipsis cuts a long name (scrollWidth > clientWidth).
+>   - The shared classes `.w-asst-set__day` and `.w-asst-set__action` have no other users outside AssistantSection.
+>   - The new unit test fails on the old files (exit 1) and passes after the fix.
+>   - low, not fixed: the test checks the CSS by regex and catches the overlap only indirectly.
+> Evidence: settings unit tests (19 files, 278 tests) exit 0; pnpm lint, typecheck and test exit 0; gate fast green.
+> Not verified: the real Electron screen in light and dark themes (owner rule: no local Electron); the owner's manual item 4 in Stable.
