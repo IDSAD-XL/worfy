@@ -53,6 +53,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 17; «Решения 
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 849f153d5
   - evidence: gate pass · `gate fast` exit 0 · mac - · 28cc6db26
+  - evidence: gate pass · `gate fast` exit 0 · mac - · afbe4c387
 
 ## Решено без владельца (подтвердить)
 
