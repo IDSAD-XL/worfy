@@ -76,10 +76,14 @@ worfy (main около 23a992a0c) пустое, тёмный фон, сразу 
 
 - [ ] Ошибка рендера раздела sidebar, вкладки Assistant или вида основной области показывает в этой части «… failed
       to render», текст ошибки и Reload; остальное окно работает.
+  - evidence: test-run pass · `pnpm test test/unit/error-boundary.test.tsx` exit 0 · mac - · 4e161b2f1d4395b691424fe2cb08b4121082d71c
 - [ ] Ошибка, которую не поймал ни один внутренний boundary, показывает текст ошибки и «Reload window», а не пустое
       окно.
+  - evidence: test-run pass · `pnpm test test/unit/error-boundary.test.tsx` exit 0 · mac - · 4e161b2f1d4395b691424fe2cb08b4121082d71c
 - [ ] `docs/features/app-shell.md` говорит о запасном виде упавшей части.
+  - evidence: commit pass · worfy-polish/163: the boundary's text helpers apart, the fallback in app-shell.md · - - · c3ac9c86f
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast зелёный; `ci-ok` зелёный на head PR.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · c3ac9c86f
 - [ ] (вручную) Сделай: в Stable worfy открой раздел Assistant и нажми вкладку Journal, затем вид Runs → Work track
       → Должно быть: окно не пустеет; если часть всё же падает — в ней «… failed to render» с текстом ошибки и
       Reload, а sidebar и toolbar работают. Текст ошибки, если он есть, — прислать.
