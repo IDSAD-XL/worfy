@@ -16,6 +16,8 @@ interface ErrorBoundaryProps {
   scope: BoundaryScope
   /** What the boundary holds, for the line of the console and the `data-boundary` attribute (AssistantSection, journal, history…). */
   name: string
+  /** Drawn above the fallback only: what the failed part drew itself and the user still needs (the switch of the Runs view). */
+  above?: ReactNode
   children?: ReactNode
 }
 
@@ -55,14 +57,17 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
   override render(): ReactNode {
     if (!this.state.failed) return this.props.children
-    const { scope, name } = this.props
+    const { scope, name, above } = this.props
     return (
-      <div role="alert" className={`w-error-boundary w-error-boundary--${scope}`} data-testid="error-boundary" data-boundary={name}>
-        <div className="w-error-boundary__title">{TITLES[scope]}</div>
-        <div className="w-error-boundary__message">{errorText(this.state.error)}</div>
-        {this.state.where === null ? null : <div className="w-error-boundary__where">in {this.state.where}</div>}
-        <Button onClick={this.reload}>{scope === 'window' ? 'Reload window' : 'Reload'}</Button>
-      </div>
+      <>
+        {above}
+        <div role="alert" className={`w-error-boundary w-error-boundary--${scope}`} data-testid="error-boundary" data-boundary={name}>
+          <div className="w-error-boundary__title">{TITLES[scope]}</div>
+          <div className="w-error-boundary__message">{errorText(this.state.error)}</div>
+          {this.state.where === null ? null : <div className="w-error-boundary__where">in {this.state.where}</div>}
+          <Button onClick={this.reload}>{scope === 'window' ? 'Reload window' : 'Reload'}</Button>
+        </div>
+      </>
     )
   }
 }

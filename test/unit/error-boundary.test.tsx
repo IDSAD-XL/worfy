@@ -3,7 +3,7 @@
 // blank. Now that part shows «… failed to render», the error's message and Reload; the rail, the toolbar and the other
 // parts keep working. The sections and the views are real; IPC is replaced for the Assistant's panel.
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AssistantView } from '../../src/shared/assistant/window'
 
@@ -15,7 +15,35 @@ vi.mock('../../src/renderer/ipc', async (importOriginal) => ({
   subscribe: () => () => undefined,
 }))
 
+/** Which real part throws in this case: one section file of the shell, and Work track of the Runs view. */
+const broken = vi.hoisted(() => ({ adr: false, track: false }))
+
+vi.mock('../../src/renderer/shell/sidebar/AdrSection.tsx', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../src/renderer/shell/sidebar/AdrSection')>()
+  // The shell reads every rail export by name (registry.ts); a mock answers only the keys it lists.
+  return {
+    railEnd: undefined,
+    railDefault: undefined,
+    RailIcon: undefined,
+    ...real,
+    default: function AdrSection() {
+      if (broken.adr) throw new Error('ADR section broke')
+      return <real.default />
+    },
+  }
+})
+
+// Work track reads main; here it only draws the switch it is given, as the real view does in its bar, or throws.
+vi.mock('../../src/renderer/work-track/WorkTrackView', () => ({
+  WorkTrackView: function WorkTrackView({ switcher }: { switcher: ReactNode }) {
+    if (broken.track) throw new Error('Work track broke')
+    return <div data-testid="work-track">{switcher}</div>
+  },
+}))
+
 const { ErrorBoundary } = await import('../../src/renderer/shell/ErrorBoundary')
+const { RunsView } = await import('../../src/renderer/flight-recorder/RunsView')
+const { setRunsTab } = await import('../../src/renderer/work-track/store')
 const { errorText, topComponent } = await import('../../src/renderer/shell/error-text')
 const { AppShell } = await import('../../src/renderer/shell/AppShell')
 const { SidebarView } = await import('../../src/renderer/shell/Sidebar')
@@ -55,6 +83,8 @@ beforeEach(() => {
   // No main: every call is refused, so no store of the shell takes a made-up answer as its state.
   ipc.invoke.mockResolvedValue({ ok: false, error: 'no main in this test' })
   useAssistant.setState({ view: null, tab: 'waits', focus: null, closed: [], gone: [], prepare: null })
+  broken.adr = false
+  broken.track = false
 })
 
 afterEach(() => {
@@ -145,12 +175,20 @@ describe('a sidebar section that throws', () => {
     expect(screen.getByRole('button', { name: 'Pressed 1' })).toBeTruthy()
   })
 
-  it('the real shell: every section file is inside a boundary', () => {
-    render(<AppShell />)
-    const panels = [...document.querySelectorAll('.w-sidebar__section')]
-    expect(panels.length).toBeGreaterThan(5)
-    // No section failed here; the boundary leaves the section's own content as the panel's content.
-    expect(screen.queryByTestId('error-boundary')).toBeNull()
+  it('the real shell: a real section file that throws fails in its own panel; the rail opens another section', () => {
+    broken.adr = true
+    act(() => showSidebarSection('AdrSection'))
+    render(<AppShell canvas={<p>canvas body</p>} />)
+    const adr = document.querySelector('[data-section="AdrSection"]') as HTMLElement
+    expect(within(adr).getByText('This section failed to render')).toBeTruthy()
+    expect(within(adr).getByText('ADR section broke')).toBeTruthy()
+    // Only that section failed; the others are drawn, and the rail still switches to one.
+    expect(screen.getAllByTestId('error-boundary')).toHaveLength(1)
+    const rail = screen.getByRole('tablist', { name: 'Sidebar sections' })
+    fireEvent.click(within(rail).getByRole('tab', { name: 'Projects' }))
+    expect((document.querySelector('[data-section="ProjectsSection"]') as HTMLElement).hidden).toBe(false)
+    expect(adr.hidden).toBe(true)
+    expect(screen.getByText('canvas body')).toBeTruthy()
   })
 })
 
@@ -162,6 +200,18 @@ describe('a view that throws', () => {
     expect(screen.getByRole('navigation', { name: 'Sidebar' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Canvas' })).toBeTruthy()
     expect(screen.getByText('canvas body')).toBeTruthy()
+  })
+
+  it('Work track that throws fails under the switch of the Runs view, and the switch goes back to Run history', () => {
+    broken.track = true
+    act(() => setRunsTab('p-1', 'track'))
+    render(<RunsView activeProjectId="p-1" />)
+    const runs = screen.getByTestId('runs-view')
+    expect(within(runs).getByText('Work track broke')).toBeTruthy()
+    expect(screen.getByRole('alert').getAttribute('data-boundary')).toBe('work-track')
+    fireEvent.click(within(runs).getByRole('button', { name: 'Run history' }))
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.getByTestId('run-history').closest('[hidden]')).toBeNull()
   })
 })
 

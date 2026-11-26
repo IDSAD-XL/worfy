@@ -6,6 +6,7 @@
 // Run history stays mounted under Work track, hidden: its Esc back to the Canvas and its Canvas on another
 // Project hold for both halves.
 import { useEffect, type ReactNode } from 'react'
+import { ErrorBoundary } from '../shell/ErrorBoundary'
 import { SegmentedControl, type SegmentOption } from '../theme/primitives'
 import { useNavigation } from '../session/navigation'
 import { runsTabOf, setRunsTab, useWorkTrack, type RunsTab } from '../work-track/store'
@@ -51,10 +52,18 @@ export function RunsView({ activeProjectId }: { activeProjectId?: string }) {
   return (
     <div className="w-runs" data-testid="runs-view">
       {tab === 'history' ? <div className="w-runs__bar">{switcher}</div> : null}
+      {/* Each half fails on its own, under the switch (worfy-polish 163): Work track draws the switch in its own bar,
+          so its fallback keeps the switch above it, and Run history stays one click away. */}
       <div className="w-runs__body" hidden={tab !== 'history'}>
-        <RunHistoryView activeProjectId={activeProjectId} />
+        <ErrorBoundary scope="view" name="run-history">
+          <RunHistoryView activeProjectId={activeProjectId} />
+        </ErrorBoundary>
       </div>
-      {tab === 'track' && activeProjectId !== undefined ? <WorkTrackView projectId={activeProjectId} active={active} switcher={switcher} /> : null}
+      {tab === 'track' && activeProjectId !== undefined ? (
+        <ErrorBoundary key={activeProjectId} scope="view" name="work-track" above={<div className="w-runs__bar">{switcher}</div>}>
+          <WorkTrackView projectId={activeProjectId} active={active} switcher={switcher} />
+        </ErrorBoundary>
+      ) : null}
     </div>
   )
 }
