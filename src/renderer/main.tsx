@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 // Tokens first: every other stylesheet reads its variables.
 import './theme/tokens.css'
 import { AppShell } from './shell/AppShell'
+import { ErrorBoundary } from './shell/ErrorBoundary'
 import { installAssistantOffer } from './assistant/offer-notice'
 import { installArchiveToasts } from './canvas/archive-toast'
 import { Canvas } from './canvas/Canvas'
@@ -137,9 +138,13 @@ if (container) {
   installReviewOffers(followActiveProject)
   // The morning digest of the PR inbox at the first focus of the day (worfy-pr-inbox ticket 07).
   installPrInboxDigest()
+  // A throw that no inner boundary caught shows what failed and «Reload window», not a blank window
+  // (worfy-polish ticket 163): without a boundary React unmounts the whole tree.
   createRoot(container).render(
     <StrictMode>
-      <App />
+      <ErrorBoundary scope="window" name="app">
+        <App />
+      </ErrorBoundary>
     </StrictMode>,
   )
 }
