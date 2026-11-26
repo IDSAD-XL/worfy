@@ -212,3 +212,19 @@ Code: `src/renderer/settings/AssistantSection.tsx:140-148` · key lines: 140, 14
    - Ответ: `proposal_create` и `proposal_update` не принимают `applied`; его пишет только `AssistantWindow.apply` на
      щелчок Apply.
    - Lines: `src/main/mcp/app-server.ts:493-505`
+
+## 8. Что нашёл review и что осталось
+
+> VERIFIED — worfy-assistant 15 (the Assistant's settings: one switch, off by default; work hours; each check's on/interval/sleep; each duty's action modes, counters and pause; a daily wake limit; usage by source; «before → after» proposal cards that change settings only on Apply; a «N failures in a row» line with Check now for backed-off checks), head f8ff49fb1c8ec4a52d0db07d9c22b4c591f6b2a0
+>
+> Gate (depth medium, two rounds + rebase):
+> - Round 1, reviewer (lens: correctness) — FIX, one med and four low:
+>   - med: turning the Assistant off did not disarm a main-ci condition already armed in the attention core, so a «main CI red» item could rise after CI turned green;
+>   - low: Check now ran a check turned off in Settings; the refusal toast gave a generic reason; Project rule rows of one title looked the same (duplicate React keys); a wake held by the daily limit was not reconsidered when the limit rose.
+>   Checked fine: off by default loses nothing on upgrade; the model cannot write a change or mark it applied; stale, double and dismissed Apply are safe; the switch; the daily limit boundary; reading old settings files.
+> - Fix b7c088213: mainCiSwitchOf is on only while the Assistant and the main-ci check are on, and a settings change disarms; runNow refuses check-off and the button is disabled; whyNotNow gives the reason; rows name their Project, key by place+label; the wake loop listens to settings changes. Seven new tests red first.
+> - Round 2, narrow reviewer — MERGE: all five closed, no new defect; a mutation removing the disarm turned both disarm tests red. One low comment note, fixed in the rebase.
+> - Rebase f8ff49fb1 on f4c8d9fb2 (after #2265 ticket 18 and #2259 ticket 23): conflicts in 9 files resolved keeping both sides; the orchestrator spot-checked isUrgentStop in the window, the linked field, refuseLinkedItem in app-server and the localOnly filter in waiting().
+> Evidence: 48 assistant/settings/link test files (1120 passed) exit 0; lint, typecheck exit 0; gate fast green on 6e67df45a (next commit story only); story-check exit 0.
+> Not verified: e2e (owner rule; the new Apply e2e runs in CI); the wiring line onSettingsChange in wake/app.ts is covered by typecheck only.
+> - CI infra rerun (owner rule 2026-11-08, one per head): run 45787300237, job «windows (harness-scripts 2/2) / full-suite» ended after 48 min with «The hosted runner lost communication with the server», no log and no failing test; the PR does not touch harness/ and the same job passed in 7–8 min on #2265 and #2269. `gh run rerun 45787300237 --failed`.
