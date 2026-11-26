@@ -73,11 +73,16 @@ Source: отчёт владельца 2026-11-26 (снимок чата Assistan
 
 - [ ] `items_list` фильтрует по `ids`, `project`, `kind`, `state`, отдаёт страницы с `total` и `nextCursor`;
       компактные пункты по умолчанию, `full: true` с `ids` — целиком.
+  - evidence: test-run pass · `pnpm test test/contract/worfy-app-tools.test.ts test/contract/assistant-two-machines.test.ts` exit 0 · mac - · e773cf5bad41d53e0aeb22ce9c47c2df8a377966
 - [ ] 200 больших пунктов по умолчанию — ответ `items_list` меньше порога Claude Code (50 000 знаков); порог и его
       источник названы в «Итог».
+  - evidence: test-run pass · `pnpm test test/contract/worfy-app-tools.test.ts` exit 0 · mac - · e773cf5bad41d53e0aeb22ce9c47c2df8a377966
 - [ ] Первое сообщение Session несёт компактные записи переданных пунктов; test это проверяет.
+  - evidence: test-run pass · `pnpm test test/unit/assistant-session.test.ts` exit 0 · mac - · e773cf5bad41d53e0aeb22ce9c47c2df8a377966
 - [ ] Описания tool-ов, инструкции Assistant-а и `docs/features/assistant.md` говорят о фильтрах и страницах.
+  - evidence: commit pass · worfy-polish/164: WIP instructions and the feature page on items_list pages · - - · e773cf5bad41d53e0aeb22ce9c47c2df8a377966
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast зелёный; `ci-ok` зелёный на head PR.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · e773cf5bad41d53e0aeb22ce9c47c2df8a377966
 - [ ] (вручную) Сделай: в Stable worfy с накопившимися 50+ пунктами (Waits) дождись wake Assistant-а или напиши ему
       «Что ждёт меня?» → Должно быть: Assistant называет пункты, ради которых его разбудили, их Project и что в них, и
       не пишет, что ответ слишком большой или сохранён в файл.
