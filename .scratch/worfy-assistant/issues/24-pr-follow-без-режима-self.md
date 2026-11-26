@@ -42,6 +42,7 @@ Ticket 09 добавил обязанностям два действия main: 
    `ask` (`app-server.ts:367-368`), — вторая защита на случай, если режим пришёл в обход 2 и 3.
 5. `autopilot-start` не меняется. `pre-approved` у `pr-follow` работает, как сейчас: выбор этого режима — заранее
    данное «да» пользователя (решение 2 Ticket-а 09).
+   **Поправка владельца 2026-11-26** (второй раунд, Q1): `pre-approved` у `pr-follow` тоже запрещается — Ticket 26.
 6. Описание tool-а `action_run` (`src/shared/assistant/app-tools.ts:76`) и правила Session Assistant-а
    (`src/main/mcp/agent-instructions-app.md:17-19`) говорят, что `pr-follow` не бывает `self`, если агент найдёт, что
    без этого модель будет пробовать.

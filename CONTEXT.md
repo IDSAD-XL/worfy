@@ -413,6 +413,32 @@ _Avoid_: ssh-коннект, удалёнка
 Компьютер, к которому подключается SSH session. У него есть флаг «Terminal AI включён» и переключатель отправки данных в модель. Это не Linked machine: на Remote host-е нет worfy.
 _Avoid_: сервер (как название термина)
 
+## Assistant
+
+**Assistant**:
+Агент worfy, по одному на Machine, над всеми Project-ами этой Machine. Он замечает, что работа стоит или ждёт пользователя, объясняет почему и готовит следующий шаг; сам делает только внутренние обратимые действия worfy из закрытого списка, остальное предлагает (Proposal). Код не пишет, Epic-и в очередь не ставит, вовне ничего не публикует. Каждое пробуждение — новая Session вне всех Project-ов, без Node-а на Canvas; у пользователя — раздел Assistant-а в rail и свои уведомления Assistant-а, отличные от обычных. Assistant опционален: у нового пользователя и у того, кто обновил worfy, он выключен. Project-ы Linked machine он только читает ([ADR-0114](docs/adr/0114-assistant-app-session.md)).
+_Avoid_: агент (в этом глоссарии — Claude Code или Codex, который ведёт любую Session), ассистент, AI-ассистент, бот, Orchestrator (это главная Session одного Project-а), Terminal AI
+
+**Duty**:
+Одна обязанность Assistant-а: что поднимает Attention item (trigger — события источников, «ничего не произошло» или утро), какие Project-ы и источники она охватывает, Action mode каждого её действия, её счётчики (показано, принято, отклонено, проигнорировано, like, dislike) и пауза. Встроенные Duty — только общие, на то, что есть у любого Project-а: «Work stands», «CI of the main branch is red», «Waits for you», «Morning summary» и по одной на каждый внешний источник. Процесс одного Project-а — правило в настройках этого Project-а, а не Duty кода. Dislike снимает такие пункты Duty и пишет правило в память Assistant-а; после нескольких проигнорированных предложений или dislike подряд Duty встаёт на паузу.
+_Avoid_: обязанность (без «Assistant-а»), rule (правило — часть Duty или настроек Project-а), trigger (это часть Duty), задача, job
+
+**Action mode**:
+Режим одного действия одной Duty — то, насколько Assistant может сделать его сам. Их четыре: `self` — Assistant делает действие сам и пишет строку своего журнала; `pre-approved` — делает сам, потому что пользователь, выбрав этот режим, заранее сказал «да»; `ask` — сначала спрашивает: показывает Proposal, и решает пользователь; `hand-over` — отдаёт пункт пользователю и ничего не делает. Режим выбирает пользователь в Settings → Assistant; Assistant меняет его только через Proposal, который пользователь применил кнопкой Apply. Не у каждого действия все четыре режима: pr-follow — Session, которая работает над PR пользователя, — никогда не бывает `self`. По решению владельца 2026-11-26 у pr-follow остаются только `ask` и `hand-over`; `pre-approved` у него убирается.
+_Avoid_: режим (без «Action»: слово уже занято — Run mode, Full mode, Eco mode, Orchestrator modes), permission, уровень доступа (это Linked machine), autonomy level
+
+**Attention item**:
+Одна вещь, которая ждёт внимания, в списке Assistant-а: Session задала вопрос или молчит, Run остановился, Ticket ждёт человека, PR ждёт пользователя, CI основной ветки красный, сообщение Slack или Jira касается пользователя. У пункта есть источник, Project, предмет (PR, Ticket, Session, Run, сообщение источника), вид, время начала, состояние (new, seen, snoozed, dismissed, closed, stale) и Duty, которая его подняла. Повтор того же события пункт не множит, события одного предмета за день склеиваются в один пункт. «Ничего не произошло» (Session молчит дольше порога) — тоже пункт. Пункты переживают перезапуск worfy. Linked machine видит пункты Assistant-а этой Machine только для чтения, отдельной группой без кнопок.
+_Avoid_: пункт журнала (журнал Assistant-а — строки его действий), notification, alert, событие (событие — то, из чего склеен пункт), счётчик waits
+
+**Proposal**:
+Следующий шаг, который Assistant предлагает пользователю, с объяснением «почему», обычно в ответ на Attention item. Пользователь отвечает кнопками Dismiss, Snooze, Open и Prepare; у Prepare — точный текст будущей Session, и такая Session стартует только по щелчку пользователя, после того как он увидел текст. Proposal, который меняет настройку Assistant-а, показан карточкой «было → станет»: каждая настройка — как сейчас и как станет, и меняется она только щелчком Apply пользователя.
+_Avoid_: suggestion (это Terminal AI), предложение (без «Assistant-а»), recommendation, рекомендация, задача
+
+**Check**:
+Проверка источника Assistant-ом по расписанию: Slack, Jira и CI основной ветки каждого Project-а. У каждого вида свой интервал, свой выключатель и свой выбор — спать ли вне work hours пользователя; после нескольких неудач подряд Check Slack или Jira идёт реже. Пока Machine спит или worfy закрыт, проверки не идут, а после запуска догоняют пропущенное. Slack и Jira Check читает через connectors claude.ai пользователя: своих token-ов для них у worfy нет. Что Check нашёл, становится Attention item-ами.
+_Avoid_: Health check (проверка Machine и Project-ов), check-и PR (GitHub checks — CI одного PR), poll, sync, Integration (это подключённый аккаунт Project-а)
+
 ## Tests
 
 **Quarantine**:
@@ -452,3 +478,6 @@ _Avoid_: «гарантия», health check
 - **Run** продолжает застрявший **Ticket** не больше двух раз (**Ticket continuation**), потом просит **Orchestrator** отложить его (**Set-aside Ticket**); красный main вместо этого останавливает Run с `main-red`.
 - **Terminal AI** работает в **Terminal**-е и не делает его агентским: команды в **Terminal**-е по-прежнему запускает только пользователь, а **Terminal AI** лишь предлагает текст строки ввода. Это не **Session**: на **Canvas** у него нет Node-а.
 - **SSH session** идёт внутри **Terminal**-а, у неё ровно один **Remote host**. **Terminal AI** работает в ней, только если на этом **Remote host**-е он включён. **Remote host** — не **Machine** и не **Linked machine**.
+- У каждой **Machine** свой **Assistant**; он ведёт **Duty**-и, **Attention item**-ы и **Check**-и только **Project**-ов своей Machine, а **Linked machine** видит его **Attention item**-ы только для чтения.
+- **Duty** поднимает **Attention item**-ы; у каждого действия **Duty** ровно один **Action mode**. **Check** приносит **Attention item**-ы внешних источников и CI основной ветки, у каждого источника своя **Duty**.
+- **Assistant** сам делает только то, что разрешает **Action mode**, остальное — **Proposal**; Session с текстом, который написал **Assistant**, стартует только по щелчку пользователя, а настройку Assistant-а меняет только Apply под **Proposal**.
