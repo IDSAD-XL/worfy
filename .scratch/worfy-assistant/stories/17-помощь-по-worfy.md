@@ -205,3 +205,59 @@ renderer-а их реэкспортируют. Страницы `docs/features` 
 3. Пользователь переключил Guide на EN посреди Session. На каком языке ответят tool-ы?
    - Ответ: на языке, взятом при создании Session: `worfyAppForSession` подменяет `guideLanguage` значением, взятым один раз.
    - Lines: `src/main/mcp/app-server.ts:459-461`
+
+## 9. Что нашёл review и что осталось
+
+> VERIFIED — worfy-assistant 17 (help about worfy: the feature pages shipped in the build, features_search and features_read in worfy-app, an answer from a page with a link, the Guide's language), head 62fa2f9a16218d97dbf2830b9f7389c83805c9d1
+>
+> Gate (depth medium, two rounds):
+> - Round 1, reviewer (lens: correctness) — FIX:
+>   - med: each query word could match the start of any word anywhere on a page, so «voice input», «spell check», «dark mode» and «emoji» returned unrelated pages, against ticket item 3;
+>   - low: ё and е were not treated as the same letter;
+>   - low: short Russian words kept their endings;
+>   - low: sections were looked up in the wrong language version;
+>   - low: the language was fixed in the rules but re-read by the tools on every call.
+> - Round 2: checked by the Orchestrator against the implementer's report and the tests named there.
+>
+> - What it does (nothing runs in the app until ticket 10 connects worfy-app to the Assistant Session):
+>   - electron-builder copies docs/features (.md only, ru/ too) into Resources/features. Main reads them there when packaged, and from the checkout in dev.
+>   - features_search finds a page only when one of its sections is about the query: all words in that section's headings or text, within 12 words of each other; a one-word query must be in a heading or twice in the text. Latin words match singular or plural only; Cyrillic words match by stem; ё = е. A query with no page gives [].
+>   - The result has the page, a GitHub link at the build's commit (main without a commit), and the matching sections named as on the page returned.
+>   - features_read returns the page (cut at 40 000 characters, a section on request) and the Guide topics checked against it. Page names are matched against a fixed pattern, so no path traversal.
+>   - The Session's rules: answer from a page with its link, otherwise say «I don't know», never from memory.
+>   - The Guide's language is taken once per Session; Russian pages fall back to English when no translation exists.
+>   - The Guide's language, links and registry code moved to src/shared/guide, with renderer re-exports.
+> - Evidence:
+>   - The new tests are red first: 12 failed in round 1, 8 in round 2.
+>   - 7 round-2 mutants are caught: proximity, ё folding, short stems, sections, one-word rule, Session language, read fallback.
+>   - The reviewer's queries against the real pages now give [] with the Guide in English and in Russian; real queries still find their page («Done shelf» → epic-frames, «dark theme» / «темная тема» / «тёмная тема» → app-shell).
+>   - The reviewer checked: no path traversal; only 78 .md packaged; a main SSR build of the module bundles all Guide topic JSON (EXIT=0); the reviewer's run of 771 tests and typecheck EXIT=0.
+>   - The implementer's round-2 run of 232 tests (worfy-app tools, feature pages, guide), lint and typecheck: EXIT=0. The round-1 full pnpm test: EXIT=0.
+>   - gate fast green after the rebase onto ff74a7f54; story-check ok on ddb5d07a8.
+> - Not verified:
+>   - a packaged .app;
+>   - a real model following the rules;
+>   - the precision of search beyond the 18 queries tuned on.
+> - Noted: search is stricter now («stopped» no longer finds «stop»; a word said once in passing finds nothing).
+>
+> Decided without the owner (to confirm):
+> - pages ship as files in Resources/features;
+> - search by one section, words within 12 words of each other; singular or plural for Latin, a stem for Cyrillic, ё = е;
+> - 5 results by default, 10 at most;
+> - a GitHub link at the build's commit;
+> - no tool of its own to open a Guide topic;
+> - an English page when no translation exists;
+> - the language is fixed once per Session.
+> - Round 3 (CI windows red, test/contract/feature-pages-in-build.test.ts:75 — a Windows checkout gives CRLF): readFeaturePages makes every line end \n once on read (src/main/assistant/help/feature-pages.ts:53); a unit test with CRLF and lone-CR pages, red before the fix, and a contract line that no page keeps \r; checked by the Orchestrator against the diff ddb5d07a8..62fa2f9a1; 249 tests of the help, guide and worfy-app tools, lint, typecheck EXIT=0, gate fast green on afbe4c387, story-check ok on 62fa2f9a1.
+
+Code: `test/contract/feature-pages-in-build.test.ts:75-75` · key lines: 75
+
+```ts
+    // Whatever line ends the checkout has (CRLF on Windows), the pages are read with \n only.
+```
+
+Code: `src/main/assistant/help/feature-pages.ts:53-53` · key lines: 53
+
+```ts
+    return Promise.all(names.map(async (name) => ({ name: name.slice(0, -'.md'.length), language, text: (await readFile(join(folder, name), 'utf8')).replace(/\r\n?/gu, '\n') })))
+```
