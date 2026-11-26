@@ -740,12 +740,14 @@ if [ -f "$EPIC_WAVE" ]; then
         else bad "epic-wave, How to resume a wave: no '$p'"; fi
     done
 fi
-ORCH="${ORCHESTRATOR_RULES_FILE:-$ROOT/hooks/rules/orchestrator.md}"
+# The section "Long output" of the orchestrator rules lives in skill orchestrator-rules; the rules
+# themselves (hooks/rules/orchestrator.md) name it by one line.
+ORCH="${ORCHESTRATOR_RULES_FILE:-$ROOT/skills/orchestrator-rules/SKILL.md}"
 long="$(awk '/^## Long output/{s=1; next} s && /^## /{exit} s' "$ORCH" 2>/dev/null | tr '\n' ' ' | tr -s ' ')"
 for p in 'Read `land` and agent output as a summary: one line per PR and the verdict.' \
     'The log stays in its file, opened by path, never whole into context.'; do
-    if printf '%s' "$long" | grep -qF -- "$p"; then ok "orchestrator.md, Long output: '$p'"
-    else bad "orchestrator.md, Long output: no '$p'"; fi
+    if printf '%s' "$long" | grep -qF -- "$p"; then ok "orchestrator-rules, Long output: '$p'"
+    else bad "orchestrator-rules, Long output: no '$p'"; fi
 done
 
 # --- reviewer: the lens "documentation" --------------------------------------------------------

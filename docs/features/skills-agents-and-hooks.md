@@ -10,7 +10,7 @@ four roles they start, and **Hooks** are what runs by itself around a Session. T
 
 A skill is a procedure in Markdown that an agent follows. worfy's actions, Autopilot and the user start them as
 `/worfy:<name>`, and the model may pick by their descriptions all but the skills marked "by hand only" below. The
-plugin carries thirteen skills of worfy's own and twenty copied from Matt Pocock's skills.
+plugin carries fifteen skills of worfy's own and twenty copied from Matt Pocock's skills.
 
 | Skill | When | What it does |
 |---|---|---|
@@ -20,6 +20,8 @@ plugin carries thirteen skills of worfy's own and twenty copied from Matt Pocock
 | `gate-queue` | `/worfy:gate-queue`, on the Machine whose Profile serves the queue | See [the cross-machine gate queue](gate-and-github.md) |
 | `max-review` | On request, or for a Ticket marked as risky | Two lenses over a whole branch, optionally on two models, a synthesis and sceptic agents. Edits and merges nothing |
 | `qmd` | Before planning, or for "why was it decided so" | The rules of searching decisions and lessons |
+| `owner-check` | `/worfy:owner-check <epic> <NN> <item> <pass\|fail> <platform> <copy> <sha\|->`, worfy's action "Record owner check", or the owner saying in the conversation that a manual item passed or failed | Writes the owner's decision on one manual item as an `owner-check` Evidence line: Pass ticks the item, Fail files a rework Ticket in the same Epic |
+| `orchestrator-rules` | The model, when the orchestrator rules name one of its sections | The orchestrator rules a main Session needs at one moment: Quota, Long output, Ticket status, State file, State file vs ADR |
 | `continuous-audit` | "audit", or a scheduled run | An audit Epic of findings. A finding stays a claim until a second agent has reproduced it |
 | `overnight-fix-loop` | `/worfy:overnight-fix-loop <modules>`, by hand only | A worktree and an implementer for each module, merged into a night branch. Nothing goes into the main branch at night |
 | `tickets-to-tasks` | After `/worfy:to-tickets` or `/worfy:wayfinder` wrote Tickets, or when the task list is empty | Imports Tickets into Claude Code Tasks and keeps their blockers |
@@ -266,7 +268,9 @@ Claude Code runs these commands on its events. The limit is in seconds.
 its verdict by exit code, and `stop.mjs` holds a turn with code 2. The guard exits 0 and refuses through its answer.
 
 **Rules.** `orchestrator` reaches a main Session, and `common` reaches a main Session and every Subagent. `orchestrator`
-holds the default loop, delegation and the report. `common` holds plain language, evidence before "green", context
+holds the default loop, delegation and the report; the sections a main Session needs only at one moment (Quota, Long
+output, Ticket status, the state file and ADRs) are in skill `orchestrator-rules`, and `orchestrator` names each by one
+line. `common` holds plain language, evidence before "green", context
 hygiene and the shell commands that need a person's confirmation. `common` also names the language of reports as a
 value: the section "Language of this session" holds what `bin/profile` resolves for the Session's folder (the user's
 `user.json` first, then the Profile), and in a folder no Profile covers, the user's own setting alone; with neither, the

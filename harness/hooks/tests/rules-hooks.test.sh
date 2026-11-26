@@ -591,14 +591,19 @@ ORCH_TOPICS=(
     'Phase 0|Phase 0|read-only|entry points|call chain|exact files to touch|qmd.collections'
     'Delegate by default|Delegate by default|>200 lines|grep/glob|research|First draft|several agents in one message|side quests'
     'Your own hands|closed list|Single-file edit|targeted read|Trivial follow-ups|Coupled sequential chains|raw output drives'
-    'Quota|Quota|Before a phase|fifth|out loud'
-    'Long output|Long output|~15 lines|needs interpretation'
     'Subagent contract|Subagent contract|exact output format|30 lines|"not found"|repo or worktree path'
     'Phase 2|Phase 2|one file and under ~20 lines|review.lenses|leaked secrets|self-check'
     'Phase 3: status block|status block|purely conversational|Four lines|Only verified state goes in'
-    'Phase 3: ticket status|`claim`|`block <reason>`|`done <epic> <NN>`|--pr <N>|tickets.path'
-    'Phase 3: state file|docs.handoff|phase boundaries|second state file'
-    'Phase 3: ADR vs state file|immutable|links only|docs.adr_dir'
+)
+# The sections that moved into skill orchestrator-rules: each line is the heading of a section of the
+# skill and phrases searched in that section alone, at least one per paragraph and none of them in the
+# pointer lines of orchestrator.md, so a paragraph deleted from the skill is a missing phrase.
+SKILL_TOPICS=(
+    'Quota|true item by item and false in aggregate|Two counters, both checkable|A slice that is not on the closed list gets an agent assigned right there|At the fifth, stop and re-slice what is left|Hitting a counter and staying solo is a decision you say out loud'
+    'Long output: filter first, delegate second|~15 lines|Delegate the run only when it needs interpretation|Read `land` and agent output as a summary'
+    'Ticket status|`claim` when picking one up|`block <reason>` when it stalls|`done <epic> <NN>` once the work is finished the way `workflow.finish` says|--pr <N>|tickets.path|`ticket migrate`|No tickets in the profile — no ticket CLI'
+    'State file|docs.handoff|Update it at phase boundaries and at session end, never per message|A documents PR rewrites only the lines of its own epic|Never invent a second state file|one of them is lying|The log is not committed and is not read when work resumes'
+    'State file vs ADR|docs.adr_dir|An ADR is immutable and dated|They connect by links only'
 )
 COMMON_TOPICS=(
     'Plain language|Plain language|never seen this project|smoke test|gloss it'
@@ -635,19 +640,49 @@ check_topics() {
         [ -z "$missing" ] && ok "topic kept: $topic" || bad "topic $topic: missing$missing"
     done
 }
+# The sections a main session needs only at one moment live in skill orchestrator-rules (they moved
+# there when orchestrator.md reached the 10,000-character limit); orchestrator.md names each by one line.
+# The topics that stayed are searched in the parts; the moved ones in their section of the skill alone,
+# so a pointer line that repeats a phrase cannot stand in for the rule.
+ORCH_SKILL="$HARNESS/skills/orchestrator-rules/SKILL.md"
 check_topics "$all" "${ORCH_TOPICS[@]}"
 check_topics "$RULES/common.md" "${COMMON_TOPICS[@]}"
+for line in "${SKILL_TOPICS[@]}"; do
+    head="${line%%|*}"
+    awk -v h="## $head" '$0 == h { on = 1; next } on && /^## / { exit } on' "$ORCH_SKILL" >"$T/skill-section.md" 2>/dev/null
+    if [ -s "$T/skill-section.md" ]; then
+        check_topics "$T/skill-section.md" "orchestrator-rules, $line"
+    else
+        bad "skill orchestrator-rules: no section '## $head'"
+    fi
+done
+
+# Every pointer of orchestrator.md names a section the skill has, and every section of the skill is
+# named by a pointer: a moved rule that nothing points at is lost.
+oflat_all="$(tr '\n' ' ' <"$RULES/orchestrator.md" 2>/dev/null | tr -s ' ')"
+pointed="$(printf '%s' "$oflat_all" | grep -oE 'skill `worfy:orchestrator-rules`, section "[^"]+"' | sed -E 's/.*section "([^"]+)"/\1/' | sort -u)"
+skill_heads="$(grep '^## ' "$ORCH_SKILL" 2>/dev/null | sed 's/^## //' | sort -u)"
+[ -n "$pointed" ] && [ "$pointed" = "$skill_heads" ] \
+    && ok "orchestrator.md: every pointer names a section of skill orchestrator-rules, and every section is named ($(printf '%s' "$pointed" | tr '\n' ',' ))" \
+    || bad "orchestrator.md pointers and skill orchestrator-rules sections differ: pointers [$(printf '%s' "$pointed" | tr '\n' ',')] sections [$(printf '%s' "$skill_heads" | tr '\n' ',')]"
+[ "$(sed -n 2p "$ORCH_SKILL" 2>/dev/null)" = 'name: orchestrator-rules' ] && grep -q '^description: ' "$ORCH_SKILL" \
+    && ok "skill orchestrator-rules: name and description" || bad "skill orchestrator-rules: no name or description in its front matter"
+# The moved sections keep their headings in orchestrator.md: the app's move from the old Harness takes
+# a heading of the plugin's rules as a section of the old CLAUDE.md that the plugin carries.
+for h in '## Quota' '## Long output: filter first, delegate second' '## Phase 3 — state, then report'; do
+    grep -qxF -- "$h" "$RULES/orchestrator.md" 2>/dev/null && ok "orchestrator.md keeps the heading '$h'" || bad "orchestrator.md lost the heading '$h'"
+done
 
 # The decision log of a wave that runs without a human is not a second
 # state file, and the rule against a second state file says so itself: the caveat is the paragraph
 # right after it. Whole sentences, one after another, with line breaks folded into spaces.
-flat="$(tr '\n' ' ' <"$RULES/orchestrator.md" 2>/dev/null | tr -s ' ')"
+flat="$(awk '/^## State file$/ { on = 1; next } on && /^## / { exit } on' "$ORCH_SKILL" 2>/dev/null | tr '\n' ' ' | tr -s ' ')"
 [[ "$flat" == *'Two files describing where we are means one of them is lying. The decision log of a wave that runs without a human (`decisions.tsv`, skill `worfy:epic-wave`) is not a state file.'* ]] \
-    && ok "orchestrator.md: the decision log is not a state file — said right after the rule against a second state file" \
-    || bad "orchestrator.md: no caveat about the decision log right after the rule against a second state file"
+    && ok "orchestrator-rules, State file: the decision log is not a state file — said right after the rule against a second state file" \
+    || bad "orchestrator-rules, State file: no caveat about the decision log right after the rule against a second state file"
 [[ "$flat" == *'is not a state file. The state file says where the work stands; the log says why one run decided what it did. The log is not committed and is not read when work resumes.'* ]] \
-    && ok "orchestrator.md: the log says why, is not committed and is not read on resume" \
-    || bad "orchestrator.md: the caveat does not say what the log is for, that it is not committed or that it is not read on resume"
+    && ok "orchestrator-rules, State file: the log says why, is not committed and is not read on resume" \
+    || bad "orchestrator-rules, State file: the caveat does not say what the log is for, that it is not committed or that it is not read on resume"
 
 # "Phase 3": the Stage line comes from epic-status — the lines hooks/stage-lines.mjs hands in with the
 # prompt, or a run of its own after a status change — and the rule stands before the status block, once.

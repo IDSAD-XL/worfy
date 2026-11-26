@@ -38,6 +38,7 @@
     "skills/gate-queue/SKILL.md": "No case yet.",
     "skills/max-review/SKILL.md": "No case yet.",
     "skills/owner-check/SKILL.md": "No case yet: bin/tests/owner-check.test.sh runs its record block.",
+    "skills/orchestrator-rules/SKILL.md": "No case yet: hooks/tests/rules-hooks.test.sh checks that every rule moved from hooks/rules/orchestrator.md is kept and named by a pointer there.",
     "agents/scout.md": "No case yet.",
     "hooks/rules/product.md": "No case yet: a Product Session needs the worfy-mind-map server, which the eval runner does not start.",
     "hooks/rules/assistant.md": "No case yet: the Session of the Assistant has only the tools of the worfy-app server, which the eval runner does not start.",
