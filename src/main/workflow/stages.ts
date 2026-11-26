@@ -367,8 +367,8 @@ export class StageReader {
   }
 
   /**
-   * `git merge-base --is-ancestor`: exit 0 yes, 1 no, kept for good by GitAncestry for the whole process and every
-   * Project; anything else (a commit this clone has not fetched) is no for now and asked again next time.
+   * `git merge-base --is-ancestor`: exit 0 yes, 1 no, kept for good by GitAncestry (a yes for every Project, a no for
+   * its own checkout); anything else (a commit this clone has not fetched) is no for now and asked again next time.
    * shortcut: worfy never fetches, so a deployed commit missing from the local clone keeps Deploy waiting; ask GitHub's compare API when Tickets stay on Deploy for that reason.
    */
   private async isAncestor(repo: string, ancestor: string, descendant: string): Promise<boolean> {

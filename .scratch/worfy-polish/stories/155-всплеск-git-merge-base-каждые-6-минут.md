@@ -9,31 +9,32 @@ Kind: pr · Epic: worfy-polish · Ticket: 155 · PR: - · Language: ru
 очередь раз в 60 s, а ответ, который может измениться, StableLine хранит `RETRY_MS` = 5 минут, поэтому его спрашивают на
 первом tick-е после истечения — через 6 минут. Ответы 0/1 хранились только внутри своего worktree, ответ 128 (commit-а
 нет в checkout-е) не хранился вовсе, и все вопросы одного пересчёта уходили сразу. В test-е с тремя worktree и 20
-merge-ами это 269 процессов в первом цикле (до 249 одновременно) и 43 в каждом следующем.
+merge-ами на коде origin/main (замерено один раз) это 269 процессов в первом цикле (до 249 одновременно) и 43 в каждом следующем.
 
 - Требование: [Что происходит](../issues/155-всплеск-git-merge-base-каждые-6-минут.md#что-происходит)
 
 ## 2. Один ответ на пару и один вопрос в пути
 
-Code: `src/main/workflow/git-ancestry.ts:59-79` · key lines: 62, 66, 68, 74
+Code: `src/main/workflow/git-ancestry.ts:60-81` · key lines: 62, 67, 69, 75, 76
 
 ```ts
   async isAncestor(repo: string, ancestor: string, descendant: string): Promise<number | null> {
     const key = pairKey(repo, ancestor, descendant)
-    const known = this.answers.get(key)
+    const known = this.answers.get(key) ?? this.answers.get(repoKey(repo, ancestor, descendant))
     if (known !== undefined) return known
     const flight = this.flights.get(key)
     if (flight !== undefined) {
       const code = await flight.code
-      if (flight.repo === repo || code === 0 || code === 1) return code
-      // The checkout in flight did not have a commit: this one may.
+      if (flight.repo === repo || code === 0) return code
+      // The checkout in flight lacked a commit, or said no and may be a shallow clone: this one may answer otherwise.
       return this.isAncestor(repo, ancestor, descendant)
     }
     const code = this.ask(repo, ancestor, descendant)
     this.flights.set(key, { repo, code })
     try {
       const answer = await code
-      if ((answer === 0 || answer === 1) && keepable(ancestor, descendant)) this.answers.set(key, answer)
+      if (answer === 0 && keepable(ancestor, descendant)) this.answers.set(key, 0)
+      if (answer === 1 && keepable(ancestor, descendant)) this.answers.set(repoKey(repo, ancestor, descendant), 1)
       return answer
     } finally {
       this.flights.delete(key)
@@ -42,23 +43,30 @@ Code: `src/main/workflow/git-ancestry.ts:59-79` · key lines: 62, 66, 68, 74
 ```
 
 - Что делает: известный ответ отдаёт без процесса. Вопрос той же пары, пока первый в пути, ждёт его ответа; если
-  первый задан в другом checkout-е и получил не 0/1, спрашивает в своём. Хранит только 0 и 1, и только для двух SHA.
+  первый задан в другом checkout-е и получил не 0, спрашивает в своём. Хранит только 0 и 1, и только для двух SHA:
+  0 — по паре для всех checkout-ов, 1 — только для своего.
 - Почему здесь: Ticket называет новый модуль в «Где в коде» и требует хранить только exit 0 и 1; почему exit 128 не
   хранится — commit может появиться после `git pull` владельца (раздел «Решено без владельца»).
 - Без него: каждый worktree и каждый модуль main спрашивают одну и ту же пару заново, а два одновременных вопроса
   запускают два процесса.
 - Требование: [Что делаем, п. 1](../issues/155-всплеск-git-merge-base-каждые-6-минут.md#что-делаем)
-- Риски и пробелы test-ов: рекурсия после ответа 128 из другого checkout-а ждёт следующий полёт той же пары; test
-  «asks in its own checkout when the one in flight elsewhere did not have the commit» проверяет один такой шаг.
+- Риски и пробелы test-ов: рекурсия после ответа не 0 из другого checkout-а ждёт следующий полёт той же пары; test-ы
+  «asks in its own checkout when the one in flight elsewhere did not have the commit» и «takes a no in flight from
+  another checkout as no answer for its own» проверяют по одному такому шагу.
 
-## 3. Ключ ответа: пара полных SHA, иначе с репозиторием; ref — никогда
+## 3. Ключ ответа: «да» — по паре полных SHA, «нет» — с репозиторием; ref — никогда
 
-Code: `src/main/workflow/git-ancestry.ts:86-95` · key lines: 88, 94
+Code: `src/main/workflow/git-ancestry.ts:88-102` · key lines: 90, 96, 101
 
 ```ts
-/** The key an answer is kept by: the pair for two full SHAs, the pair in its repository otherwise. */
+/** The key a yes is kept by, and a question in flight: the pair for two full SHAs, the pair in its repository otherwise. */
 function pairKey(repo: string, ancestor: string, descendant: string): string {
   if (FULL_SHA.test(ancestor) && FULL_SHA.test(descendant)) return `${ancestor} ${descendant}`
+  return repoKey(repo, ancestor, descendant)
+}
+
+/** The key a no is kept by: the pair in its repository, whatever the SHAs. */
+function repoKey(repo: string, ancestor: string, descendant: string): string {
   return `${repo}\n${ancestor} ${descendant}`
 }
 
@@ -68,19 +76,24 @@ function keepable(ancestor: string, descendant: string): boolean {
 }
 ```
 
-- Что делает: две полные SHA — ключ без пути, ответ общий для всех worktree (`F:\SWE\worfy` и `F:\SWE\worfy-w16`).
-  Короткий SHA — с путём: в другом репозитории он может значить другой commit. `refs/heads/main` (Flight Recorder)
-  не хранится: ref двигается.
-- Почему здесь: бриф требует ключ (ancestor, descendant); отделить короткие SHA и ref-ы — решение этого Ticket-а,
-  записано в комментарии модуля.
-- Без него: с ключом по пути второй worktree спрашивает всё заново; с ключом без пути для ref-а Flight Recorder видел
-  бы устаревший ответ про `main`.
+- Что делает: ответ 0 для двух полных SHA — ключ без пути, общий для всех worktree (`F:\SWE\worfy` и
+  `F:\SWE\worfy-w16`). Ответ 1 и короткий SHA — с путём: shallow clone может иметь оба commit-а без пути между ними и
+  ответить 1, где полная история отвечает 0; короткий SHA в другом репозитории может значить другой commit.
+  `refs/heads/main` (Flight Recorder) не хранится: ref двигается.
+- Почему здесь: бриф требует ключ (ancestor, descendant); review PR #2254 показал ложный ответ 1 в shallow clone
+  (`clone --depth 1`, затем `fetch --depth 1` старого commit-а) — отсюда «нет» только для своего checkout-а (раздел
+  «Решено без владельца»). Отделить короткие SHA и ref-ы — решение этого Ticket-а, записано в комментарии модуля.
+- Без него: с ключом по пути второй worktree спрашивает всё заново; с общим «нет» полный worktree до перезапуска
+  видел бы «Not in your Stable copy yet», а Ticket стоял бы на Deploy; с ключом без пути для ref-а Flight Recorder
+  видел бы устаревший ответ про `main`.
 - Требование: [Что делаем, п. 1](../issues/155-всплеск-git-merge-base-каждые-6-минут.md#что-делаем)
-- Риски и пробелы test-ов: репозитории на SHA-256 (64 знака) приняты регулярным выражением, но test-а на них нет.
+- Риски и пробелы test-ов: ответ 1 в самом shallow clone хранится для него до перезапуска, даже после
+  `git fetch --unshallow` (так было и до Ticket-а). Репозитории на SHA-256 (64 знака) приняты регулярным выражением,
+  но test-а на них нет.
 
 ## 4. Общая очередь не больше трёх процессов
 
-Code: `src/main/workflow/git-ancestry.ts:25-41` · key lines: 30, 32, 36, 37, 38
+Code: `src/main/workflow/git-ancestry.ts:26-42` · key lines: 31, 33, 37, 38, 39
 
 ```ts
 /** A runner that starts at most `limit` calls of `git` at once; the others wait in order. */
@@ -113,7 +126,7 @@ function limited(git: GitRunner, limit: number): GitRunner {
 
 ## 5. Один экземпляр на runner
 
-Code: `src/main/workflow/git-ancestry.ts:97-107` · key lines: 101, 103
+Code: `src/main/workflow/git-ancestry.ts:104-114` · key lines: 108, 110
 
 ```ts
 const shared = new WeakMap<GitRunner, GitAncestry>()
@@ -140,7 +153,7 @@ export function ancestryFor(runner: GitRunner): GitAncestry {
 
 ## 6. Checkout без коммита Stable copy: одна проверка вместо вопроса на каждый merge
 
-Code: `src/main/acceptance/stable-line.ts:198-205` · key lines: 201, 203
+Code: `src/main/acceptance/stable-line.ts:199-206` · key lines: 202, 204
 
 ```ts
     if (pending) return null
@@ -193,9 +206,12 @@ null не хранятся. `src/main/update/` не тронут — перес�
 ## 9. Как проверено
 
 Test-ы написаны до правки и были красными: `acceptance-stable-line` (второй цикл — 43 процесса вместо 1, пик 249
-вместо 3), `workflow-stages` (2 вопроса вместо 1), `flight-recorder-gate-logs` (4 вместо 2); новый
-`test/unit/git-ancestry.test.ts` — 10 test-ов. Шесть mutant-ов модуля и StableLine (хранить 128, без предела, без
-общего вопроса в пути, ключ всегда с путём, хранить ref, без проверки коммита Stable copy) — все красные. Test-ы
+вместо 3; эти числа «до» замерены один раз на коде origin/main и в test-е не проверяются, «после» — 159 и 1 —
+проверяются), `workflow-stages` (2 вопроса вместо 1), `flight-recorder-gate-logs` (4 вместо 2); новый
+`test/unit/git-ancestry.test.ts` — 12 test-ов, из них два про shallow clone добавлены после review PR #2254 и тоже
+были красными. Восемь mutant-ов модуля и StableLine (хранить 128, без предела, без общего вопроса в пути, ключ всегда
+с путём, хранить ref, без проверки коммита Stable copy, хранить «нет» по паре, брать «нет» из чужого вопроса в пути) —
+все красные. Test-ы
 затронутых модулей (58 файлов) — exit 0; `pnpm lint && pnpm typecheck && pnpm test` — exit 0; gate fast — exit 0, green.
 
 ## Проверить себя
@@ -203,11 +219,11 @@ Test-ы написаны до правки и были красными: `accept
 1. Почему ответ 128 не хранится, хотя именно он повторялся каждые 6 минут?
    - Ответ: 128 значит, что commit-а нет в этом checkout-е; после `git pull` он появится, и ответ станет 0 или 1.
      Повтор оставлен, но идёт через очередь, а для коммита Stable copy — одной проверкой на worktree.
-   - Строки: `src/main/workflow/git-ancestry.ts:74-74`, `src/main/acceptance/stable-line.ts:201-203`
-2. Почему ключ без пути только для полных SHA?
-   - Ответ: полный SHA называет один и тот же commit в любом репозитории, а короткий в другом репозитории может
-     указать на другой; ref двигается и не хранится вовсе.
-   - Строки: `src/main/workflow/git-ancestry.ts:88-94`
+   - Строки: `src/main/workflow/git-ancestry.ts:75-76`, `src/main/acceptance/stable-line.ts:202-204`
+2. Почему ответ «да» общий для всех checkout-ов, а «нет» — только для своего?
+   - Ответ: путь между двумя commit-ами, найденный в любой истории, есть и в полной; shallow clone может иметь оба
+     commit-а без пути между ними и ответить «нет» там, где полная история отвечает «да».
+   - Строки: `src/main/workflow/git-ancestry.ts:75-76`, `src/main/workflow/git-ancestry.ts:88-97`
 3. Что происходит, если тот же вопрос пришёл из другого worktree, пока первый в пути, и первый получил 128?
-   - Ответ: второй ждёт ответа первого, видит, что это не 0/1 и задан в чужом checkout-е, и спрашивает в своём.
-   - Строки: `src/main/workflow/git-ancestry.ts:63-68`
+   - Ответ: второй ждёт ответа первого, видит, что это не 0 и задан в чужом checkout-е, и спрашивает в своём.
+   - Строки: `src/main/workflow/git-ancestry.ts:64-69`

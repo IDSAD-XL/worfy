@@ -306,14 +306,16 @@ describe('the Stable copy line over many merges and worktrees (issue #2252)', ()
     const { line, gitCalls } = setup({ prs, ancestors, lacks, now: () => now })
     await cycle(line)
     const first = gitCalls.length
-    // The pairs of the second worktree are the first one's: git is asked each pair once.
-    expect(gitCalls.filter((call) => call.startsWith('merge-base'))).toHaveLength(MANY.length)
+    // The second worktree takes the first one's yes answers (10) and asks its own no (10): a shallow clone may say no
+    // where the full history says yes, so a no is not shared.
+    expect(gitCalls.filter((call) => call.startsWith('merge-base'))).toHaveLength(MANY.length + MANY.length / 2)
+    expect(first).toBe(159)
     // The next look: RETRY_MS after the answers, at the next tick of the queue.
     now += RETRY_MS + 60_000
     await cycle(line)
     const second = gitCalls.slice(first)
-    // Before worfy-polish 155: 269 processes in the first cycle (up to 249 at once) and 43 in each one after; now 149
-    // (at most ANCESTRY_GIT_LIMIT at once), then this one look.
+    // Measured once on the code of origin/main before worfy-polish 155 (not asserted here): 269 processes in the first
+    // cycle (up to 249 at once) and 43 in each one after. Now 159 (at most ANCESTRY_GIT_LIMIT at once), then this one look.
     expect(second).toEqual([`cat-file -e ${STABLE}^{commit}`])
     expect(line.line(worfy(tickets, '/worfy-demo'), tickets[0]!)?.text).toBe(`Stable copy not checked: its commit ${STABLE.slice(0, 7)} is not in this checkout`)
   })

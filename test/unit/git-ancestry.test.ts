@@ -62,16 +62,49 @@ async function drain<T>(s: Stub, work: Promise<T>): Promise<T> {
 }
 
 describe('the ancestry question to git', () => {
-  it('asks git once per pair of full SHAs: a second cycle, in this checkout or another, starts no git process', async () => {
+  it('asks git once per pair: a second cycle starts no git process; another checkout asks only the pairs that said no', async () => {
     const s = stub({ ancestors: new Set([`${sha(1)} ${STABLE}`]) })
     const ancestry = new GitAncestry(s.git)
     const cycle = (repo: string) => Promise.all([1, 2, 3].map((n) => ancestry.isAncestor(repo, sha(n), STABLE)))
     expect(await cycle('/worfy')).toEqual([0, 1, 1])
     expect(s.calls).toHaveLength(3)
     expect(await cycle('/worfy')).toEqual([0, 1, 1])
-    // A second worktree of the same repository: the same pairs, the same answers, no process.
-    expect(await cycle('/worfy-w16')).toEqual([0, 1, 1])
     expect(s.calls).toHaveLength(3)
+    // A second worktree of the same repository: the yes is shared, each no is asked in its own checkout, once.
+    expect(await cycle('/worfy-w16')).toEqual([0, 1, 1])
+    expect(s.calls.slice(3)).toEqual([`/worfy-w16 merge-base --is-ancestor ${sha(2)} ${STABLE}`, `/worfy-w16 merge-base --is-ancestor ${sha(3)} ${STABLE}`])
+    expect(await cycle('/worfy-w16')).toEqual([0, 1, 1])
+    expect(s.calls).toHaveLength(5)
+  })
+
+  it('shares a no (1) with no other checkout: a shallow clone may say no where the full history says yes', async () => {
+    // `clone --depth 1` and `fetch --depth 1` of an old commit: both commits are there, the path between them is not.
+    const answers: Record<string, number> = { '/shallow': 1, '/full': 0 }
+    const calls: string[] = []
+    const git: GitRunner = async (cwd) => {
+      calls.push(cwd)
+      return { code: answers[cwd] ?? 128, stdout: '' }
+    }
+    const ancestry = new GitAncestry(git)
+    expect(await ancestry.isAncestor('/shallow', sha(1), STABLE)).toBe(1)
+    expect(await ancestry.isAncestor('/full', sha(1), STABLE)).toBe(0)
+    // A yes holds in every checkout that has both commits: the shallow clone takes it without a process.
+    expect(await ancestry.isAncestor('/shallow', sha(2), STABLE)).toBe(1)
+    expect(await ancestry.isAncestor('/full', sha(2), STABLE)).toBe(0)
+    expect(await ancestry.isAncestor('/shallow', sha(2), STABLE)).toBe(0)
+    expect(calls).toEqual(['/shallow', '/full', '/shallow', '/full'])
+  })
+
+  it('takes a no in flight from another checkout as no answer for its own', async () => {
+    const s = stub({ hold: true })
+    const git: GitRunner = async (cwd, args) => {
+      const result = await s.git(cwd, args)
+      return cwd === '/full' ? { code: 0, stdout: '' } : result
+    }
+    const ancestry = new GitAncestry(git)
+    const answers = drain(s, Promise.all([ancestry.isAncestor('/shallow', sha(1), STABLE), ancestry.isAncestor('/full', sha(1), STABLE)]))
+    expect(await answers).toEqual([1, 0])
+    expect(s.calls).toHaveLength(2)
   })
 
   it('keeps no answer but 0 and 1: a commit the checkout does not have (128) is asked again', async () => {

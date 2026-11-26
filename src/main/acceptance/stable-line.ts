@@ -9,8 +9,9 @@
 //   done. gh runs as the Project's account (the PR tracker's `gh`), once per merged PR: a merged PR's merge commit never
 //   changes, so the answer is kept for the rest of the run.
 // - Whether the change is there: `git merge-base --is-ancestor <merge> <Stable copy commit>` in the Project's checkout,
-//   kept for good once git says yes or no — for the whole process and every worktree of the repository, one question per
-//   pair at a time, at most ANCESTRY_GIT_LIMIT git processes at once (src/main/workflow/git-ancestry.ts, issue #2252);
+//   kept for good once git says yes or no — a yes for every worktree of the repository, a no for its own checkout (a
+//   shallow clone may say no where the full history says yes), one question per pair at a time, at most
+//   ANCESTRY_GIT_LIMIT git processes at once (src/main/workflow/git-ancestry.ts, issue #2252);
 //   every git command of the line goes through the same limit. worfy never fetches (ADR-0005): a commit this checkout
 //   does not have, a refusal of GitHub and no Stable copy at all read "Stable copy not checked", and are asked again
 //   RETRY_MS later. A checkout without the Stable copy's commit is asked that alone (`cat-file -e`), not each merge.
