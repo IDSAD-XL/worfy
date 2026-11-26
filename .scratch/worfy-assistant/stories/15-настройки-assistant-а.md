@@ -1,0 +1,193 @@
+# Code story — worfy-assistant 15: Настройки Assistant-а и карточки «было → станет» с Apply
+
+Kind: pr · Epic: worfy-assistant · Ticket: 15 · PR: - · Language: ru
+
+## 1. Что было не так
+
+У Assistant-а не было раздела Settings. Его нельзя было включить: `startAssistant()` не звал никто, и раздел в rail
+всегда говорил «Assistant is off on this machine». Work hours, проверки, режимы обязанностей, дневной предел
+пробуждений и подробности расхода жили в main, но человек их не видел и не менял. Assistant не мог предложить
+изменение настроек так, чтобы его применил только щелчок пользователя. Проверка Slack или Jira после трёх неудач
+подряд (Ticket 22) уходила в backoff молча: число неудач и кнопку Check now не показывало ничего.
+
+- Требование: [Что строить](../issues/15-настройки-assistant-а.md#что-строить)
+
+## 2. Переключатель запускает и останавливает Assistant и говорит об этом разделу
+
+Code: `src/main/assistant/session/switch.ts:28-50` · key lines: 34, 36, 41
+
+```ts
+export function followAssistantSwitch(deps: AssistantSwitchDeps): () => void {
+  let stop: (() => void) | null = null
+  const log = deps.log ?? ((message: string) => console.warn(`[assistant] ${message}`))
+  const follow = (): void => {
+    const on = deps.on()
+    if (on && stop === null) {
+      stop = deps.start()
+      if (stop === null) return log('the Assistant did not start: the attention core is not running')
+      deps.changed()
+    } else if (!on && stop !== null) {
+      const running = stop
+      stop = null
+      running()
+      deps.changed()
+    }
+  }
+  const unfollow = deps.onChange(follow)
+  follow()
+  return () => {
+    unfollow()
+    const running = stop
+    stop = null
+    running?.()
+```
+
+- Что делает: при старте worfy и при каждом изменении настроек машины сверяет поле `assistant.on` с тем, работает ли
+  Assistant; включённый, но не запущенный — запускает (`startAssistant`), выключенный, но работающий — останавливает.
+  После каждого запуска и остановки зовёт `changed()` — в приложении это `AssistantWindow.changed()`.
+- Почему здесь: бриф велит звать `AssistantWindow.changed()` при запуске и остановке из настроек; комментарий
+  `src/main/assistant/session/app.ts` до правки называл переключатель Ticket-ом 15. Отдельная функция с зависимостями —
+  чтобы test проверял поведение без Electron.
+- Без него: Assistant нельзя включить, а раздел в rail после включения ещё до минуты показывал бы «off».
+- Требование: [Что строить, пункты 1 и 8](../issues/15-настройки-assistant-а.md#что-строить)
+- Риски и пробелы test-ов: запуск в приложении (`startAssistantSwitch` в `src/main/index.ts`) проверяет только e2e
+  и сборка; unit test идёт по fake-зависимостям.
+
+## 3. Выключенный Assistant не проверяет ни одного источника
+
+Code: `src/main/assistant/schedule/scheduler.ts:231-246` · key lines: 233, 240, 244
+
+```ts
+  runNow(kind: CheckKind): boolean {
+    const entry = this.entries.get(kind)
+    if (entry === undefined || entry.running || !this.started || this.asleep || !this.active()) return false
+    this.launch(kind, entry)
+    return true
+  }
+
+  /** How many runs of `kind` failed in a row, as the marks keep it (ticket 22); 0 when none did. Settings show it (ticket 15). */
+  failures(kind: CheckKind): number {
+    return this.readMarks()[kind]?.failures ?? 0
+  }
+
+  private active(): boolean {
+    return this.options.active?.() ?? true
+  }
+
+```
+
+- Что делает: планировщик получил необязательный `active`; в приложении это `assistantOn(настройки)`. Пока он ложен,
+  `dueOf` не даёт срока ни одному виду, а `runNow` отказывает. `failures(kind)` читает число неудач подряд из тех же
+  меток, которые ведёт Ticket 22, — второго хранилища нет.
+- Почему здесь: бриф велит читать метки, которые планировщик уже держит, и звать `CheckScheduler.runNow`; решение
+  владельца 10 — после включения работают только внутренние обязанности, а выключенный Assistant не тратит ничего.
+- Без него: проверка Slack, включённая раньше, шла бы и при выключенном Assistant-е и оплачивала бы вызовы.
+- Требование: [Что строить, пункты 1, 3 и 8](../issues/15-настройки-assistant-а.md#что-строить)
+- Риски и пробелы test-ов: без `active` (test-ы планировщика) он всегда включён — так прежние test-ы не меняются.
+
+## 4. Apply — единственный путь изменения из карточки к настройкам
+
+Code: `src/main/assistant/window/view.ts:586-597` · key lines: 590, 593, 594, 595
+
+```ts
+  apply(proposalId: string): void {
+    const proposal = this.deps.proposals.list().find((each) => each.id === proposalId)
+    if (proposal === undefined) throw new Error('This proposal is no longer there')
+    if (proposal.change == null) throw new Error('This proposal changes no setting')
+    if (proposal.applied != null) throw new Error('This change is applied already')
+    const settings = this.deps.settings
+    if (settings === undefined) throw new Error('Settings cannot be changed here')
+    const rows = changeRows(proposal.change, settings.now())
+    settings.apply(proposal.change)
+    this.deps.proposals.update(proposalId, { applied: { at: this.deps.now(), rows } })
+    this.changed()
+  }
+```
+
+- Что делает: на щелчок Apply (`assistant.apply`) берёт изменение из предложения, запоминает ряды «как было → как
+  станет», применяет изменение через настройки машины и `Duties.configure` (`applySettingsChange`,
+  `src/main/assistant/settings/panel.ts`) и отмечает предложение применённым. Отказ настроек бросает до отметки, и
+  карточка остаётся прежней.
+- Почему здесь: история 26 — Assistant не меняет настройки без щелчка Apply. Раздел в rail уже держит предложения и
+  их Dismiss (Ticket 14), поэтому Apply — его функция.
+- Без него: изменение из карточки не дошло бы до настроек, или дошло бы без щелчка.
+- Требование: [Что строить, пункт 7](../issues/15-настройки-assistant-а.md#что-строить)
+- Риски и пробелы test-ов: Undo после Apply нет (решено без владельца, пункт 4 «Итог»).
+
+## 5. Assistant только предлагает изменение
+
+Code: `src/main/mcp/app-server.ts:422-433` · key lines: 427, 428, 429, 432
+
+```ts
+    proposal_create: (args) => {
+      const item = args.item === undefined ? null : itemOfPublicId(args.item)
+      checkPrepare(args.prepare)
+      // A change of the settings is only kept for its card «before → after»: the user's Apply in the window applies it
+      // (worfy-assistant ticket 15). One that could never apply is refused now, not at the user's click.
+      if (args.change !== undefined) {
+        const problems = dutyChangeProblems(args.change, deps.duties.look([], { countShown: false }).duties)
+        if (problems.length > 0) throw new ToolError(`The change cannot apply: ${problems.join('; ')}. Nothing was proposed.`)
+      }
+      const draft = clean({ title: args.title, why: args.why, prepare: args.prepare ?? null })
+      return { proposal: proposalView(deps.proposals.create({ title: draft.title, why: draft.why, item, prepare: draft.prepare, ...(args.change === undefined ? {} : { change: args.change }) })) }
+    },
+```
+
+- Что делает: `proposal_create` принимает `change` (схема `settingsChangeSchema`: work hours, проверки, дневной предел,
+  обязанности) и только кладёт его в предложение. Изменение обязанности, которой нет, или режим, запрещённый действию
+  (`self` у `pr-follow`), отказывается сразу. Ни один tool `worfy-app` не меняет настроек, а `proposal_update` не
+  принимает `applied`.
+- Почему здесь: tools `worfy-app` — единственные tools Session Assistant-а (ADR-0114, граница 1), так что карточку
+  может создать только этот tool.
+- Без него: Assistant не мог бы предложить изменение, и карточек «было → станет» не было бы вовсе.
+- Требование: [Решения](../issues/15-настройки-assistant-а.md#решения)
+- Риски и пробелы test-ов: текст instructions для агента (`agent-instructions-app.md`) проверяет только чтение;
+  поведение модели с ним не проверялось.
+
+## 6. Строка неудач подряд и Check now
+
+Code: `src/renderer/settings/AssistantSection.tsx:140-147` · key lines: 140, 142, 143
+
+```tsx
+      {check !== undefined && check.failures > 0 ? (
+        <div className="w-asst-set__failures" role="status" data-testid={`settings-assistant-failures-${kind}`}>
+          <span>{failureLine(check)}</span>
+          <button type="button" className="w-action" disabled={check.running} onClick={() => void checkNow(kind)}>
+            Check now
+          </button>
+        </div>
+      ) : null}
+```
+
+- Что делает: у проверки, у которой больше нуля неудач подряд, — строка «Slack: 3 failures in a row, next check at
+  HH:MM» (срок — `CheckScheduler.nextRun`, уже с backoff) и Check now (`assistant.checkNow` → `runNow`).
+- Почему здесь: бриф передаёт эту часть из «Вне скоупа» Ticket-а 22; тексты UI — по-английски по
+  `docs/design/BRIEF.md`.
+- Без него: человек не видел бы, что connector сломан, и не мог бы проверить его после починки.
+- Требование: [Что строить, пункт 3](../issues/15-настройки-assistant-а.md#что-строить)
+- Риски и пробелы test-ов: после Check now строка обновляется при следующем `assistant.changed` (не реже раза в
+  минуту); отдельного события конца run-а нет.
+
+## 7. Как проверено
+
+- `pnpm lint && pnpm typecheck && pnpm test` и gate fast — коды выхода в отчёте PR.
+- Новые test-ы: `test/unit/assistant-switch.test.ts`, `test/unit/assistant-settings-panel.test.ts`,
+  `test/unit/settings-assistant.test.tsx`, `test/contract/assistant-settings.test.ts`; дополнены
+  `assistant-check-scheduler`, `assistant-wake-planner`, `assistant-window`, `assistant-panel`, `worfy-app-tools`,
+  `assistant-schedule-settings`. Test-ы поведения были красными до кода.
+- e2e `test/e2e/assistant.spec.ts` (карточка Apply) локально не запускался — правило владельца; его гоняет CI.
+
+## Проверить себя
+
+1. Почему проверка Slack, включённая в настройках, не идёт, пока Assistant выключен?
+   - Ответ: планировщик спрашивает `active` — в приложении `assistantOn` — и при ложном не даёт срока ни одному виду и
+     отказывает `runNow`; переключатель самой проверки тут не решает.
+   - Lines: `src/main/assistant/schedule/scheduler.ts:231-246`
+2. Что увидит человек на карточке, если настройки отказали изменение после Apply?
+   - Ответ: карточку как была, с Apply: отметка `applied` пишется только после того, как `settings.apply` прошёл, а
+     отказ бросает раньше и уходит toast-ом.
+   - Lines: `src/main/assistant/window/view.ts:586-597`
+3. Почему Assistant не может отметить изменение применённым сам?
+   - Ответ: `proposal_create` и `proposal_update` не принимают `applied`; его пишет только `AssistantWindow.apply` на
+     щелчок Apply.
+   - Lines: `src/main/mcp/app-server.ts:422-433`

@@ -50,16 +50,22 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 15; «Решения 
 ## Готово, когда
 
 - [ ] В Settings Assistant выключается целиком, каждая обязанность и каждая проверка — по отдельности.
+  - evidence: test-run pass · `pnpm test` exit 0 · mac - · 9d327e867
 - [ ] В Settings задаются work hours (дни, окна, часовой пояс) и у каждого типа проверки — включение, интервал и сон вне
       work hours.
+  - evidence: test-run pass · `pnpm test` exit 0 · mac - · 9d327e867
 - [ ] У каждой обязанности видны режим каждого действия (и меняется), счётчики и пауза; правила из оценок видны и
       удаляются.
+  - evidence: test-run pass · `pnpm test` exit 0 · mac - · 9d327e867
 - [ ] В Settings задаются дневной предел пробуждений и видны подробности расхода — по источникам, по пробуждениям и по
       разговору, за день и за неделю; доля Limits помечена как оценка.
+  - evidence: test-run pass · `pnpm test` exit 0 · mac - · 9d327e867
 - [ ] Настройку, которую предлагает Assistant, меняет только щелчок Apply под карточкой «было → станет»; без щелчка
       настройка не меняется.
+  - evidence: test-run pass · `pnpm test` exit 0 · mac - · 9d327e867
 - [ ] У нового пользователя и у обновившегося Assistant выключен; после включения работают только внутренние
       обязанности, внешние источники выключены, пока их не включат по одному.
+  - evidence: test-run pass · `pnpm test` exit 0 · mac - · 9d327e867
 - [ ] e2e с `WORFY_AGENT=fake`: карточка Apply — зелёный.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
 
