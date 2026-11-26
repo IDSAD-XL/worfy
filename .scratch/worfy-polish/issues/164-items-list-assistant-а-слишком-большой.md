@@ -1,0 +1,84 @@
+# 164 — `items_list` Assistant-а слишком большой: Claude Code прячет ответ в файл, а Read у Assistant-а нет
+
+Type: bug
+Status: claimed 2026-11-26T21:25Z
+Branch: worfy-polish/164
+Blocked by: —
+Source: отчёт владельца 2026-11-26 (снимок чата Assistant-а): Assistant-у передали два пункта Project-а CanvasForAI —
+`item-ebc91600d4ce52e1` (Session закончила ход) и `item-146cd5e9a1242331` (PR в PR inbox ждёт правки), — и он не смог
+их разобрать: «`items_list` вернул слишком большой ответ (55 КБ). Он сохранился в файл, а у меня нет инструмента, чтобы
+его прочитать. Из начала ответа видны только другие элементы».
+
+Кто: агент; последний пункт — владелец.
+
+## Что происходит
+
+- Tool `items_list` MCP-сервера `worfy-app` не берёт аргументов (`src/shared/assistant/app-tools.ts:38`, описание
+  `:79`) и отдаёт все пункты целиком: текст, ссылки, тексты действий, пункты Linked machine (до 200 на машину, строка до
+  2 000 знаков). При ~56 пунктах это 55 КБ.
+- Claude Code сохраняет результат tool-а больше своего порога в файл и показывает модели только начало. Session
+  Assistant-а работает только с tool-ами `worfy-app`, без Read (`src/main/assistant/session/runner.ts`,
+  `src/main/vendors/claude/assistant-session.ts`), и прочитать файл не может.
+- Первое сообщение Session (`wakePrompt`) называет переданные пункты только id и велит прочитать их через
+  `items_list`. Пункт Session, закончившей ход, не несёт duty (`duty: null`), поэтому duty его не показывают, и в
+  `items_list` его нет вовсе: даже маленький ответ его бы не назвал.
+- Итог: каждый wake с накопившимися пунктами проваливает главную работу Assistant-а.
+
+## Что строить
+
+1. `items_list` получает необязательные фильтры: `ids` (до 50), `project`, `kind`, `state` (по умолчанию open), `limit`
+   (по умолчанию 20, не больше 50) и `cursor` для страниц. Каждый ответ несёт `total` и `nextCursor`, чтобы модель
+   знала, что есть ещё.
+2. Каждый пункт списка — компактный: id, kind, Project, заголовок, state, срочность, время и короткая ссылка на источник
+   (номер PR, id Session). Крупные поля (чужой текст целиком, ссылки, тексты действий) — только в `items_list` с `ids` и
+   `full: true`. Ответ держится заметно ниже порога Claude Code; порог найти в самом Claude Code и назвать, где он.
+3. Где Assistant-а будят ради конкретных пунктов (первое сообщение, `worfy-assistant` 06 и 10), их компактные записи
+   идут в самом сообщении — как данные, объектами `outside-text`, — чтобы ему не нужен был вызов списка, чтобы узнать,
+   зачем его разбудили. Пункт по `ids` находится, даже когда duty его не показывают.
+4. Обновить описания tool-ов, инструкции Assistant-а (`src/main/mcp/agent-instructions-app.md`,
+   `harness/hooks/rules/assistant.md`) и `docs/features/assistant.md` (только английская страница).
+5. Правила `worfy-app` о чтении и закрытом списке (`worfy-assistant` 09) не меняются. Tool Read Assistant-у не даётся.
+
+## Где в коде
+
+- `src/shared/assistant/app-tools.ts` — форма аргументов `items_list` (`:38`), описание (`:79`), пределы.
+- `src/main/mcp/app-server.ts` — `items_list` (`:384-387`), `itemView`, `linkedItemView`; новый компактный вид пункта.
+- `src/main/assistant/session/runner.ts` — `wakePrompt` (`:70-90`): записи переданных пунктов.
+- `src/main/assistant/session/app.ts` — wiring `AssistantSessions` (`itemId: publicItemId`).
+- `src/main/mcp/agent-instructions-app.md`, `harness/hooks/rules/assistant.md` — что Assistant читает и как.
+- `docs/features/assistant.md` — раздел «How it works», абзац «The Session».
+- `test/contract/worfy-app-tools.test.ts`, `test/contract/assistant-two-machines.test.ts`,
+  `test/unit/assistant-session.test.ts` — test-ы.
+
+## Решения
+
+- Один путь к крупным полям — `items_list` с `ids` и `full: true`, без нового tool-а `item_get`: список tool-ов
+  `worfy-app` (`worfy-assistant` 09) не растёт, и переданные пункты читаются одним вызовом.
+- Порог Claude Code — 50 000 знаков (`vE=50000` в бинарнике Claude Code 2.1.323; tool-у MCP свой предел не
+  ниже). Ответ `items_list` держится в своём бюджете 20 000 знаков: страница кончается раньше, чем бюджет, и
+  `nextCursor` называет следующую.
+- Первое сообщение несёт записи пунктов объектами `outside-text` внутри JSON-блока — так же, как память
+  (`worfy-assistant` 10, `memoryForPrompt`). Прежнее «без их текста» Ticket-а 10 меняется на «текст только объектом
+  `outside-text`»: граница 2 ADR-0114 (чужой текст — только данные) соблюдена.
+
+## Test-ы
+
+- Contract `test/contract/worfy-app-tools.test.ts`: фильтры, страницы (`total`, `nextCursor`), `ids` находит пункт без
+  duty, `full: true` только с `ids`, 200 больших пунктов по умолчанию — ответ меньше 50 000 знаков и байт.
+- Contract `test/contract/assistant-two-machines.test.ts`: пункты Linked machine — в общем списке, read-only.
+- Unit `test/unit/assistant-session.test.ts`: первое сообщение несёт записи переданных пунктов, их текст — только
+  внутри объекта `outside-text`.
+
+## Готово, когда
+
+- [ ] `items_list` фильтрует по `ids`, `project`, `kind`, `state`, отдаёт страницы с `total` и `nextCursor`;
+      компактные пункты по умолчанию, `full: true` с `ids` — целиком.
+- [ ] 200 больших пунктов по умолчанию — ответ `items_list` меньше порога Claude Code (50 000 знаков); порог и его
+      источник названы в «Итог».
+- [ ] Первое сообщение Session несёт компактные записи переданных пунктов; test это проверяет.
+- [ ] Описания tool-ов, инструкции Assistant-а и `docs/features/assistant.md` говорят о фильтрах и страницах.
+- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast зелёный; `ci-ok` зелёный на head PR.
+- [ ] (вручную) Сделай: в Stable worfy с накопившимися 50+ пунктами (Waits) дождись wake Assistant-а или напиши ему
+      «Что ждёт меня?» → Должно быть: Assistant называет пункты, ради которых его разбудили, их Project и что в них, и
+      не пишет, что ответ слишком большой или сохранён в файл.
+  - needs: mac stable
