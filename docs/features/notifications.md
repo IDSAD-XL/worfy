@@ -2,7 +2,9 @@
 
 worfy tells the user things in two ways. A **system notification** is a banner of the operating system for when worfy is not
 in front. A **toast** is a short message inside a window. This Feature is part of the [App shell](app-shell.md) and has a page
-of its own because of its length. Terms are explained in [Concepts](concepts.md).
+of its own because of its length. The [Assistant](assistant.md#notifications) has notifications of its own, apart from
+both: a speech card next to its rail icon and a system notification titled "worfy Assistant". Terms are explained in
+[Concepts](concepts.md).
 
 ## Behaviour
 

@@ -41,7 +41,7 @@ checks already run behind it. "Next" goes to them. "Close" closes the dialog lik
 again by itself. Opened in any other way, First run starts on the checks.
 
 **The page "Meet Assistant".** Between the welcome page and the checks, worfy offers the
-[Assistant](app-shell.md#sidebar) once, while the offer stands: the Assistant is off, has never introduced itself, and the
+[Assistant](assistant.md) once, while the offer stands: the Assistant is off, has never introduced itself, and the
 user has neither turned it on nor refused it. The page says what the Assistant does and never does, and that it uses the
 user's Claude Limits; it shows no price. "Turn on and meet" turns the Assistant on, and it introduces itself in its
 section. "Not now" refuses the offer for good. Either one goes on to the checks. Closed on this page, First run closes as
