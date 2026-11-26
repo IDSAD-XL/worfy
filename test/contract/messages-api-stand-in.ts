@@ -28,6 +28,8 @@ export interface MessagesApiStandIn {
   toolResult(): RecordedToolResult | null
   /** Whether a request offered the scripted tool at all. */
   offered(): boolean
+  /** The names of every tool a request offered, in the order first seen. */
+  toolsOffered(): string[]
   close(): Promise<void>
 }
 
@@ -83,9 +85,19 @@ async function body(req: IncomingMessage): Promise<Block> {
   }
 }
 
-export async function startMessagesApiStandIn(call: ScriptedToolUse): Promise<MessagesApiStandIn> {
+export interface StandInOptions {
+  /**
+   * Make the "model" write the call in the first request of the conversation even when that request does not offer
+   * the tool: what Claude Code does with a call of a tool it does not have.
+   */
+  unoffered?: boolean
+}
+
+export async function startMessagesApiStandIn(call: ScriptedToolUse, standInOptions: StandInOptions = {}): Promise<MessagesApiStandIn> {
   let recorded: RecordedToolResult | null = null
   let offered = false
+  let called = false
+  const seen = new Set<string>()
   const server: Server = createServer((req, res) => {
     void body(req).then((json) => {
       const url = req.url ?? ''
@@ -105,8 +117,16 @@ export async function startMessagesApiStandIn(call: ScriptedToolUse): Promise<Me
         return
       }
       const tools = Array.isArray(json.tools) ? (json.tools as Block[]).map((tool) => tool.name) : []
+      for (const name of tools) if (typeof name === 'string') seen.add(name)
       if (tools.includes(call.name) && recorded === null) {
         offered = true
+        called = true
+        toolUse(res, call)
+        return
+      }
+      // The conversation's request carries the prompt as its one user message; a title or a count does not offer tools.
+      if (standInOptions.unoffered === true && !called && tools.length > 0) {
+        called = true
         toolUse(res, call)
         return
       }
@@ -119,7 +139,13 @@ export async function startMessagesApiStandIn(call: ScriptedToolUse): Promise<Me
     url: `http://127.0.0.1:${port}`,
     toolResult: () => recorded,
     offered: () => offered,
-    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+    toolsOffered: () => [...seen],
+    close: () =>
+      new Promise<void>((resolve) => {
+        // A request still open (Claude Code waiting on an answer) would hold server.close() for ever.
+        server.closeAllConnections()
+        server.close(() => resolve())
+      }),
   }
 }
 

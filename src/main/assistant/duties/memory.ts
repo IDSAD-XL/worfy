@@ -1,11 +1,19 @@
-// The memory file of the Assistant (worfy-assistant ticket 07; ADR-0114, point 2): `<WORFY_DATA_DIR>/assistant/memory.json`,
+// The memory file of the Assistant (worfy-assistant tickets 07 and 10; ADR-0114, point 2): `<WORFY_DATA_DIR>/assistant/memory.json`,
 // in worfy's own data folder (ADR-0005), outside every repository. It keeps the duties as the user set them (modes,
 // scope, threshold, on or off), their counters and pause, the rules drawn from dislikes, and the items the counters
-// already took. Only main writes it, through src/main/storage/json-file.ts. The Session of the Assistant (ticket 10)
-// reads it through `worfy-app` (ticket 09).
+// already took (ticket 07); and the open proposals, the Assistant's commitments and the user's answers (ticket 10).
+// Only main writes it, through src/main/storage/json-file.ts. Each new Session of the Assistant gets it in its first
+// message (src/main/assistant/session/memory.ts) and writes its commitments and the user's answers through `worfy-app`.
+//
+// Two writers, one file: the duties (Duties, through memoryFileStore) and the Assistant's part (proposals, commitments,
+// answers, through sessionMemoryStore). Each write reads the file and keeps the other writer's part as the file has it,
+// so the duties' copy in memory never puts back an old list of proposals, and the reverse. main is one thread and both
+// read and write the file synchronously, so no write falls between another's read and write.
 import { join } from 'node:path'
 import { z } from 'zod'
 import { dutyActionModeSchema, dutyCountersSchema, memoryRuleSchema, DUTY_ACTIONS } from '../../../shared/assistant/duties'
+import { commitmentSchema, userAnswerSchema } from '../../../shared/assistant/memory'
+import { assistantProposalSchema } from '../../../shared/assistant/proposals'
 import { readJsonFile, writeJsonFile } from '../../storage/json-file'
 
 export const dutyStateSchema = z.object({
@@ -35,8 +43,30 @@ export const assistantMemorySchema = z.object({
   duties: z.record(z.string(), dutyStateSchema),
   rules: z.array(memoryRuleSchema),
   items: z.record(z.string(), countedItemSchema),
+  /** The Assistant's open proposals (ticket 09's ProposalBook keeps them here); absent: none. */
+  proposals: z.array(assistantProposalSchema).optional(),
+  /** What the Assistant said it would do (ticket 10); absent: none. */
+  commitments: z.array(commitmentSchema).optional(),
+  /** The user's answers to the Assistant (ticket 10); absent: none. */
+  answers: z.array(userAnswerSchema).optional(),
 })
 export type AssistantMemory = z.infer<typeof assistantMemorySchema>
+
+/** The part of the memory file the Assistant's Session and its proposals write; the duties write the rest. */
+export type SessionMemoryPart = Pick<AssistantMemory, 'proposals' | 'commitments' | 'answers'>
+
+const SESSION_KEYS = ['proposals', 'commitments', 'answers'] as const
+
+const sessionPartOf = (memory: AssistantMemory | undefined): SessionMemoryPart =>
+  Object.fromEntries(SESSION_KEYS.flatMap((key) => (memory?.[key] === undefined ? [] : [[key, memory[key]]]))) as SessionMemoryPart
+
+const withoutSessionPart = (memory: AssistantMemory): AssistantMemory => {
+  const rest = { ...memory }
+  for (const key of SESSION_KEYS) delete rest[key]
+  return rest
+}
+
+const EMPTY_MEMORY: AssistantMemory = { duties: {}, rules: [], items: {} }
 
 export interface MemoryStore {
   read(): AssistantMemory | undefined
@@ -48,10 +78,28 @@ export function assistantMemoryPath(root: string): string {
   return join(root, 'assistant', 'memory.json')
 }
 
-/** The store over `file`; an unreadable file is set aside by readJsonFile and reads as no memory. */
+/**
+ * The duties' store over `file`; an unreadable file is set aside by readJsonFile and reads as no memory. A write keeps
+ * the Assistant's part (proposals, commitments, answers) as the file has it, whatever `memory` holds of it.
+ */
 export function memoryFileStore(file: string): MemoryStore {
   return {
     read: () => readJsonFile(file, assistantMemorySchema),
-    write: (memory) => writeJsonFile(file, assistantMemorySchema, memory),
+    write: (memory) => writeJsonFile(file, assistantMemorySchema, { ...withoutSessionPart(memory), ...sessionPartOf(readJsonFile(file, assistantMemorySchema)) }),
+  }
+}
+
+/** The store of the Assistant's part of the memory file. */
+export interface SessionMemoryStore {
+  read(): SessionMemoryPart
+  /** Writes `part` whole: a key it leaves out is dropped from the file. Throws when the file cannot be written. */
+  write(part: SessionMemoryPart): void
+}
+
+/** The Assistant's part over `file`: a write keeps the duties' part as the file has it. */
+export function sessionMemoryStore(file: string): SessionMemoryStore {
+  return {
+    read: () => sessionPartOf(readJsonFile(file, assistantMemorySchema)),
+    write: (part) => writeJsonFile(file, assistantMemorySchema, { ...withoutSessionPart(readJsonFile(file, assistantMemorySchema) ?? EMPTY_MEMORY), ...sessionPartOf({ ...EMPTY_MEMORY, ...part }) }),
   }
 }

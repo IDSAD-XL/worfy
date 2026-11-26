@@ -19,8 +19,11 @@ import type { PrInboxSnapshot } from '../../src/shared/ipc/pr-inbox'
 import type { JournalEvent } from '../../src/shared/autopilot/journal'
 import type { WorkflowModel } from '../../src/shared/workflow/types'
 import type { McpToolResult } from '../../src/main/vendors/mcp'
+import type { AssistantActionEntry } from '../../src/main/mcp/app-server'
 import type { AttentionFile } from '../../src/main/assistant/core/store'
-import type { AssistantMemory } from '../../src/main/assistant/duties/memory'
+import type { AssistantMemory, SessionMemoryPart } from '../../src/main/assistant/duties/memory'
+import { memoryActionJournal } from '../../src/main/assistant/actions/journal'
+import { SessionMemory } from '../../src/main/assistant/session/memory'
 
 vi.mock('electron', () => ({ app: { on: () => undefined, isPackaged: false, getAppPath: () => '/nowhere' } }))
 
@@ -275,6 +278,10 @@ async function world(options: { autopilotRunning?: boolean; confirm?: 'cancel' |
   const refuseClosed = (reason: string): void => void (closedAnswer = { ok: false, reason, line: {} })
   const journal = vi.fn()
   const proposals = new ProposalBook({ now: () => NOW, id: () => `prop-${++proposalIds}` })
+  // The Assistant's part of the memory file (ticket 10), over a store in memory.
+  let kept: SessionMemoryPart = {}
+  let memoryIds = 0
+  const sessionMemory = new SessionMemory({ store: { read: () => kept, write: (part) => void (kept = part) }, now: () => NOW, id: () => `memo-${++memoryIds}` })
   const deps = {
     now: () => NOW,
     machines: () =>
@@ -303,9 +310,12 @@ async function world(options: { autopilotRunning?: boolean; confirm?: 'cancel' |
     featurePages: () => Promise.resolve(PAGES),
     guideLanguage: () => options.language ?? ('en' as const),
     buildVersion: () => (options.version === undefined ? BUILD : options.version),
+    memory: sessionMemory,
   }
   const config = (await claudeMcpServer(app.worfyAppServer(deps))) as unknown as ServerConfig
-  return { rpc: await connectTo(config), duties, core, itemOf, closedList, refuseClosed, journal, confirm, startFromChat, proposals, deps, app }
+  /** The server over `deps` changed by `change`, connected. */
+  const rpcWith = async (change: { journal: (entry: AssistantActionEntry) => void }) => connectTo((await claudeMcpServer(app.worfyAppServer({ ...deps, ...change }))) as unknown as ServerConfig)
+  return { rpc: await connectTo(config), duties, core, itemOf, closedList, refuseClosed, journal, confirm, startFromChat, proposals, deps, app, rpcWith, memoryPart: () => kept }
 }
 
 beforeEach(() => {
@@ -486,6 +496,93 @@ describe('worfy-app: actions', () => {
     expect(startFromChat).not.toHaveBeenCalled()
     expect(answer.isError).toBe(true)
     expect(textOf(answer)).toMatch(/Cancel/)
+  })
+})
+
+describe("worfy-app: the Assistant's journal of actions (ticket 10; ADR-0114, boundary 6)", () => {
+  it('pr-follow refused by main is a line of the journal of ticket 08 with the item that caused it, its duty and mode', async () => {
+    const w = await world({ autopilotRunning: true })
+    const journal = memoryActionJournal()
+    const rpc = await w.rpcWith({ journal: w.app.journalTo(journal) })
+    w.duties.configure('waits-for-user', { modes: { 'pr-follow': 'self' } })
+    expect((await rpc.call('action_run', { item: w.itemOf('pr-inbox'), action: 'pr-follow', follow: 'fixChecks' })).isError).toBe(true)
+    const item = w.core.items(PROJECT).find((each) => each.source === 'pr-inbox')!
+    expect(journal.lines()).toEqual([
+      {
+        at: NOW,
+        action: 'pr-follow',
+        by: 'assistant',
+        item: item.id,
+        duty: 'waits-for-user',
+        projectId: PROJECT,
+        itemKind: item.kind,
+        itemText: item.text,
+        mode: 'self',
+        sessionId: null,
+        outcome: 'refused',
+        detail: 'Autopilot is running in this Project: stop it to follow a pull request by hand',
+      },
+    ])
+  })
+
+  it('autopilot-start is a line too: the dialog the user cancelled, with the item', async () => {
+    const w = await world({ confirm: 'cancel' })
+    const journal = memoryActionJournal()
+    const rpc = await w.rpcWith({ journal: w.app.journalTo(journal) })
+    w.duties.configure('work-stalled', { modes: { 'autopilot-start': 'pre-approved' } })
+    await rpc.call('action_run', { item: w.itemOf('autopilot'), action: 'autopilot-start', epic: 'worfy-x' })
+    const item = w.core.items(PROJECT).find((each) => each.source === 'autopilot')!
+    expect(journal.lines()).toEqual([expect.objectContaining({ action: 'autopilot-start', by: 'assistant', item: item.id, duty: 'work-stalled', mode: 'pre-approved', outcome: 'refused', detail: expect.stringMatching(/Cancel/) })])
+  })
+
+  it('a journal that cannot be written costs the line, not the answer', async () => {
+    const w = await world({ autopilotRunning: true })
+    const rpc = await w.rpcWith({ journal: w.app.journalTo({ append: () => { throw new Error('disk full') }, lines: () => [] }, () => undefined) })
+    w.duties.configure('waits-for-user', { modes: { 'pr-follow': 'self' } })
+    expect(textOf(await rpc.call('action_run', { item: w.itemOf('pr-inbox'), action: 'pr-follow', follow: 'fixChecks' }))).toContain('Autopilot is running')
+  })
+})
+
+describe("worfy-app: the closed list of the app (ticket 08's appClosedList, wired by ticket 10)", () => {
+  it('refuses with a reason while the closed list is not running: the Assistant is off', async () => {
+    const { app } = await world()
+    const seam = app.closedListOf(() => null)
+    expect(await seam.act({ action: 'wake-orchestrator', itemId: 'x', by: 'assistant' })).toEqual({ ok: false, reason: expect.stringMatching(/not running/), line: {} })
+  })
+
+  it('goes to the running closed list as it is, by the Assistant', async () => {
+    const { app } = await world()
+    const act = vi.fn(() => ({ ok: true as const, line: { text: 'main text' } }))
+    const seam = app.closedListOf(() => ({ act }) as never)
+    expect(await seam.act({ action: 'continue-session', itemId: 'session:1', by: 'assistant' })).toEqual({ ok: true, line: { text: 'main text' } })
+    expect(act).toHaveBeenCalledWith({ action: 'continue-session', itemId: 'session:1', by: 'assistant' })
+  })
+})
+
+describe('worfy-app: the memory of the Assistant (ticket 10)', () => {
+  it('memory_note keeps a commitment and an answer of the user; memory_forget drops one', async () => {
+    const w = await world()
+    const commitment = json<{ commitment: { id: string } }>(await w.rpc.call('memory_note', { kind: 'commitment', text: 'Look at PR 12 after its CI', due: '2026-11-25T12:00:00Z' }))
+    json(await w.rpc.call('memory_note', { kind: 'answer', topic: 'work hours', text: 'From 10 on Mondays' }))
+    expect(w.memoryPart()).toEqual({
+      commitments: [{ id: commitment.commitment.id, text: 'Look at PR 12 after its CI', due: Date.parse('2026-11-25T12:00:00Z'), at: NOW }],
+      answers: [{ id: 'memo-2', topic: 'work hours', text: 'From 10 on Mondays', at: NOW }],
+    })
+    json(await w.rpc.call('memory_forget', { id: commitment.commitment.id }))
+    expect(w.memoryPart().commitments).toEqual([])
+  })
+
+  it('refuses an answer without a topic, a time that is not ISO 8601 and an unknown id', async () => {
+    const w = await world()
+    expect((await w.rpc.call('memory_note', { kind: 'answer', text: 'yes' })).isError).toBe(true)
+    expect((await w.rpc.call('memory_note', { kind: 'commitment', text: 'Later', due: 'tomorrow' })).isError).toBe(true)
+    expect((await w.rpc.call('memory_forget', { id: 'memo-404' })).isError).toBe(true)
+  })
+
+  it('hides a secret before it is kept', async () => {
+    const w = await world()
+    json(await w.rpc.call('memory_note', { kind: 'answer', topic: 'token', text: `my token is ${GH_TOKEN}` }))
+    expect(JSON.stringify(w.memoryPart())).not.toContain(GH_TOKEN)
   })
 })
 
@@ -731,6 +828,8 @@ describe('worfy-app: nothing goes out', () => {
         'features_search',
         'items_list',
         'limits_read',
+        'memory_forget',
+        'memory_note',
         'pr_threads_read',
         'projects_list',
         'proposal_create',

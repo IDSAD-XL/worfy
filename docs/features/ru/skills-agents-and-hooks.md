@@ -227,9 +227,10 @@ Claude Code запускает эти команды на свои событи�
 
 | Событие | Команда | Лимит | Что делает |
 |---|---|---|---|
-| `SessionStart` | `inject-rules.mjs orchestrator` | 10 | Правила главной Session; в Product Session ничего |
-| `SessionStart` | `inject-rules.mjs common` | 10 | Общие правила и правила пользователя |
+| `SessionStart` | `inject-rules.mjs orchestrator` | 10 | Правила главной Session; в Product Session и в Session Assistant-а ничего |
+| `SessionStart` | `inject-rules.mjs common` | 10 | Общие правила и правила пользователя; в Session Assistant-а ничего |
 | `SessionStart` | `inject-rules.mjs product` | 10 | Правила Product Session; в любой другой Session ничего |
+| `SessionStart` | `inject-rules.mjs assistant` | 10 | Правила Session Assistant-а (`WORFY_SESSION_KIND=assistant`); в любой другой Session ничего |
 | `SessionStart` | `session-start.mjs` | 15 | Контекст Project-а |
 | `SessionStart` на `compact` | `after-compact.mjs` | 30 | После compaction — состояние работы из файлов: `wave-brief` Epic-а в main checkout, файл Ticket-а и `git status --short` в worktree implementer-а. Ничего в начале Session, вне Project-а, который ведёт Ticket-ы, и без Ticket-а или Epic-а |
 | `SessionStart` | `gh-token-env.mjs` | 10 | `GH_TOKEN` аккаунта Project-а |
@@ -328,7 +329,7 @@ Hooks запускают `profile` как `node <script>`, а не по его �
 
 - `harness/hooks/hooks.json` подключает каждый hook через корень plugin-а.
 - `harness/hooks/inject-rules.mjs` с `harness/hooks/rules/orchestrator.md`, `harness/hooks/rules/common.md`,
-  `harness/hooks/rules/product.md` и `harness/hooks/rules/compaction.md`. На `PreCompact` он печатает часть простым текстом, а когда вход
+  `harness/hooks/rules/product.md`, `harness/hooks/rules/assistant.md` и `harness/hooks/rules/compaction.md`. На `PreCompact` он печатает часть простым текстом, а когда вход
   пришёл от Codex, ничего. Product Session это та, в окружении которой есть `WORFY_SESSION_KIND=product`; worfy задаёт его, когда её
   запускает.
 - `harness/hooks/session-start.mjs`, который спрашивает Project у `bin/profile`. Profile ещё может нести удалённое поле

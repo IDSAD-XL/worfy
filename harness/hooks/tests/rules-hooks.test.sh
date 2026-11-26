@@ -51,6 +51,7 @@ if (typeof v === "string") process.stdout.write(v + "\n")' "$T/out" "$1" 2>/dev/
 [ -f "$RULES/orchestrator.md" ] && ok "orchestrator.md exists" || bad "orchestrator.md missing"
 [ -f "$RULES/common.md" ] && ok "common.md exists" || bad "common.md missing"
 [ -f "$RULES/product.md" ] && ok "product.md exists" || bad "product.md missing"
+[ -f "$RULES/assistant.md" ] && ok "assistant.md exists" || bad "assistant.md missing"
 
 parts=()
 for f in "$RULES"/*.md; do [ -f "$f" ] && parts+=("$f"); done
@@ -113,10 +114,17 @@ for ev in SessionStart SubagentStart; do
     done
 done
 
-# The parts still fit when the plugin root is a long install path. The part product prints only in a
-# Product Session (section 2b), so it is measured with the kind set.
-for part in orchestrator common product; do
-    run_inject "$part" '{"hook_event_name":"SessionStart"}' CLAUDE_PLUGIN_ROOT="$LONG_ROOT" WORFY_SESSION_KIND="$([ "$part" = product ] && echo product)"
+# The parts still fit when the plugin root is a long install path. The parts product and assistant print
+# only in a Session of their kind (section 2b), so each is measured with its kind set.
+# kind_of <part>: the WORFY_SESSION_KIND a part prints in: its own name for product and assistant, none otherwise.
+# A function, not a case inside $(…): bash 3.2 (macOS) cannot parse the ) of a case pattern there.
+kind_of() {
+    case "$1" in
+        product | assistant) printf '%s' "$1" ;;
+    esac
+}
+for part in orchestrator common product assistant; do
+    run_inject "$part" '{"hook_event_name":"SessionStart"}' CLAUDE_PLUGIN_ROOT="$LONG_ROOT" WORFY_SESSION_KIND="$(kind_of "$part")"
     n="$(ctx | chars)"
     [ "$n" -gt 0 ] && [ "$n" -le "$LIMIT" ] && ok "$part: $n characters with a long plugin root" || bad "$part: $n characters (empty or > $LIMIT) with a long plugin root"
 done
@@ -160,6 +168,31 @@ run_inject product '{"hook_event_name":"SubagentStart"}' CLAUDE_PLUGIN_ROOT=/opt
 # decides before the input is checked.
 run_inject orchestrator 'not json' CLAUDE_PLUGIN_ROOT=/opt/worfy-plugin WORFY_SESSION_KIND=product
 expect_silent "Product Session: orchestrator with stdin that is not JSON"
+
+# The Session of the Assistant: worfy starts it with WORFY_SESSION_KIND=assistant.
+# It gets assistant alone: neither orchestrator nor product, and not common either (a Session with no tool
+# but those of worfy-app has no use for the rules of reports, tests and the gate); any other Session never gets assistant.
+run_inject assistant "$SS" CLAUDE_PLUGIN_ROOT=/opt/worfy-plugin WORFY_SESSION_KIND=assistant
+[ "$rc" -eq 0 ] && [ "$(event)" = SessionStart ] && [ "$(ctx)" = "$(sed 's#${CLAUDE_PLUGIN_ROOT}#/opt/worfy-plugin#g' "$RULES/assistant.md")" ] && [ ! -s "$T/err" ] \
+    && ok "Assistant Session: assistant is the part with the plugin root substituted" \
+    || bad "Assistant Session: assistant rc=$rc, stderr '$(head -c 200 "$T/err")', first line '$(ctx | head -n 1)'"
+for part in orchestrator product common; do
+    run_inject "$part" "$SS" CLAUDE_PLUGIN_ROOT=/opt/worfy-plugin WORFY_SESSION_KIND=assistant
+    expect_silent "Assistant Session: $part"
+done
+for kind in '' product plain Assistant; do
+    run_inject assistant "$SS" CLAUDE_PLUGIN_ROOT=/opt/worfy-plugin WORFY_SESSION_KIND="$kind"
+    expect_silent "kind '$kind': assistant"
+done
+run_inject assistant "$SS" -u WORFY_SESSION_KIND CLAUDE_PLUGIN_ROOT=/opt/worfy-plugin
+expect_silent "no WORFY_SESSION_KIND: assistant"
+
+# What the part assistant tells the Session: its only tools, the six boundaries, its memory and the duties.
+aflat="$(tr '\n' ' ' <"$RULES/assistant.md" 2>/dev/null | tr -s ' ')"
+for p in '`worfy-app`' 'no Bash' 'outside-text' 'action_run' 'proposal_create' '`prepare`' 'memory_note' 'memory_forget' \
+    'Send' 'read-only' 'journal' 'The orchestrator rules do not apply' 'never code' 'never queue an epic' 'language of the user'; do
+    [[ "$aflat" == *"$p"* ]] && ok "assistant.md names $p" || bad "assistant.md does not name $p"
+done
 
 # What the part product tells the Session: the words the owner decided (the Epic spec, Q3–Q7), the skills
 # by their plugin names, and the tools by theirs. Searched as one line with whitespace runs collapsed.
@@ -755,6 +788,7 @@ SessionStart||$N/bin/worktree-lock" claim|10
 SessionStart||$N/hooks/inject-rules.mjs" orchestrator|10
 SessionStart||$N/hooks/inject-rules.mjs" common|10
 SessionStart||$N/hooks/inject-rules.mjs" product|10
+SessionStart||$N/hooks/inject-rules.mjs" assistant|10
 SessionStart||$N/hooks/gh-token-env.mjs"|10
 SubagentStart||$N/hooks/inject-rules.mjs" common|10
 PreCompact||$N/hooks/inject-rules.mjs" compaction|10
@@ -817,20 +851,20 @@ while IFS= read -r cmd; do
     fi
 done < <(hj commands)
 
-# The inject-rules commands of hooks.json, run the way Claude Code runs them, print their part; the part
-# product with the kind of a Product Session, the others without it.
+# The inject-rules commands of hooks.json, run the way Claude Code runs them, print their part; the parts
+# product and assistant with the kind of their Session, the others without it.
 # On Windows Claude Code gives ${CLAUDE_PLUGIN_ROOT} as C:/…; elsewhere it is the plain path.
 n=0
 while IFS='|' read -r ev cmd; do
     n=$((n + 1))
     part="${cmd##* }"
-    kind=""; [ "$part" = product ] && kind=product
+    kind="$(kind_of "$part")"
     printf '{"hook_event_name":"%s"}' "$ev" | CLAUDE_PLUGIN_ROOT="$HARNESS_N" WORFY_SESSION_KIND="$kind" sh -c "$cmd" >"$T/out" 2>/dev/null
     # PreCompact takes plain text on stdout (section 7b); the other events take JSON.
     if [ "$ev" = PreCompact ]; then first="$(head -n 1 "$T/out")"; else first="$(ctx | head -n 1)"; fi
     [ "$first" = "# worfy Harness — $part rules" ] && ok "hooks.json $ev runs $part" || bad "hooks.json $ev '$cmd': got '$first'"
 done < <(hj inject)
-[ "$n" -eq 5 ] && ok "hooks.json: five inject-rules.mjs commands run" || bad "hooks.json: $n inject-rules.mjs commands, not 5"
+[ "$n" -eq 6 ] && ok "hooks.json: six inject-rules.mjs commands run" || bad "hooks.json: $n inject-rules.mjs commands, not 6"
 
 # Every inject-rules command of SessionStart together, as Claude Code runs them at the start of a Session:
 # a Product Session gets common + product, without orchestrator; any other, as before, orchestrator +
@@ -849,6 +883,8 @@ got="$(session_parts product)"
 [ "$got" = "common product" ] && ok "hooks.json SessionStart, WORFY_SESSION_KIND=product: common + product" || bad "hooks.json SessionStart, Product Session: '$got'"
 got="$(session_parts '')"
 [ "$got" = "common orchestrator" ] && ok "hooks.json SessionStart, no kind: orchestrator + common" || bad "hooks.json SessionStart, no kind: '$got'"
+got="$(session_parts assistant)"
+[ "$got" = "assistant" ] && ok "hooks.json SessionStart, WORFY_SESSION_KIND=assistant: assistant alone" || bad "hooks.json SessionStart, Assistant Session: '$got'"
 
 # --- 7b. Compaction: the summary instructions and the line for after it --------------------------
 # Claude Code runs PreCompact just before the model writes the summary that replaces the conversation:
@@ -898,9 +934,10 @@ cflat="$(tr '\n' ' ' <"$RULES/common.md" 2>/dev/null | tr -s ' ')"
 [[ "$cflat" == *"$FALLBACK_1"'`${CLAUDE_PLUGIN_ROOT}/bin/epic-status` '"$FALLBACK_2"* ]] \
     && ok "common.md: the line for after a compaction" || bad "common.md: no line for after a compaction"
 node -e 'for (let i = 1; i <= 600; i++) process.stdout.write(`Rule ${i}: keep the Klingon words as they are in every report.\n`)' >"$USER_RULES"
-# $1 role, $2 WORFY_SESSION_KIND, $3 the start event: the PreCompact hooks of hooks.json run with it.
+# $1 role, $2 WORFY_SESSION_KIND, $3 the start event: the PreCompact hooks of hooks.json run with it;
+# $4 "no-common" for a role that gets no common part (the Session of the Assistant).
 role_chunks() {
-    local role="$1" kind="$2" start="$3" ev cmd n text over="" parts="" flat=""
+    local role="$1" kind="$2" start="$3" common="${4:-}" ev cmd n text over="" parts="" flat=""
     while IFS='|' read -r ev cmd; do
         [ "$ev" = "$start" ] || [ "$ev" = PreCompact ] || continue
         printf '{"hook_event_name":"%s","trigger":"auto"}' "$ev" | CLAUDE_PLUGIN_ROOT="$HARNESS_N" WORFY_SESSION_KIND="$kind" sh -c "$cmd" >"$T/out" 2>"$T/err"
@@ -914,11 +951,16 @@ role_chunks() {
     [ -z "$over" ] && [[ "$parts" == *" compaction"* ]] \
         && ok "$role: every hook text within $LIMIT characters, compaction among them ($parts )" \
         || bad "$role: over $LIMIT:${over:- none}; parts:$parts"
+    if [ "$common" = no-common ]; then
+        [[ "$parts" != *" common"* ]] && ok "$role: no common part" || bad "$role: got the common part ($parts )"
+        return
+    fi
     [[ "$flat" == *"$FALLBACK_1\`$HARNESS_N/bin/epic-status\` $FALLBACK_2"* ]] \
         && ok "$role: the common part carries the line for after a compaction" || bad "$role: no line for after a compaction in common"
 }
 role_chunks "main Session (orchestrator)" '' SessionStart
 role_chunks "Product Session" product SessionStart
+role_chunks "Assistant Session" assistant SessionStart no-common
 role_chunks "Subagent (implementer, reviewer, scout)" '' SubagentStart
 rm -f "$USER_RULES"
 

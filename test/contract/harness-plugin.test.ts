@@ -9,7 +9,7 @@ import { join, relative, sep } from 'node:path'
 import { query, type SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 import { afterAll, describe, expect, it } from 'vitest'
 import { isPersonalBin } from '../../src/main/harness/migrate/plan'
-import { SESSION_KIND_VARIABLE } from '../../src/main/vendors/claude/options'
+import { ASSISTANT_SESSION_KIND, SESSION_KIND_VARIABLE } from '../../src/main/vendors/claude/options'
 import { removeTestTree } from '../remove'
 import { claudeEnv, startMessagesApiStandIn } from './messages-api-stand-in'
 
@@ -62,6 +62,7 @@ describe('harness/ holds only the Harness', () => {
         'hooks/rules/orchestrator.md',
         'hooks/rules/common.md',
         'hooks/rules/product.md',
+        'hooks/rules/assistant.md',
         'agents/implementer.md',
         'skills/epic-wave/SKILL.md',
         'bin/profile',
@@ -109,7 +110,7 @@ describe('the SessionStart hook of a Session gets the environment worfy gives th
   writeFileSync(join(plugin, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'session-kind-probe', description: 'SessionStart hooks of the session-kind test' }))
   // unscaled: 10 s is the hook timeout of the plugin's own hooks.json, a declaration, not a limit of this test
   const inject = (part: string) => ({ hooks: [{ type: 'command', command: `node "${slash(join(HARNESS, 'hooks', 'inject-rules.mjs'))}" ${part}`, timeout: 10 }] })
-  writeFileSync(join(plugin, 'hooks', 'hooks.json'), JSON.stringify({ hooks: { SessionStart: [inject('orchestrator'), inject('product')] } }))
+  writeFileSync(join(plugin, 'hooks', 'hooks.json'), JSON.stringify({ hooks: { SessionStart: [inject('orchestrator'), inject('product'), inject('assistant')] } }))
 
   /** The first lines of the rules each SessionStart hook printed, in no particular order: hooks of one event run in parallel. */
   async function sessionStartRules(kind: string | undefined): Promise<string[]> {
@@ -137,6 +138,7 @@ describe('the SessionStart hook of a Session gets the environment worfy gives th
     expect(responses.map((r) => [r.outcome, r.exit_code]), `SessionStart hooks; stderr: ${stderr.join('')}`).toEqual([
       ['success', 0],
       ['success', 0],
+      ['success', 0],
     ])
     return responses
       .filter((r) => r.stdout.trim() !== '')
@@ -150,5 +152,9 @@ describe('the SessionStart hook of a Session gets the environment worfy gives th
 
   it('a Session without the variable: the orchestrator rules, as before, and no product rules', async () => {
     expect(await sessionStartRules(undefined)).toEqual(['# worfy Harness — orchestrator rules'])
+  })
+
+  it('the Session of the Assistant (WORFY_SESSION_KIND=assistant, worfy-assistant ticket 10): the assistant rules alone', async () => {
+    expect(await sessionStartRules(ASSISTANT_SESSION_KIND)).toEqual(['# worfy Harness — assistant rules'])
   })
 })

@@ -15,8 +15,11 @@
 //   (ticket 07), and only through main's own functions, which check for themselves: the closed list of ticket 08
 //   (ClosedListSeam: the action and the item, `by: 'assistant'`, no text — main sets it and writes the journal line),
 //   the launcher's pr-follow (refused while Autopilot runs), autopilot_start's starter (it only opens the Start
-//   Autopilot dialog); those two are journal lines here (`journal`). Each action that reached main is a journal line
-//   with the item that caused it (boundary 6).
+//   Autopilot dialog); those two are journal lines here (`journal`): in the app, lines of the Assistant's journal of
+//   ticket 08 (journalTo), as the closed list's own are. Each action that reached main is a journal line with the
+//   item that caused it (boundary 6).
+// - Memory (ticket 10): memory_note keeps a commitment of the Assistant or an answer of the user in its memory file,
+//   memory_forget drops one; each new Session of the Assistant gets that file in its first message.
 // - Outside text — what worfy did not write: an item's text, a PR comment, a Ticket title, a Session's line, an
 //   Autopilot journal's details — is never a bare string of an answer: it is an OutsideText block with its source and
 //   author (boundary 2), and the instructions tell the agent it is data.
@@ -27,7 +30,8 @@ import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import type { AttentionItem } from '../../shared/assistant/attention'
 import { APP_TOOL_NAMES, appToolDescriptions, appToolShapes, parseAppToolArgs, WORFY_APP_SERVER_NAME, type AppAction, type AppToolArgs, type AppToolName } from '../../shared/assistant/app-tools'
-import type { DutyLook } from '../../shared/assistant/duties'
+import type { ActionJournalLine } from '../../shared/assistant/actions'
+import type { DutyActionMode, DutyLook } from '../../shared/assistant/duties'
 import type { JournalEvent } from '../../shared/autopilot/journal'
 import type { LimitsState } from '../../shared/agent/limits'
 import type { PrInboxComment, PrInboxSnapshot } from '../../shared/ipc/pr-inbox'
@@ -36,9 +40,11 @@ import { redactSecrets } from '../../shared/terminal-ai/redact'
 import type { WorkflowModel } from '../../shared/workflow/types'
 import type { PrFollowResult } from '../actions/launch'
 import type { AssistantProposal } from '../../shared/assistant/proposals'
+import type { ActionJournal } from '../assistant/actions/journal'
 import type { ProposalBook } from '../assistant/proposals/book'
 import { FeaturePageMissing, readFeaturePage, searchFeaturePages, type FeaturePageFile } from '../assistant/help/feature-pages'
 import type { GuideLanguage } from '../../shared/settings/app-settings'
+import type { SessionMemory } from '../assistant/session/memory'
 import type { AutopilotStarter } from '../autopilot/chat-confirm'
 import { claudeMcpServer, type ClaudeMcpServer } from '../vendors/claude/mcp'
 import type { McpServer, McpToolResult } from '../vendors/mcp'
@@ -99,8 +105,50 @@ export interface AssistantActionEntry {
   at: number
   action: MainAction
   item: AttentionItem
+  /** The mode of the action in the item's duty that let it go: `self` or `pre-approved`. */
+  mode: DutyActionMode
   outcome: 'done' | 'refused'
+  /** What main's function answered: what it did, or why it refused. */
   text: string
+}
+
+/** The line of the Assistant's journal (ticket 08's) of an action done by main's own function at the Assistant's request. */
+export function actionJournalLineOf(entry: AssistantActionEntry): ActionJournalLine {
+  return {
+    at: entry.at,
+    action: entry.action,
+    by: 'assistant',
+    item: entry.item.id,
+    duty: entry.item.duty,
+    projectId: entry.item.projectId,
+    itemKind: entry.item.kind,
+    itemText: entry.item.text,
+    mode: entry.mode,
+    sessionId: null,
+    outcome: entry.outcome,
+    detail: redactSecrets(entry.text),
+  }
+}
+
+/** The journal of `worfy-app`'s own actions into `journal`; a line that cannot be written is logged, the action stands. */
+export function journalTo(journal: ActionJournal, log: (message: string, error: unknown) => void = (message, error) => console.warn(message, error)): (entry: AssistantActionEntry) => void {
+  return (entry) => {
+    try {
+      journal.append(actionJournalLineOf(entry))
+    } catch (error) {
+      log('[assistant] a line of the journal of actions could not be written', error)
+    }
+  }
+}
+
+/**
+ * The closed list as `worfy-app` reaches it: the one `current` answers now (ticket 08's appClosedList()), or a refusal
+ * while none runs — the Assistant is off.
+ */
+export function closedListOf(current: () => ClosedListSeam | null): ClosedListSeam {
+  return {
+    act: (request) => current()?.act(request) ?? { ok: false, reason: 'the closed list of actions is not running: the Assistant is off', line: {} },
+  }
 }
 
 /** What the server reads and calls; the app's parts in the app (appWorfyAppDeps), stand-ins in tests. */
@@ -136,6 +184,8 @@ export interface WorfyAppDeps {
   guideLanguage(): GuideLanguage
   /** The build version `<semver>+<SHA>`, whose commit a page's link names; null when not known. */
   buildVersion(): string | null
+  /** The Assistant's part of its memory file (ticket 10): commitments and the user's answers. */
+  memory: Pick<SessionMemory, 'note' | 'forget'>
 }
 
 /** A refusal the agent reads; anything else thrown is answered the same way. */
@@ -248,7 +298,7 @@ function handlers(deps: WorfyAppDeps): Handlers {
    * Runs pr-follow or autopilot-start through main's function; a refusal of main is journaled and answered as the
    * refusal. (The closed list journals its own actions.)
    */
-  const act = async (args: AppToolArgs['action_run'] & { action: MainAction }, item: AttentionItem): Promise<string> => {
+  const act = async (args: AppToolArgs['action_run'] & { action: MainAction }, item: AttentionItem, mode: DutyActionMode): Promise<string> => {
     const run = (): Promise<string> => {
       if (args.action === 'pr-follow') {
         if (args.follow === undefined) throw new ToolError('pr-follow needs follow: fixChecks, resolveConflicts or addressComments')
@@ -264,10 +314,10 @@ function handlers(deps: WorfyAppDeps): Handlers {
     } catch (error) {
       if (error instanceof ToolError) throw error
       const reason = error instanceof Error ? error.message : String(error)
-      deps.journal({ at: deps.now(), action: args.action, item, outcome: 'refused', text: reason })
+      deps.journal({ at: deps.now(), action: args.action, item, mode, outcome: 'refused', text: reason })
       throw new ToolError(reason)
     }
-    deps.journal({ at: deps.now(), action: args.action, item, outcome: 'done', text: done })
+    deps.journal({ at: deps.now(), action: args.action, item, mode, outcome: 'done', text: done })
     return done
   }
 
@@ -403,7 +453,27 @@ function handlers(deps: WorfyAppDeps): Handlers {
         if (!result.ok) throw new ToolError(`main refused ${args.action} (${result.reason}). Nothing was sent.`)
         return { action: args.action, item: args.item, done: result.line.text ?? args.action }
       }
-      return { action: args.action, item: args.item, done: await act({ ...args, action: args.action }, item) }
+      return { action: args.action, item: args.item, done: await act({ ...args, action: args.action }, item, proposal.mode) }
+    },
+
+    memory_note: ({ kind, text: said, topic, due }) => {
+      const clean = redactSecrets(said)
+      try {
+        if (kind === 'commitment') return { commitment: deps.memory.note({ kind, text: clean, due: due === undefined ? null : Date.parse(due) }) }
+        if (topic === undefined) throw new ToolError('An answer needs its topic: what you asked the user about')
+        return { answer: deps.memory.note({ kind, topic: redactSecrets(topic), text: clean }) }
+      } catch (error) {
+        throw error instanceof ToolError ? error : new ToolError(error instanceof Error ? error.message : String(error))
+      }
+    },
+
+    memory_forget: ({ id }) => {
+      try {
+        deps.memory.forget(id)
+      } catch (error) {
+        throw new ToolError(error instanceof Error ? error.message : String(error))
+      }
+      return { forgotten: id }
     },
   }
 }
@@ -466,8 +536,27 @@ export async function worfyAppForSession(request: WorfyAppRequest, deps?: WorfyA
  * load much of main.
  */
 async function appWorfyAppDeps(): Promise<WorfyAppDeps> {
-  const [{ appNow }, { projectStore }, { appAttentionCore }, { appDuties }, { readWorkflow }, { claudeHome }, { harnessScriptEnv }, { sharedPrInbox }, { sharedRegistry }, { vendorDriver }, { VENDOR_IDS }, { readRecentRuns }, { appLimits }, { appProposals }, { sharedLauncher }, { appAutopilotStarter }] =
-    await Promise.all([
+  const [
+    { appNow },
+    { projectStore },
+    { appAttentionCore },
+    { appDuties },
+    { readWorkflow },
+    { claudeHome, dataRoot },
+    { harnessScriptEnv },
+    { sharedPrInbox },
+    { sharedRegistry },
+    { vendorDriver },
+    { VENDOR_IDS },
+    { readRecentRuns },
+    { appLimits },
+    { appProposals },
+    { sharedLauncher },
+    { appAutopilotStarter },
+    { appClosedList },
+    { actionJournalFile, actionJournalPath },
+    { appSessionMemory },
+  ] = await Promise.all([
       import('../clock'),
       import('../projects/store'),
       import('../assistant/core/app'),
@@ -484,6 +573,9 @@ async function appWorfyAppDeps(): Promise<WorfyAppDeps> {
       import('../assistant/proposals/book'),
       import('../ipc/actions'),
       import('../autopilot/chat-confirm'),
+      import('../assistant/actions/app'),
+      import('../assistant/actions/journal'),
+      import('../assistant/session/app'),
     ])
   const projects = (): { id: string; name: string }[] => projectStore().list().map((project) => ({ id: project.id, name: project.name }))
   return {
@@ -521,15 +613,14 @@ async function appWorfyAppDeps(): Promise<WorfyAppDeps> {
     autopilotRuns: (projectId, runs) => readRecentRuns(projectId, { limit: runs }),
     limits: () => appLimits().snapshot(),
     proposals: appProposals(),
-    // shortcut: refuses until the closed list of actions (worfy-assistant ticket 08) is in main; then this takes
-    // appClosedList(), guarding its null (the closed list not started yet).
-    closedList: { act: () => ({ ok: false, reason: 'the closed list of actions is not in this build yet (worfy-assistant ticket 08)', line: {} }) },
+    // The closed list of ticket 08 the Assistant started; a refusal while it is off.
+    closedList: closedListOf(appClosedList),
     prFollow: (projectId, repo, pr, action) => sharedLauncher().prFollow(projectId, repo, pr, action),
     autopilotStart: appAutopilotStarter(),
     sessionId: () => null,
-    // shortcut: only a line in the log: the Assistant's journal of ticket 08 takes no line from outside. Ticket 10, which
-    // wires this server to the Assistant's Session, writes these lines to that journal with the item that caused them.
-    journal: (entry) => console.info(`[assistant] ${entry.action} on item ${entry.item.id}: ${entry.outcome}`),
+    // The Assistant's journal of ticket 08: the same file the closed list writes its lines to.
+    journal: journalTo(actionJournalFile(actionJournalPath(dataRoot()), appNow)),
+    memory: appSessionMemory(),
     ...(await appHelpDeps()),
   }
 }
