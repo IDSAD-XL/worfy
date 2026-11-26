@@ -1,7 +1,8 @@
 # 17 — Помощь по worfy: описания функций в сборке, поиск и чтение через `worfy-app`, ответ со ссылкой, язык Guide
 
 Type: task
-Status: open
+Status: claimed 2026-11-25T22:32Z
+Branch: worfy-assistant/17
 Blocked by: 09
 Source: [spec.md](../spec.md), «Ticket-ы», строка 17; «Решения владельца», 12; «Решения по реализации» → «MCP-сервер
 `worfy-app`» («Чтение»), «Знакомство и помощь»; «Решения по test-ам», Б; истории 31, 32 и 38; «Волны», Wave 4
@@ -37,8 +38,41 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 17; «Решения 
 ## Готово, когда
 
 - [ ] Упакованная сборка содержит `docs/features` на английском и русском.
+  - evidence: test-run pass · `pnpm test test/contract/feature-pages-in-build.test.ts` exit 0 · mac - · 849f153d5
 - [ ] Contract test: поиск по описаниям находит страницу; чтение отдаёт её текст и ссылку на неё.
+  - evidence: test-run pass · `pnpm test test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 849f153d5
+  - evidence: test-run pass · `pnpm test test/contract/worfy-app-tools.test.ts test/contract/feature-pages-in-build.test.ts` exit 0 · mac - · 28cc6db26
 - [ ] Contract test: поиск без подходящей страницы отдаёт пустой ответ, а не чужую страницу.
+  - evidence: test-run pass · `pnpm test test/contract/worfy-app-tools.test.ts test/contract/feature-pages-in-build.test.ts` exit 0 · mac - · 849f153d5
+  - evidence: test-run pass · `pnpm test test/contract/feature-pages-in-build.test.ts test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 28cc6db26
 - [ ] Правила Session Assistant-а велят отвечать со ссылкой на страницу описания, а без страницы — говорить «не знаю».
+  - evidence: test-run pass · `pnpm test test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 849f153d5
 - [ ] Assistant говорит на языке, выбранном для Guide: при выборе RU — русские описания и ответы.
+  - evidence: test-run pass · `pnpm test test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 849f153d5
+  - evidence: test-run pass · `pnpm test test/contract/worfy-app-tools.test.ts test/contract/feature-pages-in-build.test.ts` exit 0 · mac - · 28cc6db26
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 849f153d5
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 28cc6db26
+  - evidence: gate pass · `gate fast` exit 0 · mac - · afbe4c387
+
+## Решено без владельца (подтвердить)
+
+1. Страницы лежат в сборке файлами (`Contents/Resources/features/`, только `.md`), а не внутри бандла main: 2,9 МБ
+   Markdown-а не грузятся при старте. В `pnpm dev` и в запусках `out/` main читает `docs/features` checkout-а.
+2. Поиск — по словам, не по смыслу: страница находится, только если в одном её разделе (с заголовками выше и заголовком
+   страницы) есть все слова вопроса, в английской версии или в переводе, а слова из текста раздела стоят не дальше 12
+   слов друг от друга; вопрос из одного слова — слово в заголовках или дважды в тексте. Латинское слово совпадает
+   только с тем же словом в единственном или множественном числе, кириллическое длиной от 4 букв — по основе без
+   окончания; «ё» = «е». Индекс `README` в результаты не попадает. До 5 результатов, не больше 10. (Review раунда 1:
+   правило «все слова где-то на странице» отдавало чужие страницы.)
+3. Ссылка в ответе — страница на GitHub на commit сборки (без commit-а — на `main`), как «Full page» в Guide; рядом путь
+   в репозитории.
+4. «Может открыть тему Guide»: tool-а, который сам открывает Guide, нет — `features_read` называет темы Guide, чей
+   `topic.json` проверен по этой странице, и правила велят указать путь Help ▸ worfy Guide. Кнопка в разговоре — дело
+   экрана Assistant-а.
+5. Страница без перевода отдаётся на английском (`language: en`, `guideLanguage: ru`). Длинная страница режется на
+   40 000 символах (`truncated: true`), раздел читается параметром `section`.
+6. Страницы — текст worfy, а не блок чужого текста; секреты из них убирает `redactSecrets`, как у всех ответов.
+7. Язык: настройка `guideLanguage`, без выбора — первый язык системы (`app.getPreferredSystemLanguages()`), правило то
+   же, что у Guide; язык берётся один раз при создании Session (новая на каждое пробуждение), и правила, и tool-ы
+   держат его до конца Session.

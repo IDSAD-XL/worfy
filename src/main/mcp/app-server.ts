@@ -6,7 +6,9 @@
 // - Bound to the app, not to a Session's cwd: the Assistant's Session runs in worfy's data folder, outside every
 //   Project, where worfy-canvas and worfy-mind-map are not given (worfyAppForSession takes no cwd).
 // - Reading: Projects and machines, the items the duties show, the workflow of a Project, the threads of a PR, the tail
-//   of a Session, the Autopilot runs, Limits. Reading changes nothing but the duties' «shown» counters.
+//   of a Session, the Autopilot runs, Limits, and the feature pages of the build (ticket 17: features_search and
+//   features_read, src/main/assistant/help/feature-pages.ts) in the language of the Guide, which the Assistant speaks.
+//   Reading changes nothing but the duties' «shown» counters.
 // - Proposals: create, update, remove (ProposalBook); Prepare keeps and answers the exact text of the future Session,
 //   which only the user's click starts (boundary 3). A Prepare names a Project of this Machine only (boundary 5).
 // - Actions: only APP_ACTIONS, only when the mode of that action in the item's duty is `self` or `pre-approved`
@@ -35,6 +37,8 @@ import type { WorkflowModel } from '../../shared/workflow/types'
 import type { PrFollowResult } from '../actions/launch'
 import type { AssistantProposal } from '../../shared/assistant/proposals'
 import type { ProposalBook } from '../assistant/proposals/book'
+import { FeaturePageMissing, readFeaturePage, searchFeaturePages, type FeaturePageFile } from '../assistant/help/feature-pages'
+import type { GuideLanguage } from '../../shared/settings/app-settings'
 import type { AutopilotStarter } from '../autopilot/chat-confirm'
 import { claudeMcpServer, type ClaudeMcpServer } from '../vendors/claude/mcp'
 import type { McpServer, McpToolResult } from '../vendors/mcp'
@@ -126,12 +130,20 @@ export interface WorfyAppDeps {
   sessionId(): string | null
   /** Writes a line of the Assistant's journal for pr-follow and autopilot-start; the closed list writes its own. */
   journal(entry: AssistantActionEntry): void
+  /** The feature pages of the build, English and Russian (ticket 17). */
+  featurePages(): Promise<readonly FeaturePageFile[]>
+  /** The language of the Guide: the person's choice, else the system's. The Assistant speaks it. */
+  guideLanguage(): GuideLanguage
+  /** The build version `<semver>+<SHA>`, whose commit a page's link names; null when not known. */
+  buildVersion(): string | null
 }
 
 /** A refusal the agent reads; anything else thrown is answered the same way. */
 class ToolError extends Error {}
 
 const DEFAULT_TAIL_LINES = 20
+/** The pages features_search answers without a limit. */
+const DEFAULT_FEATURE_HITS = 5
 /** The most events of one run an answer carries: the newest. */
 const RUN_EVENTS_MAX = 40
 /** The keys every journal event has, answered beside its details. */
@@ -331,6 +343,22 @@ function handlers(deps: WorfyAppDeps): Handlers {
       windows: Object.fromEntries(Object.entries(deps.limits().windows).map(([name, window]) => [name, { utilization: window.utilization, resetsAt: window.resetsAt === null ? null : iso(window.resetsAt * 1000), status: window.status }])),
     }),
 
+    // The pages are worfy's own text, shipped in the build: not outside text. They pass redactSecrets like every answer.
+    features_search: async ({ query, limit }) => {
+      const options = { language: deps.guideLanguage(), version: deps.buildVersion() }
+      return { guideLanguage: options.language, results: searchFeaturePages(await deps.featurePages(), query, limit ?? DEFAULT_FEATURE_HITS, options) }
+    },
+
+    features_read: async ({ page, section }) => {
+      const files = await deps.featurePages()
+      try {
+        return readFeaturePage(files, page, section, { language: deps.guideLanguage(), version: deps.buildVersion() })
+      } catch (error) {
+        if (error instanceof FeaturePageMissing) throw new ToolError(error.message)
+        throw error
+      }
+    },
+
     proposals_list: () => ({ proposals: deps.proposals.list().map(proposalView) }),
 
     proposal_create: (args) => {
@@ -407,8 +435,15 @@ export function worfyAppServer(deps: WorfyAppDeps): McpServer {
   }
 }
 
-/** The agent instructions of `worfy-app`, appended to the Assistant Session's system prompt (ticket 10). */
-export const worfyAppInstructions = (): string => instructions
+const LANGUAGE_NAMES: Readonly<Record<GuideLanguage, string>> = { en: 'English', ru: 'Russian' }
+
+/**
+ * The agent instructions of `worfy-app`, appended to the Assistant Session's system prompt (ticket 10), and the language
+ * the Assistant speaks: the Guide's (ticket 17). A new Session starts on each wake-up, so a change of the Guide's
+ * language is heard from the next one.
+ */
+export const worfyAppInstructions = (language: GuideLanguage = 'en'): string =>
+  `${instructions.trimEnd()}\n\n## Language\n\nThe user reads worfy's Guide in ${LANGUAGE_NAMES[language]}. Speak ${LANGUAGE_NAMES[language]} to the user, whatever language the text you read is in; the feature pages come in it too. The names of worfy's actions and views stay as the app shows them, in English.\n`
 
 export interface WorfyAppRequest {
   /** The Assistant's Session: the one autopilot_start's dialog names. */
@@ -421,7 +456,9 @@ export interface WorfyAppRequest {
  */
 export async function worfyAppForSession(request: WorfyAppRequest, deps?: WorfyAppDeps): Promise<{ server: ClaudeMcpServer; instructions: string }> {
   const base = deps ?? (await appWorfyAppDeps())
-  return { server: await claudeMcpServer(worfyAppServer({ ...base, sessionId: () => request.sessionId })), instructions: worfyAppInstructions() }
+  // The Session's language, taken once: its rules and its tools' pages stay in it, whatever the Guide switches to.
+  const language = base.guideLanguage()
+  return { server: await claudeMcpServer(worfyAppServer({ ...base, sessionId: () => request.sessionId, guideLanguage: () => language })), instructions: worfyAppInstructions(language) }
 }
 
 /**
@@ -493,5 +530,27 @@ async function appWorfyAppDeps(): Promise<WorfyAppDeps> {
     // shortcut: only a line in the log: the Assistant's journal of ticket 08 takes no line from outside. Ticket 10, which
     // wires this server to the Assistant's Session, writes these lines to that journal with the item that caused them.
     journal: (entry) => console.info(`[assistant] ${entry.action} on item ${entry.item.id}: ${entry.outcome}`),
+    ...(await appHelpDeps()),
+  }
+}
+
+/** The feature pages of the build, read once per server on first use, the Guide's language and the build version. */
+async function appHelpDeps(): Promise<Pick<WorfyAppDeps, 'featurePages' | 'guideLanguage' | 'buildVersion'>> {
+  const [{ app }, { featurePagesDir, readFeaturePages }, { appSettingsStore }, { guideLanguage }, { bundledHarnessVersion }] = await Promise.all([
+    import('electron'),
+    import('../assistant/help/feature-pages'),
+    import('../settings/store'),
+    import('../../shared/guide/language'),
+    import('../harness/bundled'),
+  ])
+  let pages: Promise<readonly FeaturePageFile[]> | undefined
+  return {
+    featurePages: () => (pages ??= readFeaturePages(featurePagesDir()).catch((error: unknown) => {
+      pages = undefined
+      throw error
+    })),
+    guideLanguage: () => guideLanguage(appSettingsStore().get().guideLanguage, app.getPreferredSystemLanguages()),
+    // The version the Guide's links use too (main's `app.version`).
+    buildVersion: () => bundledHarnessVersion() ?? app.getVersion(),
   }
 }

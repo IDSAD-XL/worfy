@@ -24,6 +24,8 @@ export type AppAction = (typeof APP_ACTIONS)[number]
 export const SESSION_TAIL_MAX = 50
 /** The most Autopilot runs one call reads. */
 export const AUTOPILOT_RUNS_MAX = 5
+/** The most feature pages one features_search answers. */
+export const FEATURES_SEARCH_MAX = 10
 
 const id = z.string().min(1).max(200)
 const EPIC_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/u
@@ -36,6 +38,8 @@ export const appToolShapes = {
   session_tail_read: { sessionId: id, lines: z.number().int().min(1).max(SESSION_TAIL_MAX).optional() },
   autopilot_runs_read: { projectId: id, runs: z.number().int().min(1).max(AUTOPILOT_RUNS_MAX).optional() },
   limits_read: {},
+  features_search: { query: z.string().trim().min(2).max(200), limit: z.number().int().min(1).max(FEATURES_SEARCH_MAX).optional() },
+  features_read: { page: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9-]*$/u).max(100), section: z.string().trim().min(1).max(200).optional() },
   proposals_list: {},
   proposal_create: { title: proposalTitleSchema, why: proposalWhySchema, item: id.optional(), prepare: preparedSessionSchema.optional() },
   proposal_update: { id, title: proposalTitleSchema.optional(), why: proposalWhySchema.optional(), prepare: preparedSessionSchema.nullable().optional() },
@@ -67,6 +71,10 @@ export const appToolDescriptions: Record<AppToolName, string> = {
   session_tail_read: 'The last lines of a Session (lines: 1-50, 20 by default): who wrote each, the user or its agent.' + DATA,
   autopilot_runs_read: 'The newest Autopilot runs of a Project (runs: 1-5, 1 by default) with the events of their journal.' + DATA,
   limits_read: 'The Limits windows of this Machine: the share used, when each resets, its status.',
+  features_search:
+    'Search the feature pages of worfy, the documentation bundled in this build, for a question about how worfy works: a few key words (query), up to limit pages (1-10, 5 by default), best first. A page is found only when it holds every word; an empty results list means no page describes it. Each result: page, title, path, its link (url) and the sections that hold the words, in the language of the Guide.',
+  features_read:
+    'Read a feature page found by features_search: its text in the language of the Guide (English when it has no translation yet), its path, its link (url), its sections and the Guide topics that cover it. section reads one section; a long page is cut at 40000 characters (truncated: true) — read its sections then.',
   proposals_list: 'Your open proposals.',
   proposal_create:
     'Propose a step to the user: title, why, the item it answers, and with prepare the Session you would start — its Project of this Machine and its exact text. Nothing starts: the user sees the text and starts it with a click.',

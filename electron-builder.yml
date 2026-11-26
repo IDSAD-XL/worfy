@@ -39,6 +39,14 @@ extraResources:
   # @openai/codex.
   - from: build/codex
     to: codex
+  # The feature pages of worfy, English and the Russian translation under ru/, sit in
+  # Contents/Resources/features/: the Assistant's tools features_search and features_read read them
+  # there (worfy-assistant ticket 17, src/main/assistant/help/feature-pages.ts, FEATURE_PAGES_RESOURCE).
+  # Markdown only; test/contract/feature-pages-in-build.test.ts checks this entry.
+  - from: docs/features
+    to: features
+    filter:
+      - '**/*.md'
 
 # Package the Electron that is already installed instead of downloading another copy.
 electronDist: node_modules/electron/dist
