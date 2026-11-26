@@ -195,3 +195,14 @@ export function isUrgentItem(item: Pick<AttentionItem, 'kind' | 'message' | 'sto
 3. Как остановка пользователем попадает в пункт, который уже открыт для этого Run-а?
    - Строки: `src/main/assistant/core/attention-core.ts:209-212`
    - Ответ: при склейке пункт берёт `stopReason` последнего события, так что и склеенный пункт становится несрочным.
+
+## 8. Что нашёл review и что осталось
+
+> VERIFIED — worfy-assistant 23 (an Autopilot Run the user stopped — Stop, Force stop, Cancel, discarded — is not urgent: it neither wakes the Assistant at once nor gets an urgent mark and a system notice in its window; a Run stopped for any other reason, or with an unknown reason, stays urgent), head 3ef683998e7c86b1817f786bb6dae20f53adf036
+>
+> Gate (depth medium, two rounds):
+> - Round 1, reviewer (lens: correctness) — MERGE with one med condition: PR #2249 (ticket 14) kept its own URGENT_KINDS in the window's isUrgentItem, so after both merged a user Stop at 23:00 would not wake the planner but the window would still notify. Fix: one shared rule.
+> - Fix 3ef683998 (rebased on b15877f3b after #2249 merged, no conflicts): isUrgentStop in src/shared/assistant/attention.ts with USER_STOP_REASONS and URGENT_ITEM_KINDS moved there; WakePlanner.evaluate and the window's isUrgentItem both call it; the window's own constant removed; window-side unit test red before, green after.
+> - Round 2: diff read by the orchestrator (narrow move to one shared function, med condition) — closes the condition.
+> Evidence: 24 assistant unit+contract files (467 tests), lint, typecheck exit 0; gate fast green; story-check exit 0.
+> Not verified: e2e (owner rule); the system notice on a user stop has no own test (notices.ts fires only on item.urgent, which is tested).

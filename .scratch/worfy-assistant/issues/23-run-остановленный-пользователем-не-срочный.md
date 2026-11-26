@@ -1,7 +1,7 @@
 # 23 — Run Autopilot-а, остановленный пользователем, не срочный: пункт несёт причину остановки
 
 Type: task
-Status: claimed 2026-11-26T03:53Z
+Status: done 2026-11-26T07:22Z
 PR: #2259
 Blocked by: —
 Source: решение владельца 2026-11-26 (раунд Q1–Q12 вечернего отчёта 2026-11-25), Q5; меняет решение 3 Ticket-а 06
@@ -68,13 +68,18 @@ Source: решение владельца 2026-11-26 (раунд Q1–Q12 веч
 
 - [ ] Unit test: пункт остановки Run-а несёт причину отдельным полем; текст называет её словами.
   - evidence: test-run pass · `pnpm test test/unit/assistant-attention-sources.test.ts` exit 0 · mac - · 406d907cdb3bb4e0c31517a9f29f64d4b2ba629f
+  - evidence: review pass · PR #2259 · - - · 3ef683998e7c86b1817f786bb6dae20f53adf036
 - [ ] Unit test: остановка самим пользователем не будит Assistant-а, другие остановки будят сразу.
   - evidence: test-run pass · `pnpm test test/unit/assistant-wake-planner.test.ts` exit 0 · mac - · 406d907cdb3bb4e0c31517a9f29f64d4b2ba629f
+  - evidence: review pass · PR #2259 · - - · 3ef683998e7c86b1817f786bb6dae20f53adf036
 - [ ] Unit test: файл пунктов, записанный до этого Ticket-а, читается.
   - evidence: test-run pass · `pnpm test test/unit/assistant-attention-sources.test.ts` exit 0 · mac - · 406d907cdb3bb4e0c31517a9f29f64d4b2ba629f
+  - evidence: review pass · PR #2259 · - - · 3ef683998e7c86b1817f786bb6dae20f53adf036
 - [ ] «Итог»: какие причины считаются остановкой пользователем — в «Решено без владельца».
   - evidence: commit pass · worfy-assistant/23: an Autopilot Run the user stopped does not wake the Assistant · - - · 406d907cdb3bb4e0c31517a9f29f64d4b2ba629f
+  - evidence: review pass · PR #2259 · - - · 3ef683998e7c86b1817f786bb6dae20f53adf036
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45766222586/job/139754923964 · ci - · 3ef683998e7c86b1817f786bb6dae20f53adf036
 
 ## Итог
 
