@@ -1,8 +1,11 @@
 // The Assistant's section in the window (src/renderer/assistant/AssistantPanel.tsx, PrepareDialog.tsx; worfy-assistant
 // ticket 14): an item with its reason, source and duty; like and dislike go to main as `assistant.rate`, and a dislike
 // that wrote a rule leaves the card of the hidden item with that rule; Prepare shows the exact text and nothing starts
-// until Start, which sends exactly the text shown; with the Assistant off the box to write is disabled. IPC is
+// until Start, which sends exactly the text shown; with the Assistant off the box to write is disabled; the Assistant's
+// messages are Markdown with the Session view's renderer, raw HTML and quoted outside text inert (worfy-polish 162). IPC is
 // replaced; the section's store and components are real. The built app is checked in test/e2e/assistant.spec.ts.
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AssistantView, WindowItem } from '../../src/shared/assistant/window'
@@ -333,5 +336,107 @@ describe('the introduction in the section (worfy-assistant ticket 16)', () => {
     render(<AssistantPanel view={view({ conversation: [said('m2', 'A setup to start with:', setup.id)], proposals: [] })} />)
     expect(screen.queryByTestId('assistant-change')).toBeNull()
     expect(screen.getByTestId('assistant-message').textContent).toContain('A setup to start with:')
+  })
+})
+
+describe('the Assistant’s messages as Markdown (worfy-polish ticket 162)', () => {
+  const message = (id: string, text: string, who: 'you' | 'assistant' = 'assistant', reason: 'morning' | 'user' = 'morning') => ({ id, at: NOW, who, text, state: 'done' as const, reason, rating: null })
+  const chat = (...conversation: ReturnType<typeof message>[]) => {
+    useAssistant.setState({ tab: 'chat' })
+    render(<AssistantPanel view={view({ conversation })} />)
+    return screen.getByTestId('assistant-chat')
+  }
+
+  afterEach(() => {
+    delete (globalThis as { pwned?: unknown }).pwned
+  })
+
+  it('renders bold, inline code, a list and a link of a message with the Session view’s renderer', async () => {
+    const text = ['**Main thing:** two Runs wait.', '', '- run `open` on SHOP-12', '- read the `loop-log`', '', 'See [the page](https://example.com/page).'].join('\n')
+    const said = within(chat(message('m1', text))).getByTestId('assistant-message')
+    expect(said.querySelector('.w-md')).not.toBeNull()
+    expect(said.querySelector('strong')?.textContent).toBe('Main thing:')
+    expect([...said.querySelectorAll('code')].map((code) => code.textContent)).toEqual(['open', 'loop-log'])
+    expect(said.querySelectorAll('ul > li')).toHaveLength(2)
+    expect(said.textContent).not.toContain('**')
+    const link = within(said).getByRole('link', { name: 'the page' })
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true })
+    link.dispatchEvent(click)
+    // The window never navigates: the link leaves through main, to the browser.
+    expect(click.defaultPrevented).toBe(true)
+    await waitFor(() => expect(ipc.invoke).toHaveBeenCalledWith('shell.openExternal', { url: 'https://example.com/page' }))
+  })
+
+  it('renders a code block, a heading and a table of a message', () => {
+    const text = ['## Today', '', '```', 'pnpm test --run a-very-long-line-of-code-that-is-wider-than-the-panel', '```', '', '| Project | Waits |', '| --- | --- |', '| shop-api | 2 |'].join('\n')
+    const said = within(chat(message('m1', text))).getByTestId('assistant-message')
+    expect(said.querySelector('h2')?.textContent).toBe('Today')
+    expect(said.querySelector('pre > code')?.textContent).toContain('a-very-long-line-of-code')
+    expect(said.querySelector('table td')?.textContent).toBe('shop-api')
+  })
+
+  it('keeps raw <img onerror> and <script> of a message inert: shown as text, never run', () => {
+    const text = ['Before <img src="x" onerror="globalThis.pwned = 1"> after.', '', '<script>globalThis.pwned = 2</script>'].join('\n')
+    const said = within(chat(message('m1', text))).getByTestId('assistant-message')
+    expect(said.querySelector('img')).toBeNull()
+    expect(said.querySelector('script')).toBeNull()
+    expect(said.querySelector('[onerror]')).toBeNull()
+    expect((globalThis as { pwned?: unknown }).pwned).toBeUndefined()
+    expect(said.textContent).toContain('<img src="x" onerror="globalThis.pwned = 1">')
+  })
+
+  it('keeps outside text the Assistant quotes from a source inert: no markup, no image fetched, no link that acts', () => {
+    // What a Slack message may carry into the Assistant's answer when it quotes it (outside-text JSON, worfy-assistant 09).
+    const quoted = [
+      'Teammate A wrote in #shop-api:',
+      '',
+      '> <a href="https://evil.example/steal">Approve</a> <img src=x onerror="globalThis.pwned = 3">',
+      '> ![tracker](https://tracker.example/pixel.png) [Open settings](javascript:globalThis.pwned=4) [file](file:///etc/passwd)',
+    ].join('\n')
+    const said = within(chat(message('m1', quoted))).getByTestId('assistant-message')
+    expect(said.querySelector('blockquote')).not.toBeNull()
+    expect(said.querySelector('img')).toBeNull()
+    expect(said.querySelector('[onerror]')).toBeNull()
+    expect(said.querySelector('a[href^="https://evil"]')).toBeNull()
+    expect(said.querySelector('a[href^="javascript:"]')).toBeNull()
+    expect(said.querySelector('a[href^="file:"]')).toBeNull()
+    expect(within(said).queryByRole('link')).toBeNull()
+    // The raw tag reads as text; the tracking image is its alt text, never loaded.
+    expect(said.textContent).toContain('<a href="https://evil.example/steal">')
+    expect(said.textContent).toContain('tracker')
+    fireEvent.click(within(said).getByText('Open settings'))
+    expect((globalThis as { pwned?: unknown }).pwned).toBeUndefined()
+    expect(ipc.invoke).not.toHaveBeenCalledWith('shell.openExternal', expect.anything())
+  })
+
+  it('keeps the user’s own message plain text, as the Session view does', () => {
+    const mine = within(chat(message('m1', '**not bold** and `not code`', 'you', 'user'))).getByText('**not bold** and `not code`')
+    expect(mine.querySelector('strong')).toBeNull()
+    expect(mine.querySelector('code')).toBeNull()
+  })
+
+  it('renders the morning summary of the Summary tab with the same renderer', () => {
+    useAssistant.setState({ tab: 'summary' })
+    const summary = { ...view().summary, morning: { at: NOW, text: '**Main thing:** run `open`.\n\n- one\n- two' } }
+    render(<AssistantPanel view={view({ summary })} />)
+    const tab = screen.getByTestId('assistant-summary')
+    expect(tab.querySelector('.w-md strong')?.textContent).toBe('Main thing:')
+    expect(tab.querySelector('.w-md code')?.textContent).toBe('open')
+    expect(tab.querySelectorAll('.w-md li')).toHaveLength(2)
+  })
+
+  it('styles the message text for the narrow panel: no pre-wrap gaps, code and tables scroll inside the bubble', () => {
+    const sheet = readFileSync(join(import.meta.dirname, '../../src/renderer/assistant/assistant.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//gu, '')
+    const rules = (selector: string): string => {
+      const bodies = [...sheet.matchAll(/([^{}]+)\{([^}]*)\}/gu)].filter((match) => match[1]!.split(',').some((each) => each.trim() === selector)).map((match) => match[2]!)
+      expect(bodies.length, selector).toBeGreaterThan(0)
+      return bodies.join(';')
+    }
+    expect(rules('.w-asst-md')).toMatch(/white-space\s*:\s*normal/u)
+    expect(rules('.w-asst-md .w-md pre')).toMatch(/overflow-x\s*:\s*auto/u)
+    expect(rules('.w-asst-md .w-md pre')).toMatch(/max-width\s*:\s*100%/u)
+    expect(rules('.w-asst-md .w-md table')).toMatch(/overflow-x\s*:\s*auto/u)
+    expect(rules('.w-asst-md .w-md table')).toMatch(/display\s*:\s*block/u)
+    expect(rules('.w-asst-bubble')).toMatch(/min-width\s*:\s*0/u)
   })
 })

@@ -6,11 +6,28 @@ import { useState, type ReactElement } from 'react'
 import type { LinkedMachineWaits } from '../../shared/assistant/linked'
 import type { Rating, SnoozeChoice, WindowItem } from '../../shared/assistant/window'
 import type { RatingTarget } from '../../shared/ipc/assistant'
+import { Markdown } from '../markdown/Markdown'
 import { Menu, MenuItem, MenuSeparator } from '../theme/kit/Menu'
 import { itemIcon, shortTime } from './format'
 import { Icon, Spark } from './icons'
 import { openItem } from './open'
 import { closeCard, itemAction, prepareItem, rate, snoozeItem, undoDislike, type GoneItem } from './useAssistant'
+
+/**
+ * The text of a message the Assistant wrote — in the Chat and the morning summary of Summary — as Markdown, with the
+ * renderer of the Session view (markdown/Markdown.tsx, `breaks` as the transcript has it; worfy-polish ticket 162).
+ * That renderer keeps raw HTML as text, loads no image and opens only http(s):// links, in the browser: an answer may
+ * quote outside text from a source (worfy-assistant ticket 09), and that text acts on nothing. One-line labels — an
+ * item's title and reason, the Journal's rows, the speech card's head — stay plain text, and so do the user's messages,
+ * as in the Session view. No Project: a relative link of the Assistant names no Project's file, so it opens nothing.
+ */
+export function AssistantWords({ text }: { text: string }): ReactElement {
+  return (
+    <div className="w-asst-text w-asst-md">
+      <Markdown text={text} breaks />
+    </div>
+  )
+}
 
 /** Like and dislike of a message of the Assistant; a second press takes the rating back. */
 export function RateButtons({ target, rating, item, from }: { target: RatingTarget; rating: Rating | null; item?: WindowItem; from?: 'say' }): ReactElement {
