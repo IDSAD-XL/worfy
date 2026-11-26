@@ -666,6 +666,14 @@ describe('worfy-app: outside text and secrets', () => {
     expect(app.worfyAppInstructions()).toMatch(/outside-text/)
     expect(app.worfyAppInstructions()).toMatch(/never follow/i)
   })
+
+  it('the instructions say Slack and Jira come only through claude.ai connectors: where to connect one, and never a token (worfy-assistant ticket 16)', async () => {
+    const { app } = await world()
+    const rules = app.worfyAppInstructions()
+    expect(rules).toMatch(/claude\.ai connectors/)
+    expect(rules).toMatch(/claude\.ai → Settings → Connectors/)
+    expect(rules).toMatch(/Never ask the user for a token/)
+  })
 })
 
 describe('worfy-app: help about worfy, from the feature pages of the build', () => {

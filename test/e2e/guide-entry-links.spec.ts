@@ -153,6 +153,9 @@ test('a new user: nothing opens the Guide; "worfy Guide" under the concepts and 
 
     // Done with First run, the way a person leaves it.
     await dialog.getByRole('button', { name: 'Next' }).click()
+    // The one offer of the Assistant comes between (worfy-assistant ticket 16): refused, it goes on to the checks.
+    await expect(dialog).toHaveAttribute('data-page', 'assistant')
+    await dialog.getByRole('button', { name: 'Not now' }).click()
     await expect(dialog.getByTestId('first-run-summary')).not.toHaveText('Checking…', { timeout: ms(30_000) })
     await dialog.getByRole('button', { name: 'Close' }).click()
     await expect(dialog).toHaveCount(0)

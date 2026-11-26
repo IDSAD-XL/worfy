@@ -4,13 +4,15 @@
 import { create } from 'zustand'
 import { failureReason } from '../../shared/ipc/channels'
 import type { FirstRunReport } from '../../shared/ipc/first-run'
+import { useAssistant } from '../assistant/useAssistant'
 import { invoke } from '../ipc'
 
 /**
  * The page the screen shows: the three concepts of worfy (FirstRunConcepts.tsx, worfy-onboarding
- * ticket 08), only when it opened by itself on a new user's first start; else the checks.
+ * ticket 08), only when it opened by itself on a new user's first start; after them the one offer to
+ * turn the Assistant on (worfy-assistant ticket 16), while it stands; else the checks.
  */
-export type FirstRunPage = 'concepts' | 'checks'
+export type FirstRunPage = 'concepts' | 'assistant' | 'checks'
 
 export interface FirstRunState {
   open: boolean
@@ -52,9 +54,17 @@ export function openFirstRun(): void {
   openOn('checks')
 }
 
-/** "Next" of the concepts page: the checks, which have been running since the screen opened. */
+/** The checks, which have been running since the screen opened: after the offer of the Assistant. */
 export function showFirstRunChecks(): void {
   useFirstRun.setState({ page: 'checks' })
+}
+
+/**
+ * "Next" of the concepts page: the offer to turn the Assistant on while it stands (the Assistant's view says so; a
+ * window without it yet goes on), else the checks.
+ */
+export function showFirstRunNext(): void {
+  useFirstRun.setState({ page: useAssistant.getState().view?.offer.owed === true ? 'assistant' : 'checks' })
 }
 
 /** Closes the screen; main writes the mark. The next opening checks again. */

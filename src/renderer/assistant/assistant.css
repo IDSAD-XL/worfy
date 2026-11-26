@@ -1178,3 +1178,98 @@
 .w-asst-change--applied .w-asst-change__foot > span {
   flex: 1;
 }
+
+/* The one offer to turn the Assistant on (worfy-assistant ticket 16; Offer.tsx), after «Meet Assistant» of the prototype
+   Card: on top of the section while it stands, and its details on the page of First run after the welcome page. */
+.w-asst-offer {
+  margin: 4px 0 12px;
+  padding: 14px 12px 12px;
+  border: 1px solid var(--assistant-border);
+  border-radius: var(--radius-node);
+  background: var(--surface);
+  box-shadow: var(--shadow-node);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+.w-asst-offer__avatar {
+  width: 40px;
+  height: 40px;
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--assistant) 12%, transparent), 0 0 28px color-mix(in srgb, var(--assistant) 30%, transparent);
+}
+.w-asst-offer h3 {
+  margin: 10px 0 0;
+  font-size: var(--text-15);
+  line-height: 22px;
+}
+.w-asst-offer__lead {
+  margin: 4px 4px 10px;
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  line-height: 17px;
+}
+.w-asst-offer__details {
+  width: 100%;
+  text-align: left;
+}
+.w-asst-offer__can {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px 16px;
+}
+.w-asst-offer__can h4 {
+  margin: 0 0 4px;
+  font-size: var(--text-12);
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+.w-asst-offer__can ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--text-12);
+  line-height: 16px;
+}
+.w-asst-offer__can li {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+}
+.w-asst-offer__yes,
+.w-asst-offer__no {
+  flex: none;
+  display: inline-flex;
+  margin-top: 2px;
+}
+.w-asst-offer__yes {
+  color: var(--assistant);
+}
+.w-asst-offer__no {
+  color: var(--text-muted);
+}
+.w-asst-offer__uses {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 7px 10px;
+  border-radius: var(--radius-node);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  line-height: 16px;
+}
+.w-asst-offer__row {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.w-asst-offer__foot {
+  margin-top: 6px;
+  font-size: var(--text-11);
+  color: var(--text-muted);
+}

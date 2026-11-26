@@ -9,14 +9,21 @@
 // The way into Getting started (worfy-onboarding ticket 08): opened by itself on a new user's first
 // start, it shows the three concepts first (FirstRunConcepts.tsx) while its checks run, and "Next"
 // goes to them; under the checks a new user gets "Start Getting started" until step 6 is marked.
-import { useEffect, useId, useRef, type CSSProperties } from 'react'
+//
+// The welcome step offers the Assistant once (worfy-assistant ticket 16; owner's decision 10): between
+// the concepts and the checks, while the offer stands, the page "Meet Assistant" (assistant/Offer.tsx)
+// with "Turn on and meet" and "Not now"; either answer goes on to the checks. Closed there, First run
+// closes as from the concepts, and the offer stays in the Assistant's section.
+import { useEffect, useId, useRef, type CSSProperties, type ReactElement } from 'react'
+import { OFFER_ACCEPT, OFFER_DECLINE, OFFER_FOOT, OFFER_LEAD, OFFER_TITLE, OfferDetails } from '../assistant/Offer'
+import { answerOffer } from '../assistant/useAssistant'
 import { openGettingStarted, useGettingStarted } from '../getting-started/store'
 import { isMac } from '../platform'
 import { Dialog } from '../theme/kit/Dialog'
 import { showToast } from '../toast/toasts'
 import { FirstRunChecks, type FirstRunChecksParts } from './FirstRunChecks'
 import { CONCEPTS_LEAD, CONCEPTS_NOTE, CONCEPTS_TITLE, FirstRunConcepts } from './FirstRunConcepts'
-import { askAtStartup, closeFirstRun, showFirstRunChecks, useFirstRun } from './first-run-store'
+import { askAtStartup, closeFirstRun, showFirstRunChecks, showFirstRunNext, useFirstRun, type FirstRunPage } from './first-run-store'
 
 const styles = {
   dialog: {
@@ -76,7 +83,6 @@ function FirstRunDialog({ summary, list, message, checkAgain, running, migrating
   const titleId = useId()
   const title = useRef<HTMLHeadingElement>(null)
   const page = useFirstRun((state) => state.page)
-  const concepts = page === 'concepts'
 
   // On "Next" the button that had the focus is gone: the focus goes to the window, not to the page.
   useEffect(() => {
@@ -87,6 +93,65 @@ function FirstRunDialog({ summary, list, message, checkAgain, running, migrating
   const close = (): void => {
     if (!running) closeFirstRun()
   }
+  const answer = (choice: 'accepted' | 'declined'): void => {
+    void answerOffer(choice)
+    showFirstRunChecks()
+  }
+
+  const parts: Record<FirstRunPage, { title: string; lead: ReactElement; body: ReactElement; footer: ReactElement }> = {
+    concepts: {
+      title: CONCEPTS_TITLE,
+      lead: <p style={styles.lead}>{CONCEPTS_LEAD}</p>,
+      body: <FirstRunConcepts />,
+      footer: (
+        <>
+          <span style={styles.note}>{CONCEPTS_NOTE}</span>
+          <button type="button" className="w-action" onClick={close}>
+            Close
+          </button>
+          <button type="button" className="w-action w-action--primary" onClick={showFirstRunNext}>
+            Next
+          </button>
+        </>
+      ),
+    },
+    assistant: {
+      title: OFFER_TITLE,
+      lead: <p style={styles.lead}>{OFFER_LEAD}</p>,
+      body: <OfferDetails />,
+      footer: (
+        <>
+          <span style={styles.note}>{OFFER_FOOT}</span>
+          <button type="button" className="w-action" onClick={() => answer('declined')}>
+            {OFFER_DECLINE}
+          </button>
+          <button type="button" className="w-action w-action--primary" onClick={() => answer('accepted')}>
+            {OFFER_ACCEPT}
+          </button>
+        </>
+      ),
+    },
+    checks: {
+      title: 'First run',
+      lead: (
+        <p style={styles.subtitle} data-testid="first-run-subtitle">
+          worfy checks this {isMac() ? 'Mac' : 'PC'} for itself and the Harness. Nothing changes until you confirm it.
+        </p>
+      ),
+      body: <>{list}</>,
+      footer: (
+        <>
+          {message}
+          {checkAgain}
+          <StartGettingStarted running={running} />
+          <button type="button" className="w-action w-action--primary" aria-disabled={running ? 'true' : undefined} onClick={close}>
+            Close
+          </button>
+        </>
+      ),
+    },
+  }
+  const shown = parts[page]
 
   return (
     <Dialog
@@ -104,39 +169,14 @@ function FirstRunDialog({ summary, list, message, checkAgain, running, migrating
       <div style={styles.header}>
         <div style={styles.headerText}>
           <h2 ref={title} id={titleId} style={styles.title}>
-            {concepts ? CONCEPTS_TITLE : 'First run'}
+            {shown.title}
           </h2>
-          {concepts ? (
-            <p style={styles.lead}>{CONCEPTS_LEAD}</p>
-          ) : (
-            <p style={styles.subtitle} data-testid="first-run-subtitle">
-              worfy checks this {isMac() ? 'Mac' : 'PC'} for itself and the Harness. Nothing changes until you confirm it.
-            </p>
-          )}
+          {shown.lead}
         </div>
-        {concepts ? null : summary}
+        {page === 'checks' ? summary : null}
       </div>
-      <div style={styles.body}>{concepts ? <FirstRunConcepts /> : list}</div>
-      {concepts ? (
-        <div style={styles.footer}>
-          <span style={styles.note}>{CONCEPTS_NOTE}</span>
-          <button type="button" className="w-action" onClick={close}>
-            Close
-          </button>
-          <button type="button" className="w-action w-action--primary" onClick={showFirstRunChecks}>
-            Next
-          </button>
-        </div>
-      ) : (
-        <div style={styles.footer}>
-          {message}
-          {checkAgain}
-          <StartGettingStarted running={running} />
-          <button type="button" className="w-action w-action--primary" aria-disabled={running ? 'true' : undefined} onClick={close}>
-            Close
-          </button>
-        </div>
-      )}
+      <div style={styles.body}>{shown.body}</div>
+      <div style={styles.footer}>{shown.footer}</div>
     </Dialog>
   )
 }

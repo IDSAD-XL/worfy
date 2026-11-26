@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 // Tokens first: every other stylesheet reads its variables.
 import './theme/tokens.css'
 import { AppShell } from './shell/AppShell'
+import { installAssistantOffer } from './assistant/offer-notice'
 import { installArchiveToasts } from './canvas/archive-toast'
 import { Canvas } from './canvas/Canvas'
 import { guardFileDrops } from './drop-guard'
@@ -126,6 +127,8 @@ if (container) {
   guardFileDrops()
   // An existing user hears of Getting started once, in a toast of the corner (worfy-onboarding ticket 08).
   installGettingStartedNotice()
+  // An updated user is offered the Assistant once, in a toast of the corner (worfy-assistant ticket 16).
+  installAssistantOffer()
   // The sticky toasts of Update: a ready build, an Available update, a failed build, a Harness out of
   // date and the end of the last restart (worfy-update ticket 07).
   installUpdateToasts()

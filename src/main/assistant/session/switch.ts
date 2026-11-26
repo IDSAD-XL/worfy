@@ -6,9 +6,13 @@
 //
 // The checks of sources follow the same setting in their scheduler (src/main/assistant/schedule/app.ts): off, the
 // Assistant checks no source.
+//
+// After each start the introduction hears of it (worfy-assistant ticket 16, src/main/assistant/intro/): the first time the
+// person turns the Assistant on, it introduces itself.
 import { assistantOn } from '../../../shared/assistant/settings'
 import { appSettingsStore } from '../../settings/store'
 import type { PowerEvents } from '../schedule/scheduler'
+import { appAssistantIntro } from '../intro/app'
 import { appAssistantWindow } from '../window/app'
 import { startAssistant } from './app'
 
@@ -21,6 +25,10 @@ export interface AssistantSwitchDeps {
   start(): (() => void) | null
   /** The section of the window: told after each start and stop. */
   changed(): void
+  /** The person turned the setting on (it was off since worfy started), told before the start, which may not take. */
+  turnedOn?(): void
+  /** After each start that took; `atStartup`: the setting has been on since worfy started, not turned on since. */
+  started?(atStartup: boolean): void
   log?(message: string): void
 }
 
@@ -28,12 +36,17 @@ export interface AssistantSwitchDeps {
 export function followAssistantSwitch(deps: AssistantSwitchDeps): () => void {
   let stop: (() => void) | null = null
   const log = deps.log ?? ((message: string) => console.warn(`[assistant] ${message}`))
+  // Off once since worfy started: a start after it is the person's turn of the switch, not one that came with worfy's.
+  let seenOff = false
   const follow = (): void => {
     const on = deps.on()
+    if (!on) seenOff = true
     if (on && stop === null) {
+      if (seenOff) deps.turnedOn?.()
       stop = deps.start()
       if (stop === null) return log('the Assistant did not start: the attention core is not running')
       deps.changed()
+      deps.started?.(!seenOff)
     } else if (!on && stop !== null) {
       const running = stop
       stop = null
@@ -62,5 +75,17 @@ export function startAssistantSwitch(power: PowerEvents): () => void {
     },
     start: () => startAssistant(power),
     changed: () => appAssistantWindow().changed(),
+    turnedOn: () => {
+      try {
+        appAssistantIntro().owe()
+      } catch (error) {
+        console.warn('[assistant] the introduction could not be noted as owed', error)
+      }
+    },
+    started: (atStartup) => {
+      appAssistantIntro()
+        .started(atStartup)
+        .catch((error: unknown) => console.warn('[assistant] the introduction failed', error))
+    },
   })
 }

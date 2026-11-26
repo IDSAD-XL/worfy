@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { launchApp, showSidebarSection, type LaunchedApp } from './helpers'
+import { ms } from '../time-scale'
 
 // The Assistant's section against the built app (worfy-assistant ticket 14), with the fake agent of launchApp
 // (WORFY_AGENT=fake) and the Assistant off, as it is until the user turns it on:
@@ -16,7 +17,11 @@ import { launchApp, showSidebarSection, type LaunchedApp } from './helpers'
 //   deletes the rule and the item waits again;
 // - a card «before → after» (ticket 15): a proposal of the Assistant with a change of its settings, kept in its memory
 //   file, shows the setting as it is and as it would be; app-settings.json does not change until Apply, and after Apply
-//   it holds the new interval and the card says it was applied.
+//   it holds the new interval and the card says it was applied;
+// - the introduction (ticket 16): while the offer stands the section offers the Assistant once; «Turn on and meet» turns
+//   it on in app-settings.json, and it introduces itself in the conversation — who it is, what it does, the work hours
+//   and the claude.ai connectors, without asking for a token — with the card of the first setup, whose Apply writes the
+//   work hours. The fake agent lists the connectors; no model runs.
 
 let scratch: string
 let dataDir: string
@@ -135,7 +140,7 @@ test('the Assistant section lists what waits; like stays pressed; dislike hides 
 })
 
 /** The app settings as main wrote them; null while it has not written them. */
-function appSettingsFile(): { assistantSchedule?: { checks?: { slack?: { intervalMinutes?: number } } } } | null {
+function appSettingsFile(): { assistant?: { on?: boolean }; assistantSchedule?: { workHours?: { days?: string[] }; checks?: { slack?: { intervalMinutes?: number } } } } | null {
   const file = join(dataDir, 'app-settings.json')
   return existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as ReturnType<typeof appSettingsFile>) : null
 }
@@ -168,6 +173,41 @@ test('a card «before → after» changes the settings only on Apply', async () 
     await expect(change).toContainText('Applied at')
     await expect(change.getByRole('button', { name: 'Apply', exact: true })).toHaveCount(0)
     await expect.poll(() => appSettingsFile()?.assistantSchedule?.checks?.slack?.intervalMinutes).toBe(20)
+  } finally {
+    await launched.close()
+  }
+})
+
+test('the introduction: the offer in the section, «Turn on and meet», and the Assistant introduces itself with the first setup', async () => {
+  // The Assistant speaks the Guide's language, which follows the system's while none is chosen: English chosen here.
+  writeFileSync(join(dataDir, 'app-settings.json'), JSON.stringify({ guideLanguage: 'en' }))
+  const launched = await launch()
+  try {
+    const { window } = launched
+    await showSidebarSection(window, 'Assistant')
+    const offer = section(window).getByRole('region', { name: 'Meet Assistant' })
+    await expect(offer).toContainText('worfy asks once')
+    // The list of what waits stays under the offer.
+    await expect(section(window).getByTestId('assistant-item')).toHaveCount(2)
+    await offer.getByRole('button', { name: 'Turn on and meet' }).click()
+    await expect.poll(() => appSettingsFile()?.assistant?.on).toBe(true)
+    await expect(offer).toHaveCount(0)
+
+    const chat = section(window).getByTestId('assistant-chat')
+    const said = chat.locator('[data-testid="assistant-message"][data-reason="intro"]')
+    await expect(said).toHaveCount(3, { timeout: ms(30_000) })
+    await expect(said.nth(0)).toContainText('I’m Assistant')
+    await expect(said.nth(1)).toContainText('what waits for you and why')
+    await expect(said.nth(2)).toContainText('work hours')
+    await expect(said.nth(2)).toContainText('claude.ai')
+    await expect(said.nth(2)).not.toContainText(/paste|enter[^.]*token/iu)
+
+    const setup = chat.getByTestId('assistant-change')
+    await expect(setup).toContainText('Set up Assistant')
+    expect(appSettingsFile()?.assistantSchedule?.workHours).toBeUndefined()
+    await setup.getByRole('button', { name: 'Apply', exact: true }).click()
+    await expect(setup).toContainText('Applied at')
+    await expect.poll(() => appSettingsFile()?.assistantSchedule?.workHours?.days).toEqual(['mon', 'tue', 'wed', 'thu', 'fri'])
   } finally {
     await launched.close()
   }

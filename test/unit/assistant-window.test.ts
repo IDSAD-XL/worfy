@@ -578,6 +578,27 @@ describe("the texts of the Assistant's wakes (worfy-assistant ticket 14)", () =>
   })
 })
 
+describe('the introduction in the section (worfy-assistant ticket 16)', () => {
+  it('the messages of the introduction join the conversation; the last one hands over the card of the first setup', () => {
+    const w = world()
+    const setup = w.book.create({ title: 'Set up Assistant', why: 'The first setup.', item: null, prepare: null, change: { workHours: { ...WORK, days: [...WORK.days] } } })
+    w.window.noteAssistantMessage('intro', 'Hi, I’m Assistant.')
+    w.window.noteAssistantMessage('intro', 'A setup to start with:', setup.id)
+    const view = w.window.view()
+    expect(view.conversation.map((message) => [message.who, message.reason, message.text, message.proposalId ?? null])).toEqual([
+      ['assistant', 'intro', 'Hi, I’m Assistant.', null],
+      ['assistant', 'intro', 'A setup to start with:', setup.id],
+    ])
+    expect(view.proposals.map((proposal) => proposal.id)).toContain(setup.id)
+    expect(view.summary.morning).toBeNull()
+  })
+
+  it('the view says the offer as the introduction answers it; none without one', () => {
+    expect(world().window.view().offer).toEqual({ owed: false, notice: false })
+    expect(world({}, { offer: () => ({ owed: true, notice: true }) }).window.view().offer).toEqual({ owed: true, notice: true })
+  })
+})
+
 describe('changes', () => {
   it('tells its listeners once after each change of its own, of the core and of the proposals', async () => {
     const w = world()
