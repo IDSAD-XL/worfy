@@ -485,11 +485,26 @@ describe('the repository of each Ticket and the ancestry of a deployed commit (w
       markStatuses: [],
     }) as unknown as TrackedPull
 
-  /**
-   * A reader over stubs: `pulls` answers the PR read of each folder (recorded in `asked`), `git` answers every
-   * git command (each recorded in `gitCalls`); every folder counts as a git work tree.
-   */
-  const readerOver = (profile: PipelineProfile, pulls: (folder: string, branches: readonly string[]) => TrackedPull[], asked: [string, string[]][], ancestor: () => number | null = () => 1, gitCalls: string[][] = []) =>
+  /** A git that answers every command (each recorded in `gitCalls`); every folder counts as a git work tree. */
+  const stubGit =
+    (ancestor: () => number | null, gitCalls: string[][]): NonNullable<StageSources['git']> =>
+    async (cwd, args) => {
+      gitCalls.push([...args])
+      // Every folder is the top level of its own work tree, as git says it.
+      if (args[0] === 'rev-parse') return { code: 0, stdout: args[1] === '--show-toplevel' ? `${cwd}\n` : 'true\n' }
+      if (args[0] === 'merge-base') return { code: ancestor(), stdout: '' }
+      return { code: 0, stdout: '' }
+    }
+
+  /** A reader over stubs: `pulls` answers the PR read of each folder (recorded in `asked`), `git` every git command. */
+  const readerOver = (
+    profile: PipelineProfile,
+    pulls: (folder: string, branches: readonly string[]) => TrackedPull[],
+    asked: [string, string[]][],
+    ancestor: () => number | null = () => 1,
+    gitCalls: string[][] = [],
+    git: NonNullable<StageSources['git']> = stubGit(ancestor, gitCalls),
+  ) =>
     new StageReader({
       workflow: { open: () => Promise.reject(new Error('unused')), close: () => Promise.resolve(false), model: () => Promise.resolve(null) },
       prs: {
@@ -504,13 +519,7 @@ describe('the repository of each Ticket and the ancestry of a deployed commit (w
         deployMarks: () => Promise.resolve([{ sha: DEPLOYED, at: '2026-10-17T14:00:00Z' }]),
       } as unknown as StageSources['deployments'],
       harnessHome: join(dir, 'harness-home'),
-      git: async (cwd, args) => {
-        gitCalls.push([...args])
-        // Every folder is the top level of its own work tree, as git says it.
-        if (args[0] === 'rev-parse') return { code: 0, stdout: args[1] === '--show-toplevel' ? `${cwd}\n` : 'true\n' }
-        if (args[0] === 'merge-base') return { code: ancestor(), stdout: '' }
-        return { code: 0, stdout: '' }
-      },
+      git,
     })
 
   const severalProfile = (repos: PipelineProfile['repos']): PipelineProfile => ({ name: '', mode: 'full', finish: 'pr-green-ci', pipeline: DEFAULT_PIPELINE as PipelineStage[], pipelineReason: null, e2eLock: null, repos })
@@ -564,6 +573,21 @@ describe('the repository of each Ticket and the ancestry of a deployed commit (w
     answer = null
     expect(ticket(await reader.read(root, model), 4)).toMatchObject({ stage: 'closing' })
     expect(isAncestor()).toBe(2)
+  })
+
+  it('two Projects over worktrees of one repository ask git a pair of commits once for the whole process (worfy-polish 155)', async () => {
+    const pipeline: PipelineStage[] = [{ kind: 'queued' }, { kind: 'implementing' }, { kind: 'gate-merge' }, { kind: 'deploy' }, { kind: 'closing' }, { kind: 'done' }]
+    const profile: PipelineProfile = { name: '', mode: 'full', finish: 'pr-green-ci', pipeline, pipelineReason: null, e2eLock: null, repos: [] }
+    const gitCalls: string[][] = []
+    const git = stubGit(() => 0, gitCalls)
+    const isAncestor = () => gitCalls.filter((args) => args[0] === 'merge-base' && args[1] === '--is-ancestor').length
+    const first = join(dir, 'worfy')
+    const second = join(dir, 'worfy-w16')
+    expect(ticket(await readerOver(profile, () => [tracked(4, 'demo/04', true)], [], () => 0, gitCalls, git).read(first, modelOf(first, [claimed(4, null)])), 4)).toMatchObject({ stage: 'closing' })
+    expect(isAncestor()).toBe(1)
+    // The other worktree's reader: the same merge and deployed commits, no git process for them.
+    expect(ticket(await readerOver(profile, () => [tracked(4, 'demo/04', true)], [], () => 0, gitCalls, git).read(second, modelOf(second, [claimed(4, null)])), 4)).toMatchObject({ stage: 'closing' })
+    expect(isAncestor()).toBe(1)
   })
 })
 

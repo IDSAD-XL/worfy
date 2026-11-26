@@ -265,6 +265,10 @@ line says only **merged #N** (or **merged** for a Ticket done without a PR) or *
   is kept for the rest of the run: a merged PR's merge commit does not change. An answer that may still change (not
   merged yet, not in the checkout, a refusal) is asked again about 5 minutes later.
 - Whether the change is there: `git merge-base --is-ancestor <merge> <Stable copy commit>` in the Project's checkout.
+  A yes or a no is kept for the rest of the run. A yes is shared by every worktree of the repository; a no only by its
+  own checkout, because a shallow clone may lack the history between two commits it has. A checkout that lacks the
+  Stable copy's commit is asked only that (`git cat-file -e`), not once per merge. These git commands run at most three
+  at a time.
   The version numbers come from `git rev-list --count` and the commit's `package.json`, none in a shallow clone.
 - Whether the Available update has the change: by the build numbers when both are known, else by
   `git merge-base --is-ancestor <merge> <its commit>`; Update worfy is offered only when one of them says yes. When
@@ -278,6 +282,9 @@ line says only **merged #N** (or **merged** for a Ticket done without a PR) or *
   kept; `src/main/ipc/acceptance.ts` gives it the PR tracker's gh and the Update service's Available update.
 - The file next to the Stable copy: `src/main/update/stable-copy.ts`; the version text:
   `src/shared/version-number.ts`.
+- `src/main/workflow/git-ancestry.ts`: the `merge-base --is-ancestor` answers kept for the run, one question per pair
+  at a time, and the limit of three git processes.
 - Tests: `test/unit/acceptance-stable-line.test.ts` (the text of the line, the versions, the merges of the blockers, one
-  gh call per merged PR), `test/contract/acceptance-stable-copy.test.ts` (a temporary worfy repository and Stable copy:
+  gh call per merged PR, no git process in a second cycle, at most three at once), `test/unit/git-ancestry.test.ts`,
+  `test/contract/acceptance-stable-copy.test.ts` (a temporary worfy repository and Stable copy:
   in the copy, not in it, a commit not in the checkout, and no second gh call for a later snapshot).

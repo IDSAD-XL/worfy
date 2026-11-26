@@ -4,6 +4,7 @@
 // here: a git that answers from a table of commits, and a gh that answers `pr view` and `pr list` from a table of PRs.
 import { describe, expect, it, vi } from 'vitest'
 import { isWorfyRepo, RETRY_MS, StableLine, type StableLineSources, type StableProject } from '../../src/main/acceptance/stable-line'
+import { ANCESTRY_GIT_LIMIT } from '../../src/main/workflow/git-ancestry'
 import type { AcceptanceStable } from '../../src/shared/ipc/acceptance'
 import { UPDATE_REPO_PAGE, type AvailableUpdate } from '../../src/shared/ipc/update'
 import type { Ticket } from '../../src/shared/workflow/types'
@@ -15,6 +16,8 @@ const STABLE = sha('c')
 const UNKNOWN = sha('d')
 /** The commit of an Available update that this checkout has. */
 const AVAILABLE = sha('e')
+/** Twenty merges of a busy repository (worfy-polish 155): one per Ticket waiting for the owner. */
+const MANY = Array.from({ length: 20 }, (_, n) => `${'9'.repeat(38)}${n.toString(16).padStart(2, '0')}`)
 
 /** Each commit of the stand-in repository: its number (`rev-list --count`) and the version of its package.json. */
 const COMMITS = new Map([
@@ -22,6 +25,7 @@ const COMMITS = new Map([
   [BLOCKER_MERGE, { count: 2088, version: '0.4.0' }],
   [STABLE, { count: 2101, version: '0.4.0' }],
   [AVAILABLE, { count: 2110, version: '0.4.0' }],
+  ...MANY.map((merge, n) => [merge, { count: 2000 + n, version: '0.4.0' }] as const),
 ])
 
 interface History {
@@ -29,30 +33,33 @@ interface History {
   ancestors: Set<string>
   /** `rev-parse --is-shallow-repository` answers true: a `--depth` clone, whose counts are cut short. */
   shallow: boolean
+  /** The commits a checkout lacks (by its path): git answers 128 for them there. */
+  lacks?: Record<string, readonly string[]>
 }
 
 function git(history: History, calls: string[]): NonNullable<StableLineSources['git']> {
-  return async (_cwd, args) => {
+  return async (cwd, args) => {
     calls.push(args.join(' '))
+    const commit = (name: string) => (history.lacks?.[cwd]?.includes(name) ? undefined : COMMITS.get(name))
     const [command, ...rest] = args
     if (command === 'merge-base') {
       const [, a, b] = rest
-      if (!COMMITS.has(a!) || !COMMITS.has(b!)) return { code: 128, stdout: '' }
+      if (!commit(a!) || !commit(b!)) return { code: 128, stdout: '' }
       return { code: history.ancestors.has(`${a} ${b}`) ? 0 : 1, stdout: '' }
     }
     if (command === 'rev-parse' && rest[0] === '--is-shallow-repository') return { code: 0, stdout: `${history.shallow}\n` }
     if (command === 'rev-list' && history.shallow) {
       // A shallow clone counts only the commits it has: a made-up small number.
-      return COMMITS.has(rest[1]!) ? { code: 0, stdout: '50\n' } : { code: 128, stdout: '' }
+      return commit(rest[1]!) ? { code: 0, stdout: '50\n' } : { code: 128, stdout: '' }
     }
-    if (command === 'cat-file') return { code: COMMITS.has(rest[1]!.replace('^{commit}', '')) ? 0 : 128, stdout: '' }
+    if (command === 'cat-file') return { code: commit(rest[1]!.replace('^{commit}', '')) ? 0 : 128, stdout: '' }
     if (command === 'rev-list') {
-      const commit = COMMITS.get(rest[1]!)
-      return commit ? { code: 0, stdout: `${commit.count}\n` } : { code: 128, stdout: '' }
+      const found = commit(rest[1]!)
+      return found ? { code: 0, stdout: `${found.count}\n` } : { code: 128, stdout: '' }
     }
     if (command === 'show') {
-      const commit = COMMITS.get(rest[0]!.replace(':package.json', ''))
-      return commit ? { code: 0, stdout: JSON.stringify({ name: 'worfy', version: commit.version }) } : { code: 128, stdout: '' }
+      const found = commit(rest[0]!.replace(':package.json', ''))
+      return found ? { code: 0, stdout: JSON.stringify({ name: 'worfy', version: found.version }) } : { code: 128, stdout: '' }
     }
     return { code: 1, stdout: '' }
   }
@@ -105,7 +112,7 @@ const ticket = (num: number, extra: Partial<Ticket> = {}): Ticket => ({
   ...extra,
 })
 
-const worfy = (tickets: Ticket[]): StableProject => ({ projectId: 'worfy-1', root: '/repo', repoUrl: UPDATE_REPO_PAGE, tickets })
+const worfy = (tickets: Ticket[], root = '/repo'): StableProject => ({ projectId: `worfy-${root}`, root, repoUrl: UPDATE_REPO_PAGE, tickets })
 
 interface Setup {
   prs?: Pr[]
@@ -118,16 +125,19 @@ interface Setup {
   refuse?: boolean
   /** Now, in ms; Date.now by default. */
   now?: () => number
+  lacks?: History['lacks']
+  /** Wraps the stand-in git: a counter of the calls in flight. */
+  wrap?: (git: NonNullable<StableLineSources['git']>) => NonNullable<StableLineSources['git']>
 }
 
-function setup({ prs = [], ancestors = [], stable = STABLE, available = null, checks = true, shallow = false, refuse = false, now = Date.now }: Setup = {}) {
+function setup({ prs = [], ancestors = [], stable = STABLE, available = null, checks = true, shallow = false, refuse = false, now = Date.now, lacks, wrap = (inner) => inner }: Setup = {}) {
   const gitCalls: string[] = []
   const ghCalls: string[] = []
   const changed = vi.fn()
   const line = new StableLine(
     {
       gh: gh(prs, ghCalls, refuse),
-      git: git({ ancestors: new Set(ancestors), shallow }, gitCalls),
+      git: wrap(git({ ancestors: new Set(ancestors), shallow, ...(lacks === undefined ? {} : { lacks }) }, gitCalls)),
       stableCommit: () => stable,
       update: () => ({ checks, available }),
       now,
@@ -266,5 +276,79 @@ describe('the Stable copy line', () => {
     expect(isWorfyRepo('https://github.com/IDSAD-XL/worfy-windows')).toBe(false)
     expect(isWorfyRepo(null)).toBe(false)
     expect(isWorfyRepo(undefined)).toBe(false)
+  })
+})
+
+// worfy-polish 155 (issue #2252): every 6 minutes the Acceptance queue asked git one `merge-base` per merge in every
+// worktree at once, and asked again the pairs git could not answer. A cycle here is what one computation of the queue does:
+// the line of every Ticket of every worfy Project, again until none waits for an answer.
+describe('the Stable copy line over many merges and worktrees (issue #2252)', () => {
+  const tickets = MANY.map((_, n) => ticket(n + 1, { pr: 100 + n }))
+  const prs = MANY.map((merge, n) => ({ number: 100 + n, head: `demo/${n + 1}`, merge }))
+  // Half of the merges are in the Stable copy.
+  const ancestors = MANY.filter((_, n) => n % 2 === 0).map((merge) => `${merge} ${STABLE}`)
+  /** Two worktrees of worfy's repository and a checkout that has not pulled the Stable copy's commit yet. */
+  const ROOTS = ['/worfy', '/worfy-w16', '/worfy-demo']
+  const lacks = { '/worfy-demo': [STABLE] }
+
+  async function cycle(line: StableLine): Promise<void> {
+    await vi.waitFor(() => {
+      // Every line is asked in each round, as one computation of the queue does.
+      const lines = ROOTS.flatMap((root) => tickets.map((t) => line.line(worfy(tickets, root), t)))
+      expect(lines.filter((each) => each === null)).toHaveLength(0)
+    })
+    // The answers asked again come back before the cycle is counted.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  }
+
+  it('starts no git process in a second cycle with the same commits, but one look in the checkout that lacks the commit', async () => {
+    let now = Date.parse('2026-11-26T03:29:20Z')
+    const { line, gitCalls } = setup({ prs, ancestors, lacks, now: () => now })
+    await cycle(line)
+    const first = gitCalls.length
+    // The second worktree takes the first one's yes answers (10) and asks its own no (10): a shallow clone may say no
+    // where the full history says yes, so a no is not shared.
+    expect(gitCalls.filter((call) => call.startsWith('merge-base'))).toHaveLength(MANY.length + MANY.length / 2)
+    expect(first).toBe(159)
+    // The next look: RETRY_MS after the answers, at the next tick of the queue.
+    now += RETRY_MS + 60_000
+    await cycle(line)
+    const second = gitCalls.slice(first)
+    // Measured once on the code of origin/main before worfy-polish 155 (not asserted here): 269 processes in the first
+    // cycle (up to 249 at once) and 43 in each one after. Now 159 (at most ANCESTRY_GIT_LIMIT at once), then this one look.
+    expect(second).toEqual([`cat-file -e ${STABLE}^{commit}`])
+    expect(line.line(worfy(tickets, '/worfy-demo'), tickets[0]!)?.text).toBe(`Stable copy not checked: its commit ${STABLE.slice(0, 7)} is not in this checkout`)
+  })
+
+  it('asks again, and answers, once the checkout has the commit it lacked', async () => {
+    let now = Date.parse('2026-11-26T03:29:20Z')
+    const checkouts: Record<string, string[]> = { '/worfy-demo': [STABLE] }
+    const { line } = setup({ prs, ancestors, lacks: checkouts, now: () => now })
+    await cycle(line)
+    checkouts['/worfy-demo'] = []
+    now += RETRY_MS + 60_000
+    await vi.waitFor(() => expect(line.line(worfy(tickets, '/worfy-demo'), tickets[0]!)?.state).toBe('in'))
+  })
+
+  it('runs at most ANCESTRY_GIT_LIMIT git processes at once', async () => {
+    let inFlight = 0
+    let peak = 0
+    const wrap =
+      (inner: NonNullable<StableLineSources['git']>): NonNullable<StableLineSources['git']> =>
+      async (cwd, args) => {
+        inFlight += 1
+        peak = Math.max(peak, inFlight)
+        try {
+          // A git process takes a while: the calls overlap.
+          await new Promise((resolve) => setTimeout(resolve, 1))
+          return await inner(cwd, args)
+        } finally {
+          inFlight -= 1
+        }
+      }
+    const { line, gitCalls } = setup({ prs, ancestors, lacks, wrap })
+    await cycle(line)
+    expect(gitCalls.length).toBeGreaterThan(ANCESTRY_GIT_LIMIT)
+    expect(peak).toBeLessThanOrEqual(ANCESTRY_GIT_LIMIT)
   })
 })

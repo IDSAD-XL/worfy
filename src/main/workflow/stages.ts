@@ -8,7 +8,7 @@
 //   mode, and in Full mode with `workflow.finish` `local-green` in a repository without `origin`;
 // - git: the heads of the branches (`for-each-ref`; in a Project over several repositories ticketBranches, by the
 //   pair (repo, branch)) and, for a Ticket on Deploy, whether its merge commit is in a deployed commit
-//   (`merge-base --is-ancestor`);
+//   (`merge-base --is-ancestor`, through the answers and the limit shared across main: src/main/workflow/git-ancestry.ts);
 // - the Deployments and deploy marks (src/main/github/deployments.ts), only for Tickets on Deploy;
 // - the e2e lock of the Profile (`workflow.e2e_lock`): whether its folder is there, and its holder.json;
 // - the releases a Ticket's `Release:` lines wait for (src/main/workflow/release.ts), only when the Pipeline has the
@@ -32,6 +32,7 @@ import { repoFactsOf, type Ticket, type TicketRelease, type WorkflowModel } from
 import { repoOfPullUrl, type DeploymentReader, type Deployed } from '../github/deployments'
 import type { PrRead, TrackedPull } from '../github/prs'
 import type { PathRules } from '../remote-links'
+import { ancestryFor, type GitAncestry } from './git-ancestry'
 import { marksFromStatuses, SilentMarks } from './marks'
 import type { PipelineProfile } from './profile'
 import { isTopLevel, ticketBranches } from './reader'
@@ -130,7 +131,7 @@ const columnsOf = (pipeline: readonly PipelineStage[]): PipelineColumn[] => pipe
 /** Computes one snapshot of a Project; keeps what is worth keeping between snapshots. */
 export class StageReader {
   private readonly git: GitRunner
-  private readonly ancestry = new Map<string, boolean>()
+  private readonly ancestry: GitAncestry
   private marks: SilentMarks | null = null
   private marksKey = ''
 
@@ -140,6 +141,7 @@ export class StageReader {
     private readonly onRelease?: () => void,
   ) {
     this.git = sources.git ?? gitRunner
+    this.ancestry = ancestryFor(this.git)
   }
 
   async read(root: string, model: WorkflowModel | null): Promise<PipelineSnapshot> {
@@ -365,18 +367,13 @@ export class StageReader {
   }
 
   /**
-   * `git merge-base --is-ancestor`: exit 0 yes, 1 no, kept for good; anything else (a commit this
-   * clone has not fetched) is no for now and asked again next time.
+   * `git merge-base --is-ancestor`: exit 0 yes, 1 no, kept for good by GitAncestry (a yes for every Project, a no for
+   * its own checkout); anything else (a commit this clone has not fetched) is no for now and asked again next time.
    * shortcut: worfy never fetches, so a deployed commit missing from the local clone keeps Deploy waiting; ask GitHub's compare API when Tickets stay on Deploy for that reason.
    */
   private async isAncestor(repo: string, ancestor: string, descendant: string): Promise<boolean> {
     if (ancestor === descendant) return true
-    const key = `${repo}\n${ancestor}\n${descendant}`
-    const known = this.ancestry.get(key)
-    if (known !== undefined) return known
-    const result = await this.git(repo, ['merge-base', '--is-ancestor', ancestor, descendant])
-    if (result.code === 0 || result.code === 1) this.ancestry.set(key, result.code === 0)
-    return result.code === 0
+    return (await this.ancestry.isAncestor(repo, ancestor, descendant)) === 0
   }
 }
 

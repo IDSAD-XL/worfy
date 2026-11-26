@@ -11,9 +11,12 @@
 //   the head's own commit time. A branch without a reflog shows no commit of its own, so no merge.
 // - A branch that is gone is the lost fact «branch deleted».
 // The caller passes only Tickets without a PR: a PR's pushes and merge are GitHub's (reader 15).
+// Whether one commit holds another is asked through the answers and the limit shared across main
+// (src/main/workflow/git-ancestry.ts, worfy-polish 155): a pair of commits is asked once per process.
 // Nothing is written: git only reads (`log`, `rev-parse`, `merge-base`), the marks file is read.
 import { branchEvents, markEvents, parseReflog, REFLOG_FORMAT, type ReflogEntry } from '../../shared/flight-recorder/from-gate'
 import type { LostFact, StageEventFact } from '../../shared/flight-recorder/facts'
+import { ancestryFor, type GitAncestry } from '../workflow/git-ancestry'
 import { SilentMarks } from '../workflow/marks'
 import { gitRunner, type GitRunner } from '../workflow/stages'
 
@@ -54,12 +57,13 @@ async function reflog(git: GitRunner, repo: string, ref: string): Promise<Reflog
 }
 
 /** When `head` went into the main branch, or null when it did not. */
-async function mergeOf(git: GitRunner, repo: string, head: string, main: string, entries: readonly ReflogEntry[]): Promise<{ at: string; sha: string } | null> {
+async function mergeOf(ancestry: GitAncestry, repo: string, head: string, main: string, entries: readonly ReflogEntry[]): Promise<{ at: string; sha: string } | null> {
+  const { git } = ancestry
   // A branch with no commit of its own is not merged, though its head is in the main branch: the head
   // is the commit it was created from. Without a reflog no commit of its own is known.
   const created = entries.find((entry) => entry.action.startsWith('branch: Created'))?.sha
   if (!entries.some((entry) => !entry.action.startsWith('branch: Created') && entry.sha !== created)) return null
-  const holds = async (sha: string): Promise<boolean> => sha === head || (await git(repo, ['merge-base', '--is-ancestor', head, sha])).code === 0
+  const holds = async (sha: string): Promise<boolean> => sha === head || (await ancestry.isAncestor(repo, head, sha)) === 0
   if (!(await holds(`refs/heads/${main}`))) return null
   // The first entry of the main branch's reflog whose commit holds the head: the main branch only
   // moves on, so the entries that hold it come after those that do not, and a binary search finds it.
@@ -90,7 +94,8 @@ async function mergeOf(git: GitRunner, repo: string, head: string, main: string,
 
 /** The Ticket events and lost branches of Tickets without a PR. */
 export async function readLocalVerdicts(options: LocalVerdictOptions): Promise<LocalVerdictFacts> {
-  const git = options.git ?? gitRunner
+  const ancestry = ancestryFor(options.git ?? gitRunner)
+  const { git } = ancestry
   const main = options.mainBranch ?? 'main'
   const marks = options.marksFile ? new SilentMarks({ harnessHome: options.marksFile.harnessHome, project: options.marksFile.project, log: options.log }) : null
   const ticketEvents: StageEventFact[] = []
@@ -107,7 +112,7 @@ export async function readLocalVerdicts(options: LocalVerdictOptions): Promise<L
       continue
     }
     const entries = await reflog(git, options.repo, ref)
-    const merge = await mergeOf(git, options.repo, head.stdout.trim(), main, entries)
+    const merge = await mergeOf(ancestry, options.repo, head.stdout.trim(), main, entries)
     ticketEvents.push(...branchEvents(item.ticket, entries, merge))
   }
   return { ticketEvents, lost }
