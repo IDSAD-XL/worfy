@@ -103,7 +103,7 @@ Source: решение владельца 2026-11-26 (раунд Q1–Q12 веч
   `test/unit/assistant-wake-planner.test.ts` (два test-а про остановку пользователем); оба файла сначала красные на
   нынешнем коде. Test склейки строки Run-а после остановки красный без `delete glued.stopReason`.
 
-### Решено без владельца
+### Решено без владельца — подтверждено владельцем 2026-11-26
 
 1. **Остановка пользователем** — `user-stop` (Stop), `user-force-stop` (Force stop), `start-cancelled` (Cancel, Stop или
    Force stop, пока Run ждал Orchestrator) и `discarded` (человек отбросил Run, оборванный перезапуском): обо всех
