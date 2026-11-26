@@ -16,6 +16,7 @@ import { StoryScreen } from '../stories/StoryView'
 import { FirstRun } from './FirstRun'
 import { Sidebar } from './Sidebar'
 import { followSidebarCommand, SIDEBAR_TOGGLE_SELECTOR, useSidebarVisibility } from './sidebar-visibility'
+import { useSidebarWidthVariable } from './sidebar-width'
 import { Toolbar, type ShellView, type ToolbarProject } from './Toolbar'
 import './shell.css'
 
@@ -108,6 +109,8 @@ export function AppShell({ project, canvas, session, pipeline, history, view: co
   useEffect(() => followSidebarCommand(() => latestToggle.current()), [])
   // The strips under the window buttons keep their size in pixels of the window at any interface scale.
   useInterfaceScale()
+  // The width the person dragged the sidebar's edge to, kept while the sidebar is hidden too (sidebar-width.ts).
+  useSidebarWidthVariable()
   const shell = useRef<HTMLDivElement>(null)
 
   return (

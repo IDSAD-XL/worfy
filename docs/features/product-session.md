@@ -44,7 +44,8 @@ heading, so Interrupt stays in sight down to the smallest window. Its body is th
 | Agents strip, at the right edge | Four buttons: Agents, with the number of the Session's Subagents (hidden ones left out) on a violet badge; Critic; Idea generator; Drafts, with the number of drafts when there are some |
 
 - The divider between the Mind map and the chat starts at 60 / 40. It moves with the mouse, with ← and → in steps of
-  5 %, and with Home and End to its edges. A double click puts it back to 60 / 40. Each side keeps at least 10 %.
+  5 %, and with Home and End to its edges. A double click puts it back to 60 / 40. Each side keeps at least 10 %. Escape
+  during a drag puts it back where the drag started.
 - The split is one per Machine. It is saved in the app settings when a drag or a key press ends, so every window and the
   next start of worfy show it.
 - A click on the agents strip widens its column to 300 px and the chat narrows; nothing covers the chat. The column
@@ -238,7 +239,7 @@ changes make one message. One signal runs at a time per Project.
 | `src/renderer/session/Narration.tsx`, `src/renderer/settings/SessionsSection.tsx` | The live summary under the status line, and its switch |
 | `src/renderer/session/QueuedMessages.tsx` | The queued messages at the end of the chat, "Send queued" and "×" |
 | `src/renderer/session/MessageInput.tsx`, `src/renderer/session/transcript-find.ts` | The one-line input field, find over the rows shown |
-| `src/renderer/session/SplitDivider.tsx` | The divider |
+| `src/renderer/session/SplitDivider.tsx`, `src/renderer/theme/kit/Divider.tsx` | The divider, and the drag, keys and double click it shares with the sidebar's edge |
 | `src/shared/settings/app-settings.ts` | The saved split, `productSession.split`, and the live summary switch, `productSession.liveSummary` |
 | `harness/hooks/rules/product.md`, `harness/hooks/inject-rules.mjs` | The rules of a Product Session and their choice by the variable |
 

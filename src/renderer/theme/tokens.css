@@ -30,6 +30,7 @@
   --space-4: 16px;
   --row-height: 28px;
   --toolbar-height: 52px;
+  /* The default width: a width the person dragged the sidebar's edge to is written over it on <html> (shell/sidebar-width.ts). */
   --sidebar-width: 264px;
   /* Room on the left for the macOS traffic lights (src/main/window-frame.ts puts them at x 20; on
      macOS 26 they end at about 80 px), with 12 px clear after them. Pixels of the window: every use

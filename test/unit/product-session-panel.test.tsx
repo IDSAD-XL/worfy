@@ -239,6 +239,25 @@ describe('the divider of a Product Session', () => {
     expect(writes()).toEqual([])
   })
 
+  it('Escape during a drag goes back to where it started and writes nothing, not even when the button is let go (worfy-polish ticket 158)', async () => {
+    await mount()
+    act(() => {
+      divider().dispatchEvent(pointer('pointerdown', 600))
+      document.body.dispatchEvent(pointer('pointermove', 800))
+    })
+    expect(mapShare()).toBe('80%')
+    act(() => {
+      fireEvent.keyDown(document.body, { key: 'Escape' })
+    })
+    expect(mapShare()).toBe('60%')
+    act(() => {
+      document.body.dispatchEvent(pointer('pointerup', 800))
+    })
+    await settle()
+    expect(mapShare()).toBe('60%')
+    expect(writes()).toEqual([])
+  })
+
   it('a double click puts it back to 60 / 40 and writes 0.6', async () => {
     settings = { ...settings, productSession: { split: 0.75 } }
     await mount()

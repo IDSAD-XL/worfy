@@ -13,7 +13,7 @@ import { createLinkIpc, LinkPeer, LinkSender } from '../../src/main/link/ipc-ada
 import { APP_SETTINGS_FILE, AppSettingsStore } from '../../src/main/settings/store'
 import { appSettingsChanged, appSettingsGet, appSettingsSet } from '../../src/shared/ipc/app-settings'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
-import { AUTOPILOT_BUDGET_DEFAULTS, autopilotBudgetOf, autopilotRunOf, autoCompactWindowChosen, autoUpdateOf, BROWSER_SLEEP_DEFAULTS, browserSleepOf, clampScale, DEFAULT_APP_SETTINGS, epicsOlderAfterOf, liveSummaryOf, prInboxDigestOf, prInboxNotifyOf, productSessionSplitOf, SESSION_ARCHIVE_DEFAULTS, sessionArchiveOf, type AppSettings } from '../../src/shared/settings/app-settings'
+import { AUTOPILOT_BUDGET_DEFAULTS, autopilotBudgetOf, autopilotRunOf, autoCompactWindowChosen, autoUpdateOf, BROWSER_SLEEP_DEFAULTS, browserSleepOf, clampScale, clampSidebarWidth, DEFAULT_APP_SETTINGS, epicsOlderAfterOf, liveSummaryOf, prInboxDigestOf, prInboxNotifyOf, productSessionSplitOf, SESSION_ARCHIVE_DEFAULTS, sessionArchiveOf, SIDEBAR_WIDTH_DEFAULT, SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN, sidebarWidthOf, type AppSettings } from '../../src/shared/settings/app-settings'
 import { removeTestTree } from '../remove'
 
 /** The path of every readFileSync call, by the test and by the code under test. */
@@ -223,7 +223,7 @@ describe('AppSettingsStore', () => {
     mkdirSync(join(file, '..'), { recursive: true })
     writeFileSync(
       file,
-      JSON.stringify({ interfaceScale: 1.1, theme: 'dark', sidebar: { collapsed: { DocsSection: true }, visible: { normal: true, focus: false, extra: 1 }, width: 300 }, revision: 2 }),
+      JSON.stringify({ interfaceScale: 1.1, theme: 'dark', sidebar: { collapsed: { DocsSection: true }, visible: { normal: true, focus: false, extra: 1 }, pinned: 300 }, revision: 2 }),
     )
     const store = new AppSettingsStore(file)
     expect(store.get()).toStrictEqual({ interfaceScale: 1.1, sidebar: { collapsed: { DocsSection: true }, visible: { normal: true, focus: false } }, autoCompactWindow: { orchestrator: 400_000, other: 500_000 }, memoryIndicator: true, autoUpdate: true, revision: 2 })
@@ -236,6 +236,57 @@ describe('AppSettingsStore', () => {
       autoUpdate: true,
       revision: 3,
     })
+  })
+
+  it('the width of the sidebar (worfy-polish ticket 158): absent until dragged; a patch merges it alone, clamps it, and null takes it back to the default', () => {
+    const file = freshFile()
+    const store = new AppSettingsStore(file)
+    expect(store.get().sidebar).toStrictEqual({ collapsed: {}, visible: { normal: true, focus: true } })
+    expect(sidebarWidthOf(store.get())).toBe(SIDEBAR_WIDTH_DEFAULT)
+    store.set({ sidebar: { collapsed: { EpicsOlder: true }, visible: { focus: false } } })
+    const widened = store.set({ sidebar: { width: 400 } })
+    // The other fields of `sidebar` stay as they were.
+    expect(widened.sidebar).toStrictEqual({ collapsed: { EpicsOlder: true }, visible: { normal: true, focus: false }, width: 400 })
+    expect(widened.revision).toBe(2)
+    expect(JSON.parse(readFileSync(file, 'utf8')).sidebar.width).toBe(400)
+    // The same width again changes nothing, so nothing is written.
+    expect(store.set({ sidebar: { width: 400 } }).revision).toBe(2)
+    // Read back by a fresh store: the next start of worfy.
+    expect(new AppSettingsStore(file).get().sidebar.width).toBe(400)
+    expect(store.set({ sidebar: { width: 100 } }).sidebar.width).toBe(SIDEBAR_WIDTH_MIN)
+    expect(store.set({ sidebar: { width: 5000 } }).sidebar.width).toBe(SIDEBAR_WIDTH_MAX)
+    expect(store.set({ sidebar: { width: 300.6 } }).sidebar.width).toBe(301)
+    // A change of another field of `sidebar` keeps the width.
+    expect(store.set({ sidebar: { visible: { normal: false } } }).sidebar.width).toBe(301)
+    const reset = store.set({ sidebar: { width: null } })
+    expect(reset.sidebar).toStrictEqual({ collapsed: { EpicsOlder: true }, visible: { normal: false, focus: false } })
+    expect(sidebarWidthOf(reset)).toBe(SIDEBAR_WIDTH_DEFAULT)
+    expect(JSON.parse(readFileSync(file, 'utf8')).sidebar).not.toHaveProperty('width')
+  })
+
+  it.each([
+    ['narrower than the least', 100, SIDEBAR_WIDTH_MIN],
+    ['wider than the most', 9999, SIDEBAR_WIDTH_MAX],
+    ['a fraction of a pixel', 333.4, 333],
+    ['a string', 'wide', undefined],
+    ['null', null, undefined],
+  ])('a sidebar width in the file that is %s reads clamped, or as absent, and the rest of the file is read', (_name, width, read) => {
+    const file = freshFile()
+    mkdirSync(join(file, '..'), { recursive: true })
+    writeFileSync(file, JSON.stringify({ interfaceScale: 1.3, sidebar: { collapsed: {}, visible: { normal: true, focus: false }, width }, revision: 5 }))
+    const settings = new AppSettingsStore(file).get()
+    expect(settings.interfaceScale).toBe(1.3)
+    expect(settings.revision).toBe(5)
+    expect(settings.sidebar.visible).toStrictEqual({ normal: true, focus: false })
+    expect(settings.sidebar.width).toBe(read)
+  })
+
+  it('clampSidebarWidth keeps a width within its bounds, in whole pixels; a number that is none falls back to the default', () => {
+    expect([SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_DEFAULT, SIDEBAR_WIDTH_MAX]).toEqual([220, 264, 640])
+    expect(clampSidebarWidth(219)).toBe(220)
+    expect(clampSidebarWidth(264.5)).toBe(265)
+    expect(clampSidebarWidth(641)).toBe(640)
+    expect(clampSidebarWidth(Number.NaN)).toBe(SIDEBAR_WIDTH_DEFAULT)
   })
 
   it('a file of an older version without some fields takes the defaults for them', () => {
