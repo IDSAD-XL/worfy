@@ -108,26 +108,31 @@ Source: владелец 2026-11-09, дословно: «возможность 
   - needs: mac
   - evidence: screenshot pass · `../evidence/acc1124-31-11-1.jpg` · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763 · scrub: 2026-11-24
   - evidence: owner-check pass · 2026-11-24: Delegated by the owner 2026-11-24 («Проведи приемку всего что можешь сам»); checked by the Orchestrator on a dev build of 2e96e91ac: Graph with Move nodes still pressed: dragged a node, Prettify returned it at once to its layout place, no question shown. · mac dev · 2e96e91ac62a3c679526aaa613a069ed60803763
-- [ ] (вручную) Сделай: подтверди решение без владельца — Ticket 31, «Решено без владельца»: «Состояние «Move nodes» не
+- [x] (вручную) Сделай: подтверди решение без владельца — Ticket 31, «Решено без владельца»: «Состояние «Move nodes» не
       запоминается». Переключатель выключен при каждом открытии карты и смене темы; смена «Tree · Graph» его не
       сбрасывает → Должно быть: Pass — «подтверждаю», Fail — «в Ticket».
   - needs: mac
-- [ ] (вручную) Сделай: подтверди решение без владельца — Ticket 31, «Решено без владельца»: «Отмены у Mind map нет…
+  - evidence: owner-check pass · 2026-11-26: все да (decisions list 2026-11-25, item 1) · mac stable · eba77845a211c80d99160cc69be975917d3d29f9
+- [x] (вручную) Сделай: подтверди решение без владельца — Ticket 31, «Решено без владельца»: «Отмены у Mind map нет…
       «Prettify» в «Tree»… спрашивает коротко прямо в строке инструментов». В «Graph» без вопроса: там сдвиги и так живут
       до следующей раскладки и в файл не пишутся → Должно быть: Pass — «подтверждаю», Fail — «в Ticket».
   - needs: mac
-- [ ] (вручную) Сделай: подтверди решение без владельца — Ticket 31, «Решено без владельца»: «Подписи, иконки, tooltip» —
+  - evidence: owner-check pass · 2026-11-26: все да (decisions list 2026-11-25, item 2) · mac stable · eba77845a211c80d99160cc69be975917d3d29f9
+- [x] (вручную) Сделай: подтверди решение без владельца — Ticket 31, «Решено без владельца»: «Подписи, иконки, tooltip» —
       иконка руки у «Move nodes», иконка искры у «Prettify» и тексты tooltip из шагов приёмки с «Move nodes» и
       «Prettify» выбраны исполнителем → Должно быть: Pass — «подтверждаю», Fail — «в Ticket».
   - needs: mac
-- [ ] (вручную) Сделай: подтверди решение без владельца — Ticket 31, «Решено без владельца»: «Пока запись main не
+  - evidence: owner-check pass · 2026-11-26: все да (decisions list 2026-11-25, item 3) · mac stable · eba77845a211c80d99160cc69be975917d3d29f9
+- [x] (вручную) Сделай: подтверди решение без владельца — Ticket 31, «Решено без владельца»: «Пока запись main не
       вернулась, экран уже рисует автоматическую раскладку; отказ main возвращает места». Ошибка записи — строка «Could
       not save the change: …», как при drag → Должно быть: Pass — «подтверждаю», Fail — «в Ticket».
   - needs: mac
-- [ ] (вручную) Сделай: подтверди решение без владельца — Ticket 31, «Решено без владельца»: «„Prettify“ снимает места
+  - evidence: owner-check pass · 2026-11-26: все да (decisions list 2026-11-25, item 4) · mac stable · eba77845a211c80d99160cc69be975917d3d29f9
+- [x] (вручную) Сделай: подтверди решение без владельца — Ticket 31, «Решено без владельца»: «„Prettify“ снимает места
       всех узлов файла». И узлов, скрытых «Hide rejected» или свёрнутой веткой → Должно быть: Pass — «подтверждаю», Fail
       — «в Ticket».
   - needs: mac
+  - evidence: owner-check pass · 2026-11-26: все да (decisions list 2026-11-25, item 5) · mac stable · eba77845a211c80d99160cc69be975917d3d29f9
 
 ## Тесты
 

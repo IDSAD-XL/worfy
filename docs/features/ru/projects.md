@@ -159,6 +159,10 @@ shell-а (на Windows — в переменных пользователя) з�
 `unset GH_TOKEN` в остальных системах. Переменную нужно убрать и из файлов запуска shell-а (на Windows — из переменных
 пользователя); затем worfy перезапускается.
 
+**GitHub Enterprise.** Для Project-а, чей репозиторий на хосте GitHub Enterprise Server, этот хост использует только шаг
+аккаунта. Значки PR и CI, Work track и PR inbox читают только github.com: значки просят у gh token аккаунта для github.com,
+Work track спрашивает API github.com по владельцу и имени `origin`-а, а PR inbox перечисляет только репозитории на github.com.
+
 **`github.account` и Health check.** После подключения Project-а в Settings → Health есть строка `GitHub access` для него, когда
 `origin` одного из его репозиториев на github.com ([Gate и GitHub](gate-and-github.md#github-access)). Строка говорит, задан ли
 `github.account`, есть ли в gh вход для него, чей token берёт gh — аккаунта, `GH_TOKEN` из окружения или активного аккаунта gh,

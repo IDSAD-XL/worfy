@@ -96,3 +96,15 @@ Product Session, простоявшая дольше порога «Archive fini
 - [ ] (вручную) На Mac Stable Product Session, простоявшая дольше порога, остаётся на Canvas; Archive в её меню убирает
   её в архив.
   - needs: mac stable
+
+## Решено без владельца — подтверждено владельцем 2026-11-26
+
+Записано в PR #2194 и в [Code story](../stories/37-product-session-не-архивируется-сама.md) («Decided without the owner
+(to confirm)»); владелец подтвердил 2026-11-26 (раунд Q1–Q12 вечернего отчёта 2026-11-25, Q6):
+
+1. Product Session, закрытая без Close, даёт сигнал сохранения только на Archive, Close или `product_save`, а не после
+   порога архива.
+2. Ручной архив пишется с правилом `idle`: новое значение сделало бы `layout.json` нечитаемым для старого worfy.
+3. Строки в Command palette и toast у кнопки Archive нет.
+4. Product Session-ы, уже заархивированные автоматически, не восстанавливаются.
+5. Кнопка Archive есть у каждой Session Node.

@@ -71,7 +71,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 04; «Решения 
   `src/shared/assistant/schedule/work-hours.ts`, настройки — `src/shared/assistant/schedule/settings.ts`, поле
   `assistantSchedule` настроек машины. Проверки источников (Ticket-ы 11–13) регистрируются в `checkScheduler()` по своему
   виду (`CHECK_KINDS`).
-- Решено без владельца (подтвердить):
+- Решено без владельца — подтверждено владельцем 2026-11-26:
   - Настройки — поле `assistantSchedule` в `app-settings.json` (настройки машины), каналы — прежние `appSettings.*`, все
     `local`; своего домена IPC нет.
   - Slack — каждые 10 минут, Jira — раз в час (решение 5); оба по умолчанию выключены (решение 10: каждый внешний

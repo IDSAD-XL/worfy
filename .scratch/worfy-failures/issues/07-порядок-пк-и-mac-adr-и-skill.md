@@ -60,6 +60,7 @@ Source: [spec.md](../spec.md), «Вопросы владельцу», Q1, Q2, Q3
   - evidence: test-run pass · `harness/bin/tests/skill-blocks.test.sh` and `harness/bin/tests/plugin-neutral.test.sh` run by bash, exit 0 · mac - · 4565a8eddef5e56f0b3816959feaea5a9e7800f3
   - evidence: review pass · PR #1412 · - - · 4c0cf92e4c443c736b87324cc6f793b641e76bf0
 - [ ] (вручную) `rules.md` Profile-а на Mac и на ПК поправлены после слова владельца; дифф в «Итог».
+  - evidence: owner-check pass · 2026-11-26: все да (decisions list 2026-11-25, item 22) · mac stable · eba77845a211c80d99160cc69be975917d3d29f9
 - [ ] После merge — `pnpm install:stable` и Replace Harness на Mac; `claude plugin list` показывает новый Harness.
 - [ ] `pnpm lint` — exit 0; CI PR зелёный.
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/41962335998 · ci - · 4c0cf92e4c443c736b87324cc6f793b641e76bf0
@@ -138,3 +139,17 @@ Source: [spec.md](../spec.md), «Вопросы владельцу», Q1, Q2, Q3
   идёт только по его слову); дифф обоих — сюда после правки.
 - не проверено: `pnpm install:stable` и Replace Harness на Mac после merge, `claude plugin list` — шаг Orchestrator-а.
 - не проверено: CI PR — на момент записи не закончен.
+
+### Слово владельца 2026-11-26
+
+Владелец ответил «все да» на список решений 2026-11-25, пункт 22: правка `rules.md` Profile-а worfy по этому Ticket-у
+разрешена.
+
+- Mac — сделано Orchestrator-ом 2026-11-26: в `rules.md` Profile-а worfy (раздел «Команды и CI») добавлен пункт
+  «**Красный gate full — повтор упавших командой** (ADR-0096, `worfy-failures` 07; слово владельца 2026-11-26)»: сразу
+  после красного gate full — `gate-failures rerun --last` на том же SHA и в том же worktree; отчёт Session на ПК — прежние
+  SHA, код выхода и строка вердикта плюс блок `gate-failures export --run <id> --run <id повтора>`; Orchestrator на Mac —
+  `gate-failures import …`, затем `gate-failures report --days 14`, три первые строки отчёта — в отчёт Wave.
+- ПК — не сделано: ждёт Session на ПК, которая внесёт тот же пункт в `rules.md` Profile-а worfy на ПК и пришлёт дифф.
+  Поэтому ручной пункт «`rules.md` Profile-а на Mac и на ПК поправлены» не отмечен, хотя строка owner-check под ним уже
+  есть.

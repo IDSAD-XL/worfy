@@ -93,7 +93,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 13; «Решения 
   `test/unit/assistant-jira-recipe.test.ts`; модель и сеть не вызываются.
 - Общий код Ticket-а 11 (`src/main/assistant/sources/connector-check.ts`, `app.ts`, `src/main/vendors/claude/connector-check.ts`,
   `src/shared/assistant/source-items.ts`) не менялся; fixture-ы Ticket-а 11 тоже.
-- Решено без владельца (подтвердить):
+- Решено без владельца — подтверждено владельцем 2026-11-26:
   - список read tools рецепта — четыре tools выше; поиск Rovo (`search`, тратит Rovo credits) и tools Confluence — нет;
   - connector Jira узнаётся по слову `Atlassian` или `Jira` в имени connector-а claude.ai;
   - запас поиска — 5 минут раньше прошлой проверки;
@@ -119,7 +119,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 13; «Решения 
     отказ Jira, вызов, который модель разбила на два хода, или повтор structured answer;
   - test на записанном ответе загруженного дня (`jira-answer-busy.jsonl`): 12 задач, 14 изменений, три хода вызовов и
     ответ — все пункты в ядре внимания, журнал пуст.
-  - Решено без владельца (подтвердить): план в 5 ходов; не больше 5 отдельных чтений задач; страница поиска — 50
+  - Решено без владельца — подтверждено владельцем 2026-11-26: план в 5 ходов; не больше 5 отдельных чтений задач; страница поиска — 50
     задач. Не проверено вживую: принимает ли `searchJiraIssuesUsingJql` connector-а параметры `fields` и `expand`, и
     считает ли Claude Code параллельные вызовы одного ответа модели одним ходом (так в Agent SDK; живого вызова нет).
   - Замечание review вне Ticket-а (общий код Ticket-а 11, не правился): ответ, где каждая запись не прошла форму
