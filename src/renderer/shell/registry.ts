@@ -13,10 +13,11 @@ export interface ShellExtension {
   order: number
   Component: ComponentType
   /**
-   * How a sidebar section shows on the rail (Sidebar.tsx): its name and icon, and whether it stands at
-   * the foot of the rail. From the file's optional exports `railTitle` (a string), `RailIcon` (a
-   * component) and `railEnd` (true); a section without them shows its id without "Section" and a plain
-   * icon. Toolbar items have none. Constants and components only, so Fast Refresh keeps working.
+   * How a sidebar section shows on the rail (Sidebar.tsx): its name and icon, whether it stands at the
+   * foot of the rail and whether a window that chose no section may start on it. From the file's
+   * optional exports `railTitle` (a string), `RailIcon` (a component), `railEnd` (true) and
+   * `railDefault` (false); a section without them shows its id without "Section" and a plain icon.
+   * Toolbar items have none. Constants and components only, so Fast Refresh keeps working.
    */
   rail?: RailEntry
 }
@@ -27,6 +28,8 @@ export interface RailEntry {
   Icon?: ComponentType
   /** At the foot of the rail, under the other sections (Machines). */
   end: boolean
+  /** Whether a window that chose no section may start on it; false for the Assistant's section (worfy-assistant ticket 14). */
+  start: boolean
 }
 
 /**
@@ -53,7 +56,7 @@ function fileId(path: string): string {
 export function collectExtensions(modules: Record<string, unknown>): ShellExtension[] {
   return Object.entries(modules)
     .map(([path, module]) => {
-      const { default: Component, order, railTitle, RailIcon, railEnd } = (module ?? {}) as Record<string, unknown>
+      const { default: Component, order, railTitle, RailIcon, railEnd, railDefault } = (module ?? {}) as Record<string, unknown>
       if (!isComponentType(Component)) {
         throw new Error(`${path} must default-export a React component (a function or class, memo, forwardRef or lazy)`)
       }
@@ -64,7 +67,7 @@ export function collectExtensions(modules: Record<string, unknown>): ShellExtens
       if (typeof railTitle !== 'string' || (RailIcon !== undefined && !isComponentType(RailIcon))) {
         throw new Error(`${path}: \`railTitle\` must be a string and \`RailIcon\` a component`)
       }
-      const rail: RailEntry = { title: railTitle, end: railEnd === true, ...(RailIcon === undefined ? {} : { Icon: RailIcon }) }
+      const rail: RailEntry = { title: railTitle, end: railEnd === true, start: railDefault !== false, ...(RailIcon === undefined ? {} : { Icon: RailIcon }) }
       return { id: fileId(path), order, Component, rail }
     })
     .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id))

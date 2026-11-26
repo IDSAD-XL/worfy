@@ -11,6 +11,7 @@ import { madeRegistry, sharedRegistry } from './agent/app-registry'
 import { installLimitsRefresh } from './agent/limits-usage'
 import { appUserModelId } from './app-id'
 import { startAttentionCore } from './assistant/core/app'
+import { startAssistantWindow } from './assistant/window/app'
 import { checkScheduler, startCheckScheduler } from './assistant/schedule/app'
 import { appSourceCheck } from './assistant/sources/app'
 import { registerSlackCheck } from './assistant/sources/slack'
@@ -277,6 +278,12 @@ function start(): void {
         app.on('will-quit', startAttentionCore())
       } catch (error) {
         console.error('[assistant] the attention core did not start', error)
+      }
+      // The Assistant's section and its own notifications (worfy-assistant ticket 14): after the core, whose items they show.
+      try {
+        app.on('will-quit', startAssistantWindow())
+      } catch (error) {
+        console.error('[assistant] the section of the Assistant did not start', error)
       }
       // The Update checks of the Stable copy (worfy-update ticket 01, ADR-0089): GitHub without
       // sign-in, 10 s after the start and then every hour; in any other build nothing runs. Not a

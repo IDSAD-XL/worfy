@@ -16,7 +16,7 @@ import { Duties } from '../../src/main/assistant/duties/duties'
 import { assistantMemoryPath, memoryFileStore, sessionMemoryStore } from '../../src/main/assistant/duties/memory'
 import { memoryProposalStore, ProposalBook } from '../../src/main/assistant/proposals/book'
 import { MEMORY_PROMPT_MAX_CHARS, memoryForPrompt, readMemoryView, SessionMemory, type MemoryView } from '../../src/main/assistant/session/memory'
-import { ASSISTANT_SESSION_TIME_LIMIT_MS, AssistantSessions, composeAssistant, wakePrompt, type AssistantQuery, type AssistantSessionSpec } from '../../src/main/assistant/session/runner'
+import { ASSISTANT_SESSION_TIME_LIMIT_MS, AssistantSessions, composeAssistant, wakePrompt, type AssistantQuery, type AssistantRun, type AssistantSessionSpec } from '../../src/main/assistant/session/runner'
 import type { AssistantWake } from '../../src/main/assistant/wake/planner'
 import type { WakeLoop } from '../../src/main/assistant/wake/loop'
 import { removeTree } from '../../src/main/storage/remove'
@@ -380,6 +380,7 @@ describe('the memory file: duties, open proposals, commitments, rules from ratin
 
 describe('the Assistant in the app: the decision to wake and the closed list wired to the Sessions', () => {
   function world() {
+    const ran: AssistantRun[] = []
     const woke: { wake: AssistantWake; message: string | undefined }[] = []
     let onWake: (wake: AssistantWake) => void = () => undefined
     const escalated: string[] = []
@@ -414,8 +415,9 @@ describe('the Assistant in the app: the decision to wake and the closed list wir
         escalate = handler
         return () => void stops.push('closed-list')
       },
+      onRun: (run) => void ran.push(run),
     })
-    return { assistant: assistant!, woke, fire: (wake: AssistantWake) => onWake(wake), escalate: (id: string) => escalate?.(id), escalated, stops }
+    return { assistant: assistant!, ran, woke, fire: (wake: AssistantWake) => onWake(wake), escalate: (id: string) => escalate?.(id), escalated, stops }
   }
 
   it('a wake of the decision starts a Session with no message of the user', () => {
@@ -429,6 +431,17 @@ describe('the Assistant in the app: the decision to wake and the closed list wir
     const run = await w.assistant.userMessage('What is stuck?')
     expect(w.woke.map((each) => [each.wake.reason, each.message])).toEqual([['user', 'What is stuck?']])
     expect(run).toMatchObject({ wakeId: 'user-1', outcome: 'answered' })
+  })
+
+  it('each finished run, a wake of the decision and the user message alike, goes to onRun once with its text and its kind (worfy-assistant ticket 14)', async () => {
+    const w = world()
+    w.fire(wakeOf({ id: 'wake-7', reason: 'morning' }))
+    await w.assistant.userMessage('What is stuck?')
+    await new Promise((done) => setTimeout(done, 0))
+    expect(w.ran.map((run) => [run.wakeId, run.reason, run.text])).toEqual([
+      ['wake-7', 'morning', 'ok'],
+      ['user-1', 'user', 'ok'],
+    ])
   })
 
   it('an item the closed list did not help with goes to the decision to wake as urgent', () => {

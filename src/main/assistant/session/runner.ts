@@ -186,6 +186,8 @@ export interface AssistantParts {
   startWake(onWake: (wake: AssistantWake) => void): WakeLoop | null
   /** Starts the closed list of actions with its escalation (startClosedList); answers its stop, null when it did not start. */
   startClosedList(escalate: (itemId: string) => void): (() => void) | null
+  /** Told of each finished run, a wake's or the user's message's (worfy-assistant ticket 14: the section shows the text). */
+  onRun?(run: AssistantRun): void
 }
 
 /** The decision to wake and the closed list wired to the Sessions; null (and nothing left running) when the decision cannot start. */
@@ -199,6 +201,10 @@ export function composeAssistant(parts: AssistantParts): Assistant | null {
     const message = wake.reason === 'user' ? said : undefined
     said = undefined
     lastRun = parts.sessions.wake(wake, message)
+    const onRun = parts.onRun
+    if (onRun !== undefined) {
+      lastRun.then(onRun).catch((error: unknown) => console.warn('[assistant] the text of a run was not passed on', error))
+    }
   })
   if (loop === null) {
     stopList?.()

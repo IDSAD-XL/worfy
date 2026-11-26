@@ -20,8 +20,8 @@ The column on the left of the window, 264 pixels wide. From the top:
   at the right edge, the button that hides the sidebar (⌘B, Ctrl+B on Windows). Dragging the strip moves the window.
 - **The Project switcher**, a row of its own under the strip, as wide as the sidebar: the name of what the sidebar shows
   and a chevron at its right end. A long Project name has the whole row.
-- **The rail**, a column of icons, one per section: Projects, Sessions, Pull requests, Acceptance, Pipeline, Epics, ADR,
-  and at its foot Health check, Machines and Settings. The chosen section has an accent bar. A section's icon carries a badge that shows while
+- **The rail**, a column of icons, one per section: first the Assistant, in its own colour and above a rule, then
+  Projects, Sessions, Pull requests, Acceptance, Pipeline, Epics, ADR, and at its foot Health check, Machines and Settings. The chosen section has an accent bar. A section's icon carries a badge that shows while
   another section is open: the number of busy Sessions of the Projects the switcher shows, in the colour of work, the
   number of pull requests that need you (review, answer or fix), the number of checks in Ready to check of
   [Acceptance](acceptance.md), in the colour of work, a dot while a Ticket in work is blocked or waits for
@@ -30,7 +30,16 @@ The column on the left of the window, 264 pixels wide. From the top:
   which scrolls by itself.
 
 The rail is one Tab stop. ↑ and ↓ walk it and wrap round, Home and End go to its ends, and the section under the focus
-opens at once. The section that is open is remembered for the window.
+opens at once. The section that is open is remembered for the window. A window that never chose a section opens on
+Projects, not on the Assistant above it.
+
+**The Assistant** (worfy-assistant ticket 14) is a section of its own: what waits over every Project of this Machine,
+each item with its reason, its source and its duty, and Open, Prepare, Snooze and Dismiss; like and dislike on each of
+its messages; the journal of its actions, each row with the item that caused it; a summary; the conversation; and its
+usage line, whose share of Limits is marked as an estimate. Prepare shows the exact text of the Session before it starts;
+nothing starts until Start. While the Assistant is on, its own notification is a card next to its rail icon, in its
+colour, one at a time, the rest a number on the icon; when worfy is not in front, a system notification titled
+"worfy Assistant" comes only for an urgent item and only in work hours, and a click opens the section.
 
 **Health check** is a button of the rail right above Machines, always there. It is not a section: it shows nothing in the
 panel, and a click opens Settings → Health ([First run](onboarding.md#first-run) describes the rows). Like Settings, it is
@@ -97,8 +106,8 @@ is hidden.
 
 ### How it works
 
-Each section is a file `src/renderer/shell/sidebar/<Name>Section.tsx` with its order and its rail entry: a title, an icon
-and whether it stands at the foot. Every section stays mounted while another one is shown, so it keeps what it read and its
+Each section is a file `src/renderer/shell/sidebar/<Name>Section.tsx` with its order and its rail entry: a title, an icon,
+whether it stands at the foot and whether a window that chose no section may start on it. Every section stays mounted while another one is shown, so it keeps what it read and its
 badge stays current; the others are only hidden. The switcher's answer and the open section are kept in the window's local
 storage, in worfy's data folder. No setting of the app holds them.
 
@@ -119,6 +128,7 @@ watcher. Only the open Project's documents are watched.
 | What | Where |
 |---|---|
 | Strip, rail and panel | `src/renderer/shell/Sidebar.tsx`, `src/renderer/shell/shell.css` |
+| The Assistant's section, speech card and Prepare | `src/renderer/shell/sidebar/AssistantSection.tsx`, `src/renderer/assistant/`, in main `src/main/assistant/window/` and `src/main/ipc/assistant.ts`, channels in `src/shared/ipc/assistant.ts`, tokens `--assistant*` in `src/renderer/theme/tokens.css` |
 | Health check button and its dot | `HealthRailButton` in `src/renderer/shell/Sidebar.tsx`, `openHealthCheck` in `src/renderer/settings/settings-window.ts`, the worst level in `src/shared/health/severity.ts`, the tokens `--health-critical` and `--health-warning` in `src/renderer/theme/tokens.css` |
 | Frame of a section | `src/renderer/shell/SidebarSection.tsx`, `src/renderer/shell/sidebar-section.css` |
 | Project switcher | `src/renderer/shell/ProjectSwitcher.tsx` |
@@ -128,7 +138,7 @@ watcher. Only the open Project's documents are watched.
 | Sections | `src/renderer/shell/sidebar/` |
 | Rail entries of the sections | `src/renderer/shell/registry.ts` |
 
-Main tests: `test/unit/sidebar-scope.test.tsx`, `test/unit/sidebar-section.test.tsx`, `test/unit/health-rail-button.test.tsx`, `test/unit/acceptance-section.test.tsx`, `test/e2e/sidebar-rail.spec.ts`,
+Main tests: `test/unit/sidebar-scope.test.tsx`, `test/unit/assistant-window.test.ts`, `test/unit/assistant-panel.test.tsx`, `test/unit/assistant-speech.test.tsx`, `test/e2e/assistant.spec.ts`, `test/unit/sidebar-section.test.tsx`, `test/unit/health-rail-button.test.tsx`, `test/unit/acceptance-section.test.tsx`, `test/e2e/sidebar-rail.spec.ts`,
 `test/e2e/sidebar-sections.spec.ts`.
 
 ## Command palette

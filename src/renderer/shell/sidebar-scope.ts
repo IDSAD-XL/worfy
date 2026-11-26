@@ -65,9 +65,12 @@ export function projectsInScope<T extends { id: string }>(projects: readonly T[]
   return active.length ? active : projects
 }
 
-/** The section the panel holds: the saved one while a section of that id exists, else the first. */
-export function pickSection(saved: string | null, ids: readonly string[]): string | undefined {
-  return saved !== null && ids.includes(saved) ? saved : ids[0]
+/**
+ * The section the panel holds: the saved one while a section of that id exists, else the first of `starts` — the sections a
+ * window may start on (the rail's `railDefault`; the Assistant's section stands first yet is not one) — else the first.
+ */
+export function pickSection(saved: string | null, ids: readonly string[], starts: readonly string[] = ids): string | undefined {
+  return saved !== null && ids.includes(saved) ? saved : (starts.find((id) => ids.includes(id)) ?? ids[0])
 }
 
 interface SidebarScopeStore {
@@ -103,7 +106,8 @@ export function reloadSidebarScope(): void {
  * tooltip and what a screen reader hears.
  */
 export interface RailBadge {
-  tone: 'working' | 'blocked' | 'ready' | 'muted'
+  /** `assistant`: the Assistant's own colour (worfy-assistant ticket 14), apart from the states of the work. */
+  tone: 'working' | 'blocked' | 'ready' | 'muted' | 'assistant'
   count?: number
   label: string
 }

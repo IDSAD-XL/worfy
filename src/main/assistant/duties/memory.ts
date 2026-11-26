@@ -40,6 +40,11 @@ export const dutyStateSchema = z.object({
   counters: dutyCountersSchema,
   /** Ignored proposals and dislikes in a row; a like or a reaction ends the run. */
   streak: z.number().int().nonnegative(),
+  /**
+   * The number of the current run: one more each time the run ends (worfy-assistant ticket 14), so taking back a
+   * dislike steps back only the run it was in. Absent in a file written before it, which reads as 0.
+   */
+  run: z.number().int().nonnegative().optional(),
   paused: z.object({ at: z.number(), by: z.enum(['ignored', 'disliked']) }).optional(),
 })
 export type DutyState = z.infer<typeof dutyStateSchema>

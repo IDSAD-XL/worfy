@@ -58,16 +58,84 @@ Card-а из «Итог» Ticket-а 02.
 
 - [ ] Раздел Assistant-а открывается из rail рядом с Canvas и показывает список «что ждёт» с причиной, источником и
       обязанностью у каждого пункта.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-window-app.test.ts test/unit/assistant-session.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 15f38aea7
 - [ ] У предложения есть Dismiss, Snooze, Open и Prepare; Prepare показывает точный текст Session, Session стартует
       только по щелчку пользователя.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-window-app.test.ts test/unit/assistant-session.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 15f38aea7
 - [ ] Like и dislike стоят на каждом сообщении Assistant-а и доходят до обязанности (Ticket 07).
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-window-app.test.ts test/unit/assistant-session.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 15f38aea7
 - [ ] Журнал показывает действия Assistant-а, у каждой строки — пункт, который её вызвал.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-window-app.test.ts test/unit/assistant-session.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 15f38aea7
 - [ ] Раздел показывает сводку и разговор; пользователь может написать Assistant-у в любой момент.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-window-app.test.ts test/unit/assistant-session.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 15f38aea7
 - [ ] Строка расхода показывает token-ы и долю Limits Assistant-а; доля помечена как оценка.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-window-app.test.ts test/unit/assistant-session.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 15f38aea7
 - [ ] Уведомление Assistant-а — карточка у его значка в rail, со значком и цветом Assistant-а, like и dislike,
       Open, Prepare, Snooze; одна карточка за раз, остальное — число на значке.
 - [ ] Когда worfy не впереди, системное уведомление уходит только о срочном и только в work hours, с
       заголовком «worfy Assistant»; щелчок открывает раздел Assistant-а.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-window-app.test.ts test/unit/assistant-session.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 15f38aea7
 - [ ] e2e с `WORFY_AGENT=fake`: список, like и dislike — зелёный.
 - [ ] Тексты UI — английские.
+  - evidence: test-run pass · `pnpm lint` exit 0 · mac - · 15f38aea7
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · d7f663092
+
+## Решено без владельца (подтвердить)
+
+- Вид раздела строит main (`AssistantWindow`, `src/main/assistant/window/view.ts`) из ядра внимания, обязанностей,
+  предложений, журнала и расхода; окно получает его целиком по каналам `assistant.*`, все `local`. Окно Linked machine
+  показывает «Assistant works with the Projects of its own machine».
+- Раздел Assistant-а — первый в rail, своим цветом и над чертой, но окно, где секцию не выбирали, открывается на
+  Projects (`railDefault = false`): пока Assistant выключен, начинать с него незачем.
+- Срочное — пункт вида `run-stopped` или сообщение внешнего источника с пометкой `urgent`. Системное уведомление — одно на
+  срочный новый пункт; пункт, который пришёл, пока worfy был впереди, позже не уведомляет; пришедший вне work hours ждёт
+  их начала.
+- Snooze: In 1 hour, In 3 hours, Next work hours, Until something changes. Отложенное хранится в
+  `<data>/assistant/window.json` и просыпается по таймеру раз в минуту и при каждом изменении ядра.
+- Сводка — подсчёт самого worfy за 16 часов, без модели: пришло, сделано само, остановленные Run-ы, ждёт вас, строка на
+  Project и первые три пункта. Утреннее сообщение Assistant-а показывается, когда его Session его прислала.
+- Like и dislike пункта и строки журнала доходят до обязанности (Ticket 07); оценка сообщения, предложения и сводки
+  только хранится. Отмена dislike удаляет его правило.
+- Карточки и системные уведомления Assistant-а — только пока он включён. Выключенный Assistant: список виден, поле
+  разговора выключено с текстом «Assistant is off on this machine».
+- Подготовленная Session стартует в Claude Code на Canvas Project-а; текст можно править (Edit), Start отправляет ровно
+  показанный текст.
+- Open ведёт: Session — к её Node, PR — в вид Pull requests, CI — к PR, после которого ветка покраснела, Ticket и Run — в
+  Pipeline, сообщение — по https-ссылке источника, Health — в Health check.
+- Строка расхода — простой текст; ссылку в Settings добавит Ticket 15.
+- Новые token-ы `--assistant*` в `tokens.css`, светлая и тёмная тема, — из прототипа.
+- Разговор ждёт Ticket 10 (PR #2247): до его merge `runningAssistant()` в `src/main/assistant/window/app.ts` отвечает
+  null, и отправка отвечает «Assistant is off on this machine».
+- После review, раунд 1:
+  - Показанным пункт считается, только когда окно его действительно показало: в открытом разделе на вкладке Waits или на
+    карточке у значка (канал `assistant.shown`), и только пока Assistant включён. Сам вид раздела ничего не считает, так
+    что фоновый цикл и уведомления не ставят обязанность на паузу. Пункт, показанный и оставленный без ответа на сутки,
+    по-прежнему считается проигнорированным и при фоновом взгляде. Окно на заднем плане тоже считается «показало».
+  - Dismiss сам считает отказ (`declined`): пользователь видел пункт, раз его отклонил.
+  - Снятая оценка снимает свой счёт (`Duties.unrate`): счётчик like или dislike, шаг серии dislike-ов, паузу, которую
+    серия начала, и правило, если его написал этот пункт. Снятый like не возвращает серию проигнорированных предложений,
+    которую он оборвал.
+  - Prepare и toast после старта называют Project, в котором Session стартует (`prepare.projectName`).
+  - Щелчок по системному уведомлению открывает раздел в окнах, которые за ним следят; ждёт он только когда таких окон
+    нет, и только первого окна, которое откроет раздел.
+- После review, раунд 2:
+  - Снятый dislike удаляет правило, только если его не держит другая оценка (dislike пункта и dislike строки журнала,
+    которую он вызвал, держат одно правило).
+  - У каждой обязанности есть номер серии проигнорированных предложений и dislike-ов (`run` в файле памяти); оценка
+    помнит серию, в которой её засчитали, и снятие уменьшает серию и снимает паузу, только пока идёт та же серия.
+  - Open, Dismiss и Start доходят до обязанности — и считают пункт показанным — только пока Assistant включён. Пока он
+    выключен, они меняют только пункт.
+- После merge Ticket-а 10 (PR #2247):
+  - Разговор раздела идёт в `appAssistant()` Ticket-а 10. Переключателя нет — его добавит Ticket 15, — поэтому в
+    приложении Assistant пока выключен, и раздел отвечает «Assistant is off on this machine».
+  - Тексты пробуждений приходят в раздел через новый необязательный hook `onRun` в `composeAssistant` (Ticket 10,
+    `src/main/assistant/session/runner.ts`) и слушателей `onAssistantRun` в `src/main/assistant/session/app.ts`. Текст
+    утреннего, пакетного и срочного пробуждения, на которое Assistant ответил, встаёт в разговор (утренний — ещё и в
+    сводку). Ответ на сообщение пользователя второй раз не пишется: его уже показывает отправка. Прогон без ответа ничего
+    не пишет. Без `onRun` Session Ticket-а 10 ведёт себя как раньше.
+  - Для Ticket-а 15: когда переключатель включает или выключает Assistant-а (`startAssistant` и его stop), нужно вызвать
+    `appAssistantWindow().changed()`. Иначе раздел увидит, что Assistant включён, только при следующем изменении или
+    минутном тике.
+  - Чтения Assistant-а (`worfy-app` items_list и action_run) и закрытый список действий не считают пункты показанными
+    (`countShown: false`).

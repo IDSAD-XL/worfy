@@ -1,5 +1,6 @@
 import { Component, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { AcceptanceView } from '../acceptance/AcceptanceView'
+import { AssistantSpeech } from '../assistant/AssistantSpeech'
 import { StartAutopilotModal } from '../autopilot/StartAutopilotModal'
 import { ChangesScreen } from '../changes/ChangesView'
 import { underFocusCover } from '../focus/cover'
@@ -151,6 +152,8 @@ export function AppShell({ project, canvas, session, pipeline, history, view: co
         </main>
       </div>
       <SidebarFocusKeeper visible={sidebarVisible} shell={shell} />
+      {/* The Assistant's speech card at its rail icon, its badge and Prepare (worfy-assistant ticket 14); mounted while the sidebar is hidden too. */}
+      <AssistantSpeech sidebarVisible={sidebarVisible} />
       {/* Getting started (worfy-onboarding ticket 13): a panel in the top right corner while shown, above the window and below its dialogs;
           in the Session view under the Session's header (owner's decision Q22). */}
       <GettingStartedPanel sessionView={view === 'session'} />

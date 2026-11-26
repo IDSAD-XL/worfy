@@ -136,8 +136,8 @@ test('one section at a time on the rail; the switcher mixes the Projects or show
   try {
     const { window } = first
     await setWindowSize(first, SIZE)
-    expect(await rail(window).getByRole('tab').evaluateAll((all) => all.map((each) => each.getAttribute('aria-label')))).toEqual(['Projects', 'Sessions', 'Pull requests', 'Acceptance', 'Pipeline', 'Epics', 'ADR', 'Machines'])
-    // The first section is shown, the others are hidden.
+    expect(await rail(window).getByRole('tab').evaluateAll((all) => all.map((each) => each.getAttribute('aria-label')))).toEqual(['Assistant', 'Projects', 'Sessions', 'Pull requests', 'Acceptance', 'Pipeline', 'Epics', 'ADR', 'Machines'])
+    // The first section a window may start on is shown (the Assistant's stands above it, worfy-assistant ticket 14), the others are hidden.
     await expect(tab(window, 'Projects')).toHaveAttribute('aria-selected', 'true')
     await expect(window.getByRole('region', { name: 'Projects', exact: true })).toBeVisible()
     await expect(epics(window)).toBeHidden()

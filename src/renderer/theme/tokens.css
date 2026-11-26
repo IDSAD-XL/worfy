@@ -154,6 +154,20 @@
   --story-select-edge: #64d2ff;
   --story-select-bg: rgba(100, 210, 255, 0.16);
 
+  /*
+   * The Assistant (worfy-assistant ticket 14, the prototype Card the owner accepted): its own colour, apart from the
+   * states of the work, on its rail icon and count, its speech card, its messages and Prepare — a violet with a second
+   * hue for the gradient of its mark, a tint for its grounds, a text colour, a border, the text on its fill and the
+   * shadow of its speech card.
+   */
+  --assistant: #6a45f5;
+  --assistant-2: #b05cf0;
+  --assistant-tint: #f2edff;
+  --assistant-text: #5330d8;
+  --assistant-border: #d8cdfd;
+  --on-assistant: #ffffff;
+  --assistant-shadow: 0 14px 36px rgba(74, 40, 190, 0.22), 0 2px 6px rgba(74, 40, 190, 0.12);
+
   /* Light has soft layered shadows; dark has none, only 1 px borders */
   --shadow-node: 0 1px 2px rgba(0, 0, 0, 0.06), 0 4px 12px rgba(0, 0, 0, 0.06);
   --shadow-control: 0 1px 2px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.04);
@@ -239,6 +253,15 @@
     --story-dropped: #ff6b70;
     --story-code-head: #1a1917;
     --story-code-border: #2e2b28;
+
+    --assistant: #b39cff;
+    --assistant-2: #e08cff;
+    --assistant-tint: #221c33;
+    --assistant-text: #cbbcff;
+    --assistant-border: #43376a;
+    --on-assistant: #121110;
+    /* The speech card stands out by its border in dark, as every raised surface there. */
+    --assistant-shadow: 0 0 0 1px #43376a, 0 16px 40px rgba(0, 0, 0, 0.55);
 
     /*
      * No shadows in dark, but not `none`: rules put these tokens into comma-separated box-shadow
