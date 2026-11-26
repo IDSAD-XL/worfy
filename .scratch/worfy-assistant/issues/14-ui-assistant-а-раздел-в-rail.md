@@ -1,7 +1,8 @@
 # 14 — UI Assistant-а по принятому прототипу: раздел в rail и свои уведомления
 
 Type: task
-Status: open
+Status: done 2026-11-26T05:52Z
+PR: #2249
 Blocked by: 02, 07, 09, 10
 Source: [spec.md](../spec.md), «Ticket-ы», строка 14; «Решения владельца», 17 и 18; «Решения по реализации» → «UI»,
 «Мониторинг расхода»; «Границы», 3 и 6; «Решения по test-ам», В; истории 1, 2, 16, 21–23, 35, 38 и 39; «Волны», Wave 5
@@ -59,27 +60,38 @@ Card-а из «Итог» Ticket-а 02.
 - [ ] Раздел Assistant-а открывается из rail рядом с Canvas и показывает список «что ждёт» с причиной, источником и
       обязанностью у каждого пункта.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-window-app.test.ts test/unit/assistant-session.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 15f38aea7
+  - evidence: review pass · PR #2249 · - - · bcda9537ffbba067e73b5df9b192f414d665d19c
 - [ ] У предложения есть Dismiss, Snooze, Open и Prepare; Prepare показывает точный текст Session, Session стартует
       только по щелчку пользователя.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-window-app.test.ts test/unit/assistant-session.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 15f38aea7
+  - evidence: review pass · PR #2249 · - - · bcda9537ffbba067e73b5df9b192f414d665d19c
 - [ ] Like и dislike стоят на каждом сообщении Assistant-а и доходят до обязанности (Ticket 07).
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-window-app.test.ts test/unit/assistant-session.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 15f38aea7
+  - evidence: review pass · PR #2249 · - - · bcda9537ffbba067e73b5df9b192f414d665d19c
 - [ ] Журнал показывает действия Assistant-а, у каждой строки — пункт, который её вызвал.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-window-app.test.ts test/unit/assistant-session.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 15f38aea7
+  - evidence: review pass · PR #2249 · - - · bcda9537ffbba067e73b5df9b192f414d665d19c
 - [ ] Раздел показывает сводку и разговор; пользователь может написать Assistant-у в любой момент.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-window-app.test.ts test/unit/assistant-session.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 15f38aea7
+  - evidence: review pass · PR #2249 · - - · bcda9537ffbba067e73b5df9b192f414d665d19c
 - [ ] Строка расхода показывает token-ы и долю Limits Assistant-а; доля помечена как оценка.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-window-app.test.ts test/unit/assistant-session.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 15f38aea7
+  - evidence: review pass · PR #2249 · - - · bcda9537ffbba067e73b5df9b192f414d665d19c
 - [ ] Уведомление Assistant-а — карточка у его значка в rail, со значком и цветом Assistant-а, like и dislike,
       Open, Prepare, Snooze; одна карточка за раз, остальное — число на значке.
+  - evidence: review pass · PR #2249 · - - · bcda9537ffbba067e73b5df9b192f414d665d19c
 - [ ] Когда worfy не впереди, системное уведомление уходит только о срочном и только в work hours, с
       заголовком «worfy Assistant»; щелчок открывает раздел Assistant-а.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-window-app.test.ts test/unit/assistant-session.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 15f38aea7
+  - evidence: review pass · PR #2249 · - - · bcda9537ffbba067e73b5df9b192f414d665d19c
 - [ ] e2e с `WORFY_AGENT=fake`: список, like и dislike — зелёный.
+  - evidence: review pass · PR #2249 · - - · bcda9537ffbba067e73b5df9b192f414d665d19c
 - [ ] Тексты UI — английские.
   - evidence: test-run pass · `pnpm lint` exit 0 · mac - · 15f38aea7
+  - evidence: review pass · PR #2249 · - - · bcda9537ffbba067e73b5df9b192f414d665d19c
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · d7f663092
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45757170794/job/139720399820 · ci - · bcda9537ffbba067e73b5df9b192f414d665d19c
 
 ## Решено без владельца (подтвердить)
 
