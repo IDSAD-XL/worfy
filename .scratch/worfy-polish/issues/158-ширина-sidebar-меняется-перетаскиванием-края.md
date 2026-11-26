@@ -110,7 +110,8 @@ Sidebar — колонка слева в окне: полоса под кноп�
   - evidence: gate pass · `gate fast` exit 0 · mac - · 3ecde9b3848477e7b5633e383ba0c8a6236ab8d7
   - evidence: gate pass · `gate fast` exit 0 · mac - · 29eab03d14809d450489e240d2edd7a3cc99baf7
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45888935431/job/140161756412 · ci - · f04035461cbc0cd2568b67d7b6f9e562e2b3309e
-- [ ] (вручную) Сделай: в Stable worfy потяни правый край sidebar вправо, перезапусти worfy, потом дважды щёлкни по
+- [x] (вручную) Сделай: в Stable worfy потяни правый край sidebar вправо, перезапусти worfy, потом дважды щёлкни по
       краю → Должно быть: раздел Assistant шире и строки длиннее; после перезапуска ширина та же; двойной щелчок
       возвращает прежнюю ширину.
   - needs: mac stable
+  - evidence: owner-check pass · 2026-11-26: сайдбар работает и перетягивается · mac stable · b9ea267450873712bcc79238dec28a3e7c954696
