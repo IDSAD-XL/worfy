@@ -7,8 +7,12 @@
 //   that fails still counts against the daily limit; the user's own messages are not wakes;
 // - noteCall — each `result` of an Assistant Session (ticket 10) and each check of a source
 //   (ticket 11), with the `usage` and `costUsd` of that result;
-// - noteOtherTurn — the `result` of every other Session worfy runs, for the estimate of the share;
-//   never a turn of the Assistant, which noteCall already counts.
+// - noteOtherTurn, noteOtherTotal, noteOtherRenamed — the cost of each turn of every other Session and request worfy
+//   runs, for the estimate of the share (ticket 27), through src/main/agent/turn-cost.ts (ledgerTurnCostSink, set by
+//   the app at its start); never a turn of the Assistant, which noteCall already counts. A request of one turn comes
+//   with its cost (noteOtherTurn); a Session's turn comes as its conversation's running total (noteOtherTotal), and
+//   the ledger keeps the last total of each conversation in its file (`otherTotals`), so a turn is counted once, as
+//   the rise since the last result of the conversation, across processes, Sessions and restarts of worfy alike.
 //
 // Every note is written at once, synchronously (src/main/storage/json-file.ts), and drops what is
 // older than USAGE_KEEP_MS. The file is bounded by that retention of 8 days, not by a count: Slack
@@ -20,6 +24,7 @@
 import { join } from 'node:path'
 import { z } from 'zod'
 import type { LimitsState } from '../../../shared/agent/limits'
+import { costSinceLast, type TurnCostSink } from '../../agent/turn-cost'
 import {
   automaticWakesToday,
   emptyUsageLedger,
@@ -85,6 +90,35 @@ export class AssistantUsageLedger {
     this.write({ ...this.ledger, otherCost: { ...this.ledger.otherCost, [hour]: (this.ledger.otherCost[hour] ?? 0) + costUsd } }, at)
   }
 
+  /**
+   * The latest result of another Session's conversation reports `totalUsd` so far: the rise since its last total (all
+   * of it for a conversation not known, or one whose total went down) counts as a turn now. The same total again (an
+   * interrupted turn) and a total of 0 (a Codex Session) change nothing.
+   */
+  noteOtherTotal(conversationId: string, totalUsd: number): void {
+    if (!Number.isFinite(totalUsd)) return console.warn(`worfy: the cost of a turn was not noted: ${totalUsd}`)
+    const last = this.ledger.otherTotals[conversationId]?.totalUsd
+    if (totalUsd <= 0 || totalUsd === last) return
+    const at = this.now()
+    const turn = costSinceLast(last, totalUsd)
+    const hour = hourKey(at)
+    this.write(
+      {
+        ...this.ledger,
+        otherCost: { ...this.ledger.otherCost, [hour]: (this.ledger.otherCost[hour] ?? 0) + turn },
+        otherTotals: { ...this.ledger.otherTotals, [conversationId]: { totalUsd, at } },
+      },
+      at,
+    )
+  }
+
+  /** Another Session's conversation goes on under id `to` in the same process: its total goes on from that of `from`. */
+  noteOtherRenamed(from: string, to: string): void {
+    const last = this.ledger.otherTotals[from]
+    if (last === undefined || this.ledger.otherTotals[to] !== undefined) return
+    this.write({ ...this.ledger, otherTotals: { ...this.ledger.otherTotals, [to]: last } }, this.now())
+  }
+
   snapshot(): UsageLedger {
     return this.ledger
   }
@@ -112,6 +146,15 @@ export class AssistantUsageLedger {
 }
 
 let appLedger: AssistantUsageLedger | null = null
+
+/** The sink of the cost of the turns that are not the Assistant's (src/main/agent/turn-cost.ts) into the ledger `ledger` answers. */
+export function ledgerTurnCostSink(ledger: () => AssistantUsageLedger): TurnCostSink {
+  return {
+    turn: (costUsd) => ledger().noteOtherTurn(costUsd),
+    conversationTotal: (conversationId, totalUsd) => ledger().noteOtherTotal(conversationId, totalUsd),
+    renamed: (from, to) => ledger().noteOtherRenamed(from, to),
+  }
+}
 
 /** The app's ledger over WORFY_DATA_DIR, made on first use. */
 export function appAssistantUsage(): AssistantUsageLedger {

@@ -23,7 +23,8 @@
 //
 // Every message of every request goes to the Limits (appLimits().recordSdkMessage), as observe()
 // does for Sessions: each process sends its rate_limit_event, so the toolbar's LimitsMeter is fresh
-// after every request.
+// after every request. The cost of each request's result goes to the cost of the turns that are not the
+// Assistant's (src/main/agent/turn-cost.ts, worfy-assistant ticket 27).
 //
 // The log has one line per process start (Claude Code version, apiKeySource, plugins, hooks that
 // ran) and one per request (the feature and the model). Never the request, the answer or the context.
@@ -39,6 +40,7 @@ import type { LimitsState } from '../../shared/agent/limits'
 import type { AssistProcessState, TerminalAiFeatureState, TerminalAiState } from '../../shared/ipc/terminal-ai'
 import { contextText, isPrivateLine, prepareContext, type TerminalAiContext, type TerminalAiInput } from '../../shared/terminal-ai/context'
 import { featureEnabled, isAutomatic, TERMINAL_AI_FEATURES, type TerminalAiFeature, type TerminalAiSettings, type TerminalAiSettingsPatch } from '../../shared/terminal-ai/settings'
+import { noteOneTurnResult } from '../agent/turn-cost'
 import { wallTimer } from '../autopilot/limits-wait'
 import { claudeTerminalAi, realBackend, type SdkLoader } from '../vendors/claude/terminal-ai'
 import { fakeAssistBackend } from './fake-backend'
@@ -510,6 +512,8 @@ export class AssistService {
         const m = record(message)
         if (m?.type === 'assistant') text += assistantText(m)
         if (m?.type === 'result') {
+          // One request, one process of one turn (its spare is closed after it): the result's cost is the request's.
+          noteOneTurnResult(m)
           if (m.subtype === 'success' && m.is_error !== true) result = typeof m.result === 'string' ? m.result : ''
           else error = typeof m.result === 'string' ? m.result : String(m.subtype ?? 'error')
         }

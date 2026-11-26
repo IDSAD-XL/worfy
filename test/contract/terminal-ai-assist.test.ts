@@ -12,6 +12,7 @@ import type { ClaimOptions, Options } from '@anthropic-ai/claude-agent-sdk'
 import type { IpcMainInvokeEvent } from 'electron'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { LimitsTracker } from '../../src/main/agent/limits'
+import { setTurnCostSink } from '../../src/main/agent/turn-cost'
 import { appUrlMatcher, registerIpc } from '../../src/main/ipc/index'
 import { terminalAiHandlers } from '../../src/main/ipc/terminal-ai'
 import { AssistService, IDLE_MS, backendFromEnv, commandOf, type AssistAnswer, type AssistQuery } from '../../src/main/terminal-ai/assist'
@@ -555,6 +556,27 @@ describe('Limits and refusals', () => {
     sdk.claimedSpare.query?.answer('git push')
     await answer
     expect(limits.snapshot().windows.five_hour).toMatchObject({ utilization: 0.42, status: 'allowed', resetsAt: NOW / 1000 + 7200, source: 'sdk' })
+  })
+
+  // worfy-assistant ticket 27: each request is one process of one turn, so its result's total_cost_usd is the cost of
+  // that request, noted once for the Assistant's share of the Limits (src/main/agent/turn-cost.ts).
+  it('notes the cost of each request once, for the Assistant\'s share of the Limits', async () => {
+    const noted: number[] = []
+    setTurnCostSink({ turn: (costUsd) => void noted.push(costUsd), conversationTotal: (_id, totalUsd) => void noted.push(totalUsd), renamed: () => undefined })
+    try {
+      const { service, sdk } = world()
+      for (const [command, costUsd] of [['git push', 0.002], ['git pull', 0.003]] as const) {
+        const { answer } = await start(service, 'next', { line: '' })
+        const query = sdk.claimedSpare.query
+        query?.push({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: command }] } }, { type: 'result', subtype: 'success', is_error: false, result: command, total_cost_usd: costUsd })
+        query?.end()
+        expect(await answer).toMatchObject({ ok: true, command })
+        await settle()
+      }
+      expect(noted).toEqual([0.002, 0.003])
+    } finally {
+      setTurnCostSink(null)
+    }
   })
 
   it('sends nothing to the SDK on rejected', async () => {

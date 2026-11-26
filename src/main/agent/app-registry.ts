@@ -7,6 +7,9 @@
 // needs from the registry — whether a Session runs unattended — is wired here, where the registry
 // is made.
 //
+// The observer of the turns' cost (turn-cost.ts, worfy-assistant ticket 27) is attached as the registry is made, so the
+// cost of every turn of every Session of the app reaches the Assistant's usage ledger, the first one too.
+//
 // The registry's watcher of live-sessions.json (live-sessions.ts, worfy-continuity ticket 03) is made with it and
 // stops before it closes the Sessions at quit, so the file keeps the Sessions the quit cut off.
 import { app } from 'electron'
@@ -15,6 +18,7 @@ import { projectStore } from '../projects/store'
 import { vendorDriver } from '../vendors/registry'
 import { LiveSessions } from './live-sessions'
 import { SessionRegistry } from './session'
+import { turnCostObserver } from './turn-cost'
 import { QUIET_LOOK_MS, type QuietWatch } from './session/quiet-signs'
 
 /** Whether the Session `sessionId` of `registry` runs unattended now, as its launch says; false for a Session it does not hold. */
@@ -95,6 +99,7 @@ export function sharedRegistry(): SessionRegistry {
       live.stop()
       registry.closeAll()
     })
+    registry.observe(turnCostObserver())
     exposeBrowserToolsForFakeAgent(registry)
     appRegistry = registry
     appLiveSessions = live

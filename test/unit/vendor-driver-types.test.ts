@@ -42,13 +42,14 @@ const LIMITS = '../../src/main/agent/limits'
 const VENDOR_REGISTRY = '../../src/main/vendors/registry'
 const AGENT_ENV = '../../src/main/agent/env'
 const BROWSER_SERVER = '../../src/main/mcp/browser-server'
+const TURN_COST = '../../src/main/agent/turn-cost'
 
 // Each test loads the modules afresh (vi.resetModules), so a value it compares by identity is
 // imported in the test, after the mocks it needs.
 const trees: string[] = []
 
 afterEach(() => {
-  for (const path of [CLAUDE_QUERY, FIRST_RUN, ASSIST, LIMITS, VENDOR_REGISTRY, AGENT_ENV, BROWSER_SERVER]) vi.doUnmock(path)
+  for (const path of [CLAUDE_QUERY, FIRST_RUN, ASSIST, LIMITS, VENDOR_REGISTRY, AGENT_ENV, BROWSER_SERVER, TURN_COST]) vi.doUnmock(path)
   vi.doMock('@anthropic-ai/claude-agent-sdk', mocks.sdk)
   vi.resetModules()
   vi.unstubAllEnvs()
@@ -420,6 +421,18 @@ describe('the app registry of Sessions', () => {
   // The fake agent's Browser tools (test/e2e/browser-mcp.spec.ts) answer from the registry whether a
   // Session runs unattended; the registry wires that itself, the driver never imports it.
   const notStarting = (): SessionPart => ({ start: () => new Promise(() => undefined), resume: () => new Promise(() => undefined) })
+
+  // worfy-assistant ticket 27: the cost of every turn of every Session of the app goes to the Assistant's usage ledger
+  // through one observer of this registry (src/main/agent/turn-cost.ts), attached as the registry is made.
+  it('passes every event of its Sessions to the observer of the turns\' cost from the first one', async () => {
+    const observer = vi.fn()
+    vi.doMock(TURN_COST, async (original) => ({ ...(await original<object>()), turnCostObserver: () => observer }))
+    vi.doMock(VENDOR_REGISTRY, () => ({ vendorDriver: () => ({ session: notStarting() }) }))
+    const { sharedRegistry } = await import('../../src/main/agent/app-registry')
+    const session = sharedRegistry().start('/p', undefined, () => undefined)
+    expect(observer).toHaveBeenCalledWith(session.id, expect.objectContaining({ type: 'state', state: 'starting' }))
+    session.close()
+  })
 
   it('under WORFY_AGENT=fake, made once, exposes the fake agent\'s Browser tools with whether its Sessions run unattended', async () => {
     vi.stubEnv('WORFY_AGENT', 'fake')

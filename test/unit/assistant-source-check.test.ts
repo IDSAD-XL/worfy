@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
+import { setTurnCostSink } from '../../src/main/agent/turn-cost'
 import { AssistantUsageLedger } from '../../src/main/assistant/budget/ledger'
 import { AttentionCore } from '../../src/main/assistant/core/attention-core'
 import type { AttentionFile, AttentionStore } from '../../src/main/assistant/core/store'
@@ -201,6 +202,21 @@ describe('a check over a connector', () => {
         costUsd: 0.0042,
       },
     ])
+  })
+
+  // worfy-assistant ticket 27: the check is the Assistant's own call, noted once by noteCall, never as another turn.
+  it('notes the check nowhere but noteCall: never as a turn of another Session', async () => {
+    const others: number[] = []
+    setTurnCostSink({ turn: (costUsd) => void others.push(costUsd), conversationTotal: (_id, totalUsd) => void others.push(totalUsd), renamed: () => undefined })
+    try {
+      const { ledger, run } = setup(fakeClaude('answer-good.jsonl'))
+      await run()
+      expect(ledger.snapshot().calls).toHaveLength(1)
+      expect(ledger.snapshot().otherCost).toEqual({})
+      expect(others).toEqual([])
+    } finally {
+      setTurnCostSink(null)
+    }
   })
 
   it('takes a repeat of the same messages at the next check as nothing new', async () => {

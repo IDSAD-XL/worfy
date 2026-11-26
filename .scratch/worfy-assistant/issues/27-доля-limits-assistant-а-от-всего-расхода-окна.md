@@ -1,7 +1,7 @@
 # 27 — Доля Limits Assistant-а считается от всего расхода окна
 
 Type: task
-Status: open 2026-11-26T13:07Z
+Status: claimed 2026-11-26T13:15Z
 Blocked by: —
 Source: найдено Ticket-ом 19 (PR #2281), раздел «Вне скоупа»; [spec.md](../spec.md), «Ticket-ы», строка 27.
 Пункт Ticket-а 20 «Владелец смотрит, сколько token-ов и какую долю Limits потратил Assistant» опирается на эту долю.
@@ -87,7 +87,94 @@ Ticket 05 завёл журнал расхода Assistant-а (`<WORFY_DATA_DIR>
 
 - [ ] Цена `result` каждой другой Session и запроса worfy доходит до `noteOtherTurn` ровно один раз (разница с прошлым
       `result` процесса), а ходы Assistant-а — Session и проверки источников — не доходят.
+  - evidence: test-run pass · `pnpm test test/unit/other-turn-costs.test.ts test/unit/vendor-driver-types.test.ts test/contract/terminal-ai-assist.test.ts test/unit/assistant-session.test.ts test/unit/assistant-source-check.test.ts` exit 0 · mac - · c5a3c6200
+  - evidence: test-run pass · `pnpm test test/unit/other-turn-costs.test.ts test/contract/orchestrator.test.ts test/unit/assistant-usage-ledger.test.ts test/unit/vendor-driver-types.test.ts test/contract/terminal-ai-assist.test.ts test/unit/assistant-session.test.ts test/unit/assistant-source-check.test.ts` exit 0 · mac - · 6e5436d09
+  - evidence: test-run pass · `pnpm test test/unit/other-turn-costs.test.ts test/contract/orchestrator.test.ts test/contract/codex-orchestrator.test.ts test/contract/node-sessions.test.ts test/unit/assistant-usage-ledger.test.ts test/contract/terminal-ai-assist.test.ts test/unit/assistant-session.test.ts test/unit/assistant-source-check.test.ts` exit 0 · mac - · 9d8998b4b
 - [ ] Unit test `limitsShare` с ценой других ходов: доля Assistant-а меньше процента окна.
+  - evidence: test-run pass · `pnpm test test/unit/other-turn-costs.test.ts` exit 0 · mac - · c5a3c6200
+  - evidence: test-run pass · `pnpm test test/unit/other-turn-costs.test.ts test/contract/orchestrator.test.ts test/unit/assistant-usage-ledger.test.ts test/unit/vendor-driver-types.test.ts test/contract/terminal-ai-assist.test.ts test/unit/assistant-session.test.ts test/unit/assistant-source-check.test.ts` exit 0 · mac - · 6e5436d09
 - [ ] Test, что подключение зовёт `noteOtherTurn`: Session реестра, one-shot, narrator, Terminal AI — да; Session
       Assistant-а и проверка источника — нет.
+  - evidence: test-run pass · `pnpm test test/unit/other-turn-costs.test.ts test/unit/vendor-driver-types.test.ts test/contract/terminal-ai-assist.test.ts test/unit/assistant-session.test.ts test/unit/assistant-source-check.test.ts` exit 0 · mac - · c5a3c6200
+  - evidence: test-run pass · `pnpm test test/unit/other-turn-costs.test.ts test/contract/orchestrator.test.ts test/unit/assistant-usage-ledger.test.ts test/unit/vendor-driver-types.test.ts test/contract/terminal-ai-assist.test.ts test/unit/assistant-session.test.ts test/unit/assistant-source-check.test.ts` exit 0 · mac - · 6e5436d09
+  - evidence: test-run pass · `pnpm test test/unit/other-turn-costs.test.ts test/contract/orchestrator.test.ts test/contract/codex-orchestrator.test.ts test/contract/node-sessions.test.ts test/unit/assistant-usage-ledger.test.ts test/contract/terminal-ai-assist.test.ts test/unit/assistant-session.test.ts test/unit/assistant-source-check.test.ts` exit 0 · mac - · 9d8998b4b
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · c5a3c6200
+  - evidence: gate pass · `gate fast` exit 0 · mac - · c5a3c6200
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 6e5436d09
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 9d8998b4b
+
+## Итог
+
+- Новый модуль `src/main/agent/turn-cost.ts`: один sink цены «чужих» ходов. Приложение при старте направляет его в
+  журнал Assistant-а (`ledgerTurnCostSink(appAssistantUsage)`, `src/main/index.ts`, до первой Session). Без sink-а
+  (test-ы, до старта) цена никуда не пишется.
+- **Цена хода Session-а — прирост итога её беседы.** `total_cost_usd` — итог беседы: Claude Code при resume
+  восстанавливает его из записей `cost-state` транскрипта, а не начинает с нуля (найдено review PR #2284, линза
+  correctness). Журнал хранит последний итог каждой беседы в своём файле (`otherTotals` в `assistant/usage.json`,
+  срок хранения тот же, 8 дней) и считает ход как разницу с ним (`noteOtherTotal`, общее правило `costSinceLast`).
+  Так ход считается один раз через crash, relaunch Autopilot-а, Restart, новую Session той же беседы и перезапуск
+  worfy. Итог меньше прошлого (процесс ничего не восстановил) считается с нуля.
+- **Session-ы реестра** — Orchestrator, Session Node-ы, Session-ы Autopilot-а, Product Session: один observer
+  `turnCostObserver`, его подключает `sharedRegistry()` (`src/main/agent/app-registry.ts`) при создании реестра. Он
+  отдаёт каждый `result` как итог беседы под id Session-а (с первого init это id беседы SDK), а `renamed` — как
+  продолжение беседы под новым id в том же процессе (журнал переносит последний итог, если у нового id его нет).
+- **`CostCounter` Node-а Orchestrator-а** (`src/main/agent/orchestrator.ts`) — то же правило: новый процесс продолжает
+  от последнего итога беседы, который данные Node-а хранят отдельным полем `reportedUsd`
+  (`src/shared/ipc/orchestrator.ts`); `processEnded` и его вызовы (crash, relaunch) убраны.
+  Раньше после relaunch, crash или перезапуска worfy цена Node-а прибавляла всё прошлое беседы ещё раз.
+- **Запросы вне реестра** — один процесс Claude Code на один ход, поэтому их `total_cost_usd` и есть цена хода
+  (`noteOneTurnResult`): `readOneShot` (черновик профиля, Code story и вопрос по её строкам), narrator Product
+  Session-а (`narratorAskOver`), Terminal AI (`AssistService.attempt`; spare-процесс закрывается после каждого
+  запроса, ADR-0058).
+- **Не считаются**: Session Assistant-а (`runner.ts`) и проверка источника (`connector-check.ts`) идут мимо реестра и
+  мимо `noteOneTurnResult`, их пишет только `noteCall`. Codex-Session-ы приходят с `costUsd: 0` — ничего не пишется.
+- `docs/features/assistant.md` (английская): вместо «upper bound» — какие ходы считаются, что беседа после resume
+  продолжает восстановленный итог, и в какую сторону ошибается оценка: выше — на расход вне worfy и Linked machine
+  того же аккаунта; ниже — когда прошлое беседы считается снова (итог после resume меньше прошлого, resume после 8
+  дней без ходов). Русский перевод не трогался (ADR-0088).
+- Test-ы: `test/unit/other-turn-costs.test.ts` (реестр на fake agent, журнал — настоящий: два хода, crash и resume с
+  восстановленным итогом → всего 0.05; новая Session той же беседы после перезапуска worfy — новый журнал из того же
+  файла → прошлое не считается снова; новая беседа и итог меньше прошлого — с нуля; доля в `limitsShare` меньше
+  процента окна; `renamed`, прерванный ход, Codex; one-shot на `result` из `test/fixtures/sdk-messages/controls.jsonl`;
+  narrator), `test/contract/orchestrator.test.ts` (`CostCounter`; цена Node-а после перезапуска и после crash не
+  удваивается; Node старого кода и resume без восстановленного итога через перезапуск — второй раунд review; схема
+  данных Node-а с `reportedUsd` и без него), `test/unit/assistant-usage-ledger.test.ts` (`otherTotals` старше недели удаляются), `test/unit/vendor-driver-types.test.ts`
+  (реестр приложения отдаёт observer-у события с первого), `test/contract/terminal-ai-assist.test.ts` (два запроса —
+  две цены), `test/unit/assistant-session.test.ts` и `test/unit/assistant-source-check.test.ts` (ходы Assistant-а в
+  sink не попадают). Новые test-ы подключения сначала красные (5 упали), после правки зелёные.
+
+### Решено без владельца
+
+1. **Подключение — один sink и четыре места, а не одно общее место.** Общего места, через которое идут все `result`
+   SDK, нет: каждый путь сам зовёт `query()` (`vendors/claude/query.ts`, `one-shot.ts`, `narrator.ts`,
+   `terminal-ai.ts`, `assistant-session.ts`, `connector-check.ts`), а обёртка Limits `appLimits().observe` оборачивает
+   только фабрику Session-ов. Обёртка вокруг всех `query()` потребовала бы правки тех же мест и исключения для
+   Assistant-а. Выбрано: observer реестра для Session-ов и вызов `noteOneTurnResult` в трёх читателях вне реестра;
+   все — в один sink.
+2. **Sink ставит `src/main/index.ts`, а не модуль `agent` сам.** Модуль `src/main/agent/turn-cost.ts` не импортирует
+   Assistant, а test-ы без sink-а никогда не пишут в настоящий `usage.json`. Цена — одна строка в `index.ts`, файл вне
+   раздела «Где в коде».
+3. **Последний итог беседы хранится в файле журнала, а не в памяти observer-а** (после review PR #2284, которое нашло
+   восстановление итога при resume). Иначе каждый перезапуск worfy считал бы всё прошлое каждой возобновлённой беседы
+   ещё раз. Ключ — id беседы SDK; хранится 8 дней, как остальной журнал. Цена — запись файла на каждый ход с ростом
+   итога (её и так делал `noteOtherTurn`) и поле `otherTotals` в `usage.json`; прежняя сборка (Roll back) его
+   пропускает. Беседа, возобновлённая после 8 дней без ходов, считается заново — ошибка в сторону заниженной доли
+   Assistant-а. Первая версия PR сбрасывала счёт на `starting` и `error` — это было неверно.
+3а. **Итог меньше прошлого считается с нуля**: процесс ничего не восстановил, и его цифра — только новые ходы, так что
+   счёт точный. Перенос итога при `renamed` — только если у нового id итога нет. Ошибка остаётся, когда итог
+   восстановлен лишь частично: тогда прошлое считается снова.
+3б. **Последний итог беседы Node-а хранится в данных Node-а отдельным полем `reportedUsd`** (после второго раунда
+   review PR #2284). Сохранённая цена Node-а `costUsd` равна итогу беседы, только пока ничего не сломалось: после
+   процесса, который ничего не восстановил, и у Node-а, сохранённого старым кодом, она больше. Если считать её
+   последним итогом, следующий итог шёл бы с нуля при каждом перезапуске worfy и открытии Orchestrator-а, и цена росла
+   бы без конца. Node без поля (сохранён до этого Ticket-а): первый `result` после старта берётся как восстановленный
+   итог и ничего не добавляет. Цена этого — ход первого `result` в цену Node-а не войдёт: какая часть итога его, не
+   известно. Новая беседа пишет `reportedUsd: 0`. Прежняя сборка поле не читает (`readOrchestratorData` берёт только
+   ключи своей схемы); если она, запущенная через Roll back, обновит `costUsd`, а `reportedUsd` оставит старым, следующий
+   ход в новой сборке добавит и её ходы — завышение один раз.
+4. **Ход без ответа тоже считается**: one-shot с `error_max_turns`, прерванный ход — цена уже потрачена. Прерванный ход
+   Claude Code повторяет прежнюю цифру (`controls.jsonl`), и разница 0 ничего не пишет.
+5. **Цена пишется и при выключенном Assistant-е.** Окно Limits начинается раньше включения, и доля после включения
+   должна видеть ходы с начала окна. Файл `assistant/usage.json` уже есть в описи состояния (ADR-0005, PR #2282).
+6. Не ходы и не считаются: запрос Limits (`usage`) и опрос MCP (inventory) — модель не вызывается.

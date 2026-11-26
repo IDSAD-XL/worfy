@@ -83,6 +83,7 @@ import type { TranscriptFacts } from './orchestrator-transcript'
 import { closeRefusal } from './resume'
 import { EXIT_WAIT_MS, HALT_TURN_MS, type EventSink, type Session, type SessionRegistry } from './session'
 import { ATTENDED, type SessionLaunch } from './session-settings'
+import { costSinceLast } from './turn-cost'
 import type { LaunchApproval } from './auto-approve/run-approval'
 
 /**
@@ -101,32 +102,46 @@ export function orchestratorPlace(nodes: readonly LayoutNode[]): { x: number; y:
 }
 
 /**
- * The cost of a Session across the Claude Code processes that ran it. Claude Code reports
- * `total_cost_usd` per process, growing with every turn (test/fixtures/sdk-messages/controls.jsonl);
- * a new process — after a crash, or after a restart of the app — counts from zero again.
+ * The cost of a Session's conversation across the Claude Code processes that ran it. Claude Code reports
+ * `total_cost_usd` as the conversation's running total, growing with every turn
+ * (test/fixtures/sdk-messages/controls.jsonl), and a process that resumes the conversation — after a crash, a
+ * relaunch or a restart of the app — restores it (worfy-assistant ticket 27): each result adds only the rise since the
+ * last one (costSinceLast, turn-cost.ts). A smaller figure comes from a process that restored nothing and counts from
+ * zero.
  */
 export class CostCounter {
-  private run = 0
+  private totalValue: number
+  private last: number | undefined
+  /** The Node's data has a cost but no last report (saved before reportedUsd): the first result is the restored total. */
+  private adopt: boolean
 
-  /** `base`: what the earlier processes cost, as kept in the Node's data. */
-  constructor(private base: number) {}
+  /**
+   * `saved`: the cost kept in the Node's data; `reported`: the last total its conversation reported, kept apart
+   * (reportedUsd), since the two part as soon as a process restores nothing or a Node was saved by an older build.
+   */
+  constructor(saved: number, reported?: number) {
+    this.totalValue = saved
+    this.last = reported
+    this.adopt = reported === undefined && saved > 0
+  }
 
   get total(): number {
-    return this.base + this.run
+    return this.totalValue
+  }
+
+  /** The last total the conversation reported, for the Node's data; undefined before the first result of a new one. */
+  get reported(): number | undefined {
+    return this.last
   }
 
   /** A turn's `result`; answers the new total. */
   result(costUsd: number): number {
-    // A smaller figure than the last one can only come from a new process.
-    if (costUsd < this.run) this.processEnded()
-    this.run = costUsd
-    return this.total
-  }
-
-  /** The process died; the next one starts from zero. */
-  processEnded(): void {
-    this.base += this.run
-    this.run = 0
+    // shortcut: without a saved report, the first result's own turn is not added (its share of the restored total is
+    // unknown); a Node saved by this build always has the report.
+    if (!this.adopt) this.totalValue += costSinceLast(this.last, costUsd)
+    this.adopt = false
+    this.last = costUsd
+    return this.totalValue
   }
 }
 
@@ -632,7 +647,7 @@ export class Orchestrators {
       cancelled: false,
       ready: Promise.resolve(),
       run: null,
-      cost: new CostCounter(saved.costUsd ?? 0),
+      cost: new CostCounter(saved.costUsd ?? 0, saved.reportedUsd),
       savedSessionId: saved.sessionId ?? null,
       savedVendor: saved.vendor ?? UNNAMED_VENDOR,
       vendor: UNNAMED_VENDOR,
@@ -785,7 +800,7 @@ export class Orchestrators {
           entry.savedVendor = entry.vendor
           entry.cost = new CostCounter(0)
           next.costUsd = 0
-          this.patch(entry, { sessionId: event.sdkSessionId, costUsd: 0, ...vendor })
+          this.patch(entry, { sessionId: event.sdkSessionId, costUsd: 0, reportedUsd: 0, ...vendor })
           break
         }
         run.initSeen = true
@@ -799,7 +814,6 @@ export class Orchestrators {
         next.error = event.error
         if (inTurn(event.state) && (run.session?.backgroundTasks().length ?? 0) === 0) run.turnSinceTasks = true
         if (event.state === 'error') {
-          entry.cost.processEnded()
           if (run.resume !== undefined && !run.initSeen && NO_CONVERSATION.test(event.error ?? '')) {
             this.startOver(entry, run)
             return
@@ -827,7 +841,7 @@ export class Orchestrators {
         next.costUsd = entry.cost.result(event.costUsd)
         // A result follows its Session's init on both Vendors (Claude Code's system init, Codex's
         // turn/started), so the Node already names the new Vendor's session here (leaveSession).
-        this.patch(entry, { costUsd: next.costUsd })
+        this.patch(entry, { costUsd: next.costUsd, ...(entry.cost.reported === undefined ? {} : { reportedUsd: entry.cost.reported }) })
         break
       case 'text': {
         // Only the Orchestrator's own answers: not a subagent's, and not text Claude Code wrote.
@@ -883,8 +897,8 @@ export class Orchestrators {
       old.session?.close()
       oldExit = old.session?.exited(this.deps.exitWaitMs ?? EXIT_WAIT_MS)
     }
-    // A new Claude Code process reports its cost from zero.
-    entry.cost.processEnded()
+    // The new process restores the conversation's cost when it resumes it (CostCounter); a fresh one is counted from
+    // zero at its init.
     const view = this.current(entry)
     if (fresh) this.launch(entry, undefined, { model: view.model, statusBlock: null }, oldExit, true)
     else this.launch(entry, entry.savedSessionId ?? undefined, { model: view.model, statusBlock: view.statusBlock }, oldExit)
@@ -956,7 +970,7 @@ export class Orchestrators {
     entry.cost = new CostCounter(0)
     const vendor = entry.vendor === entry.savedVendor ? {} : { vendor: entry.vendor }
     entry.savedVendor = entry.vendor
-    this.patch(entry, { sessionId: null, costUsd: 0, ...vendor })
+    this.patch(entry, { sessionId: null, costUsd: 0, reportedUsd: 0, ...vendor })
   }
 
   /** The Epic of the run that holds the Project's Orchestrator (deps.waveEpic); null without one, or when the ask fails. */

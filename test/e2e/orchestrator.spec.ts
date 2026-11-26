@@ -200,8 +200,10 @@ test('the Orchestrator Node: locked, live on the fake agent with its state, cost
     }
     savedSessionId = (await orchestratorNodes(window))[0]?.data.sessionId
     expect(savedSessionId).toMatch(/^[0-9a-f-]{36}$/)
-    // The Layout keeps only what nothing else records: the session to resume and the summed cost.
-    expect((await orchestratorNodes(window))[0]?.data).toStrictEqual({ sessionId: savedSessionId, costUsd: 0.03 })
+    // The Layout keeps only what nothing else records: the session to resume, the summed cost and the last total the
+    // conversation reported (worfy-assistant ticket 27). The fake agent's three results are running totals of one process
+    // (0.0125, 0.02, 0.03 in test/fixtures/agent-scripts/orchestrator.jsonl), so both are the last of them.
+    expect((await orchestratorNodes(window))[0]?.data).toStrictEqual({ sessionId: savedSessionId, costUsd: 0.03, reportedUsd: 0.03 })
   } finally {
     await first.close()
   }

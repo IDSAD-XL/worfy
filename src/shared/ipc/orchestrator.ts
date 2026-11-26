@@ -3,8 +3,8 @@
 // src/main/ipc/orchestrator.ts (ADR-0006).
 //
 // The Node's `data` in the Layout keeps only what nothing else records (ADR-0010): the SDK session
-// id the Session resumes after a restart, the Vendor of that session (worfy-multi-vendor ticket 37)
-// and the cost summed over the processes that ran it. The model, effort and permission mode the user picked (ticket 19) are kept outside the
+// id the Session resumes after a restart, the Vendor of that session (worfy-multi-vendor ticket 37),
+// the cost summed over the processes that ran it and the last total its conversation reported. The model, effort and permission mode the user picked (ticket 19) are kept outside the
 // Layout, in src/main/agent/session-settings.ts.
 // The rest of what the Node shows is not stored by worfy (ADR 0002, ADR 0005): the model and the
 // last status block are read from the Session's transcript when the Orchestrator opens and then
@@ -31,6 +31,13 @@ export const orchestratorDataSchema = z.object({
   sessionId: z.string().min(1).nullable().optional(),
   /** What the Session has cost so far, over every Claude Code process that ran it, in USD. */
   costUsd: z.number().nonnegative().optional(),
+  /**
+   * The last running total the session's conversation reported (`total_cost_usd`, worfy-assistant ticket 27): Claude
+   * Code restores it when it resumes the conversation, so the next result adds only its rise (CostCounter,
+   * src/main/agent/orchestrator.ts). It equals costUsd only while nothing went wrong, so it is kept apart. Absent in a
+   * Node saved before it: the first result after the start is taken as the restored total.
+   */
+  reportedUsd: z.number().nonnegative().optional(),
   /**
    * The Vendor whose session `sessionId` is (worfy-multi-vendor ticket 37); absent — Claude Code, as
    * in every Node saved before that ticket.

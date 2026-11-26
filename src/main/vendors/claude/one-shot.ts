@@ -23,6 +23,7 @@ import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { DEFAULT_SETTINGS } from '../../../shared/agent/settings'
 import type { CanUseToolHandler } from '../../agent/permissions'
 import type { QueryHandle, QueryRequest } from '../../agent/session'
+import { noteOneTurnResult } from '../../agent/turn-cost'
 import type { OneShot } from '../one-shot'
 import { GUARDED_TOOLS, readScope, type ReadScope } from './read-guard'
 
@@ -165,14 +166,16 @@ export type OneShotEnd =
 /**
  * Reads Claude Code's messages of a single request up to its result, telling `onActivity` what it
  * does. The one reading of the SDK's result: claudeOneShot and the profile draft
- * (src/main/projects/connect.ts) both read through it, each with its own texts. Does not close
- * `query`.
+ * (src/main/projects/connect.ts) both read through it, each with its own texts. The result's cost, answer or not, goes
+ * to the cost of the turns that are not the Assistant's (turn-cost.ts): a single request is one process of one turn.
+ * Does not close `query`.
  */
 export async function readOneShot(query: AsyncIterable<unknown>, onActivity?: (text: string) => void): Promise<OneShotEnd> {
   for await (const message of query) {
     const activity = activityOf(message)
     if (activity !== null) onActivity?.(activity)
     if (!isRecord(message) || message.type !== 'result') continue
+    noteOneTurnResult(message)
     if (message.subtype !== 'success' || message.structured_output === undefined) {
       const errors = Array.isArray(message.errors) ? message.errors.map(String).join('; ') : ''
       return { kind: 'no-answer', detail: `${String(message.subtype)}${errors ? `: ${errors}` : ''}` }

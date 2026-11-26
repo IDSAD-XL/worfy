@@ -416,9 +416,13 @@ hooks](skills-agents-and-hooks.md)). The Assistant runs on Claude Code only, not
 
 **The estimate.** worfy sees only how much of a Limits window is used, never one call's part. It notes the cost of every
 call of the Assistant and estimates its share as the window's use times the Assistant's part of the cost of all turns
-worfy noted since the window began. Claude used outside worfy is not seen, so the estimate errs high. worfy does not
-note the turns of other Sessions, so once the Assistant made a call in a window, the estimate equals the window's whole
-use: read it as an upper bound.
+worfy noted since the window began. The other turns are every turn worfy runs on Claude Code besides the Assistant's
+own: the Orchestrator, Session Nodes, Autopilot's Sessions, Product Sessions and their narrator, Terminal AI, the
+profile draft and Code stories. Each turn is noted once, at what it cost: a resumed conversation goes on from the cost
+Claude Code restores for it, after a crash, a relaunch or a restart of worfy alike. The estimate errs high by Claude
+used outside worfy, and by a Linked machine on the same Claude account: each Machine counts only its own turns. It errs
+low when worfy counts a conversation's past again: when it is resumed after more than 8 days without a turn, or when
+Claude Code restored only part of its total.
 
 ### Implementation
 
@@ -427,6 +431,7 @@ use: read it as an upper bound.
 | The decision to wake, its file `assistant/wake.json` | `src/main/assistant/wake/` |
 | The check before a wake | `src/main/assistant/budget/wake-gate.ts`, `src/main/agent/limits-gate.ts` |
 | The usage ledger `assistant/usage.json`, the estimate | `src/main/assistant/budget/ledger.ts`, `src/shared/assistant/budget.ts` |
+| The cost of the other turns, noted once each | `src/main/agent/turn-cost.ts` |
 | The Session of the Assistant | `src/main/vendors/claude/assistant-session.ts`, `src/main/assistant/session/` |
 | The MCP server `worfy-app` and its rules | `src/main/mcp/app-server.ts`, `src/shared/assistant/app-tools.ts`, `src/main/mcp/agent-instructions-app.md` |
 

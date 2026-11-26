@@ -23,6 +23,7 @@ import { API_KEY_VARS, withoutApiKeys, type Env } from '../../agent/env'
 import { FakeReleases, fakeQueryFactory } from '../../agent/fake-query'
 import { NARRATOR_SYSTEM_PROMPT, type NarratorAsk, type NarratorCadence } from '../../agent/narrator'
 import type { QueryFactory } from '../../agent/session'
+import { noteOneTurnResult } from '../../agent/turn-cost'
 import { oneMessage } from './one-shot'
 import { claudeExecutablePath, type RuntimeInfo } from './options'
 import { HAIKU_MODEL_ID } from './terminal-ai'
@@ -79,7 +80,8 @@ const stopped = (): Error => new Error('the request was stopped')
 /**
  * The narrator's request over `start`: the digest as the one user message, no tool allowed, the text of the
  * turn's `result` as the answer. Rejects when the result is an error or never comes, and when `signal` stops it;
- * the query is closed in every case.
+ * the query is closed in every case. The result's cost goes to the cost of the turns that are not the Assistant's
+ * (turn-cost.ts): one request is one process of one turn.
  */
 export const narratorAskOver =
   (start: QueryFactory, cwd: string): NarratorAsk =>
@@ -105,6 +107,7 @@ export const narratorAskOver =
       for await (const message of query) {
         if (signal.aborted) break
         if (!isRecord(message) || message.type !== 'result') continue
+        noteOneTurnResult(message)
         if (message.subtype === 'success' && message.is_error !== true && typeof message.result === 'string') return message.result
         const errors = Array.isArray(message.errors) ? `: ${message.errors.map(String).join('; ')}` : ''
         throw new Error(`no line from ${NARRATOR_MODEL} (${String(message.subtype)}${errors})`)

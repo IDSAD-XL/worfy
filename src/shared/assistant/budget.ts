@@ -71,10 +71,16 @@ export const usageLedgerSchema = z.object({
   calls: z.array(usageCallSchema),
   /** The cost of the turns of every other Session worfy ran, in USD, by the start of the hour (ms, as a string key). */
   otherCost: z.record(z.string(), z.number().nonnegative()),
+  /**
+   * The last running total in USD each conversation of another Session reported, and when (worfy-assistant ticket 27):
+   * Claude Code restores it when it resumes the conversation, so its next turn costs only the rise. Absent in a file
+   * written before it: none known.
+   */
+  otherTotals: z.record(z.string(), z.object({ totalUsd: z.number().nonnegative(), at: z.number() })).default({}),
 })
 export type UsageLedger = z.infer<typeof usageLedgerSchema>
 
-export const emptyUsageLedger = (): UsageLedger => ({ wakes: [], calls: [], otherCost: {} })
+export const emptyUsageLedger = (): UsageLedger => ({ wakes: [], calls: [], otherCost: {}, otherTotals: {} })
 
 export interface TokenTotals {
   calls: number
@@ -220,5 +226,6 @@ export function pruneUsage(ledger: UsageLedger, now: number): UsageLedger {
     wakes: ledger.wakes.filter((wake) => wake.at >= from),
     calls: ledger.calls.filter((call) => call.at >= from),
     otherCost: Object.fromEntries(Object.entries(ledger.otherCost).filter(([hour]) => Number(hour) >= from - HOUR_MS)),
+    otherTotals: Object.fromEntries(Object.entries(ledger.otherTotals).filter(([, last]) => last.at >= from)),
   }
 }
