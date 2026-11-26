@@ -16,7 +16,9 @@ import { closeCard, itemAction, prepareItem, rate, snoozeItem, undoDislike, type
 export function RateButtons({ target, rating, item, from }: { target: RatingTarget; rating: Rating | null; item?: WindowItem; from?: 'say' }): ReactElement {
   const press = (next: Rating) => {
     void rate(target, rating === next ? null : next, item)
-    if (from === 'say' && item !== undefined && next === 'dislike') closeCard(item.id)
+    // On the card, like or dislike is the answer to it: main keeps the item as told by the card, and the card goes on to
+    // what is new since its last Close (worfy-polish 161).
+    if (from === 'say' && item !== undefined) closeCard([item.id], true)
   }
   return (
     <span className="w-asst-rate">
@@ -40,7 +42,7 @@ function SnoozeButton({ item, from }: { item: WindowItem; from?: 'say' }): React
   const [open, setOpen] = useState(false)
   const pick = (choice: SnoozeChoice) => {
     void snoozeItem(item.id, choice)
-    if (from === 'say') closeCard(item.id)
+    if (from === 'say') closeCard([item.id], false)
   }
   return (
     <Menu
@@ -74,8 +76,9 @@ function SnoozeButton({ item, from }: { item: WindowItem; from?: 'say' }): React
 
 /** The buttons of an item: in the list, or on the speech card (`say`), which has no Dismiss and closes once used. */
 export function ItemActions({ item, from }: { item: WindowItem; from?: 'say' }): ReactElement {
-  const used = () => {
-    if (from === 'say') closeCard(item.id)
+  // Open takes the item off the card itself (it is seen); Prepare leaves it waiting, so main keeps it as told by the card.
+  const used = (told: boolean) => {
+    if (from === 'say') closeCard([item.id], told)
   }
   return (
     <div className="w-asst-actions">
@@ -91,7 +94,7 @@ export function ItemActions({ item, from }: { item: WindowItem; from?: 'say' }):
           className="w-asst-button"
           data-action="open"
           onClick={() => {
-            used()
+            used(false)
             void openItem(item)
           }}
         >
@@ -106,7 +109,7 @@ export function ItemActions({ item, from }: { item: WindowItem; from?: 'say' }):
           data-action="prepare"
           title="See the exact text of the Session before it starts"
           onClick={() => {
-            used()
+            used(true)
             prepareItem(item)
           }}
         >

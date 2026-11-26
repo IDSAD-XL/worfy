@@ -1,9 +1,10 @@
 // The Assistant's own notifications in the window (worfy-assistant ticket 14; spec, UI; owner's decision 17): one speech
 // card at a time next to its rail icon, the rest as the number on the icon; nothing while it is off or while its section
-// is in front of the user.
+// is in front of the user. Close closes the card as a whole (worfy-polish 161): what it told of stays off it, and a
+// backlog before the first Close is one line.
 import { describe, expect, it } from 'vitest'
 import type { AssistantView, WindowItem } from '../../src/shared/assistant/window'
-import { assistantBadge, shownItemIds, speechQueue } from '../../src/renderer/assistant/speech'
+import { assistantBadge, shownItemIds, speechCard, speechQueue, stillClosed } from '../../src/renderer/assistant/speech'
 
 const item = (id: string, over: Partial<WindowItem> = {}): WindowItem => ({
   id,
@@ -96,5 +97,36 @@ describe('what the window reports as shown to the user (review round 1)', () => 
 
   it('nothing while the Assistant is off', () => {
     expect(shownItemIds(view(items, false), true, 'waits', [items[0]!])).toEqual([])
+  })
+})
+
+describe('the card closes as a whole (worfy-polish 161)', () => {
+  const many = Array.from({ length: 56 }, (_, i) => item(`i${i + 1}`))
+  const backlog = (items: WindowItem[]): AssistantView => ({ ...view(items), cardBacklog: true })
+
+  it('tells nothing of the items it already told of; they stay in the list and on the icon', () => {
+    const v = view([...many.map((each) => ({ ...each, cardSeen: true })), item('fresh')])
+    const queue = speechQueue(v, new Set(), false)
+    expect(queue.map((each) => each.id)).toEqual(['fresh'])
+    expect(speechCard(v, queue)).toMatchObject({ kind: 'item', item: { id: 'fresh' }, more: 0 })
+    const closed = view(many.map((each) => ({ ...each, cardSeen: true })))
+    expect(speechCard(closed, speechQueue(closed, new Set(), false))).toBeNull()
+    expect(assistantBadge(closed, speechQueue(closed, new Set(), false))).toMatchObject({ count: 56, label: '56 items wait for you' })
+  })
+
+  it('before the first Close sums a backlog up in one line, never its oldest item, and counts none of it as shown', () => {
+    const v = backlog(many)
+    const queue = speechQueue(v, new Set(), false)
+    expect(speechCard(v, queue)).toEqual({ kind: 'backlog', count: 56 })
+    expect(shownItemIds(v, false, 'waits', queue)).toEqual([])
+    expect(assistantBadge(v, queue)).toMatchObject({ count: 56, label: '56 items wait for you' })
+    // A single item is no backlog: the card tells of it.
+    expect(speechCard(backlog([item('one')]), [item('one')])).toMatchObject({ kind: 'item', item: { id: 'one' } })
+  })
+
+  it("keeps an item off the card after a click only until main's view does the same", () => {
+    const v = view([item('a'), item('b', { cardSeen: true }), item('c', { state: 'snoozed' })])
+    expect(stillClosed(['a', 'b', 'c', 'gone'], v)).toEqual(['a'])
+    expect(stillClosed(['a'], null)).toEqual(['a'])
   })
 })

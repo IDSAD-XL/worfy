@@ -17,8 +17,12 @@
 //   item here, and a Session starts only in a Project of this Machine. waiting() is what a Linked machine reads of this
 //   one: this Machine's own items, words and times only, never what it read from another Machine.
 //
-// Nothing here runs a model or sends anything out of worfy. The snoozes, the ratings and the conversation are kept in
-// the section's own file (store.ts).
+// - The speech card (worfy-polish 161): Close closes the card as a whole. Every item it would tell of then counts as told
+//   by the card until a new event comes on it or it turns urgent; the item itself stays as it was. Until the first Close
+//   the view says the card has a backlog, and the card sums it up in one line.
+//
+// Nothing here runs a model or sends anything out of worfy. The snoozes, the ratings, the conversation and what the
+// card told of are kept in the section's own file (store.ts).
 import { createHash, randomUUID } from 'node:crypto'
 import type { ActionJournalLine, ActionRefusal } from '../../../shared/assistant/actions'
 import { LINKED_ITEMS_MAX, linkedItemOf, type LinkedMachineWaits, type LinkedWaits } from '../../../shared/assistant/linked'
@@ -218,6 +222,9 @@ const ruleHides = (rule: MemoryRule, item: AttentionItem): boolean => rule.duty 
 
 const ratingKey = (target: RatingTarget): string => `${target.kind}:${target.id}`
 
+/** Whether the speech card told of the item as it is now: closed over it, and no event came on it nor did it turn urgent since. */
+const cardTold = (told: { events: number; urgent: boolean } | undefined, item: AttentionItem): boolean => told !== undefined && told.events === item.events && told.urgent === isUrgentItem(item)
+
 export class AssistantWindow {
   private readonly listeners = new Set<() => void>()
   private pending = false
@@ -315,6 +322,22 @@ export class AssistantWindow {
     if (items.length > 0) this.deps.duties.look(items)
   }
 
+  /**
+   * The user closed the speech card over these items (`assistant.cardClosed`): each counts as told by the card as it is
+   * now. Nothing else of the item changes — its state, its duty's counts, the list. Marks of items no longer there go.
+   */
+  cardClosed(itemIds: readonly string[]): void {
+    const ids = new Set(itemIds)
+    const items = this.allItems()
+    const before = this.load().card?.told ?? {}
+    const told: Record<string, { events: number; urgent: boolean }> = {}
+    for (const item of items) {
+      if (ids.has(item.id)) told[item.id] = { events: item.events, urgent: isUrgentItem(item) }
+      else if (before[item.id] !== undefined) told[item.id] = before[item.id]!
+    }
+    this.save((state) => void (state.card = { told }))
+  }
+
   /** The view the window draws. */
   view(): AssistantView {
     const now = this.deps.now()
@@ -329,6 +352,7 @@ export class AssistantWindow {
     // A proposal that changes a setting has its card among the proposals, never on its item (ticket 15).
     for (const proposal of proposals) if (proposal.item !== null && proposal.change == null && !proposalOf.has(proposal.item)) proposalOf.set(proposal.item, proposal)
     const snoozes = new Map(this.load().snoozes.map((snooze) => [snooze.itemId, snooze]))
+    const card = this.load().card
 
     const windowItem = (item: AttentionItem, shown?: ShownItem): WindowItem => {
       const proposal = proposalOf.get(item.id)
@@ -362,6 +386,7 @@ export class AssistantWindow {
         open: openTargetOf(item, this.deps.nodeOf),
         rating: this.rating({ kind: 'item', id: item.id }),
         ...(item.state === 'snoozed' ? { snoozedUntil: snooze?.until ?? null } : {}),
+        ...(cardTold(card?.told[item.id], item) ? { cardSeen: true } : {}),
       }
     }
 
@@ -432,6 +457,7 @@ export class AssistantWindow {
       workHours: inWorkHours(now, this.deps.workHours()),
       linked: [...(this.deps.linked?.() ?? [])],
       offer: this.deps.offer?.() ?? { ...NO_OFFER },
+      ...(card === undefined ? { cardBacklog: true } : {}),
     }
   }
 

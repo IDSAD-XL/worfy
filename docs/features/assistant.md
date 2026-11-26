@@ -185,8 +185,9 @@ is not in the list.
 
 **The view.** main builds the whole view from the core, the duties, the proposals, the journal and the usage ledger; the
 window only draws it and sends every click back to main. An item counts as shown to its duty only when the window really
-shows it: in the open section on Waits, or on the speech card, and only while the Assistant is on. Snoozes, ratings and
-the conversation (its last 200 messages) are in the section's own file. Nothing here runs a model or sends anything out
+shows it: in the open section on Waits, or on the speech card, and only while the Assistant is on. Snoozes, ratings,
+the conversation (its last 200 messages) and what the speech card told of when it was last closed are in the section's
+own file. Nothing here runs a model or sends anything out
 of worfy. Every channel `assistant.*` is local to this Machine, except `assistant.waiting`, which a Linked machine reads
 ([ADR-0066](../adr/0066-read-only-access-for-a-linked-machine.md)).
 
@@ -448,8 +449,15 @@ The Assistant's notifications are its own, apart from worfy's toasts at the righ
 notifications ([Notifications](notifications.md)). Both kinds come only while the Assistant is on.
 
 - **In the window**, a speech card next to the Assistant's rail icon, at the left edge, in its colour: an item with
-  Open, Prepare, Snooze, like and dislike, and Close, which leaves it in the list. One card at a time; the icon shows
-  how many more wait ("+2"), or without a card how many items wait. No card while the section is in front. Settings →
+  Open, Prepare, Snooze, like and dislike. One card at a time; the icon shows how many more wait ("+2"), or without a
+  card how many items wait. No card while the section is in front. Open, Prepare, Snooze, like and dislike act on the
+  item shown, and the card goes on to the next item that is new since its last Close, or closes.
+- **Close** (×) or Escape closes the card as a whole. Every item it would tell of then counts as told by the card; the
+  items stay in the list in their state, and the icon still counts them — Close is not Dismiss. The card shows again
+  only for what comes after: a new item, a new event on an item, or an item that turns urgent. What the card told of is
+  kept in the section's own file, so a restart or an update does not bring the backlog back. A click outside the card
+  leaves it as it is. Until the card is closed for the first time, a backlog of several items is one line, "N waiting
+  in Assistant", with the link to the section, not its oldest item; one Close clears it. Settings →
   Assistant → General → Notifications → "In the window": "Urgent and batched" (by default), "Urgent only" or "None: the
   list only". The number on the icon and the list stay with any choice.
 - **System notifications**, while worfy is not in front: only of an urgent item, only in work hours, titled "worfy
@@ -473,7 +481,8 @@ duty.
 | The speech card and the rail badge | `src/renderer/assistant/AssistantSpeech.tsx`, `src/renderer/assistant/speech.ts` |
 | System notifications | `src/main/assistant/window/notices.ts`, `src/main/assistant/window/reveal.ts` |
 
-Main tests: `test/unit/assistant-speech.test.tsx`, `test/unit/assistant-window-app.test.ts`.
+Main tests: `test/unit/assistant-speech.test.tsx`, `test/unit/assistant-speech-card.test.tsx`,
+`test/unit/assistant-window.test.ts`, `test/unit/assistant-window-app.test.ts`, `test/contract/assistant-card-closed.test.ts`.
 
 ## What the Assistant never does
 
@@ -517,7 +526,7 @@ The Assistant's state is in worfy's data folder only, never in a repository
 | `assistant/journal.json` | The journal of actions, 14 days |
 | `assistant/wake.json` | What the decision to wake has handed to the Assistant |
 | `assistant/usage.json` | The usage ledger, 8 days |
-| `assistant/window.json` | The section's snoozes, ratings and conversation |
+| `assistant/window.json` | The section's snoozes, ratings and conversation, and what the speech card told of |
 | `assistant/intro.json` | The offer and the introduction |
 | `assistant/session` | The empty folder its Sessions run in |
 | `assistant-check-marks.json` | The last start, the last success and the failures in a row of each check |

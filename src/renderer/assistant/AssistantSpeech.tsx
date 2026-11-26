@@ -2,16 +2,19 @@
 // next to its icon on the rail, at the left edge of the window, in its colour — apart from worfy's toasts at the right
 // edge. It carries the item, like and dislike, Open, Prepare and Snooze; one card at a time, the rest is the number on the
 // icon (speech.ts). The section's rail badge is set here, as the card and the count go together. The card follows the
-// rail button; with the sidebar hidden it stands at the left edge under the toolbar.
-import { useEffect, useLayoutEffect, useState, type ReactElement } from 'react'
+// rail button; with the sidebar hidden it stands at the left edge under the toolbar. Close and Escape close the card as a
+// whole (worfy-polish 161); a click outside it leaves it as it is.
+import { useCallback, useEffect, useLayoutEffect, useState, type ReactElement } from 'react'
 import { inWindowOf } from '../../shared/assistant/settings'
 import { windowMachine } from '../ipc'
 import { useAppSettings } from '../settings/useAppSettings'
 import { setRailBadge, useSidebarScope } from '../shell/sidebar-scope'
+import { isInTerminalNode, isTextTarget } from '../shortcuts/match'
+import { layerOf } from '../theme/open-layers'
 import { Icon, Spark } from './icons'
 import { ItemActions, ItemHead, ItemMeta, ItemSource } from './parts'
 import { PrepareDialog } from './PrepareDialog'
-import { assistantBadge, shownItemIds, speechQueue } from './speech'
+import { assistantBadge, shownItemIds, speechCard, speechQueue } from './speech'
 import { ASSISTANT_SECTION, closeCard, followAssistant, reportShown, revealAssistant, useAssistant } from './useAssistant'
 
 /** Where the card stands: right of the rail button, its top at the button's, or the left edge under the toolbar. */
@@ -36,6 +39,13 @@ function useAnchor(): { left: number; top: number } {
   return anchor
 }
 
+/** Whether an Escape belongs to the card: not to a place to type, a Terminal, an open menu or dialog, nor to a handler that took it. */
+function escapeForCard(event: KeyboardEvent): boolean {
+  if (event.key !== 'Escape' || event.defaultPrevented) return false
+  if (isTextTarget(event.target) || isInTerminalNode(event.target) || layerOf(event.target) !== null) return false
+  return useAssistant.getState().prepare === null
+}
+
 /** `sidebarVisible`: whether the sidebar is on screen, as the shell knows it (AppShell.tsx). */
 export function AssistantSpeech({ sidebarVisible }: { sidebarVisible: boolean }): ReactElement | null {
   const view = useAssistant((state) => state.view)
@@ -51,47 +61,72 @@ export function AssistantSpeech({ sidebarVisible }: { sidebarVisible: boolean })
   const sectionShown = sidebarVisible && saved === ASSISTANT_SECTION
   // A window of a Linked machine shows that Machine's Projects; the Assistant is this Machine's.
   const queue = windowMachine() === null ? speechQueue(view, new Set(closed), sectionShown, inWindow) : []
+  const card = speechCard(view, queue)
   const badge = windowMachine() === null ? assistantBadge(view, queue) : undefined
   useEffect(() => setRailBadge(ASSISTANT_SECTION, badge), [badge?.count, badge?.label]) // eslint-disable-line react-hooks/exhaustive-deps -- the badge is a fresh object each render
   useEffect(() => () => setRailBadge(ASSISTANT_SECTION, undefined), [])
   // What the user sees now counts as shown at its duty; the view main sends counts nothing.
   const shown = windowMachine() === null ? shownItemIds(view, sectionShown, tab, queue).join('\n') : ''
   useEffect(() => reportShown(shown === '' ? [] : shown.split('\n')), [shown])
-  const item = queue[0]
+  // Close (and Escape) closes the card as a whole: every item it would tell of now counts as told by it (worfy-polish
+  // 161). The items stay in the list, in their state; the card speaks again only of what comes after.
+  const ids = queue.map((each) => each.id).join('\n')
+  const close = useCallback(() => closeCard(ids === '' ? [] : ids.split('\n'), true), [ids])
+  useEffect(() => {
+    if (card === null) return
+    const onKey = (event: KeyboardEvent) => {
+      if (!escapeForCard(event)) return
+      event.preventDefault()
+      close()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [card === null, close]) // eslint-disable-line react-hooks/exhaustive-deps -- the card is a fresh object each render
   return (
     <>
       <PrepareDialog />
-      {item === undefined ? null : (
-        <div className="w-asst-say" role="status" aria-label="Assistant" data-testid="assistant-say" data-item-id={item.id} style={{ left: anchor.left, top: anchor.top }}>
+      {card === null ? null : (
+        <div
+          className="w-asst-say"
+          role="status"
+          aria-label="Assistant"
+          data-testid="assistant-say"
+          {...(card.kind === 'item' ? { 'data-item-id': card.item.id } : { 'data-backlog': card.count })}
+          style={{ left: anchor.left, top: anchor.top }}
+        >
           <div className="w-asst-say__inner">
             <div className="w-asst-say__head">
               <span className="w-asst-avatar w-asst-avatar--small">
                 <Spark size={11} />
               </span>
               <b>Assistant</b>
-              {item.urgent ? (
+              {card.kind === 'item' && card.item.urgent ? (
                 <span className="w-asst-chip w-asst-chip--urgent">
                   <Icon name="bolt" size={12} />
                   Urgent
                 </span>
               ) : null}
               <span className="w-asst-say__gap" />
-              <button type="button" className="w-asst-icon-button" aria-label="Close" title="Close: it stays in the Assistant list" onClick={() => closeCard(item.id)}>
+              <button type="button" className="w-asst-icon-button" aria-label="Close" title="Close: everything stays in the Assistant list" onClick={close}>
                 <Icon name="x" />
               </button>
             </div>
-            <div className="w-asst-say__body">
-              <ItemHead item={item} />
-              <ItemMeta item={item} />
-              <ItemSource item={item} />
-            </div>
-            <ItemActions item={item} from="say" />
-            {queue.length > 1 ? (
+            {card.kind === 'item' ? (
+              <>
+                <div className="w-asst-say__body">
+                  <ItemHead item={card.item} />
+                  <ItemMeta item={card.item} />
+                  <ItemSource item={card.item} />
+                </div>
+                <ItemActions item={card.item} from="say" />
+              </>
+            ) : (
+              <div className="w-asst-say__body w-asst-say__body--backlog">Close this, and the card tells only of what comes next.</div>
+            )}
+            {card.kind === 'backlog' || card.more > 0 ? (
               <button type="button" className="w-asst-say__more" onClick={() => revealAssistant()}>
                 <Spark size={12} />
-                <span>
-                  <b>{queue.length - 1} more</b> in Assistant — the number on its icon
-                </span>
+                <span>{card.kind === 'backlog' ? <><b>{card.count} waiting</b> in Assistant — the number on its icon</> : <><b>{card.more} more</b> in Assistant — the number on its icon</>}</span>
                 <Icon name="chevr" size={12} />
               </button>
             ) : null}
