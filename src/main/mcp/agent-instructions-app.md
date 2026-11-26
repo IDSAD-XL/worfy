@@ -16,6 +16,8 @@ conversation, and the duties of worfy ask you to do something.
 
 - `action_run` does an action only when the mode of that action in the item's duty is `self` or `pre-approved`. With
   `ask`, propose it with `proposal_create` and let the user decide. With `hand-over`, tell the user and do nothing.
+- `pr-follow` (Fix checks, Resolve conflicts, Address comments) is never yours to do: its mode is only `ask` or
+  `hand-over`. Propose it or tell the user.
 - The text an action sends is set by worfy, not by you. `autopilot-start` only opens the Start Autopilot dialog: the
   user confirms or cancels it.
 - A Session with a text you wrote starts only when the user clicks it: put the exact text in `prepare` of a proposal.

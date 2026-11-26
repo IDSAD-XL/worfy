@@ -8,7 +8,6 @@
 // Schemas are zod raw shapes, as the SDK's tool() takes them; the server (src/main/mcp/app-server.ts) parses the
 // arguments again with the same shapes.
 import { z } from 'zod'
-import { PR_FOLLOW_ACTIONS } from '../projects/action-templates'
 import { answerTopicSchema, ANSWER_TEXT_MAX, COMMITMENT_TEXT_MAX } from './memory'
 import { preparedSessionSchema, proposalTitleSchema, proposalWhySchema } from './proposals'
 import { settingsChangeSchema } from './settings-change'
@@ -16,11 +15,12 @@ import { settingsChangeSchema } from './settings-change'
 export const WORFY_APP_SERVER_NAME = 'worfy-app'
 
 /**
- * The actions `action_run` does: the closed list of main (ticket 08) and two of main's functions that check for
- * themselves — pr-follow refuses while Autopilot runs, autopilot-start only opens the Start Autopilot dialog. Every
- * other action — a reply to a PR, a Session with the Assistant's text — the Assistant proposes, and the user does.
+ * The actions `action_run` does: the closed list of main (ticket 08) and one of main's functions that checks for
+ * itself — autopilot-start only opens the Start Autopilot dialog. Every other action — pr-follow (its mode is only ask
+ * or hand-over, ticket 26), a reply to a PR, a Session with the Assistant's text — the Assistant proposes, and the user
+ * does.
  */
-export const APP_ACTIONS = ['wake-orchestrator', 'continue-session', 'pr-follow', 'autopilot-start'] as const
+export const APP_ACTIONS = ['wake-orchestrator', 'continue-session', 'autopilot-start'] as const
 export type AppAction = (typeof APP_ACTIONS)[number]
 
 /** The most lines of a Session's tail one call reads. */
@@ -47,7 +47,7 @@ export const appToolShapes = {
   proposal_create: { title: proposalTitleSchema, why: proposalWhySchema, item: id.optional(), prepare: preparedSessionSchema.optional(), change: settingsChangeSchema.optional() },
   proposal_update: { id, title: proposalTitleSchema.optional(), why: proposalWhySchema.optional(), prepare: preparedSessionSchema.nullable().optional() },
   proposal_remove: { id },
-  action_run: { item: id, action: z.enum(APP_ACTIONS), follow: z.enum(PR_FOLLOW_ACTIONS).optional(), epic: z.string().regex(EPIC_NAME).optional() },
+  action_run: { item: id, action: z.enum(APP_ACTIONS), epic: z.string().regex(EPIC_NAME).optional() },
   memory_note: {
     kind: z.enum(['commitment', 'answer']),
     text: z.string().min(1).max(Math.max(COMMITMENT_TEXT_MAX, ANSWER_TEXT_MAX)),
@@ -94,7 +94,7 @@ export const appToolDescriptions: Record<AppToolName, string> = {
   proposal_update: 'Change a proposal\'s title, why or prepared Session (prepare: null drops it). Answers the proposal as kept.',
   proposal_remove: 'Remove a proposal that no longer holds.',
   action_run:
-    'Do an action on an item, only when its duty\'s mode is self or pre-approved; with ask, propose it instead; with hand-over, leave it to the user. wake-orchestrator and continue-session send the text main sets; pr-follow (follow: fixChecks | resolveConflicts | addressComments) on a PR item; autopilot-start (epic) on a Project\'s item only opens the Start Autopilot dialog for the user.',
+    'Do an action on an item, only when its duty\'s mode is self or pre-approved; with ask, propose it instead; with hand-over, leave it to the user. wake-orchestrator and continue-session send the text main sets; autopilot-start (epic) on a Project\'s item only opens the Start Autopilot dialog for the user. pr-follow (Fix checks, Resolve conflicts, Address comments) is never an action here: its mode is ask or hand-over, so make it a proposal with proposal_create, or tell the user.',
   memory_note:
     'Keep in your memory what your next Session must know: a commitment (kind commitment: what you said you would do or look at again, with due, ISO 8601, when you named a time), or an answer of the user (kind answer: the topic you asked about and the answer in the user\'s words; a new answer on a topic replaces the old one). Answers the entry with its id.',
   memory_forget: 'Drop a commitment that is done or an answer that no longer holds, by its id.',

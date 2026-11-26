@@ -40,7 +40,7 @@ const panel = (over: Partial<AssistantSettingsView> = {}): AssistantSettingsView
       thresholdMinutes: 15,
       actions: [
         { action: 'open', mode: 'hand-over', allowed: ['self', 'pre-approved', 'ask', 'hand-over'] },
-        { action: 'pr-follow', mode: 'ask', allowed: ['pre-approved', 'ask', 'hand-over'] },
+        { action: 'pr-follow', mode: 'ask', allowed: ['ask', 'hand-over'] },
       ],
       counters,
       paused: null,
@@ -165,10 +165,12 @@ describe('Settings → Assistant: Duties', () => {
     expect(duty.textContent).toMatch(/Shown\s*4/)
     expect(duty.textContent).toMatch(/Ignored\s*1/)
     const prFollow = within(duty).getByRole('group', { name: 'Fix checks, Resolve conflicts or Address comments' })
+    // pr-follow is only Ask me or Leave to me (worfy-assistant ticket 26).
     expect(within(prFollow).queryByRole('button', { name: 'On its own' })).toBeNull()
-    fireEvent.click(within(prFollow).getByRole('button', { name: 'Pre-approved' }))
+    expect(within(prFollow).queryByRole('button', { name: 'Pre-approved' })).toBeNull()
+    fireEvent.click(within(prFollow).getByRole('button', { name: 'Leave to me' }))
     fireEvent.click(within(duty).getByRole('switch', { name: 'Waits for you' }))
-    await waitFor(() => expect(sent('assistant.configureDuty')).toEqual([{ dutyId: 'waits-for-user', modes: { 'pr-follow': 'pre-approved' } }, { dutyId: 'waits-for-user', enabled: false }]))
+    await waitFor(() => expect(sent('assistant.configureDuty')).toEqual([{ dutyId: 'waits-for-user', modes: { 'pr-follow': 'hand-over' } }, { dutyId: 'waits-for-user', enabled: false }]))
   })
 
   it('a paused duty says so, with Resume', async () => {

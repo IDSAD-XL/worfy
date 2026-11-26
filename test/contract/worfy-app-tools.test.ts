@@ -1,15 +1,15 @@
 // The MCP server `worfy-app` of the Assistant's Session (worfy-assistant ticket 09; spec, implementation decisions, the
 // MCP server `worfy-app`; test decisions, seam B) through its in-process instance, the way Claude Code talks to it:
 // JSON-RPC over a transport, so the SDK's own schema check runs too. Everything behind it is a stand-in or a real
-// part of main over stand-ins: a real attention core and real duties over memory stores, the real launcher's
-// pr-follow and the real autopilot_start starter. No real Session, no model, no network.
+// part of main over stand-ins: a real attention core and real duties over memory stores, and the real autopilot_start
+// starter. No real Session, no model, no network.
 //
 // - the reading tools answer: Projects and machines, the items, the workflow of a Project, the threads of a PR, the
 //   tail of a Session, the Autopilot runs, Limits;
 // - a proposal is created, updated and removed; Prepare answers the exact text of the future Session;
 // - an action outside the closed list, or outside the mode of its duty, is refused;
-// - an action goes through main's function with its checks: pr-follow refuses while Autopilot runs, autopilot-start
-//   opens the dialog and starts no run;
+// - an action goes through main's function with its checks: autopilot-start opens the dialog and starts no run;
+//   pr-follow is never an action of action_run (ticket 26): the Assistant only proposes it;
 // - outside text is marked as data with its source and author; no answer carries a secret; no tool sends anything out.
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -235,12 +235,11 @@ function split(value: unknown): { outside: Outside[]; rest: string[] } {
 let proposalIds = 0
 
 /** The server over a real attention core and real duties holding the fixture items, and stand-ins of main's other parts. */
-async function world(options: { autopilotRunning?: boolean; confirm?: 'cancel' | 'budget-aware'; language?: 'en' | 'ru'; version?: string | null } = {}) {
-  const [{ AttentionCore }, { Duties }, { ProposalBook }, { ActionLauncher }, { autopilotStarter }, { claudeMcpServer }, app] = await Promise.all([
+async function world(options: { confirm?: 'cancel' | 'budget-aware'; language?: 'en' | 'ru'; version?: string | null } = {}) {
+  const [{ AttentionCore }, { Duties }, { ProposalBook }, { autopilotStarter }, { claudeMcpServer }, app] = await Promise.all([
     import('../../src/main/assistant/core/attention-core'),
     import('../../src/main/assistant/duties/duties'),
     import('../../src/main/assistant/proposals/book'),
-    import('../../src/main/actions/launch'),
     import('../../src/main/autopilot/chat-confirm'),
     import('../../src/main/vendors/claude/mcp'),
     server(),
@@ -253,12 +252,6 @@ async function world(options: { autopilotRunning?: boolean; confirm?: 'cancel' |
   // The id the server gives an item: worfy's own, never the core's (which may hold a source's text).
   const itemOf = (source: string): string => app.publicItemId(core.items(PROJECT).find((item) => item.source === source)!.id)
 
-  // The real launcher: its pr-follow refuses while Autopilot runs in the Project, before it reads anything else.
-  const refuse = (): never => {
-    throw new Error('the launcher read the app, which pr-follow must not reach here')
-  }
-  const launcher = new ActionLauncher({ projectRoot: refuse, settings: refuse, branch: refuse, workflow: refuse, sessions: { create: refuse }, orchestrators: { open: refuse }, registry: { get: refuse }, bindings: { setLaunch: refuse } })
-  launcher.attachAutopilot({ running: () => options.autopilotRunning ?? true })
   // The real starter of autopilot_start: a person's window asks first.
   const confirm = vi.fn(() => Promise.resolve(options.confirm ?? 'cancel'))
   const startFromChat = vi.fn(() => Promise.resolve({ kind: 'started' as const, state: {} as never }))
@@ -303,7 +296,6 @@ async function world(options: { autopilotRunning?: boolean; confirm?: 'cancel' |
     limits: () => ({ windows: { five_hour: { utilization: 0.42, resetsAt: 1_764_068_400, status: 'allowed', receivedAt: NOW, source: 'sdk' } } }),
     proposals,
     closedList,
-    prFollow: (projectId: string, repo: string, pr: number, action: 'fixChecks' | 'resolveConflicts' | 'addressComments') => launcher.prFollow(projectId, repo, pr, action),
     autopilotStart,
     sessionId: () => 'assistant-session',
     journal,
@@ -460,7 +452,7 @@ describe('worfy-app: proposals', () => {
 
   it('refuses a change the settings could never take: a duty there is not, a mode its action may not have, an interval off its bounds', async () => {
     const { rpc, proposals } = await world()
-    for (const change of [{ duties: { 'no-such-duty': { enabled: false } } }, { duties: { 'waits-for-user': { modes: { 'pr-follow': 'self' } } } }, { checks: { slack: { intervalMinutes: 2 } } }, {}]) {
+    for (const change of [{ duties: { 'no-such-duty': { enabled: false } } }, { duties: { 'waits-for-user': { modes: { 'pr-follow': 'self' } } } }, { duties: { 'waits-for-user': { modes: { 'pr-follow': 'pre-approved' } } } }, { checks: { slack: { intervalMinutes: 2 } } }, {}]) {
       expect((await rpc.call('proposal_create', { title: 'x', why: 'y', change })).isError, JSON.stringify(change)).toBe(true)
     }
     expect(proposals.list()).toEqual([])
@@ -510,21 +502,11 @@ describe('worfy-app: actions', () => {
   })
 
   it('refuses an action an item does not take, and an unknown item', async () => {
-    const { rpc, itemOf, duties, closedList } = await world()
-    duties.configure('waits-for-user', { modes: { 'pr-follow': 'pre-approved' } })
+    const { rpc, itemOf, closedList } = await world()
     // wake-orchestrator fits a Session, not a PR.
     expect((await rpc.call('action_run', { item: itemOf('pr-inbox'), action: 'wake-orchestrator' })).isError).toBe(true)
     expect((await rpc.call('action_run', { item: 'no-such-item', action: 'continue-session' })).isError).toBe(true)
     expect(closedList.act).not.toHaveBeenCalled()
-  })
-
-  it('pr-follow goes through the launcher, which refuses while Autopilot runs in the Project', async () => {
-    const { rpc, itemOf, duties, journal } = await world({ autopilotRunning: true })
-    duties.configure('waits-for-user', { modes: { 'pr-follow': 'pre-approved' } })
-    const answer = await rpc.call('action_run', { item: itemOf('pr-inbox'), action: 'pr-follow', follow: 'fixChecks' })
-    expect(answer.isError).toBe(true)
-    expect(textOf(answer)).toContain('Autopilot is running in this Project: stop it to follow a pull request by hand')
-    expect(journal).toHaveBeenCalledWith(expect.objectContaining({ action: 'pr-follow', outcome: 'refused' }))
   })
 
   it('autopilot-start opens the Start Autopilot dialog and starts no run itself', async () => {
@@ -540,46 +522,36 @@ describe('worfy-app: actions', () => {
 })
 
 describe("worfy-app: the Assistant's journal of actions (ticket 10; ADR-0114, boundary 6)", () => {
-  it('pr-follow refused by main is a line of the journal of ticket 08 with the item that caused it, its duty and mode', async () => {
-    const w = await world({ autopilotRunning: true })
+  it('autopilot-start refused by main is a line of the journal of ticket 08 with the item that caused it, its duty and mode', async () => {
+    const w = await world({ confirm: 'cancel' })
     const journal = memoryActionJournal()
     const rpc = await w.rpcWith({ journal: w.app.journalTo(journal) })
-    w.duties.configure('waits-for-user', { modes: { 'pr-follow': 'pre-approved' } })
-    expect((await rpc.call('action_run', { item: w.itemOf('pr-inbox'), action: 'pr-follow', follow: 'fixChecks' })).isError).toBe(true)
-    const item = w.core.items(PROJECT).find((each) => each.source === 'pr-inbox')!
+    w.duties.configure('work-stalled', { modes: { 'autopilot-start': 'pre-approved' } })
+    expect((await rpc.call('action_run', { item: w.itemOf('autopilot'), action: 'autopilot-start', epic: 'worfy-x' })).isError).toBe(true)
+    const item = w.core.items(PROJECT).find((each) => each.source === 'autopilot')!
     expect(journal.lines()).toEqual([
       {
         at: NOW,
-        action: 'pr-follow',
+        action: 'autopilot-start',
         by: 'assistant',
         item: item.id,
-        duty: 'waits-for-user',
+        duty: 'work-stalled',
         projectId: PROJECT,
         itemKind: item.kind,
         itemText: item.text,
         mode: 'pre-approved',
         sessionId: null,
         outcome: 'refused',
-        detail: 'Autopilot is running in this Project: stop it to follow a pull request by hand',
+        detail: expect.stringMatching(/Cancel/),
       },
     ])
   })
 
-  it('autopilot-start is a line too: the dialog the user cancelled, with the item', async () => {
-    const w = await world({ confirm: 'cancel' })
-    const journal = memoryActionJournal()
-    const rpc = await w.rpcWith({ journal: w.app.journalTo(journal) })
-    w.duties.configure('work-stalled', { modes: { 'autopilot-start': 'pre-approved' } })
-    await rpc.call('action_run', { item: w.itemOf('autopilot'), action: 'autopilot-start', epic: 'worfy-x' })
-    const item = w.core.items(PROJECT).find((each) => each.source === 'autopilot')!
-    expect(journal.lines()).toEqual([expect.objectContaining({ action: 'autopilot-start', by: 'assistant', item: item.id, duty: 'work-stalled', mode: 'pre-approved', outcome: 'refused', detail: expect.stringMatching(/Cancel/) })])
-  })
-
   it('a journal that cannot be written costs the line, not the answer', async () => {
-    const w = await world({ autopilotRunning: true })
+    const w = await world({ confirm: 'cancel' })
     const rpc = await w.rpcWith({ journal: w.app.journalTo({ append: () => { throw new Error('disk full') }, lines: () => [] }, () => undefined) })
-    w.duties.configure('waits-for-user', { modes: { 'pr-follow': 'pre-approved' } })
-    expect(textOf(await rpc.call('action_run', { item: w.itemOf('pr-inbox'), action: 'pr-follow', follow: 'fixChecks' }))).toContain('Autopilot is running')
+    w.duties.configure('work-stalled', { modes: { 'autopilot-start': 'pre-approved' } })
+    expect(textOf(await rpc.call('action_run', { item: w.itemOf('autopilot'), action: 'autopilot-start', epic: 'worfy-x' }))).toMatch(/Cancel/)
   })
 })
 
@@ -889,26 +861,31 @@ describe('worfy-app: nothing goes out', () => {
   })
 })
 
-describe('worfy-app: pr-follow is never self (ticket 24, the owner\'s decision of 2026-11-26; ADR-0114, point 4)', () => {
-  it('action_run refuses pr-follow whose mode came as self past the duties, starts nothing and writes the journal line', async () => {
+describe('worfy-app: pr-follow is only ask or hand-over, never an action of action_run (tickets 24 and 26, the owner\'s decisions of 2026-11-26; ADR-0114, point 4)', () => {
+  it('action_run refuses pr-follow in every mode, even self or pre-approved that came past the duties: nothing starts, nothing is journaled', async () => {
     const w = await world()
-    w.duties.configure('waits-for-user', { modes: { 'pr-follow': 'pre-approved' } })
-    // The second guard: a mode that reached the server around configure and the memory file.
-    const duties = {
-      look: (items: readonly AttentionItem[]) => {
-        const look = w.duties.look(items)
-        return { ...look, shown: look.shown.map((shown) => ({ ...shown, proposals: shown.proposals.map((each) => (each.action === 'pr-follow' ? { ...each, mode: 'self' as const } : each)) })) }
-      },
-    }
-    const prFollow = vi.fn(w.deps.prFollow)
     const { claudeMcpServer } = await import('../../src/main/vendors/claude/mcp')
-    const rpc = await connectTo((await claudeMcpServer(w.app.worfyAppServer({ ...w.deps, duties, prFollow }))) as unknown as ServerConfig)
-    const answer = await rpc.call('action_run', { item: w.itemOf('pr-inbox'), action: 'pr-follow', follow: 'fixChecks' })
-    expect(answer.isError).toBe(true)
-    expect(textOf(answer)).toMatch(/pr-follow.*self/)
-    expect(textOf(answer)).toContain('Nothing was done')
-    expect(prFollow).not.toHaveBeenCalled()
-    expect(w.journal).toHaveBeenCalledTimes(1)
-    expect(w.journal).toHaveBeenCalledWith(expect.objectContaining({ action: 'pr-follow', mode: 'self', outcome: 'refused', item: expect.objectContaining({ source: 'pr-inbox' }) }))
+    for (const mode of ['self', 'pre-approved', 'ask', 'hand-over'] as const) {
+      // A mode that reached the server around configure and the memory file.
+      const duties = {
+        look: (items: readonly AttentionItem[]) => {
+          const look = w.duties.look(items)
+          return { ...look, shown: look.shown.map((shown) => ({ ...shown, proposals: shown.proposals.map((each) => (each.action === 'pr-follow' ? { ...each, mode } : each)) })) }
+        },
+      }
+      const rpc = await connectTo((await claudeMcpServer(w.app.worfyAppServer({ ...w.deps, duties }))) as unknown as ServerConfig)
+      const answer = await rpc.call('action_run', { item: w.itemOf('pr-inbox'), action: 'pr-follow', follow: 'fixChecks' })
+      expect(answer.isError, mode).toBe(true)
+    }
+    expect(w.closedList.act).not.toHaveBeenCalled()
+    expect(w.confirm).not.toHaveBeenCalled()
+    expect(w.startFromChat).not.toHaveBeenCalled()
+    expect(w.journal).not.toHaveBeenCalled()
+  })
+
+  it('the tool offers no pr-follow: its actions are the closed list and autopilot-start', async () => {
+    const { APP_ACTIONS, appToolDescriptions } = await import('../../src/shared/assistant/app-tools')
+    expect(APP_ACTIONS).toEqual(['wake-orchestrator', 'continue-session', 'autopilot-start'])
+    expect(appToolDescriptions.action_run).toMatch(/pr-follow.*proposal/)
   })
 })

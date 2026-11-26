@@ -180,7 +180,7 @@ export class Duties {
 
   /**
    * Changes what the user chose of a duty; a mode or an action the duty does not know, or a mode its action may not
-   * have (DUTY_ACTION_ALLOWED_MODES: never `self` for `pr-follow`), throws, and nothing changes.
+   * have (DUTY_ACTION_ALLOWED_MODES: `pr-follow` only `ask` or `hand-over`), throws, and nothing changes.
    */
   configure(id: string, choice: DutyChoice): void {
     const definition = this.definition(id)

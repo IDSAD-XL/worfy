@@ -267,7 +267,7 @@ describe('the first message of a Session: the wake, its items and the memory', (
 describe('the first message carries at most so much memory: the newest entries, and says what it left out', () => {
   const full = (): MemoryView => ({
     pauseAfter: null,
-    duties: { 'waits-for-user': { modes: { 'pr-follow': 'pre-approved' } } },
+    duties: { 'waits-for-user': { modes: { 'pr-follow': 'hand-over' } } },
     rules: [{ id: 'r-1', duty: 'waits-for-user', projectId: null, source: 'pr-inbox', kind: 'needs-review', text: 'Do not propose reviews of drafts' }],
     proposals: [],
     commitments: Array.from({ length: COMMITMENTS_MAX }, (_, i) => ({ id: `c-${i}`, text: 'c'.repeat(COMMITMENT_TEXT_MAX), due: null, at: new Date(NOW + i * 1000).toISOString() })),
@@ -309,7 +309,7 @@ describe('the memory file: duties, open proposals, commitments, rules from ratin
     const file = assistantMemoryPath(data)
     // The user's choice of a duty and a dislike: the duties write them (ticket 07).
     const duties = new Duties({ now: () => NOW, store: memoryFileStore(file) })
-    duties.configure('waits-for-user', { modes: { 'pr-follow': 'pre-approved' } })
+    duties.configure('waits-for-user', { modes: { 'pr-follow': 'hand-over' } })
     const rule = duties.rate(item({ id: 'pr-inbox:o/r#12', source: 'pr-inbox', kind: 'needs-review', duty: 'waits-for-user', subject: { kind: 'pr', id: 'o/r#12', label: 'PR 12' } }), 'dislike')
     // A proposal (ticket 09's book), a commitment and an answer (this Session's part).
     const book = new ProposalBook({ now: () => NOW, id: () => 'prop-1', store: memoryProposalStore(file) })
@@ -326,7 +326,7 @@ describe('the memory file: duties, open proposals, commitments, rules from ratin
     const { runner, started } = sessions({ memory: file })
     await runner.wake(wakeOf())
     const prompt = started[0]!.prompt
-    expect(prompt).toContain('"pr-follow":"pre-approved"')
+    expect(prompt).toContain('"pr-follow":"hand-over"')
     expect(prompt).toContain('"thresholdMinutes":45')
     expect(prompt).toContain(rule!.text)
     expect(prompt).toContain('Continue the implementer')
@@ -364,14 +364,16 @@ describe('the memory file: duties, open proposals, commitments, rules from ratin
     expect(sessionMemoryStore(file).read().commitments).toHaveLength(COMMITMENTS_MAX)
   })
 
-  it('the first message never shows self for pr-follow, even when the file holds it (ticket 24)', () => {
-    const file = assistantMemoryPath(dataFolder())
-    mkdirSync(dirname(file), { recursive: true })
+  it('the first message never shows self or pre-approved for pr-follow, even when the file holds it (tickets 24 and 26)', () => {
     const counters = { shown: 0, accepted: 0, declined: 0, ignored: 0, liked: 0, disliked: 0 }
-    writeFileSync(file, JSON.stringify({ duties: { 'waits-for-user': { modes: { 'pr-follow': 'self', open: 'ask' }, counters, streak: 0 } }, rules: [], items: {} }))
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     try {
-      expect(readMemoryView(file, (id) => id).duties['waits-for-user']).toEqual({ modes: { open: 'ask' } })
+      for (const mode of ['self', 'pre-approved']) {
+        const file = assistantMemoryPath(dataFolder())
+        mkdirSync(dirname(file), { recursive: true })
+        writeFileSync(file, JSON.stringify({ duties: { 'waits-for-user': { modes: { 'pr-follow': mode, open: 'ask' }, counters, streak: 0 } }, rules: [], items: {} }))
+        expect(readMemoryView(file, (id) => id).duties['waits-for-user'], mode).toEqual({ modes: { open: 'ask' } })
+      }
     } finally {
       warn.mockRestore()
     }

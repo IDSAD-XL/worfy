@@ -18,11 +18,11 @@
 //   runs, is refused with the Machine it is of.
 // - Actions: only APP_ACTIONS, only when the mode of that action in the item's duty is `self` or `pre-approved`
 //   (ticket 07), and only through main's own functions, which check for themselves: the closed list of ticket 08
-//   (ClosedListSeam: the action and the item, `by: 'assistant'`, no text — main sets it and writes the journal line),
-//   the launcher's pr-follow (refused while Autopilot runs), autopilot_start's starter (it only opens the Start
-//   Autopilot dialog); those two are journal lines here (`journal`): in the app, lines of the Assistant's journal of
-//   ticket 08 (journalTo), as the closed list's own are. Each action that reached main is a journal line with the
-//   item that caused it (boundary 6).
+//   (ClosedListSeam: the action and the item, `by: 'assistant'`, no text — main sets it and writes the journal line)
+//   and autopilot_start's starter (it only opens the Start Autopilot dialog), whose line of the journal is written here
+//   (`journal`): in the app, a line of the Assistant's journal of ticket 08 (journalTo), as the closed list's own are.
+//   Each action that reached main is a journal line with the item that caused it (boundary 6). pr-follow is not an
+//   action here: its mode is only ask or hand-over (ticket 26), so the Assistant proposes it and the user starts it.
 // - Memory (ticket 10): memory_note keeps a commitment of the Assistant or an answer of the user in its memory file,
 //   memory_forget drops one; each new Session of the Assistant gets that file in its first message.
 // - Outside text — what worfy did not write: an item's text, a PR comment, a Ticket title, a Session's line, an
@@ -41,10 +41,8 @@ import { dutyActionModeAllowed, type DutyActionMode, type DutyLook } from '../..
 import type { JournalEvent } from '../../shared/autopilot/journal'
 import type { LimitsState } from '../../shared/agent/limits'
 import type { PrInboxComment, PrInboxSnapshot } from '../../shared/ipc/pr-inbox'
-import type { PrFollowAction } from '../../shared/projects/action-templates'
 import { redactSecrets } from '../../shared/terminal-ai/redact'
 import type { WorkflowModel } from '../../shared/workflow/types'
-import type { PrFollowResult } from '../actions/launch'
 import type { AssistantProposal } from '../../shared/assistant/proposals'
 import { dutyChangeProblems } from '../../shared/assistant/settings-change'
 import type { ActionJournal } from '../assistant/actions/journal'
@@ -183,13 +181,11 @@ export interface WorfyAppDeps {
   limits(): LimitsState
   proposals: Pick<ProposalBook, 'list' | 'create' | 'update' | 'remove'>
   closedList: ClosedListSeam
-  /** The launcher's «Fix checks», «Resolve conflicts», «Address comments» (ActionLauncher.prFollow). */
-  prFollow(projectId: string, repo: string, pr: number, action: PrFollowAction): Promise<PrFollowResult>
   /** autopilot_start's starter: asks the person in the Start Autopilot dialog first. */
   autopilotStart: AutopilotStarter
   /** The Assistant's own Session: the one autopilot_start's dialog names. */
   sessionId(): string | null
-  /** Writes a line of the Assistant's journal for pr-follow and autopilot-start; the closed list writes its own. */
+  /** Writes a line of the Assistant's journal for autopilot-start; the closed list writes its own. */
   journal(entry: AssistantActionEntry): void
   /** The feature pages of the build, English and Russian (ticket 17). */
   featurePages(): Promise<readonly FeaturePageFile[]>
@@ -302,13 +298,6 @@ function itemView(item: AttentionItem, actions: DutyLook['shown'][number]['propo
 
 const commentView = (comment: PrInboxComment) => ({ author: comment.author, at: comment.createdAt, url: comment.url, body: outsideText(comment.body, 'github', comment.author) })
 
-/** `owner/name#number` of a PR item's subject. */
-function prOf(item: AttentionItem): { repo: string; number: number } {
-  const match = item.subject.kind === 'pr' ? /^(.+)#(\d+)$/u.exec(item.subject.id) : null
-  if (match === null) throw new ToolError(`Item ${item.id} is not about a pull request: pr-follow takes a PR item`)
-  return { repo: match[1]!, number: Number(match[2]) }
-}
-
 type Handlers = { [Name in AppToolName]: (args: AppToolArgs[Name]) => Promise<unknown> | unknown }
 
 function handlers(deps: WorfyAppDeps): Handlers {
@@ -352,9 +341,9 @@ function handlers(deps: WorfyAppDeps): Handlers {
   }
 
   /**
-   * Runs pr-follow or autopilot-start through main's function; a refusal of main is journaled and answered as the
-   * refusal. (The closed list journals its own actions.) A mode the action may not have — `self` of pr-follow that came
-   * around Duties.configure and the memory file — is refused and journaled before anything runs (ticket 24).
+   * Runs autopilot-start through main's function; a refusal of main is journaled and answered as the refusal. (The
+   * closed list journals its own actions.) A mode the action may not have (DUTY_ACTION_ALLOWED_MODES) that came around
+   * Duties.configure and the memory file is refused and journaled before anything runs (ticket 24).
    */
   const act = async (args: AppToolArgs['action_run'] & { action: MainAction }, item: AttentionItem, mode: DutyActionMode): Promise<string> => {
     if (!dutyActionModeAllowed(args.action, mode)) {
@@ -363,11 +352,6 @@ function handlers(deps: WorfyAppDeps): Handlers {
       throw new ToolError(reason)
     }
     const run = (): Promise<string> => {
-      if (args.action === 'pr-follow') {
-        if (args.follow === undefined) throw new ToolError('pr-follow needs follow: fixChecks, resolveConflicts or addressComments')
-        const { repo, number } = prOf(item)
-        return deps.prFollow(item.projectId!, repo, number, args.follow).then((result) => `${args.follow} on ${repo}#${number}: ${result.delivery === 'new' ? 'a new Session started' : `${result.delivery} to Session ${result.sessionId}`}`)
-      }
       if (args.epic === undefined) throw new ToolError('autopilot-start needs epic: the Epic the dialog offers to run')
       return deps.autopilotStart({ projectId: item.projectId!, epic: args.epic, session: deps.sessionId() })
     }
@@ -619,7 +603,7 @@ export async function worfyAppForSession(request: WorfyAppRequest, deps?: WorfyA
 }
 
 /**
- * The app's parts, loaded at the call: they load the attention core, the launcher and the Autopilot starter, which
+ * The app's parts, loaded at the call: they load the attention core and the Autopilot starter, which
  * load much of main.
  */
 async function appWorfyAppDeps(): Promise<WorfyAppDeps> {
@@ -638,7 +622,6 @@ async function appWorfyAppDeps(): Promise<WorfyAppDeps> {
     { readRecentRuns },
     { appLimits },
     { appProposals },
-    { sharedLauncher },
     { appAutopilotStarter },
     { appClosedList },
     { actionJournalFile, actionJournalPath },
@@ -659,7 +642,6 @@ async function appWorfyAppDeps(): Promise<WorfyAppDeps> {
       import('../autopilot/journal'),
       import('../agent/limits'),
       import('../assistant/proposals/book'),
-      import('../ipc/actions'),
       import('../autopilot/chat-confirm'),
       import('../assistant/actions/app'),
       import('../assistant/actions/journal'),
@@ -707,7 +689,6 @@ async function appWorfyAppDeps(): Promise<WorfyAppDeps> {
     proposals: appProposals(),
     // The closed list of ticket 08 the Assistant started; a refusal while it is off.
     closedList: closedListOf(appClosedList),
-    prFollow: (projectId, repo, pr, action) => sharedLauncher().prFollow(projectId, repo, pr, action),
     autopilotStart: appAutopilotStarter(),
     sessionId: () => null,
     // The Assistant's journal of ticket 08: the same file the closed list writes its lines to.
