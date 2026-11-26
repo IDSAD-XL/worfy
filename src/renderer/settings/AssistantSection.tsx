@@ -235,14 +235,16 @@ function DutyProjects({ duty, projects }: { duty: SettingsDuty; projects: Assist
     void configureDuty(duty.id, { projects: next.length === 0 ? 'all' : next })
   }
   return (
-    <div className="w-asst-set__action" data-testid={`settings-assistant-duty-projects-${duty.id}`}>
-      <span>Projects</span>
-      <span className="w-asst-set__days" role="group" aria-label={`${duty.title}: Projects`}>
-        <button type="button" className="w-asst-set__day" aria-pressed={all} onClick={() => (all ? undefined : void configureDuty(duty.id, { projects: 'all' }))}>
+    // The buttons keep their text on one line and wrap as a row; a long name ends in an ellipsis, read whole in the
+    // tooltip (worfy-polish 159).
+    <div className="w-asst-set__action w-asst-set__action--projects" data-testid={`settings-assistant-duty-projects-${duty.id}`}>
+      <span className="w-asst-set__action-label">Projects</span>
+      <span className="w-asst-set__chips" role="group" aria-label={`${duty.title}: Projects`}>
+        <button type="button" className="w-asst-set__day w-asst-set__project" aria-pressed={all} onClick={() => (all ? undefined : void configureDuty(duty.id, { projects: 'all' }))}>
           All Projects
         </button>
         {projects.map((project) => (
-          <button key={project.id} type="button" className="w-asst-set__day" aria-pressed={picked.includes(project.id)} onClick={() => toggle(project.id)}>
+          <button key={project.id} type="button" className="w-asst-set__day w-asst-set__project" title={project.name} aria-pressed={picked.includes(project.id)} onClick={() => toggle(project.id)}>
             {project.name}
           </button>
         ))}
@@ -290,7 +292,7 @@ function DutyCard({ duty, projects }: { duty: SettingsDuty; projects: AssistantS
       ) : null}
       {duty.actions.map((action) => (
         <div key={action.action} className="w-asst-set__action">
-          <span>{ACTION_LABELS[action.action]}</span>
+          <span className="w-asst-set__action-label">{ACTION_LABELS[action.action]}</span>
           <ToggleGroup
             className="w-asst-set__modes"
             aria-label={ACTION_LABELS[action.action]}

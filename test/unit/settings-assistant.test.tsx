@@ -6,6 +6,8 @@
 // Machine: a choice goes to main as its channel and its fields; what main keeps is checked in
 // test/contract/assistant-settings.test.ts and test/unit/assistant-settings-panel.test.ts.
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AssistantSettingsView } from '../../src/shared/assistant/settings-view'
 import type { IpcResult, WorfyBridge } from '../../src/shared/ipc/channels'
@@ -236,6 +238,62 @@ describe('Settings → Assistant: Duties', () => {
     const projects = within(screen.getByTestId('settings-assistant-duty-waits-for-user')).getByRole('group', { name: 'Waits for you: Projects' })
     expect(within(projects).getByRole('button', { name: 'All Projects' }).getAttribute('aria-pressed')).toBe('true')
     expect(within(projects).getByRole('button', { name: 'shop' }).getAttribute('aria-pressed')).toBe('false')
+  })
+
+  // worfy-polish 159: six Projects in a 550 px column squeezed each button until its text broke onto two lines, out of
+  // the 24 px button and over the counters. jsdom lays nothing out, so this reads what the layout depends on: the
+  // structure of the row and the rules of the sheet.
+  it('six Projects with long names: one line of text per button, a row of buttons that wraps, the counters a block after it (the structure and the sheet are read)', async () => {
+    const names = ['CanvasForAI', 'shop-backend-services', 'worfy-demo', 'shop-browser-extension', 'worfy-sandbox', 'a-Project-with-a-very-long-name-that-has-to-be-cut-short']
+    const base = panel()
+    const projects = names.map((name, index) => ({ id: `p-${index}`, name }))
+    await mount(appSettings(), { ...base, projects, duties: base.duties.map((duty) => (duty.id === 'waits-for-user' ? { ...duty, projects: 'all' as const } : duty)) })
+    tab('Duties')
+    const duty = screen.getByTestId('settings-assistant-duty-waits-for-user')
+    const row = within(duty).getByTestId('settings-assistant-duty-projects-waits-for-user')
+    expect(row.classList.contains('w-asst-set__action--projects')).toBe(true)
+    expect(row.firstElementChild?.textContent).toBe('Projects')
+    expect(row.firstElementChild?.classList.contains('w-asst-set__action-label')).toBe(true)
+    const group = within(row).getByRole('group', { name: 'Waits for you: Projects' })
+    expect(group.classList.contains('w-asst-set__chips')).toBe(true)
+    const buttons = within(group).getAllByRole('button')
+    expect(buttons.map((button) => button.textContent)).toEqual(['All Projects', ...names])
+    for (const button of buttons) {
+      expect(button.classList.contains('w-asst-set__project')).toBe(true)
+      // No width of its own: the button is as wide as its text, up to the sheet's max-width.
+      expect(button.getAttribute('style')).toBeNull()
+    }
+    // A name cut short by the ellipsis is read whole in the tooltip.
+    for (const name of names) expect(within(group).getByRole('button', { name }).getAttribute('title')).toBe(name)
+    // The counters are their own block after the row of Projects, never inside it.
+    const counters = duty.querySelector('.w-asst-set__counters')
+    expect(counters).not.toBeNull()
+    expect(row.contains(counters)).toBe(false)
+    expect(row.nextElementSibling).toBe(counters)
+
+    const sheet = readFileSync(join(import.meta.dirname, '../../src/renderer/settings/assistant-settings.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//gu, '')
+    // Every declaration of the rules whose selector list names the selector.
+    const rules = (selector: string): string => {
+      const bodies = [...sheet.matchAll(/([^{}]+)\{([^}]*)\}/gu)].filter((match) => match[1]!.split(',').some((each) => each.trim() === selector)).map((match) => match[2]!)
+      expect(bodies.length, selector).toBeGreaterThan(0)
+      return bodies.join(';')
+    }
+    const fixedWidth = /(?:^|[\s;])width\s*:/u
+    expect(rules('.w-asst-set__chips')).toMatch(/flex-wrap\s*:\s*wrap/u)
+    expect(rules('.w-asst-set__chips')).toMatch(/min-width\s*:\s*0/u)
+    expect(rules('.w-asst-set__action--projects')).toMatch(/align-items\s*:\s*flex-start/u)
+    expect(rules('.w-asst-set__day')).toMatch(/white-space\s*:\s*nowrap/u)
+    expect(rules('.w-asst-set__day')).not.toMatch(fixedWidth)
+    const project = rules('.w-asst-set__project')
+    expect(project).toMatch(/flex\s*:\s*none/u)
+    expect(project).toMatch(/max-width\s*:/u)
+    expect(project).toMatch(/overflow\s*:\s*hidden/u)
+    expect(project).toMatch(/text-overflow\s*:\s*ellipsis/u)
+    expect(project).not.toMatch(fixedWidth)
+    // The modes of an action had the same flaw beside a long action name: their text stays on one line too.
+    expect(rules('.w-asst-set__modes button')).toMatch(/white-space\s*:\s*nowrap/u)
+    expect(rules('.w-asst-set__modes')).toMatch(/flex\s*:\s*none/u)
+    expect(rules('.w-asst-set__action')).toMatch(/flex-wrap\s*:\s*wrap/u)
   })
 
   it('a paused duty says so, with Resume', async () => {
