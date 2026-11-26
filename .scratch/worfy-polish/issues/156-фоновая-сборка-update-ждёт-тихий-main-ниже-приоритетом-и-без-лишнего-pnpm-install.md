@@ -94,11 +94,15 @@ electron-builder). Сборка держит CPU около 2 минут, и р�
 
 - [ ] «Update automatically» собирает голову `main` только когда её commit не моложе 20 минут (или `WORFY_UPDATE_QUIET_MINUTES`); новый commit сдвигает ожидание; «Update worfy» собирает сразу.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/update-build-light.test.ts test/unit/update-check.test.ts test/contract/update-github.test.ts test/contract/update-state.test.ts test/contract/update-build.test.ts` exit 0 · mac - · ca912ea55
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/update-build-light.test.ts test/contract/update-build.test.ts` exit 0 · mac - · 694b2bfd8
 - [ ] Шаги сборки идут с приоритетом ниже обычного на macOS, Linux и Windows; test через seam.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/update-build-light.test.ts test/contract/update-build.test.ts` exit 0 · mac - · ca912ea55
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/update-build-light.test.ts test/contract/update-build.test.ts` exit 0 · mac - · 694b2bfd8
 - [ ] `pnpm install` пропускается, когда hash зависимостей тот же и `node_modules` на месте; `git clean` остаётся.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/update-build-light.test.ts test/contract/update-build.test.ts test/contract/update-state.test.ts` exit 0 · mac - · ca912ea55
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/update-build-light.test.ts test/contract/update-build.test.ts` exit 0 · mac - · 694b2bfd8
 - [ ] `docs/features/updates.md` описывает ожидание, приоритет и пропуск `pnpm install`.
   - evidence: commit pass · worfy-polish/156: a lighter background build of Update · - - · ca912ea55
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast зелёный; `ci-ok` на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · ca912ea55
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 694b2bfd8
