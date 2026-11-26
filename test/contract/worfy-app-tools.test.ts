@@ -14,7 +14,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AttentionEvent } from '../../src/shared/assistant/attention'
+import type { AttentionEvent, AttentionItem } from '../../src/shared/assistant/attention'
 import type { PrInboxSnapshot } from '../../src/shared/ipc/pr-inbox'
 import type { JournalEvent } from '../../src/shared/autopilot/journal'
 import type { WorkflowModel } from '../../src/shared/workflow/types'
@@ -471,7 +471,7 @@ describe('worfy-app: actions', () => {
 
   it('refuses an action an item does not take, and an unknown item', async () => {
     const { rpc, itemOf, duties, closedList } = await world()
-    duties.configure('waits-for-user', { modes: { 'pr-follow': 'self' } })
+    duties.configure('waits-for-user', { modes: { 'pr-follow': 'pre-approved' } })
     // wake-orchestrator fits a Session, not a PR.
     expect((await rpc.call('action_run', { item: itemOf('pr-inbox'), action: 'wake-orchestrator' })).isError).toBe(true)
     expect((await rpc.call('action_run', { item: 'no-such-item', action: 'continue-session' })).isError).toBe(true)
@@ -480,7 +480,7 @@ describe('worfy-app: actions', () => {
 
   it('pr-follow goes through the launcher, which refuses while Autopilot runs in the Project', async () => {
     const { rpc, itemOf, duties, journal } = await world({ autopilotRunning: true })
-    duties.configure('waits-for-user', { modes: { 'pr-follow': 'self' } })
+    duties.configure('waits-for-user', { modes: { 'pr-follow': 'pre-approved' } })
     const answer = await rpc.call('action_run', { item: itemOf('pr-inbox'), action: 'pr-follow', follow: 'fixChecks' })
     expect(answer.isError).toBe(true)
     expect(textOf(answer)).toContain('Autopilot is running in this Project: stop it to follow a pull request by hand')
@@ -504,7 +504,7 @@ describe("worfy-app: the Assistant's journal of actions (ticket 10; ADR-0114, bo
     const w = await world({ autopilotRunning: true })
     const journal = memoryActionJournal()
     const rpc = await w.rpcWith({ journal: w.app.journalTo(journal) })
-    w.duties.configure('waits-for-user', { modes: { 'pr-follow': 'self' } })
+    w.duties.configure('waits-for-user', { modes: { 'pr-follow': 'pre-approved' } })
     expect((await rpc.call('action_run', { item: w.itemOf('pr-inbox'), action: 'pr-follow', follow: 'fixChecks' })).isError).toBe(true)
     const item = w.core.items(PROJECT).find((each) => each.source === 'pr-inbox')!
     expect(journal.lines()).toEqual([
@@ -517,7 +517,7 @@ describe("worfy-app: the Assistant's journal of actions (ticket 10; ADR-0114, bo
         projectId: PROJECT,
         itemKind: item.kind,
         itemText: item.text,
-        mode: 'self',
+        mode: 'pre-approved',
         sessionId: null,
         outcome: 'refused',
         detail: 'Autopilot is running in this Project: stop it to follow a pull request by hand',
@@ -538,7 +538,7 @@ describe("worfy-app: the Assistant's journal of actions (ticket 10; ADR-0114, bo
   it('a journal that cannot be written costs the line, not the answer', async () => {
     const w = await world({ autopilotRunning: true })
     const rpc = await w.rpcWith({ journal: w.app.journalTo({ append: () => { throw new Error('disk full') }, lines: () => [] }, () => undefined) })
-    w.duties.configure('waits-for-user', { modes: { 'pr-follow': 'self' } })
+    w.duties.configure('waits-for-user', { modes: { 'pr-follow': 'pre-approved' } })
     expect(textOf(await rpc.call('action_run', { item: w.itemOf('pr-inbox'), action: 'pr-follow', follow: 'fixChecks' }))).toContain('Autopilot is running')
   })
 })
@@ -846,5 +846,29 @@ describe('worfy-app: nothing goes out', () => {
   it('the server reaches no sender of a PR reply and no network', () => {
     const source = readFileSync(join(__dirname, '../../src/main/mcp/app-server.ts'), 'utf8')
     expect(source).not.toMatch(/pr-reply-send|prInboxSend|PrReplySender|fetch\(|node:http|node:net/)
+  })
+})
+
+describe('worfy-app: pr-follow is never self (ticket 24, the owner\'s decision of 2026-11-26; ADR-0114, point 4)', () => {
+  it('action_run refuses pr-follow whose mode came as self past the duties, starts nothing and writes the journal line', async () => {
+    const w = await world()
+    w.duties.configure('waits-for-user', { modes: { 'pr-follow': 'pre-approved' } })
+    // The second guard: a mode that reached the server around configure and the memory file.
+    const duties = {
+      look: (items: readonly AttentionItem[]) => {
+        const look = w.duties.look(items)
+        return { ...look, shown: look.shown.map((shown) => ({ ...shown, proposals: shown.proposals.map((each) => (each.action === 'pr-follow' ? { ...each, mode: 'self' as const } : each)) })) }
+      },
+    }
+    const prFollow = vi.fn(w.deps.prFollow)
+    const { claudeMcpServer } = await import('../../src/main/vendors/claude/mcp')
+    const rpc = await connectTo((await claudeMcpServer(w.app.worfyAppServer({ ...w.deps, duties, prFollow }))) as unknown as ServerConfig)
+    const answer = await rpc.call('action_run', { item: w.itemOf('pr-inbox'), action: 'pr-follow', follow: 'fixChecks' })
+    expect(answer.isError).toBe(true)
+    expect(textOf(answer)).toMatch(/pr-follow.*self/)
+    expect(textOf(answer)).toContain('Nothing was done')
+    expect(prFollow).not.toHaveBeenCalled()
+    expect(w.journal).toHaveBeenCalledTimes(1)
+    expect(w.journal).toHaveBeenCalledWith(expect.objectContaining({ action: 'pr-follow', mode: 'self', outcome: 'refused', item: expect.objectContaining({ source: 'pr-inbox' }) }))
   })
 })

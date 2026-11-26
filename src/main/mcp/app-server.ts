@@ -31,7 +31,7 @@ import { z } from 'zod'
 import type { AttentionItem } from '../../shared/assistant/attention'
 import { APP_TOOL_NAMES, appToolDescriptions, appToolShapes, parseAppToolArgs, WORFY_APP_SERVER_NAME, type AppAction, type AppToolArgs, type AppToolName } from '../../shared/assistant/app-tools'
 import type { ActionJournalLine } from '../../shared/assistant/actions'
-import type { DutyActionMode, DutyLook } from '../../shared/assistant/duties'
+import { dutyActionModeAllowed, type DutyActionMode, type DutyLook } from '../../shared/assistant/duties'
 import type { JournalEvent } from '../../shared/autopilot/journal'
 import type { LimitsState } from '../../shared/agent/limits'
 import type { PrInboxComment, PrInboxSnapshot } from '../../shared/ipc/pr-inbox'
@@ -105,7 +105,7 @@ export interface AssistantActionEntry {
   at: number
   action: MainAction
   item: AttentionItem
-  /** The mode of the action in the item's duty that let it go: `self` or `pre-approved`. */
+  /** The mode of the action in the item's duty that let it go (`self` or `pre-approved`), or the mode it may not have that was refused. */
   mode: DutyActionMode
   outcome: 'done' | 'refused'
   /** What main's function answered: what it did, or why it refused. */
@@ -296,9 +296,15 @@ function handlers(deps: WorfyAppDeps): Handlers {
 
   /**
    * Runs pr-follow or autopilot-start through main's function; a refusal of main is journaled and answered as the
-   * refusal. (The closed list journals its own actions.)
+   * refusal. (The closed list journals its own actions.) A mode the action may not have — `self` of pr-follow that came
+   * around Duties.configure and the memory file — is refused and journaled before anything runs (ticket 24).
    */
   const act = async (args: AppToolArgs['action_run'] & { action: MainAction }, item: AttentionItem, mode: DutyActionMode): Promise<string> => {
+    if (!dutyActionModeAllowed(args.action, mode)) {
+      const reason = `The mode of ${args.action} in the duty ${item.duty} is ${mode}, which ${args.action} may not have: propose it with proposal_create and let the user decide. Nothing was done.`
+      deps.journal({ at: deps.now(), action: args.action, item, mode, outcome: 'refused', text: reason })
+      throw new ToolError(reason)
+    }
     const run = (): Promise<string> => {
       if (args.action === 'pr-follow') {
         if (args.follow === undefined) throw new ToolError('pr-follow needs follow: fixChecks, resolveConflicts or addressComments')

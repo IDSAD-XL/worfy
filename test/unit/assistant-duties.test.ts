@@ -2,13 +2,13 @@
 // a clock that is not the machine's and the settings in; out — what each duty shows and proposes, its counters, and
 // whether it is paused. Fixture events take the shape of the events measurement (docs/product/proactive-runtime/), as
 // in the tests of the attention core; the memory file and the Project's settings are real files in a temporary folder.
-import { mkdtempSync, readFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { afterAll, describe, expect, it } from 'vitest'
+import { dirname, join } from 'node:path'
+import { afterAll, describe, expect, it, vi } from 'vitest'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import type { AttentionEvent, AttentionItem } from '../../src/shared/assistant/attention'
-import { BUILTIN_DUTIES, DUTY_ACTION_MODES, DUTY_COUNTERS, projectRuleDutyId, sourceDutyId, type DutyLook } from '../../src/shared/assistant/duties'
+import { BUILTIN_DUTIES, DUTY_ACTION_ALLOWED_MODES, DUTY_ACTION_MODES, DUTY_COUNTERS, projectRuleDutyId, sourceDutyId, type DutyLook } from '../../src/shared/assistant/duties'
 import { SOURCE_CHECK_KINDS } from '../../src/shared/assistant/schedule/settings'
 import { AttentionCore } from '../../src/main/assistant/core/attention-core'
 import { sessionAttention } from '../../src/main/assistant/core/sources'
@@ -420,5 +420,66 @@ describe('review round 1', () => {
     expect(readProjectAssistantRules(w.projectDir(PROJECT), 'plugin')).toEqual([rule])
     writeProjectSettings(w.projectDir(PROJECT), { ...rest, assistantRules: [] }, 'plugin')
     expect(readProjectAssistantRules(w.projectDir(PROJECT), 'plugin')).toEqual([rule])
+  })
+})
+
+describe('pr-follow is never self (ticket 24, the owner\'s decision of 2026-11-26; ADR-0114, point 4)', () => {
+  const prItem = (w: ReturnType<typeof world>): void =>
+    void w.core.ingest({ source: 'pr-inbox', id: 'acme/app#7:needs-review', revision: '2026-11-25T09:30:00Z', projectId: PROJECT, subject: { kind: 'pr', id: 'acme/app#7', label: 'acme/app#7 Fix' }, kind: 'needs-review', text: 'Needs your review: acme/app#7 Fix' })
+  const prFollowMode = (w: ReturnType<typeof world>) => w.look().shown.find((each) => each.duty === 'waits-for-user')!.proposals.find((each) => each.action === 'pr-follow')?.mode
+
+  it('one list says which modes each action may have: pr-follow never self, the rest all four', () => {
+    expect(DUTY_ACTION_ALLOWED_MODES['pr-follow']).toEqual(['pre-approved', 'ask', 'hand-over'])
+    for (const [action, modes] of Object.entries(DUTY_ACTION_ALLOWED_MODES)) if (action !== 'pr-follow') expect(modes, action).toEqual(DUTY_ACTION_MODES)
+    // Every built-in default is a mode its action may have.
+    for (const duty of BUILTIN_DUTIES) for (const [action, mode] of Object.entries(duty.actions)) expect(DUTY_ACTION_ALLOWED_MODES[action as keyof typeof DUTY_ACTION_ALLOWED_MODES], `${duty.id} ${action}`).toContain(mode)
+  })
+
+  it('configure refuses self for pr-follow with a reason and changes nothing; the other modes, and self for autopilot-start, are taken', () => {
+    const w = world()
+    w.duties.configure('waits-for-user', { modes: { 'pr-follow': 'hand-over' } })
+    expect(() => w.duties.configure('waits-for-user', { modes: { 'pr-follow': 'self' } })).toThrow(/pr-follow.*self/)
+    expect(() => w.duties.configure('waits-for-user', { modes: { open: 'ask', 'pr-follow': 'self' } })).toThrow()
+    expect(w.status('waits-for-user').modes).toEqual({ open: 'hand-over', 'pr-follow': 'hand-over' })
+    expect(w.memory().duties['waits-for-user'].modes).toEqual({ 'pr-follow': 'hand-over' })
+    for (const mode of ['pre-approved', 'ask', 'hand-over'] as const) {
+      w.duties.configure('waits-for-user', { modes: { 'pr-follow': mode } })
+      expect(w.status('waits-for-user').modes['pr-follow']).toBe(mode)
+    }
+    w.duties.configure('work-stalled', { modes: { 'autopilot-start': 'self' } })
+    expect(w.status('work-stalled').modes['autopilot-start']).toBe('self')
+  })
+
+  it('a memory file that holds self for pr-follow reads it as the default ask, with a line in the log; the rest of the file reads as written', () => {
+    const w = world()
+    const file = assistantMemoryPath(w.root)
+    mkdirSync(dirname(file), { recursive: true })
+    const counters = { shown: 0, accepted: 0, declined: 0, ignored: 0, liked: 0, disliked: 0 }
+    writeFileSync(
+      file,
+      JSON.stringify({
+        duties: {
+          'waits-for-user': { modes: { 'pr-follow': 'self', open: 'ask' }, thresholdMinutes: 20, counters, streak: 0 },
+          'work-stalled': { modes: { 'autopilot-start': 'self' }, counters, streak: 0 },
+        },
+        rules: [],
+        items: {},
+      }),
+    )
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      prItem(w)
+      w.add(20 * MIN)
+      expect(prFollowMode(w)).toBe('ask')
+      expect(w.status('waits-for-user').modes).toEqual({ open: 'ask', 'pr-follow': 'ask' })
+      expect(w.status('waits-for-user').thresholdMinutes).toBe(20)
+      expect(w.status('work-stalled').modes['autopilot-start']).toBe('self')
+      expect(warn).toHaveBeenCalledWith(expect.stringMatching(/pr-follow.*self/))
+      // The look counted the item as shown and wrote the duties: the refused mode is no longer in the file.
+      expect(w.memory().duties['waits-for-user'].modes).toEqual({ open: 'ask' })
+      expect(w.memory().duties['work-stalled'].modes).toEqual({ 'autopilot-start': 'self' })
+    } finally {
+      warn.mockRestore()
+    }
   })
 })

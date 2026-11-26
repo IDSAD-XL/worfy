@@ -5,9 +5,9 @@
 // Nothing here starts Claude Code or calls a model: the query is a fake that records what it was started with and
 // plays a `result`. The memory file is the real one, in a temporary folder, written by the real duties (ticket 07), the
 // real book of proposals (ticket 09) and the Assistant's own part.
-import { mkdtempSync, readFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import type { AttentionItem } from '../../src/shared/assistant/attention'
 import type { UsageCallInput } from '../../src/shared/assistant/budget'
@@ -267,7 +267,7 @@ describe('the first message of a Session: the wake, its items and the memory', (
 describe('the first message carries at most so much memory: the newest entries, and says what it left out', () => {
   const full = (): MemoryView => ({
     pauseAfter: null,
-    duties: { 'waits-for-user': { modes: { 'pr-follow': 'self' } } },
+    duties: { 'waits-for-user': { modes: { 'pr-follow': 'pre-approved' } } },
     rules: [{ id: 'r-1', duty: 'waits-for-user', projectId: null, source: 'pr-inbox', kind: 'needs-review', text: 'Do not propose reviews of drafts' }],
     proposals: [],
     commitments: Array.from({ length: COMMITMENTS_MAX }, (_, i) => ({ id: `c-${i}`, text: 'c'.repeat(COMMITMENT_TEXT_MAX), due: null, at: new Date(NOW + i * 1000).toISOString() })),
@@ -309,7 +309,7 @@ describe('the memory file: duties, open proposals, commitments, rules from ratin
     const file = assistantMemoryPath(data)
     // The user's choice of a duty and a dislike: the duties write them (ticket 07).
     const duties = new Duties({ now: () => NOW, store: memoryFileStore(file) })
-    duties.configure('waits-for-user', { modes: { 'pr-follow': 'self' } })
+    duties.configure('waits-for-user', { modes: { 'pr-follow': 'pre-approved' } })
     const rule = duties.rate(item({ id: 'pr-inbox:o/r#12', source: 'pr-inbox', kind: 'needs-review', duty: 'waits-for-user', subject: { kind: 'pr', id: 'o/r#12', label: 'PR 12' } }), 'dislike')
     // A proposal (ticket 09's book), a commitment and an answer (this Session's part).
     const book = new ProposalBook({ now: () => NOW, id: () => 'prop-1', store: memoryProposalStore(file) })
@@ -326,7 +326,7 @@ describe('the memory file: duties, open proposals, commitments, rules from ratin
     const { runner, started } = sessions({ memory: file })
     await runner.wake(wakeOf())
     const prompt = started[0]!.prompt
-    expect(prompt).toContain('"pr-follow":"self"')
+    expect(prompt).toContain('"pr-follow":"pre-approved"')
     expect(prompt).toContain('"thresholdMinutes":45')
     expect(prompt).toContain(rule!.text)
     expect(prompt).toContain('Continue the implementer')
@@ -362,6 +362,19 @@ describe('the memory file: duties, open proposals, commitments, rules from ratin
     for (let i = 0; i < COMMITMENTS_MAX; i += 1) memory.note({ kind: 'commitment', text: `Commitment ${i}`, due: null })
     expect(() => memory.note({ kind: 'commitment', text: 'One more', due: null })).toThrow(/forget/i)
     expect(sessionMemoryStore(file).read().commitments).toHaveLength(COMMITMENTS_MAX)
+  })
+
+  it('the first message never shows self for pr-follow, even when the file holds it (ticket 24)', () => {
+    const file = assistantMemoryPath(dataFolder())
+    mkdirSync(dirname(file), { recursive: true })
+    const counters = { shown: 0, accepted: 0, declined: 0, ignored: 0, liked: 0, disliked: 0 }
+    writeFileSync(file, JSON.stringify({ duties: { 'waits-for-user': { modes: { 'pr-follow': 'self', open: 'ask' }, counters, streak: 0 } }, rules: [], items: {} }))
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      expect(readMemoryView(file, (id) => id).duties['waits-for-user']).toEqual({ modes: { open: 'ask' } })
+    } finally {
+      warn.mockRestore()
+    }
   })
 })
 

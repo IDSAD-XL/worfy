@@ -17,7 +17,9 @@ import type { AttentionEvent, AttentionItem } from '../../../shared/assistant/at
 import {
   BUILTIN_DUTIES,
   DEFAULT_PAUSE_AFTER,
+  DUTY_ACTION_ALLOWED_MODES,
   DUTY_COUNTERS,
+  dutyActionModeAllowed,
   dutyActionModeSchema,
   projectRuleDutyId,
   triggerSources,
@@ -170,12 +172,16 @@ export class Duties {
     return () => void this.listeners.delete(listener)
   }
 
-  /** Changes what the user chose of a duty; a mode or an action the duty does not know throws, and nothing changes. */
+  /**
+   * Changes what the user chose of a duty; a mode or an action the duty does not know, or a mode its action may not
+   * have (DUTY_ACTION_ALLOWED_MODES: never `self` for `pr-follow`), throws, and nothing changes.
+   */
   configure(id: string, choice: DutyChoice): void {
     const definition = this.definition(id)
-    for (const [action, mode] of Object.entries(choice.modes ?? {})) {
+    for (const [action, mode] of Object.entries(choice.modes ?? {}) as [DutyAction, DutyActionMode][]) {
       if (!(action in definition.actions)) throw new Error(`The duty ${id} has no action ${action}`)
       dutyActionModeSchema.parse(mode)
+      if (!dutyActionModeAllowed(action, mode)) throw new Error(`The action ${action} may not be ${mode}: it may be ${DUTY_ACTION_ALLOWED_MODES[action].join(', ')}`)
     }
     // A threshold out of the bounds of the memory file (assistantMemorySchema) throws in change(), before anything changes.
     this.change((memory) => {
