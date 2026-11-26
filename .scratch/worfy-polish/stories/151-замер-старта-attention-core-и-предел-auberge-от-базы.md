@@ -108,63 +108,21 @@ export function workflowAttention(core: Core, projectId: string, read: WorkflowM
 - Риски и пробелы test-ов: догон Autopilot journal при старте (`install.ts`) идёт без batch — файл вне «Где в коде», и
   строк с items там единицы. После правки замер e2e: 1 запись, 9 ms вместо 51.
 
-## 5. Предел от замеренной базы, без потолка
+## 5. Что сознательно не меняли
 
-Code: `test/e2e/start-budget.ts:18-33` · key lines: 18, 23, 32
+Предел старта (`test/e2e/start-budget.ts`, потолок `RUNNER_START_CAP_MS` = 7300 ms), его unit test, карантин
+`test/quarantine/epic-frame-auberge-start-macos-ci.json` до 2026-12-09 и метка `quarantined(...)` в
+`test/e2e/epic-frame.spec.ts` — как на `main`: владелец 2026-11-26 выбрал вариант (б). Причина медленного старта на
+runner-е не найдена; её поиск — отдельный Ticket.
 
-```ts
- * There is no ceiling in ms any more (worfy-polish 151): in 58 of those 84 jobs 6 × the reference
- * was above the former 7300 ms, so the runner's speed, not the Project against its base, set the
- * budget, and a slow runner turned the test red. The cost: a delay added to every start alike
- * raises the reference with it and is caught only by START_MS, off GitHub Actions.
- */
-export const START_RATIO = 6
+- Требование: [Решено без владельца → решение владельца](../issues/151-замер-старта-attention-core-и-предел-auberge-от-базы.md#решено-без-владельца--решение-владельца)
 
-/**
- * The budget for an Auberge-sized start, given the median one-Ticket start `referenceMs` on the
- * same machine: START_MS, except on GitHub Actions (GITHUB_ACTIONS=true), where it is START_RATIO
- * times the reference, no less than START_MS.
- */
-export function startBudget(referenceMs: number, env: Readonly<Record<string, string | undefined>>): number {
-  if (env.GITHUB_ACTIONS !== 'true') return START_MS
-  return Math.max(START_MS, START_RATIO * referenceMs)
-}
-```
+## 6. Как проверено
 
-- Что делает: на GitHub Actions предел — 6 × медиана трёх стартов Project-а из одного Ticket-а в том же job-е, не
-  меньше 3 s; константа `RUNNER_START_CAP_MS` удалена. `START_MS` и `START_RATIO` не тронуты.
-- Почему здесь: Ticket, п. 3: «предел test-а на CI зависит от замеренной на том же runner-е базы, а не от потолка»,
-  например отношение `N / R` против предела из распределения 84 job-ов (1.83–5.19, медиана 3.56).
-- Без него: в медленный час runner-а `N` выше 7300 ms при обычном `N / R` (красные job-ы — 2.66–5.02), и test снова
-  краснеет на PR-ах, которые его не трогают.
-- Требование: [Что делаем, п. 3](../issues/151-замер-старта-attention-core-и-предел-auberge-от-базы.md#что-делаем), [Предел от замеренной базы](../issues/151-замер-старта-attention-core-и-предел-auberge-от-базы.md#предел-от-замеренной-базы)
-- Риски и пробелы test-ов: задержка, одинаково добавленная к каждому старту, поднимает и `R`, и `N` — на CI её больше
-  не ловит ничто, только `START_MS` вне GitHub Actions. Запас 6 над наибольшим замеренным 5.19 — 1.16.
-
-## 6. Карантин снят
-
-Code: `test/e2e/epic-frame.spec.ts:1110-1113` · key lines: 1113
-
-```ts
-/** One-Ticket starts behind the reference on GitHub Actions: a single start on the runner varied from 909 to 1274 ms. */
-const REFERENCE_STARTS = 3
-
-test('an Auberge-sized Project is interactive within 3 s and pans and zooms smoothly over its biggest Epic', async () => {
-```
-
-- Что делает: test снова объявлен через `test`; запись `test/quarantine/epic-frame-auberge-start-macos-ci.json`
-  удалена. Строка лога test-а печатает `N / R`, чтобы распределение можно было пересчитать по job-ам.
-- Почему здесь: Ticket, п. 4.
-- Без него: test пропускается на macOS до 2026-12-09, потом `test/unit/quarantine.test.ts` краснеет на просроченной
-  записи.
-- Требование: [Что делаем, п. 4](../issues/151-замер-старта-attention-core-и-предел-auberge-от-базы.md#что-делаем)
-- Риски и пробелы test-ов: что test зелёный на runner-е, покажет только job `macos-e2e` этого PR.
-
-## 7. Как проверено
-
-- `node scripts/vitest-electron.mjs test/unit/assistant-*.test.ts test/contract/assistant-*.test.ts test/unit/quarantine.test.ts test/unit/quarantine-suggest.test.ts test/unit/e2e-start-budget.test.ts` — exit 0, 222 test-а.
-- `pnpm test:e2e test/e2e/epic-frame.spec.ts` — exit 0, 8 test-ов, Auberge-старт 908 ms при пределе 3000 ms.
-- Замеры до и после — таблица в [Замер](../issues/151-замер-старта-attention-core-и-предел-auberge-от-базы.md#замер).
+- `node scripts/vitest-electron.mjs test/unit/assistant-*.test.ts test/contract/assistant-*.test.ts` — exit 0; мутант,
+  который откладывает `onItem` до конца batch, роняет test «N changes of one scope in a batch…».
+- Замеры до и после — таблица в [Замер](../issues/151-замер-старта-attention-core-и-предел-auberge-от-базы.md#замер): unit-уровень (vitest без окна) и локальные e2e с временными
+  timing marks, сделанные до запрета локальных e2e.
 
 ## Проверить себя
 
@@ -172,11 +130,7 @@ test('an Auberge-sized Project is interactive within 3 s and pans and zooms smoo
    - Ответ: запись идёт в конце того же вызова `batch` — она не теряется при выходе, и ошибка записи доходит до
      источника, как раньше.
    - Строки: `src/main/assistant/core/attention-core.ts:91-109`
-2. Что теряет CI с удалением потолка 7300 ms?
-   - Ответ: задержку, одинаково добавленную к каждому старту: она поднимает базу вместе со стартом, и ловит её только
-     3 s вне CI.
-   - Строки: `test/e2e/start-budget.ts:18-21`
-3. Что видит слушатель `onItem` внутри batch, а что слушатель `subscribe`?
+2. Что видит слушатель `onItem` внутри batch, а что слушатель `subscribe`?
    - Ответ: `onItem` получает каждый item сразу, как он взят; `subscribe` — один раз на scope, когда `flush` записал
      файл.
    - Строки: `src/main/assistant/core/attention-core.ts:113-126`

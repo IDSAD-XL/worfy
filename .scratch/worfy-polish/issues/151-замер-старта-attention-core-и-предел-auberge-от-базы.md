@@ -47,19 +47,13 @@ Project-а пишет `assistant-items.json` синхронно и с прове
 
 - [ ] Стоимость старта attention core на Project-е из 155 Ticket-ов замерена (CPU profile или timing marks), числа в
       «Итог».
-  - evidence: test-run pass · `WORFY_QUARANTINE=only pnpm test:e2e test/e2e/epic-frame.spec.ts --repeat-each=5` exit 0 with temporary timing marks: core 96 writes 51 ms before, 1 write 9 ms after, numbers in Итог · mac - · b1e938b20b23d52d6d8577e39dfc29078c2d8d88
 - [ ] Если записи заметны — одно сохранение на scope за tick, test на ядро это проверяет; иначе в «Итог» — почему
       код не тронут.
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-attention-core.test.ts test/unit/assistant-attention-sources.test.ts` exit 0 (36 passed) · mac - · b1e938b20b23d52d6d8577e39dfc29078c2d8d88
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-*.test.ts test/contract/assistant-*.test.ts` exit 0 (197 passed); a mutant deferring onItem to the end of a batch fails the batch test · mac - · 5d5808db4c4e3f10fe96f31cb1947446b605b489
 - [ ] Предел Auberge-test-а на CI зависит от замеренной базы, не от потолка; `START_MS` = 3000 не поднят;
       `test/unit/e2e-start-budget.test.ts` проверяет новое правило.
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/e2e-start-budget.test.ts` exit 0 (6 passed) · mac - · b1e938b20b23d52d6d8577e39dfc29078c2d8d88
 - [ ] Карантин снят: записи и метки нет; `test/unit/quarantine.test.ts` зелёный.
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/quarantine.test.ts test/unit/quarantine-suggest.test.ts` exit 0; `pnpm test:e2e test/e2e/epic-frame.spec.ts` exit 0 (8 passed) · mac - · b1e938b20b23d52d6d8577e39dfc29078c2d8d88
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast зелёный; `ci-ok` зелёный на head PR, test идёт в
       `macos-e2e` и зелёный.
-  - evidence: gate pass · `gate fast` exit 0 · mac - · c99782d9974662198eb19d49b7e65f0fcd5f1310
 
 ## Где в коде
 
@@ -83,7 +77,8 @@ Project e2e test-а — не 155 Ticket-ов, а 682 (42 Epic-а, `generateAuber
 в состоянии `blocked`. Первое чтение workflow этого Project-а в attention core дало 96 items, и каждый `ingest`
 переписывал весь `assistant-items.json` с проверкой zod: **96 записей**, не 23.
 
-Как мерили. Временные timing marks (в PR их нет) в main process вокруг `workflowAttention` первого чтения workflow и
+Как мерили (локальные e2e — до того, как Orchestrator напомнил запрет владельца на локальные e2e; дальше их не
+гоняли). Временные timing marks (в PR их нет) в main process вокруг `workflowAttention` первого чтения workflow и
 счётчик записей store; `WORFY_QUARANTINE=only pnpm test:e2e test/e2e/epic-frame.spec.ts --repeat-each`, Mac владельца,
 2026-11-25, тот же build. `N` — время до интерактивного окна, которое печатает test.
 
@@ -118,21 +113,17 @@ batch `onItem` зовётся до записи файла (раньше — п�
 `test/unit/assistant-attention-sources.test.ts` (чтение Project-а из 682 Ticket-ов — одна запись и один вызов
 слушателей; без правки — 112 записей).
 
-### Предел от замеренной базы
+### Решено без владельца → решение владельца
 
-Выбран вариант «отношение `N / R` против предела из распределения»: на GitHub Actions предел — `START_RATIO × R`
-(6 × медиана трёх стартов Project-а из одного Ticket-а в том же job-е), не меньше `START_MS`, без потолка в ms.
-`START_MS` = 3000 и `START_RATIO` = 6 не тронуты; `RUNNER_START_CAP_MS` удалён, не поднят.
+В PR сначала был предел от замеренной базы: на GitHub Actions `START_RATIO × R` без потолка в ms
+(`RUNNER_START_CAP_MS` удалён), с числами 84 job-ов (`N / R` 1.83–5.19, медиана 3.56) и снятым карантином. Цена этого
+варианта — задержка, одинаково добавленная к каждому старту, на CI больше не ловится.
 
-Числа базы (84 первые попытки `macos-e2e` 2026-11-22..25, Ticket 150): `N / R` 1.83–5.19, медиана 3.56; четыре
-красных — 2.66, 4.03, 4.10, 5.02, все внутри 6. Калибровка 2026-10-28: 3.07–4.3. Ни один из 84 + 4 замеров не выше 6.
+**Владелец 2026-11-26 выбрал вариант (б):** правка ядра (одна запись вместо 96) остаётся; предел старта —
+как на `main`, с потолком `RUNNER_START_CAP_MS` = 7300 ms и его test-ами (`test/e2e/start-budget.ts`,
+`test/unit/e2e-start-budget.test.ts` не меняются); карантин `test/quarantine/epic-frame-auberge-start-macos-ci.json` до
+2026-12-09 и метка `quarantined('epic-frame-auberge-start-macos-ci')` в `test/e2e/epic-frame.spec.ts` остаются как
+были. Пункты 3 и 4 «Готово, когда» этим PR не делаются.
 
-Цена: задержка, которая одинаково добавилась бы к каждому старту, поднимает `R` вместе с `N` и на CI больше не
-ловится — её ловит только `START_MS` = 3000 вне GitHub Actions. Раньше её ловил потолок 7300 ms, ценой того, что
-медленный runner краснил test. Второй вариант из Ticket-а — база «тот же старт без ядра» — не взят: он мерит только
-долю ядра и не убирает зависимость от скорости runner-а.
-
-`N / R` теперь печатается в строке `auberge-size: interactive …` test-а, так что распределение можно пересчитать по
-log-ам job-ов.
-
-Карантин снят: `test/quarantine/epic-frame-auberge-start-macos-ci.json` удалён, test объявлен через `test`.
+Причина медленного старта на runner-е не найдена: ядро объясняет около 6 % `N`, три из четырёх красных job-ов шли без
+него. Поиск причины — отдельный Ticket; его заводит Orchestrator.
