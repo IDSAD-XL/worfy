@@ -58,16 +58,51 @@ Card-а из «Итог» Ticket-а 02.
 
 - [ ] Раздел Assistant-а открывается из rail рядом с Canvas и показывает список «что ждёт» с причиной, источником и
       обязанностью у каждого пункта.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx` exit 0 · mac - · 2b9c65933
 - [ ] У предложения есть Dismiss, Snooze, Open и Prepare; Prepare показывает точный текст Session, Session стартует
       только по щелчку пользователя.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx` exit 0 · mac - · 2b9c65933
 - [ ] Like и dislike стоят на каждом сообщении Assistant-а и доходят до обязанности (Ticket 07).
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx` exit 0 · mac - · 2b9c65933
 - [ ] Журнал показывает действия Assistant-а, у каждой строки — пункт, который её вызвал.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx` exit 0 · mac - · 2b9c65933
 - [ ] Раздел показывает сводку и разговор; пользователь может написать Assistant-у в любой момент.
 - [ ] Строка расхода показывает token-ы и долю Limits Assistant-а; доля помечена как оценка.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx` exit 0 · mac - · 2b9c65933
 - [ ] Уведомление Assistant-а — карточка у его значка в rail, со значком и цветом Assistant-а, like и dislike,
       Open, Prepare, Snooze; одна карточка за раз, остальное — число на значке.
 - [ ] Когда worfy не впереди, системное уведомление уходит только о срочном и только в work hours, с
       заголовком «worfy Assistant»; щелчок открывает раздел Assistant-а.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx` exit 0 · mac - · 2b9c65933
 - [ ] e2e с `WORFY_AGENT=fake`: список, like и dislike — зелёный.
 - [ ] Тексты UI — английские.
+  - evidence: test-run pass · `pnpm lint` exit 0 · mac - · 2b9c65933
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 2b9c65933
+
+## Решено без владельца (подтвердить)
+
+- Вид раздела строит main (`AssistantWindow`, `src/main/assistant/window/view.ts`) из ядра внимания, обязанностей,
+  предложений, журнала и расхода; окно получает его целиком по каналам `assistant.*`, все `local`. Окно Linked machine
+  показывает «Assistant works with the Projects of its own machine».
+- Раздел Assistant-а — первый в rail, своим цветом и над чертой, но окно, где секцию не выбирали, открывается на
+  Projects (`railDefault = false`): пока Assistant выключен, начинать с него незачем.
+- Срочное — пункт вида `run-stopped` или сообщение внешнего источника с пометкой `urgent`. Системное уведомление — одно на
+  срочный новый пункт; пункт, который пришёл, пока worfy был впереди, позже не уведомляет; пришедший вне work hours ждёт
+  их начала.
+- Snooze: In 1 hour, In 3 hours, Next work hours, Until something changes. Отложенное хранится в
+  `<data>/assistant/window.json` и просыпается по таймеру раз в минуту и при каждом изменении ядра.
+- Сводка — подсчёт самого worfy за 16 часов, без модели: пришло, сделано само, остановленные Run-ы, ждёт вас, строка на
+  Project и первые три пункта. Утреннее сообщение Assistant-а показывается, когда его Session его прислала.
+- Like и dislike пункта и строки журнала доходят до обязанности (Ticket 07); оценка сообщения, предложения и сводки
+  только хранится. Отмена dislike удаляет его правило.
+- Карточки и системные уведомления Assistant-а — только пока он включён. Выключенный Assistant: список виден, поле
+  разговора выключено с текстом «Assistant is off on this machine».
+- Подготовленная Session стартует в Claude Code на Canvas Project-а; текст можно править (Edit), Start отправляет ровно
+  показанный текст.
+- Open ведёт: Session — к её Node, PR — в вид Pull requests, CI — к PR, после которого ветка покраснела, Ticket и Run — в
+  Pipeline, сообщение — по https-ссылке источника, Health — в Health check.
+- Строка расхода — простой текст; ссылку в Settings добавит Ticket 15.
+- Новые token-ы `--assistant*` в `tokens.css`, светлая и тёмная тема, — из прототипа.
+- Разговор ждёт Ticket 10 (PR #2247): до его merge `runningAssistant()` в `src/main/assistant/window/app.ts` отвечает
+  null, и отправка отвечает «Assistant is off on this machine».
