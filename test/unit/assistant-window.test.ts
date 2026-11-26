@@ -35,6 +35,7 @@ const T0 = Date.parse('2026-11-24T10:00:00Z')
 const WORK = { days: ['mon', 'tue', 'wed', 'thu', 'fri'] as const, windows: [{ from: 9 * 60, to: 18 * 60 }], timeZone: 'UTC' }
 const SHOP = 'shop-api-1'
 const MOBILE = 'mobile-app-2'
+const DEMO = 'demo-project-3'
 
 interface World {
   clock: { now: number }
@@ -50,13 +51,15 @@ interface World {
 }
 
 let n = 0
-function world(): World {
+function world(options: { demo?: boolean } = {}): World {
   const dir = join(temp, `w${++n}`)
   const clock = { now: T0 }
   const now = () => clock.now
-  const projects = [
+  const projects: { id: string; name: string; localOnly?: true }[] = [
     { id: SHOP, name: 'shop-api' },
     { id: MOBILE, name: 'mobile-app' },
+    // The Demo project of worfy-onboarding 11: this Machine's only, never seen by a Linked machine.
+    ...(options.demo === true ? [{ id: DEMO, name: 'Demo project', localOnly: true as const }] : []),
   ]
   const duties = new Duties({ now, store: memoryFileStore(assistantMemoryPath(dir)), projects: () => projects.map((each) => each.id), projectRules: () => [] })
   const core = new AttentionCore({
@@ -785,6 +788,20 @@ describe('two machines (worfy-assistant ticket 18)', () => {
     expect(() => w.window.snooze(pcItem.id, 'hour')).toThrow(ITEM_GONE)
     expect(() => w.window.start({ projectId: 'docs-site-9', text: 'Deploy the docs', itemId: null, proposalId: null })).toThrow()
     expect(w.started).toEqual([])
+  })
+
+  it('never hands the Linked machine a Project local to this Machine, its items, or an item of no Project (review round 1)', () => {
+    const d = world({ demo: true })
+    for (const each of [question(), slack()]) d.core.ingest(each)
+    d.core.ingest(event({ source: 'session', id: 'demo-1:question', projectId: DEMO, subject: { kind: 'session', id: 'demo-1', label: 'demo 01' }, kind: 'question', text: 'Asks: Try the Demo?' }))
+    d.core.ingest(event({ source: 'limits', id: 'limits:five_hour', projectId: null, subject: { kind: 'limit', id: 'five_hour', label: '5-hour window' }, kind: 'high', text: 'The 5-hour window is 85% used' }))
+    // This Machine's own section shows both.
+    const own = d.window.view().items.map((item) => item.projectId)
+    expect(own).toContain(DEMO)
+    expect(own).toContain(null)
+    const answer = d.window.waiting()
+    expect(answer.projects.map((project) => project.id)).toEqual([SHOP, MOBILE])
+    expect(answer.items.map((item) => item.projectId).sort()).toEqual([MOBILE, SHOP])
   })
 
   it('without Linked machines the list of them is empty', () => {

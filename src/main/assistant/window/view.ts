@@ -94,8 +94,8 @@ export interface AssistantWindowDeps {
   /** The app's attention core; null while it does not run. */
   core(): WindowCore | null
   duties: WindowDuties
-  /** The Projects of this Machine. */
-  projects(): readonly { id: string; name: string }[]
+  /** The Projects of this Machine; `localOnly` — never seen by a Linked machine (the Demo project, worfy-onboarding 11). */
+  projects(): readonly { id: string; name: string; localOnly?: true }[]
   proposals: WindowProposals
   /** The journal of actions, oldest first. */
   journal(): readonly ActionJournalLine[]
@@ -412,12 +412,19 @@ export class AssistantWindow {
    * What a Linked machine reads of this one (`assistant.waiting`): the Projects of this Machine and the items the section
    * shows now, urgent first, as words and times — no prepared text, proposal, target or rating. An item's id is a digest
    * of the core's, which may hold a source's text. Reading counts nothing as shown, and nothing of a third Machine goes.
+   * A Project local to this Machine (`localOnly`, as ProjectStore.states() leaves it out of a Linked machine's list) and
+   * its items stay here, and so do the items of no Project (Limits, a message tied to none): only the items of a Project
+   * the Linked machine may see go, the first LINKED_ITEMS_MAX of them.
    */
   waiting(): LinkedWaits {
-    const view = this.view()
+    const shared = this.deps.projects().filter((project) => project.localOnly !== true)
+    const ids = new Set(shared.map((project) => project.id))
     return {
-      projects: this.deps.projects().map((project) => ({ id: project.id, name: project.name })),
-      items: view.items.slice(0, LINKED_ITEMS_MAX).map((item) => ({ ...linkedItemOf(item), id: createHash('sha256').update(item.id).digest('hex').slice(0, 24) })),
+      projects: shared.map((project) => ({ id: project.id, name: project.name })),
+      items: this.view()
+        .items.filter((item) => item.projectId !== null && ids.has(item.projectId))
+        .slice(0, LINKED_ITEMS_MAX)
+        .map((item) => ({ ...linkedItemOf(item), id: createHash('sha256').update(item.id).digest('hex').slice(0, 24) })),
     }
   }
 

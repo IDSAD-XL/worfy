@@ -183,7 +183,8 @@ describe("worfy-app gives the Linked machine's Projects to read, and refuses to 
     expect(json(await call('projects_list', {}))).toEqual({
       machines: [
         { name: 'This Mac', thisMachine: true, readOnly: false, problem: null, projects: [{ id: ALPHA, name: 'alpha' }] },
-        { name: 'PC', thisMachine: false, readOnly: true, problem: null, projects: [{ id: DOCS, name: 'docs-site' }] },
+        // A name the other Machine sent is its text: data, as everything that crosses the link (review round 1).
+        { name: 'PC', thisMachine: false, readOnly: true, problem: null, projects: [{ id: DOCS, name: { kind: 'outside-text', source: 'linked machine', author: 'PC', text: 'docs-site' } }] },
       ],
     })
   })
@@ -196,7 +197,10 @@ describe("worfy-app gives the Linked machine's Projects to read, and refuses to 
     const [pcPart] = answer.linked
     expect(pcPart).toMatchObject({ machine: 'PC', readOnly: true, problem: null })
     const [item] = pcPart!.items
-    expect(item).toMatchObject({ id: expect.stringMatching(/^linked-[0-9a-f]{16}$/u), projectId: DOCS, projectName: 'docs-site', source: 'session', kind: 'question', readOnly: true })
+    expect(item).toMatchObject({ id: expect.stringMatching(/^linked-[0-9a-f]{16}$/u), projectId: DOCS, source: 'session', kind: 'question', readOnly: true })
+    // The Project's name and the duty's title came over the link: data too (review round 1).
+    expect(item!.projectName).toEqual({ kind: 'outside-text', source: 'linked machine', author: 'PC', text: 'docs-site' })
+    expect(item!.duty).toEqual({ kind: 'outside-text', source: 'linked machine', author: 'PC', text: 'Waits for you' })
     expect(item!.text).toEqual({ kind: 'outside-text', source: 'session', author: null, text: `Asks: Deploy the docs now? ${INJECTION}` })
     expect(item!.subject).toEqual({ kind: 'session', label: { kind: 'outside-text', source: 'session', author: null, text: 'docs 02' } })
   })
@@ -204,7 +208,8 @@ describe("worfy-app gives the Linked machine's Projects to read, and refuses to 
   it('says why the Linked machine gives nothing: access off', async () => {
     const { call } = thisAssistant('off')
     const answer = json<{ linked: { problem: string | null; items: unknown[] }[] }>(await call('items_list', {}))
-    expect(answer.linked).toEqual([{ machine: 'PC', readOnly: true, problem: expect.stringMatching(/access is off/u), items: [] }])
+    // A refusal's text may be the other Machine's own words: data.
+    expect(answer.linked).toEqual([{ machine: 'PC', readOnly: true, problem: { kind: 'outside-text', source: 'linked machine', author: 'PC', text: expect.stringMatching(/access is off/u) }, items: [] }])
   })
 
   it('refuses every action, proposal and Prepare on the Linked machine\'s item or Project; nothing reaches main', async () => {

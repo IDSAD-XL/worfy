@@ -1,7 +1,8 @@
 // What waits on the Linked machine (worfy-assistant ticket 18; spec, two machines; boundary 5; stories 1 and 33;
 // ADR-0066). Each Machine has its own Assistant, which keeps the items of its own Projects and acts only there. A Linked
 // machine reads them over the `project` channel `assistant.waiting`, marked `read` (src/shared/ipc/assistant.ts): the
-// Projects of the Machine and the items its section shows now, as words and times only — no prepared text, no proposal,
+// Projects of the Machine it may see (never a `localOnly` one, such as the Demo project) and the items of those Projects
+// its section shows now, as words and times only — no prepared text, no proposal,
 // no target to open, no rating — so the reading side has nothing to act with. The reading side shows them beside its own,
 // read-only, and gives them to its Assistant as data (src/main/mcp/app-server.ts, items_list).
 import { z } from 'zod'

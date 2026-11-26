@@ -4,7 +4,7 @@
 // src/main/index.ts starts the notifications after the attention core and stops them on `will-quit`.
 //
 // What waits on the Linked machines (worfy-assistant ticket 18, linked.ts) is read over the link at the start, on every
-// look and whenever a connection opens or closes, and shown in the section read-only.
+// look and on every change RemoteCalls tells of (a connection, an unlink, a change of access), and shown read-only.
 //
 // The conversation reaches the Assistant's Session of ticket 10 (src/main/assistant/session/app.ts, appAssistant) once
 // that ticket is in: until then the Assistant is off and a message is refused with ASSISTANT_OFF.
@@ -161,25 +161,36 @@ export function startAssistantWindow(): () => void {
 }
 
 /**
- * The section hears of each change of what the Linked machines answered, and reads them afresh now and whenever a
- * connection to one opens or closes (the link service may start after the section). Answers the function that stops it.
+ * The section hears of each change of what the Linked machines answered, and reads them afresh now and on every `changed`
+ * of RemoteCalls: a connection opened or closed, a Machine unlinked, and its `projects-access` message — so access
+ * switched Off, or back to Read only, shows at once. The link service may start after the section. One read runs at a
+ * time; a change during it reads once more after it. Answers the function that stops it.
  */
 function followLinkedWaits(linked: LinkedWaits, window: AssistantWindow): () => void {
   const stopChanged = linked.subscribe(() => window.changed())
-  const read = (): void => void linked.refresh()
+  let running = false
+  let again = false
+  const read = (): void => {
+    if (running) {
+      again = true
+      return
+    }
+    running = true
+    void linked.refresh().finally(() => {
+      running = false
+      if (!again) return
+      again = false
+      read()
+    })
+  }
   let unfollow: (() => void) | null = null
   const follow = (): void => {
     unfollow?.()
-    const service = appLinkService()
-    if (service === undefined) return
-    service.on('connected', read)
-    service.on('disconnected', read)
-    service.on('unlinked', read)
-    unfollow = () => {
-      service.off('connected', read)
-      service.off('disconnected', read)
-      service.off('unlinked', read)
-    }
+    unfollow = null
+    const calls = appRemoteCalls()
+    if (calls === undefined) return
+    calls.on('changed', read)
+    unfollow = () => calls.off('changed', read)
     read()
   }
   const stopStart = onAppLinkStart(follow)

@@ -339,7 +339,7 @@ describe('worfy-app: the reading tools', () => {
     expect(json(await rpc.call('projects_list'))).toEqual({
       machines: [
         { name: 'This Mac', thisMachine: true, readOnly: false, problem: null, projects: [{ id: PROJECT, name: 'alpha' }] },
-        { name: 'PC', thisMachine: false, readOnly: true, problem: null, projects: [{ id: 'beta-11223344', name: 'beta' }] },
+        { name: 'PC', thisMachine: false, readOnly: true, problem: null, projects: [{ id: 'beta-11223344', name: { kind: 'outside-text', source: 'linked machine', author: 'PC', text: 'beta' } }] },
       ],
     })
   })

@@ -13,8 +13,9 @@
 //   which only the user's click starts (boundary 3). A Prepare names a Project of this Machine only (boundary 5).
 // - Two machines (ticket 18; boundary 5): the Assistant of each Machine acts only in its own Projects. projects_list names
 //   the Linked machine and its Projects, read-only; items_list gives what waits there (src/shared/assistant/linked.ts)
-//   under `linked`, its text as outside text, with ids of their own (`linked-…`). An action, a proposal or a Prepare on
-//   them, and a read of a Linked machine's workflow, PRs or runs, is refused with the Machine it is of.
+//   under `linked`, its text — and every name, title and refusal that came over the link — as outside text, with ids of
+//   their own (`linked-…`). An action, a proposal or a Prepare on them, and a read of a Linked machine's workflow, PRs or
+//   runs, is refused with the Machine it is of.
 // - Actions: only APP_ACTIONS, only when the mode of that action in the item's duty is `self` or `pre-approved`
 //   (ticket 07), and only through main's own functions, which check for themselves: the closed list of ticket 08
 //   (ClosedListSeam: the action and the item, `by: 'assistant'`, no text — main sets it and writes the journal line),
@@ -234,7 +235,10 @@ export const publicItemId = (id: string): string => `item-${digest(id)}`
 /** The id the agent knows an item of a Linked machine by: its own, so it never names an item of this Machine. */
 export const linkedItemId = (machineId: string, id: string): string => `linked-${digest(`${machineId}\n${id}`)}`
 
-/** An item of a Linked machine as the agent reads it: read-only, its words as outside text. */
+/** Text a Linked machine sent — a Project's name, a duty's title, its refusal: data, with the Machine as its author. */
+const fromLinked = (machine: AppMachine, text: string): OutsideText => outsideText(text, 'linked machine', machine.name)
+
+/** An item of a Linked machine as the agent reads it: read-only, every word of it as outside text. */
 function linkedItemView(machine: AppMachine, item: LinkedItem) {
   const author = item.outside?.author ?? null
   const block = (text: string): OutsideText => outsideText(text, item.source, author)
@@ -242,10 +246,10 @@ function linkedItemView(machine: AppMachine, item: LinkedItem) {
     id: linkedItemId(machine.id, item.id),
     readOnly: true,
     projectId: item.projectId,
-    projectName: item.projectName,
+    projectName: item.projectName === null ? null : fromLinked(machine, item.projectName),
     source: item.source,
     kind: item.kind,
-    duty: item.duty,
+    duty: item.duty === null ? null : fromLinked(machine, item.duty),
     urgent: item.urgent,
     startedAt: iso(item.startedAt),
     lastAt: iso(item.lastAt),
@@ -385,15 +389,16 @@ function handlers(deps: WorfyAppDeps): Handlers {
         name: machine.name,
         thisMachine: machine.thisMachine,
         readOnly: !machine.thisMachine,
-        problem: machine.problem,
-        projects: machine.projects.map((project) => ({ id: project.id, name: project.name })),
+        problem: machine.problem === null ? null : fromLinked(machine, machine.problem),
+        // A Linked machine's names came over the link: data.
+        projects: machine.projects.map((project) => ({ id: project.id, name: machine.thisMachine ? project.name : fromLinked(machine, project.name) })),
       })),
     }),
 
     // The Assistant's reads count nothing as shown: only what the user saw does (worfy-assistant ticket 14, assistant.shown).
     items_list: async () => ({
       items: deps.duties.look(deps.items(), { countShown: false }).shown.map((shown) => itemView(shown.item, shown.proposals)),
-      linked: (await linkedMachines()).map((machine) => ({ machine: machine.name, readOnly: true, problem: machine.problem, items: machine.items.map((item) => linkedItemView(machine, item)) })),
+      linked: (await linkedMachines()).map((machine) => ({ machine: machine.name, readOnly: true, problem: machine.problem === null ? null : fromLinked(machine, machine.problem), items: machine.items.map((item) => linkedItemView(machine, item)) })),
     }),
 
     workflow_read: async ({ projectId, epic }) => {
