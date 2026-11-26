@@ -6,6 +6,7 @@
 // list of actions (ticket 08) calls escalate() of the answer, the conversation (ticket 14) userMessage().
 import { join } from 'node:path'
 import { workHoursOf } from '../../../shared/assistant/schedule/settings'
+import { dailyWakeLimitOf } from '../../../shared/assistant/settings'
 import { appLimits } from '../../agent/limits'
 import { appNow } from '../../clock'
 import { projectStore } from '../../projects/store'
@@ -14,7 +15,7 @@ import { dataRoot } from '../../storage/paths'
 import { appAssistantUsage } from '../budget/ledger'
 import { appAttentionCore } from '../core/app'
 import type { PowerEvents } from '../schedule/scheduler'
-import { fileWakeStore, onResume, runWakeLoop, WAKE_FILE, type WakeLoop } from './loop'
+import { fileWakeStore, onResume, onSettingsChange, runWakeLoop, WAKE_FILE, type WakeLoop } from './loop'
 import { WakePlanner, type AssistantWake } from './planner'
 
 /**
@@ -33,6 +34,7 @@ export function startAssistantWake(onWake: (wake: AssistantWake) => void, power:
     limits: () => limits.snapshot(),
     ledger: appAssistantUsage(),
     store: fileWakeStore(join(dataRoot(), WAKE_FILE)),
+    dailyWakeLimit: () => dailyWakeLimitOf(appSettingsStore().get()),
   })
-  return runWakeLoop({ planner, now: appNow, onWake, changes: [(listener) => core.subscribe(listener), (listener) => limits.subscribe(listener), onResume(power)] })
+  return runWakeLoop({ planner, now: appNow, onWake, changes: [(listener) => core.subscribe(listener), (listener) => limits.subscribe(listener), onResume(power), onSettingsChange(appSettingsStore())] })
 }

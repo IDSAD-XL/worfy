@@ -133,6 +133,12 @@ export async function dismissProposal(proposalId: string): Promise<void> {
   if (!result.ok) refused('Dismiss', result.error)
 }
 
+/** Apply under a card «before → after» (ticket 15): main applies the change; the card then says when. */
+export async function applyChange(proposalId: string): Promise<void> {
+  const result = await invoke('assistant.apply', { proposalId })
+  if (!result.ok) refused('Apply', result.error)
+}
+
 /** Start of the prepared Session with exactly the text the user read; answers whether it started. */
 export async function startPrepared(request: PrepareRequest, text: string): Promise<boolean> {
   const result = await invoke('assistant.start', { projectId: request.projectId, text, itemId: request.itemId, proposalId: request.proposalId })

@@ -2,6 +2,7 @@
 // the duty «CI of the main branch is red». In: recorded answers of `gh api graphql` (test/fixtures/assistant-main-ci/),
 // a clock that is not the machine's, the duties and the scheduler of checks; out — what reaches mainCiAttention, the
 // items of the core, the log, and whether the check is registered. No test runs the real gh or reaches the network.
+import { EventEmitter } from 'node:events'
 import { mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -9,7 +10,8 @@ import { afterAll, describe, expect, it, vi } from 'vitest'
 import { AttentionCore } from '../../src/main/assistant/core/attention-core'
 import { attentionFileStore, attentionPaths } from '../../src/main/assistant/core/store'
 import { Duties } from '../../src/main/assistant/duties/duties'
-import { followMainCiDuty, MAIN_CI_KIND, mainCiCheck, type MainCiCheckOptions } from '../../src/main/assistant/duties/main-ci-check'
+import { followMainCiDuty, MAIN_CI_KIND, mainCiCheck, mainCiSwitchOf, type MainCiCheckOptions } from '../../src/main/assistant/duties/main-ci-check'
+import type { AppSettings } from '../../src/shared/settings/app-settings'
 import { assistantMemoryPath, memoryFileStore } from '../../src/main/assistant/duties/memory'
 import { CheckScheduler, memoryCheckMarks, type CheckRun } from '../../src/main/assistant/schedule/scheduler'
 import { MAIN_CI_HISTORY, readMainBranchCi } from '../../src/main/github/main-ci'
@@ -21,6 +23,7 @@ const temp = mkdtempSync(join(tmpdir(), 'worfy-main-ci-'))
 afterAll(() => removeTree(temp))
 
 const MIN = 60_000
+const APP_SETTINGS_BASE: AppSettings = { interfaceScale: 1, sidebar: { collapsed: {}, visible: { normal: true, focus: true } }, autoCompactWindow: { orchestrator: 400_000, other: 500_000 }, memoryIndicator: true, revision: 1 }
 const PROJECT = 'p-alpha'
 const ROOT = '/work/alpha'
 const fixture = (name: 'red' | 'green'): string => readFileSync(join(__dirname, '..', 'fixtures', 'assistant-main-ci', `${name}.json`), 'utf8')
@@ -271,6 +274,27 @@ describe('a red condition without later reads', () => {
       expect(w.core.items(PROJECT), how).toEqual([])
       stop()
     }
+  })
+
+  it('turning the Assistant off in Settings disarms what the check armed, as turning the check off does (ticket 15)', async () => {
+    const w = world()
+    w.duties.configure('main-ci-red', { thresholdMinutes: 30 })
+    const { go, check: made } = check(w, async () => fixture('red'))
+    let settings: AppSettings = { ...APP_SETTINGS_BASE, assistant: { on: true }, assistantSchedule: { checks: { 'main-ci': { enabled: true } } } }
+    const store = Object.assign(new EventEmitter(), { get: () => settings })
+    const setting = mainCiSwitchOf(store)
+    expect(setting.enabled()).toBe(true)
+    const stop = followMainCiDuty({ register: () => () => undefined }, w.duties, made, setting)
+    await go()
+    w.add(5 * MIN)
+    settings = { ...settings, assistant: { on: false } }
+    store.emit('changed')
+    expect(setting.enabled()).toBe(false)
+    w.add(60 * MIN)
+    w.core.tick()
+    expect(w.core.items(PROJECT)).toEqual([])
+    stop()
+    expect(store.listenerCount('changed')).toBe(0)
   })
 })
 

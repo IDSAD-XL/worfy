@@ -9,7 +9,8 @@
 // - The clicks: Open, Dismiss and Snooze change the item in the attention core (ticket 03) and are counted by its duty;
 //   like and dislike reach the duty (Duties.rate), and taking one back uncounts it (Duties.unrate); Start of a prepared
 //   Session starts a new Session with exactly the text the user read, and nothing else starts one (boundary 3); a message
-//   of the user goes to the Assistant's Session (ticket 10), refused while the Assistant is off.
+//   of the user goes to the Assistant's Session (ticket 10), refused while the Assistant is off. Apply under a card
+//   «before → after» applies the change of the settings a proposal carries (ticket 15): nothing else does.
 // - Two machines (worfy-assistant ticket 18; boundary 5): every item and every click is of this Machine's Projects. What
 //   waits on a Linked machine comes as it answered (linked.ts) and is shown beside, read-only: a click on it finds no
 //   item here, and a Session starts only in a Project of this Machine. waiting() is what a Linked machine reads of this
@@ -23,6 +24,7 @@ import { LINKED_ITEMS_MAX, linkedItemOf, type LinkedMachineWaits, type LinkedWai
 import { OPEN_STATES, type AttentionItem, type AttentionState } from '../../../shared/assistant/attention'
 import type { DutyLook, MemoryRule, ShownItem } from '../../../shared/assistant/duties'
 import type { AssistantProposal } from '../../../shared/assistant/proposals'
+import { changeRows, type ChangeRow, type SettingsChange, type SettingsNow } from '../../../shared/assistant/settings-change'
 import { inWorkHours, nextWorkHoursStart, type WorkHours } from '../../../shared/assistant/schedule/work-hours'
 import {
   isUrgentItem,
@@ -87,6 +89,16 @@ export interface WindowProposals {
   list(): AssistantProposal[]
   subscribe(listener: () => void): () => void
   remove(id: string): void
+  /** Notes the user's Apply of a proposal's change (ticket 15). */
+  update(id: string, change: { applied: { at: number; rows: ChangeRow[] } }): unknown
+}
+
+/** The settings a card «before → after» reads and its Apply changes (ticket 15). */
+export interface WindowSettings {
+  /** The app settings and the duties as they are now: the «before» of the rows. */
+  now(): SettingsNow
+  /** Applies the change whole, or throws, with the reason, and changes nothing. */
+  apply(change: SettingsChange): void
 }
 
 export interface AssistantWindowDeps {
@@ -102,6 +114,8 @@ export interface AssistantWindowDeps {
   /** The Assistant's tokens today and this week, and its estimated share (0..1) of each Limits window. */
   usage(): { today: number; week: number; shares: readonly { window: string; share: number }[] }
   workHours(): WorkHours
+  /** The settings Apply changes; absent: a card shows no rows and Apply is refused. */
+  settings?: WindowSettings
   store: WindowStateStore
   /** The Assistant while it runs; null while it is off. */
   assistant(): AssistantConversation | null
@@ -302,7 +316,8 @@ export class AssistantWindow {
     const titles = new Map(look.duties.map((duty) => [duty.id, duty.title]))
     const proposals = this.deps.proposals.list()
     const proposalOf = new Map<string, AssistantProposal>()
-    for (const proposal of proposals) if (proposal.item !== null && !proposalOf.has(proposal.item)) proposalOf.set(proposal.item, proposal)
+    // A proposal that changes a setting has its card among the proposals, never on its item (ticket 15).
+    for (const proposal of proposals) if (proposal.item !== null && proposal.change == null && !proposalOf.has(proposal.item)) proposalOf.set(proposal.item, proposal)
     const snoozes = new Map(this.load().snoozes.map((snooze) => [snooze.itemId, snooze]))
 
     const windowItem = (item: AttentionItem, shown?: ShownItem): WindowItem => {
@@ -354,12 +369,13 @@ export class AssistantWindow {
     })
     const openIds = new Set(items.filter((item) => OPEN_STATES.includes(item.state)).map((item) => item.id))
     const free: WindowProposal[] = proposals
-      .filter((proposal) => proposal.item === null || (!shownIds.has(proposal.item) && openIds.has(proposal.item)))
+      .filter((proposal) => proposal.item === null || proposal.change != null || (!shownIds.has(proposal.item) && openIds.has(proposal.item)))
       .map((proposal) => ({
         id: proposal.id,
         title: proposal.title,
         why: proposal.why,
         prepare: proposal.prepare === null ? null : { ...proposal.prepare, projectName: names.get(proposal.prepare.projectId) ?? null, by: 'assistant' as const },
+        change: this.changeCard(proposal),
         createdAt: proposal.createdAt,
         rating: this.rating({ kind: 'proposal', id: proposal.id }),
       }))
@@ -576,6 +592,37 @@ export class AssistantWindow {
 
   dismissProposal(proposalId: string): void {
     this.deps.proposals.remove(proposalId)
+    this.changed()
+  }
+
+  /** The card «before → after» of a proposal: its rows now, or as they were when the user applied it; null without a change. */
+  private changeCard(proposal: AssistantProposal): WindowProposal['change'] {
+    if (proposal.change == null) return null
+    if (proposal.applied != null) return { rows: proposal.applied.rows, applied: proposal.applied.at }
+    if (this.deps.settings === undefined) return { rows: [], applied: null }
+    try {
+      return { rows: changeRows(proposal.change, this.deps.settings.now()), applied: null }
+    } catch (error) {
+      this.deps.log?.('[assistant] the rows of a change could not be read', error)
+      return { rows: [], applied: null }
+    }
+  }
+
+  /**
+   * Apply under a card «before → after» (ticket 15; story 26): the only way a change the Assistant proposed reaches the
+   * settings. Applied once; the card keeps its rows as they were and when. A change the settings refuse throws, with the
+   * reason, and the card stays as it was.
+   */
+  apply(proposalId: string): void {
+    const proposal = this.deps.proposals.list().find((each) => each.id === proposalId)
+    if (proposal === undefined) throw new Error('This proposal is no longer there')
+    if (proposal.change == null) throw new Error('This proposal changes no setting')
+    if (proposal.applied != null) throw new Error('This change is applied already')
+    const settings = this.deps.settings
+    if (settings === undefined) throw new Error('Settings cannot be changed here')
+    const rows = changeRows(proposal.change, settings.now())
+    settings.apply(proposal.change)
+    this.deps.proposals.update(proposalId, { applied: { at: this.deps.now(), rows } })
     this.changed()
   }
 

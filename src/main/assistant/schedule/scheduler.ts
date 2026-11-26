@@ -25,6 +25,9 @@
 // interval (reschedule): they ask for the check, so it is no longer held back. The count is kept in the marks, so it
 // outlives a restart.
 //
+// The Assistant turned off (worfy-assistant ticket 15; the option `active`): no kind goes while it is off, so
+// turning it off in Settings stops every check of a source, whatever each check's own switch says.
+//
 // The Mac's sleep: suspend() clears the timer and refuses every start until resume(), which plans again —
 // so no check goes while the Mac sleeps, and the missed one goes on waking. worfy closed: the starts and
 // successes are kept by a CheckMarksStore (a file in worfy's data folder, src/main/assistant/schedule/app.ts),
@@ -35,6 +38,7 @@
 import { z } from 'zod'
 import { CHECK_INTERVAL_BOUNDS, checkKindSchema, checkSettingsOf, SOURCE_CHECK_KINDS, workHoursOf, type AssistantScheduleSettings, type CheckKind } from '../../../shared/assistant/schedule/settings'
 import { inWorkHours, nextWorkHoursStart, workWindowStartOf } from '../../../shared/assistant/schedule/work-hours'
+import type { CheckNowRefusal } from '../../../shared/assistant/settings-view'
 
 /** The spread of a check's interval, as a share of it: ±10 %. */
 export const SCHEDULE_JITTER = 0.1
@@ -129,6 +133,11 @@ export interface CheckSchedulerOptions {
   /** The app settings of this Machine, read at each plan. */
   settings: () => AssistantScheduleSettings
   marks: CheckMarksStore
+  /**
+   * Whether the Assistant runs (worfy-assistant ticket 15): while it is off, no kind goes, by its time or by runNow.
+   * Read at each plan; a change comes through reschedule(). Absent: always on.
+   */
+  active?: () => boolean
   /** A number in [0, 1]; picks where in the spread the next run lands. */
   random?: () => number
   setTimer?: (callback: () => void, ms: number) => unknown
@@ -217,14 +226,38 @@ export class CheckScheduler {
   }
 
   /**
+   * Why runNow(kind) would start nothing now; null when it would start a run. The person's Check now shows it (ticket 15).
+   */
+  whyNotNow(kind: CheckKind): CheckNowRefusal | null {
+    const entry = this.entries.get(kind)
+    if (entry === undefined) return 'not-registered'
+    if (!this.started) return 'stopped'
+    if (this.asleep) return 'asleep'
+    if (!this.active()) return 'assistant-off'
+    if (!checkSettingsOf(this.options.settings(), kind).enabled) return 'check-off'
+    if (entry.running) return 'running'
+    return null
+  }
+
+  /**
    * Starts a run of `kind` now, whatever its time; answers false and starts nothing when it is not
-   * registered, already running, or the scheduler is stopped or asleep.
+   * registered, already running, the scheduler is stopped or asleep, the Assistant is off, or the person turned the
+   * check off (whyNotNow says which).
    */
   runNow(kind: CheckKind): boolean {
     const entry = this.entries.get(kind)
-    if (entry === undefined || entry.running || !this.started || this.asleep) return false
+    if (entry === undefined || this.whyNotNow(kind) !== null) return false
     this.launch(kind, entry)
     return true
+  }
+
+  /** How many runs of `kind` failed in a row, as the marks keep it (ticket 22); 0 when none did. Settings show it (ticket 15). */
+  failures(kind: CheckKind): number {
+    return this.readMarks()[kind]?.failures ?? 0
+  }
+
+  private active(): boolean {
+    return this.options.active?.() ?? true
   }
 
   /** When `kind` goes next by the settings in force; null when it is off or not registered. */
@@ -258,7 +291,7 @@ export class CheckScheduler {
   private dueOf(kind: CheckKind, entry: Entry, now: number): number | null {
     const settings = this.options.settings()
     const check = checkSettingsOf(settings, kind)
-    if (!check.enabled) return null
+    if (!check.enabled || !this.active()) return null
     const mark = this.readMarks()[kind]
     const startedAt = mark?.startedAt
     const interval = check.intervalMinutes * MINUTE_MS

@@ -46,6 +46,7 @@ import { redactSecrets } from '../../shared/terminal-ai/redact'
 import type { WorkflowModel } from '../../shared/workflow/types'
 import type { PrFollowResult } from '../actions/launch'
 import type { AssistantProposal } from '../../shared/assistant/proposals'
+import { dutyChangeProblems } from '../../shared/assistant/settings-change'
 import type { ActionJournal } from '../assistant/actions/journal'
 import type { ProposalBook } from '../assistant/proposals/book'
 import { FeaturePageMissing, readFeaturePage, searchFeaturePages, type FeaturePageFile } from '../assistant/help/feature-pages'
@@ -493,8 +494,14 @@ function handlers(deps: WorfyAppDeps): Handlers {
       if (args.item !== undefined) await refuseLinkedItem(args.item, 'Propose without item, and tell the user it waits there. Nothing was kept.')
       const item = args.item === undefined ? null : itemOfPublicId(args.item)
       checkPrepare(args.prepare)
+      // A change of the settings is only kept for its card «before → after»: the user's Apply in the window applies it
+      // (worfy-assistant ticket 15). One that could never apply is refused now, not at the user's click.
+      if (args.change !== undefined) {
+        const problems = dutyChangeProblems(args.change, deps.duties.look([], { countShown: false }).duties)
+        if (problems.length > 0) throw new ToolError(`The change cannot apply: ${problems.join('; ')}. Nothing was proposed.`)
+      }
       const draft = clean({ title: args.title, why: args.why, prepare: args.prepare ?? null })
-      return { proposal: proposalView(deps.proposals.create({ title: draft.title, why: draft.why, item, prepare: draft.prepare })) }
+      return { proposal: proposalView(deps.proposals.create({ title: draft.title, why: draft.why, item, prepare: draft.prepare, ...(args.change === undefined ? {} : { change: args.change }) })) }
     },
 
     proposal_update: (args) => {

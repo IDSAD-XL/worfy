@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AttentionItem } from '../../src/shared/assistant/attention'
 import type { WorkHours } from '../../src/shared/assistant/schedule/work-hours'
 import { MAX_TIMER_MS } from '../../src/main/assistant/schedule/scheduler'
-import { fileWakeStore, LOOK_AFTER_ERROR_MS, onResume, runWakeLoop, type WakeLoop } from '../../src/main/assistant/wake/loop'
+import { fileWakeStore, LOOK_AFTER_ERROR_MS, onResume, onSettingsChange, runWakeLoop, type WakeLoop } from '../../src/main/assistant/wake/loop'
 import { BATCH_GATHER_MS, WakePlanner, type AssistantWake } from '../../src/main/assistant/wake/planner'
 import { removeTestTree } from '../remove'
 
@@ -210,5 +210,25 @@ describe('runWakeLoop', () => {
     expect(wakes.map((wake) => [wake.reason, wake.at])).toEqual([['morning', wed(34)]])
     loop.stop()
     expect(power.listenerCount('resume')).toBe(0)
+  })
+
+  it('a wake the daily limit holds goes as soon as the person raises the limit in Settings, not with the next timer (ticket 15)', async () => {
+    vi.setSystemTime(wed(14))
+    const settings = new EventEmitter()
+    let limit = 1
+    const wakes: AssistantWake[] = []
+    const planner = new WakePlanner({ now: () => Date.now(), items: () => items, workHours: () => OFFICE, limits: () => ({ windows: {} }), ledger: { automaticWakesToday: () => 1, noteWake: () => undefined }, store: fileWakeStore(join(dir, 'wake.json')), dailyWakeLimit: () => limit })
+    const loop = runWakeLoop({ planner, now: () => Date.now(), onWake: (wake) => wakes.push(wake), changes: [onSettingsChange(settings)] })
+    loops.push(loop)
+    await vi.advanceTimersByTimeAsync(0)
+    arrive()
+    await vi.advanceTimersByTimeAsync(BATCH_GATHER_MS + 1)
+    expect(wakes).toEqual([])
+    limit = 2
+    settings.emit('changed')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(wakes).toHaveLength(1)
+    loop.stop()
+    expect(settings.listenerCount('changed')).toBe(0)
   })
 })

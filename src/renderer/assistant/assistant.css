@@ -1089,3 +1089,92 @@
 .w-asst-item--linked {
   opacity: 0.85;
 }
+
+/* The card «before → after» of a change of the settings (worfy-assistant ticket 15), after the prototype Card. */
+.w-asst-change {
+  border: 1px solid var(--assistant-border);
+  border-radius: var(--radius-node);
+  background: var(--surface);
+  overflow: hidden;
+  box-shadow: var(--shadow-node);
+}
+.w-asst-change__head {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  padding: 7px 10px;
+  background: var(--assistant-tint);
+  color: var(--assistant-text);
+  font-size: var(--text-12);
+  font-weight: 600;
+}
+.w-asst-change__title {
+  flex: 1;
+  min-width: 0;
+}
+.w-asst-change__hint {
+  font-size: var(--text-11);
+  font-weight: 400;
+}
+.w-asst-change__why {
+  padding: 6px 10px;
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+}
+.w-asst-change__row {
+  display: grid;
+  grid-template-columns: 1fr 0.9fr 1.15fr;
+  gap: 6px;
+  align-items: center;
+  padding: 6px 10px;
+  border-top: 1px solid var(--border);
+  font-size: var(--text-12);
+  line-height: 15px;
+}
+.w-asst-change__label {
+  color: var(--text-secondary);
+}
+.w-asst-change__before {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+.w-asst-change__after {
+  position: relative;
+  padding-left: 16px;
+  font-weight: 600;
+}
+.w-asst-change__after::before {
+  content: '→';
+  position: absolute;
+  left: 0;
+  color: var(--assistant);
+  font-weight: 700;
+}
+.w-asst-change__foot {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 8px 10px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-raised);
+  font-size: var(--text-11);
+}
+.w-asst-change__note {
+  flex: 1;
+  color: var(--text-muted);
+}
+.w-asst-change--applied {
+  border-color: color-mix(in srgb, var(--ready-dot) 50%, var(--border));
+}
+.w-asst-change--applied .w-asst-change__after::before {
+  content: '✓';
+  color: var(--ready-text);
+}
+.w-asst-change--applied .w-asst-change__foot {
+  background: var(--ready-bg);
+  color: var(--ready-text);
+  font-weight: 600;
+}
+.w-asst-change--applied .w-asst-change__foot > span {
+  flex: 1;
+}

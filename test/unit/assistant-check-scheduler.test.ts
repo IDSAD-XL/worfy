@@ -663,3 +663,70 @@ describe('failures in a row (worfy-assistant ticket 22)', () => {
     expect(old.nextRun('slack')).toBe(now + 10 * MINUTE)
   })
 })
+
+describe('the Assistant turned off (worfy-assistant ticket 15)', () => {
+  it('while the Assistant is off no check goes, not by its time nor by runNow; turned on, the checks plan again', async () => {
+    vi.setSystemTime(utc(2026, 11, 25, 8, 0))
+    choose({ checks: { slack: { enabled: true, intervalMinutes: 5, sleepOutsideWorkHours: false } } })
+    let on = false
+    const checks = new CheckScheduler({ now: () => Date.now(), settings: () => settings, marks, random: () => 0.5, active: () => on })
+    made.push(checks)
+    const slack = recorder()
+    checks.register('slack', slack.run)
+    checks.start()
+    await vi.advanceTimersByTimeAsync(30 * MINUTE)
+    expect(slack.runs).toHaveLength(0)
+    expect(checks.nextRun('slack')).toBeNull()
+    expect(checks.runNow('slack')).toBe(false)
+
+    on = true
+    checks.reschedule()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(slack.runs).toHaveLength(1)
+  })
+
+  it('runNow refuses a check the person turned off, and whyNotNow says why each refusal is one', async () => {
+    vi.setSystemTime(utc(2026, 11, 25, 8, 0))
+    choose({ checks: { slack: { enabled: false, intervalMinutes: 5, sleepOutsideWorkHours: false }, jira: { enabled: true, intervalMinutes: 5, sleepOutsideWorkHours: false } } })
+    let on = true
+    const checks = new CheckScheduler({ now: () => Date.now(), settings: () => settings, marks, random: () => 0.5, active: () => on })
+    made.push(checks)
+    const slack = recorder()
+    let finish: () => void = () => undefined
+    checks.register('slack', slack.run)
+    checks.register('jira', () => new Promise<void>((resolve) => (finish = resolve)))
+    expect(checks.whyNotNow('jira')).toBe('stopped')
+    checks.start()
+    await vi.advanceTimersByTimeAsync(0)
+    expect([checks.whyNotNow('slack'), checks.runNow('slack')]).toEqual(['check-off', false])
+    expect(slack.runs).toHaveLength(0)
+    expect(checks.whyNotNow('main-ci')).toBe('not-registered')
+    expect(checks.whyNotNow('jira')).toBe('running')
+    finish()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(checks.whyNotNow('jira')).toBeNull()
+    on = false
+    expect(checks.whyNotNow('jira')).toBe('assistant-off')
+  })
+})
+
+describe('the failures in a row as Settings read them (worfy-assistant ticket 15)', () => {
+  it('failures() answers the count the marks keep, 0 without one; a success clears it', async () => {
+    vi.setSystemTime(utc(2026, 11, 25, 8, 0))
+    choose({ checks: { slack: { enabled: true, intervalMinutes: 5, sleepOutsideWorkHours: false } } })
+    marks = memoryCheckMarks({ slack: { startedAt: Date.now() - MINUTE, failures: 3 } })
+    const checks = scheduler()
+    let fail = true
+    checks.register('slack', () => (fail ? Promise.reject(new Error('connector down')) : Promise.resolve()))
+    expect(checks.failures('slack')).toBe(3)
+    expect(checks.failures('jira')).toBe(0)
+    checks.start()
+    expect(checks.runNow('slack')).toBe(true)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(checks.failures('slack')).toBe(4)
+    fail = false
+    expect(checks.runNow('slack')).toBe(true)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(checks.failures('slack')).toBe(0)
+  })
+})

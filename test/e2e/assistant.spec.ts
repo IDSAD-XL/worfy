@@ -13,7 +13,10 @@ import { launchApp, showSidebarSection, type LaunchedApp } from './helpers'
 //   assistant-items.json — each with its reason, its source and its duty;
 // - like on one item is pressed and stays; dislike on the other takes it off the list, leaves its card with the rule
 //   that hides it, and that rule is in the Assistant's memory file (<data>/assistant/memory.json, ticket 07); Undo
-//   deletes the rule and the item waits again.
+//   deletes the rule and the item waits again;
+// - a card «before → after» (ticket 15): a proposal of the Assistant with a change of its settings, kept in its memory
+//   file, shows the setting as it is and as it would be; app-settings.json does not change until Apply, and after Apply
+//   it holds the new interval and the card says it was applied.
 
 let scratch: string
 let dataDir: string
@@ -126,6 +129,45 @@ test('the Assistant section lists what waits; like stays pressed; dislike hides 
     await gone.getByRole('button', { name: 'Undo', exact: true }).click()
     await expect(card(window, SLACK_ITEM)).toBeVisible()
     await expect.poll(() => rules()).toEqual([])
+  } finally {
+    await launched.close()
+  }
+})
+
+/** The app settings as main wrote them; null while it has not written them. */
+function appSettingsFile(): { assistantSchedule?: { checks?: { slack?: { intervalMinutes?: number } } } } | null {
+  const file = join(dataDir, 'app-settings.json')
+  return existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as ReturnType<typeof appSettingsFile>) : null
+}
+
+test('a card «before → after» changes the settings only on Apply', async () => {
+  const now = Date.now()
+  mkdirSync(join(dataDir, 'assistant'), { recursive: true })
+  writeFileSync(
+    join(dataDir, 'assistant', 'memory.json'),
+    JSON.stringify({
+      duties: {},
+      rules: [],
+      items: {},
+      proposals: [{ id: 'proposal-slack-20', title: 'Check Slack every 20 minutes', why: 'You said every 10 minutes is too often.', item: null, prepare: null, change: { checks: { slack: { intervalMinutes: 20 } } }, createdAt: now, updatedAt: now }],
+    }),
+  )
+  const launched = await launch()
+  try {
+    const { window } = launched
+    await showSidebarSection(window, 'Assistant')
+    const change = section(window).getByTestId('assistant-change')
+    await expect(change).toContainText('Slack interval')
+    await expect(change).toContainText('Every 10 min')
+    await expect(change).toContainText('Every 20 min')
+    await expect(change).toContainText('Nothing changes until you press Apply')
+    // Shown, not applied: the interval in the settings is still not chosen.
+    expect(appSettingsFile()?.assistantSchedule?.checks?.slack?.intervalMinutes).toBeUndefined()
+
+    await change.getByRole('button', { name: 'Apply', exact: true }).click()
+    await expect(change).toContainText('Applied at')
+    await expect(change.getByRole('button', { name: 'Apply', exact: true })).toHaveCount(0)
+    await expect.poll(() => appSettingsFile()?.assistantSchedule?.checks?.slack?.intervalMinutes).toBe(20)
   } finally {
     await launched.close()
   }

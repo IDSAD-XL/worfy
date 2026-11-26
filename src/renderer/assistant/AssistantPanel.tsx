@@ -7,7 +7,7 @@ import { shortTime } from './format'
 import { Icon, Spark } from './icons'
 import { openItem } from './open'
 import { GoneCard, ItemCard, LinkedMachine, RateButtons } from './parts'
-import { dismissProposal, forgetRule, prepareItem, sendMessage, useAssistant, type AssistantTab } from './useAssistant'
+import { applyChange, dismissProposal, forgetRule, prepareItem, sendMessage, useAssistant, type AssistantTab } from './useAssistant'
 
 const TABS: readonly { tab: AssistantTab; label: string }[] = [
   { tab: 'waits', label: 'Waits' },
@@ -16,7 +16,56 @@ const TABS: readonly { tab: AssistantTab; label: string }[] = [
   { tab: 'chat', label: 'Chat' },
 ]
 
+/**
+ * The card «before → after» of a change of the settings (ticket 15; story 26): each setting as it is and as it would be.
+ * Nothing changes until Apply; Not now dismisses the proposal; once applied, the card says when.
+ */
+function ChangeCard({ proposal, change }: { proposal: WindowProposal; change: NonNullable<WindowProposal['change']> }): ReactElement {
+  const applied = change.applied !== null
+  return (
+    <article className={`w-asst-change${applied ? ' w-asst-change--applied' : ''}`} data-testid="assistant-change" data-proposal-id={proposal.id}>
+      <div className="w-asst-change__head">
+        <Spark />
+        <span className="w-asst-change__title">{proposal.title}</span>
+        <span className="w-asst-change__hint">before → after</span>
+      </div>
+      <div className="w-asst-change__why">{proposal.why}</div>
+      {change.rows.map((row, index) => (
+        // Rows never move within a card, and two may share a label: the place keeps the key apart.
+        <div key={`${index}:${row.label}`} className="w-asst-change__row">
+          <span className="w-asst-change__label">{row.label}</span>
+          <span className="w-asst-change__before">{row.before}</span>
+          <span className="w-asst-change__after">{row.after}</span>
+        </div>
+      ))}
+      <div className="w-asst-change__foot">
+        {applied ? (
+          <>
+            <Icon name="check" />
+            <span>Applied at {shortTime(change.applied ?? 0)}. Change it back in Settings → Assistant.</span>
+            <button type="button" className="w-asst-button w-asst-button--ghost" onClick={() => void dismissProposal(proposal.id)}>
+              Dismiss
+            </button>
+          </>
+        ) : (
+          <>
+            <span className="w-asst-change__note">Nothing changes until you press Apply.</span>
+            <button type="button" className="w-asst-button w-asst-button--ghost" onClick={() => void dismissProposal(proposal.id)}>
+              Not now
+            </button>
+            <button type="button" className="w-asst-button w-asst-button--assistant" onClick={() => void applyChange(proposal.id)}>
+              <Icon name="check" />
+              Apply
+            </button>
+          </>
+        )}
+      </div>
+    </article>
+  )
+}
+
 function ProposalCard({ proposal }: { proposal: WindowProposal }): ReactElement {
+  if (proposal.change !== null) return <ChangeCard proposal={proposal} change={proposal.change} />
   return (
     <article className="w-asst-item" data-testid="assistant-proposal">
       <div className="w-asst-item__top">

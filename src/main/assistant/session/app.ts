@@ -2,10 +2,10 @@
 // actions (ticket 08) over the app's attention core, wired to the Sessions of the Assistant on Claude Code
 // (src/main/vendors/claude/assistant-session.ts), with the memory file and the usage ledger in worfy's data folder.
 //
-// The Assistant is off until the user turns it on (ADR-0114, decision 10): nothing calls startAssistant() yet. With it
-// off, nothing of it runs — no decision to wake, no closed list, no Session — and nothing is spent. The switch is
-// ticket 15 (the Assistant's settings: turning it on); it calls startAssistant() when the user turns it on and the
-// stop it answers when they turn it off. The conversation (ticket 14) calls appAssistant().userMessage().
+// The Assistant is off until the user turns it on (ADR-0114, decision 10). With it off, nothing of it runs — no
+// decision to wake, no closed list, no Session — and nothing is spent. The switch of Settings → Assistant (ticket 15,
+// switch.ts) calls startAssistant() when the user turns it on and the stop it answers when they turn it off. The
+// conversation (ticket 14) calls appAssistant().userMessage().
 //
 // Under WORFY_AGENT=fake (the e2e runs) a Session does not start: it is refused and logged, so a test of the app never
 // reaches the model. The e2e scenario with the fake agent is tickets 14–16.

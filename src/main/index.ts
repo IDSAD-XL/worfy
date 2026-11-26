@@ -12,6 +12,7 @@ import { installLimitsRefresh } from './agent/limits-usage'
 import { appUserModelId } from './app-id'
 import { startAttentionCore } from './assistant/core/app'
 import { startAssistantWindow } from './assistant/window/app'
+import { startAssistantSwitch } from './assistant/session/switch'
 import { checkScheduler, startCheckScheduler } from './assistant/schedule/app'
 import { appSourceCheck } from './assistant/sources/app'
 import { registerSlackCheck } from './assistant/sources/slack'
@@ -284,6 +285,13 @@ function start(): void {
         app.on('will-quit', startAssistantWindow())
       } catch (error) {
         console.error('[assistant] the section of the Assistant did not start', error)
+      }
+      // The switch of the Assistant (worfy-assistant ticket 15): after the core and the section, it starts the
+      // Assistant when the person turned it on in Settings → Assistant, and follows the switch. Off by default.
+      try {
+        app.on('will-quit', startAssistantSwitch(powerMonitor))
+      } catch (error) {
+        console.error('[assistant] the switch of the Assistant did not start', error)
       }
       // The Update checks of the Stable copy (worfy-update ticket 01, ADR-0089): GitHub without
       // sign-in, 10 s after the start and then every hour; in any other build nothing runs. Not a
