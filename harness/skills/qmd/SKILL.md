@@ -1,9 +1,22 @@
 ---
 name: qmd
-description: Search the decisions and lessons of registered projects through the qmd MCP server — ADRs, state files, tickets, project memory, lesson bases; which collections belong to whom is stated by the profiles (`~/.claude/worfy-harness/projects/*/profile.json`, field qmd). Use in Phase 0 and before planning a ticket, when you need to find out "why was it decided this way", "have we already stepped on this", or where the needed document lives. Contains the rules for sub-queries over Russian text.
+description: Search the decisions and lessons of registered projects through the qmd MCP server — ADRs, state files, tickets, project memory, lesson bases; which collections belong to whom is stated by the profiles (`~/.claude/worfy-harness/projects/*/profile.json`, field qmd). Use when you need to find out "why was it decided this way" or "have we already stepped on this" (Phase 0, before planning a ticket), when `grep` found nothing, and as the first search on Haiku. Contains the rules for sub-queries over Russian text.
 ---
 
 # qmd: searching decisions and lessons
+
+## grep or qmd first — by model
+
+- **Opus and Sonnet** search with `grep` (or `rg`, `find`) first. Go to `qmd` when `grep` found
+  nothing, or when the question is "was there already a lesson" or "why was it decided this way".
+- **Haiku** starts with `qmd`.
+
+The rule comes from a measure of 2026-11-26: on Sonnet the two tied on accuracy and `grep` was six
+times faster (92 s against 564 s) and cheaper in tokens; on Haiku `qmd` won, 27 of 30 against 21 of
+30, and 8 against 5 on "symptom → lesson" questions. The sample was small; the measure is repeated
+on real session questions.
+
+## The index and its collections
 
 The index is global, one for all projects: config `~/.config/qmd/index.yml`, database
 `~/.cache/qmd/index.sqlite`. Which collections belong to which project and what they hold is
