@@ -33,7 +33,6 @@ const TITLES: Record<BoundaryScope, string> = {
   window: 'worfy failed to render this window',
 }
 
-
 export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   override state: ErrorBoundaryState = { failed: false, error: undefined, where: null }
 
