@@ -695,7 +695,7 @@ describe('New Orchestrator Session', () => {
     expect(first.state).toBe('closed')
     expect(next.nodeId).toBe(opened.nodeId)
     expect(next.costUsd).toBe(0)
-    expect(data()).toStrictEqual({ sessionId: null, costUsd: 0 })
+    expect(data()).toStrictEqual({ sessionId: null, costUsd: 0, reportedUsd: 0 })
     expect(requests.at(-1)).toMatchObject({ resume: undefined, cwd: repo })
     await vi.waitFor(() => expect(state()).toBe('idle'))
     registry.get(orchestrators.view(opened.nodeId)?.sessionId ?? '').send('again')
