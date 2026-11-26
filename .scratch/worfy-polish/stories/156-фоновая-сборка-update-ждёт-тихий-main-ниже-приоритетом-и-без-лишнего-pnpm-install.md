@@ -198,3 +198,22 @@ fast — exit 0, green. Настоящих pnpm, сборки, e2e и Electron �
    - Ответ: установка, прерванная выходом worfy или сбоем, оставляет `node_modules` наполовину новым; запись,
      снятая заранее, не даст следующей сборке её пропустить, что бы ни случилось дальше.
    - Строки: `src/main/update/build.ts:416-420`
+
+## 9. Что нашёл review и что осталось
+
+> VERIFIED — worfy-polish 156 (the background update build waits for a quiet main, runs below normal priority and skips pnpm install when the dependencies did not change; part 2 of the owner's bug report issue #2252), head e3f5a99fab95a74acec23688184fd1a08b263c2b
+>
+> Gate (depth medium, two rounds):
+> - Round 1, reviewer (lens: correctness) — MERGE with two lows and two test gaps:
+>   - the Windows priority path holds: spawn is synchronous and the restore sits in finally, so no JS runs between;
+>   - the install skip is safe: the hash is taken after checkout and clean, and is dropped before install and written only on ready;
+>   - the state fields are optional both ways.
+> - Round 2, checked by the Orchestrator against the diff b078cfb1b..e3f5a99fa:
+>   - WORFY_UPDATE_QUIET_MINUTES capped at 24 h and every wait at 2^31−1 ms (no 1 ms timer loop);
+>   - ESRCH from setPriority on an already ended step is not logged;
+>   - new tests: «Check now» during the wait gives one timer and one build; a change of each hashed file reinstalls. Both mutants of the gaps are now red.
+>
+> - Evidence: every new test red first; 11 update test files EXIT=0; pnpm lint, typecheck EXIT=0; pnpm test EXIT=0 (round 1, 21 100 tests); gate fast green on 694b2bfd8 (head adds evidence lines); story-check ok.
+> - Correction to the issue (by the implementer, checked in src/main/update/check.ts): the update check runs 10 s after start and then hourly, not every 6 minutes; the 6-minute cycle is part 1 (worfy-polish 155).
+> - Not verified: on real Windows, whether the BELOW_NORMAL class reaches grandchild processes (Windows CI checks the calls only); a real update build was not run.
+> - Noted: the UI does not say that a build waits for a quiet main (Settings shows Available update).
