@@ -1084,3 +1084,8 @@
     animation: none;
   }
 }
+
+/* What waits on a Linked machine (worfy-assistant ticket 18): read-only, kept by that Machine's Assistant. */
+.w-asst-item--linked {
+  opacity: 0.85;
+}

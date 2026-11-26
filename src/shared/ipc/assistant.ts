@@ -2,9 +2,11 @@
 // window opens the view (`assistant.open`) and then receives every change (`assistant.changed`); each click goes to main,
 // which changes the attention core, the duties and the proposals through their own functions
 // (src/main/assistant/window/view.ts). A system notification of the Assistant, clicked, raises the window and tells it to
-// show the section (`assistant.reveal`). Every channel is `local`: the Assistant is this Machine's, and a Linked machine
-// never reaches it (spec, two machines).
+// show the section (`assistant.reveal`). Every channel but one is `local`: the Assistant is this Machine's, and a Linked
+// machine never reaches it (spec, two machines). The one is `assistant.waiting` (worfy-assistant ticket 18), `project` and
+// `read`: a Linked machine reads what waits here and shows it read-only (src/shared/assistant/linked.ts).
 import { z } from 'zod'
+import { linkedWaitsSchema } from '../assistant/linked'
 import { assistantViewSchema, ratingSchema, snoozeChoiceSchema } from '../assistant/window'
 import { eventChannel, invokeChannel } from './channels'
 
@@ -68,6 +70,13 @@ export const assistantSend = invokeChannel('assistant.send', z.object({ text: z.
  */
 export const assistantShown = invokeChannel('assistant.shown', z.object({ itemIds: z.array(id).max(500) }), z.object({}), 'local')
 
+/**
+ * What waits in the Projects of this Machine, for a Linked machine (worfy-assistant ticket 18; ADR-0066): the Projects and
+ * the items the section shows now, words and times only. Reading: it changes nothing, counts nothing as shown, and
+ * carries nothing to act with.
+ */
+export const assistantWaiting = invokeChannel('assistant.waiting', z.void(), linkedWaitsSchema, 'project', 'read')
+
 declare module './channels' {
   interface IpcContract {
     'assistant.open': typeof assistantOpen
@@ -81,5 +90,6 @@ declare module './channels' {
     'assistant.start': typeof assistantStart
     'assistant.send': typeof assistantSend
     'assistant.shown': typeof assistantShown
+    'assistant.waiting': typeof assistantWaiting
   }
 }

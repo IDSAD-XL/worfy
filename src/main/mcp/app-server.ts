@@ -11,6 +11,11 @@
 //   Reading changes nothing but the duties' «shown» counters.
 // - Proposals: create, update, remove (ProposalBook); Prepare keeps and answers the exact text of the future Session,
 //   which only the user's click starts (boundary 3). A Prepare names a Project of this Machine only (boundary 5).
+// - Two machines (ticket 18; boundary 5): the Assistant of each Machine acts only in its own Projects. projects_list names
+//   the Linked machine and its Projects, read-only; items_list gives what waits there (src/shared/assistant/linked.ts)
+//   under `linked`, its text — and every name, title and refusal that came over the link — as outside text, with ids of
+//   their own (`linked-…`). An action, a proposal or a Prepare on them, and a read of a Linked machine's workflow, PRs or
+//   runs, is refused with the Machine it is of.
 // - Actions: only APP_ACTIONS, only when the mode of that action in the item's duty is `self` or `pre-approved`
 //   (ticket 07), and only through main's own functions, which check for themselves: the closed list of ticket 08
 //   (ClosedListSeam: the action and the item, `by: 'assistant'`, no text — main sets it and writes the journal line),
@@ -29,6 +34,7 @@
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import type { AttentionItem } from '../../shared/assistant/attention'
+import type { LinkedItem } from '../../shared/assistant/linked'
 import { APP_TOOL_NAMES, appToolDescriptions, appToolShapes, parseAppToolArgs, WORFY_APP_SERVER_NAME, type AppAction, type AppToolArgs, type AppToolName } from '../../shared/assistant/app-tools'
 import type { ActionJournalLine } from '../../shared/assistant/actions'
 import { dutyActionModeAllowed, type DutyActionMode, type DutyLook } from '../../shared/assistant/duties'
@@ -60,11 +66,17 @@ export interface OutsideText {
 
 export const outsideText = (text: string, source: string, author: string | null = null): OutsideText => ({ kind: 'outside-text', source, author, text })
 
-/** A machine and its Projects; only this Machine's may be acted on. */
+/**
+ * A machine and its Projects; only this Machine's may be acted on. A Linked machine carries what waits there, read-only,
+ * and why it answered nothing (`problem`); this Machine's items come from `items()`.
+ */
 export interface AppMachine {
+  id: string
   name: string
   thisMachine: boolean
   projects: readonly { id: string; name: string }[]
+  items: readonly LinkedItem[]
+  problem: string | null
 }
 
 /** One line of a Session's tail. */
@@ -154,7 +166,7 @@ export function closedListOf(current: () => ClosedListSeam | null): ClosedListSe
 /** What the server reads and calls; the app's parts in the app (appWorfyAppDeps), stand-ins in tests. */
 export interface WorfyAppDeps {
   now(): number
-  /** This Machine and the Linked machine, with their Projects. */
+  /** This Machine and the Linked machines, with their Projects; a Linked machine with what waits there, read afresh. */
   machines(): Promise<readonly AppMachine[]>
   /** This Machine's Projects: the only ones an action or a Prepare may name. */
   projects(): readonly { id: string; name: string }[]
@@ -220,6 +232,33 @@ const digest = (text: string): string => createHash('sha256').update(text).diges
  */
 export const publicItemId = (id: string): string => `item-${digest(id)}`
 
+/** The id the agent knows an item of a Linked machine by: its own, so it never names an item of this Machine. */
+export const linkedItemId = (machineId: string, id: string): string => `linked-${digest(`${machineId}\n${id}`)}`
+
+/** Text a Linked machine sent — a Project's name, a duty's title, its refusal: data, with the Machine as its author. */
+const fromLinked = (machine: AppMachine, text: string): OutsideText => outsideText(text, 'linked machine', machine.name)
+
+/** An item of a Linked machine as the agent reads it: read-only, every word of it as outside text. */
+function linkedItemView(machine: AppMachine, item: LinkedItem) {
+  const author = item.outside?.author ?? null
+  const block = (text: string): OutsideText => outsideText(text, item.source, author)
+  return {
+    id: linkedItemId(machine.id, item.id),
+    readOnly: true,
+    projectId: item.projectId,
+    projectName: item.projectName === null ? null : fromLinked(machine, item.projectName),
+    source: item.source,
+    kind: item.kind,
+    duty: item.duty === null ? null : fromLinked(machine, item.duty),
+    urgent: item.urgent,
+    startedAt: iso(item.startedAt),
+    lastAt: iso(item.lastAt),
+    subject: { kind: item.subject.kind, label: block(item.subject.label) },
+    text: block(item.title),
+    ...(item.outside === null ? {} : { message: { at: item.outside.at, url: block(item.outside.url) } }),
+  }
+}
+
 /** A subject's id as the agent reads it: a message's id is a source's text, so worfy makes one of its own. */
 const subjectId = (subject: AttentionItem['subject']): string => (subject.kind === 'message' ? `message-${digest(subject.id)}` : subject.id)
 
@@ -275,6 +314,23 @@ function handlers(deps: WorfyAppDeps): Handlers {
   const ownProject = (projectId: string, what: string): void => {
     if (!deps.projects().some((project) => project.id === projectId)) throw new ToolError(`${what}: ${projectId} is not a Project of this Machine. The other machine's Projects are read-only.`)
   }
+  const linkedMachines = async (): Promise<AppMachine[]> => (await deps.machines()).filter((machine) => !machine.thisMachine)
+  /** A read of a Project this Machine does not have: refused, with the Linked machine it is of when it is one's. */
+  const readableProject = async (projectId: string): Promise<void> => {
+    if (deps.projects().some((project) => project.id === projectId)) return
+    const machine = (await linkedMachines()).find((each) => each.projects.some((project) => project.id === projectId))
+    if (machine === undefined) throw new ToolError(`${projectId} is not a Project of this Machine: projects_list lists them`)
+    throw new ToolError(`${projectId} is a Project of the Linked machine ${machine.name}: read what waits there with items_list; its workflow, PRs and runs are read on that machine.`)
+  }
+  /** An id of an item of a Linked machine (linkedItemId): refused, with the Machine; anything else goes on. */
+  const refuseLinkedItem = async (id: string, what: string): Promise<void> => {
+    if (!id.startsWith('linked-')) return
+    for (const machine of await linkedMachines()) {
+      if (machine.items.some((item) => linkedItemId(machine.id, item.id) === id)) {
+        throw new ToolError(`Item ${id} waits on the Linked machine ${machine.name}: its Projects are read-only, and its own Assistant keeps them. ${what}`)
+      }
+    }
+  }
   /** The core's id of the item the agent names by its id (publicItemId). */
   const itemOfPublicId = (id: string): string => {
     const found = deps.items().find((item) => publicItemId(item.id) === id)
@@ -329,13 +385,24 @@ function handlers(deps: WorfyAppDeps): Handlers {
 
   return {
     projects_list: async () => ({
-      machines: (await deps.machines()).map((machine) => ({ name: machine.name, thisMachine: machine.thisMachine, readOnly: !machine.thisMachine, projects: machine.projects.map((project) => ({ id: project.id, name: project.name })) })),
+      machines: (await deps.machines()).map((machine) => ({
+        name: machine.name,
+        thisMachine: machine.thisMachine,
+        readOnly: !machine.thisMachine,
+        problem: machine.problem === null ? null : fromLinked(machine, machine.problem),
+        // A Linked machine's names came over the link: data.
+        projects: machine.projects.map((project) => ({ id: project.id, name: machine.thisMachine ? project.name : fromLinked(machine, project.name) })),
+      })),
     }),
 
     // The Assistant's reads count nothing as shown: only what the user saw does (worfy-assistant ticket 14, assistant.shown).
-    items_list: () => ({ items: deps.duties.look(deps.items(), { countShown: false }).shown.map((shown) => itemView(shown.item, shown.proposals)) }),
+    items_list: async () => ({
+      items: deps.duties.look(deps.items(), { countShown: false }).shown.map((shown) => itemView(shown.item, shown.proposals)),
+      linked: (await linkedMachines()).map((machine) => ({ machine: machine.name, readOnly: true, problem: machine.problem === null ? null : fromLinked(machine, machine.problem), items: machine.items.map((item) => linkedItemView(machine, item)) })),
+    }),
 
     workflow_read: async ({ projectId, epic }) => {
+      await readableProject(projectId)
       const model = await deps.workflow(projectId)
       const tickets = model.tickets.filter((ticket) => (epic === undefined ? ticket.state !== 'done' : ticket.epic === epic))
       return {
@@ -355,7 +422,8 @@ function handlers(deps: WorfyAppDeps): Handlers {
       }
     },
 
-    pr_threads_read: ({ projectId, repo, number }) => {
+    pr_threads_read: async ({ projectId, repo, number }) => {
+      await readableProject(projectId)
       const snapshot = deps.prInbox(projectId)
       if (snapshot === null) throw new ToolError(`Project ${projectId} has no PR inbox`)
       const row = snapshot.groups.flatMap((group) => group.rows).find((each) => each.repo.toLowerCase() === repo.toLowerCase() && each.number === number)
@@ -377,24 +445,27 @@ function handlers(deps: WorfyAppDeps): Handlers {
       lines: (await deps.sessionTail(sessionId, lines ?? DEFAULT_TAIL_LINES)).map((line) => ({ at: line.at, who: line.who, text: outsideText(line.text, 'session', `Session ${sessionId} · ${line.who}`) })),
     }),
 
-    autopilot_runs_read: async ({ projectId, runs }) => ({
-      runs: (await deps.autopilotRuns(projectId, runs ?? 1)).flatMap((events) => {
-        const first = events[0]
-        if (first === undefined) return []
-        return [
-          {
-            run: first.run,
-            epic: first.epic,
-            startedAt: first.at,
-            events: events.slice(-RUN_EVENTS_MAX).map((event) => {
-              const { at, kind } = event
-              const details = Object.fromEntries(Object.entries(event).filter(([key]) => !RUN_KEYS.has(key)))
-              return { at, kind, details: Object.keys(details).length === 0 ? null : outsideText(JSON.stringify(details), 'autopilot', 'Autopilot journal') }
-            }),
-          },
-        ]
-      }),
-    }),
+    autopilot_runs_read: async ({ projectId, runs }) => {
+      await readableProject(projectId)
+      return {
+        runs: (await deps.autopilotRuns(projectId, runs ?? 1)).flatMap((events) => {
+          const first = events[0]
+          if (first === undefined) return []
+          return [
+            {
+              run: first.run,
+              epic: first.epic,
+              startedAt: first.at,
+              events: events.slice(-RUN_EVENTS_MAX).map((event) => {
+                const { at, kind } = event
+                const details = Object.fromEntries(Object.entries(event).filter(([key]) => !RUN_KEYS.has(key)))
+                return { at, kind, details: Object.keys(details).length === 0 ? null : outsideText(JSON.stringify(details), 'autopilot', 'Autopilot journal') }
+              }),
+            },
+          ]
+        }),
+      }
+    },
 
     limits_read: () => ({
       windows: Object.fromEntries(Object.entries(deps.limits().windows).map(([name, window]) => [name, { utilization: window.utilization, resetsAt: window.resetsAt === null ? null : iso(window.resetsAt * 1000), status: window.status }])),
@@ -418,7 +489,8 @@ function handlers(deps: WorfyAppDeps): Handlers {
 
     proposals_list: () => ({ proposals: deps.proposals.list().map(proposalView) }),
 
-    proposal_create: (args) => {
+    proposal_create: async (args) => {
+      if (args.item !== undefined) await refuseLinkedItem(args.item, 'Propose without item, and tell the user it waits there. Nothing was kept.')
       const item = args.item === undefined ? null : itemOfPublicId(args.item)
       checkPrepare(args.prepare)
       const draft = clean({ title: args.title, why: args.why, prepare: args.prepare ?? null })
@@ -446,6 +518,7 @@ function handlers(deps: WorfyAppDeps): Handlers {
 
     action_run: async (args) => {
       const shown = deps.duties.look(deps.items(), { countShown: false }).shown.find((each) => publicItemId(each.item.id) === args.item)
+      if (shown === undefined) await refuseLinkedItem(args.item, 'Nothing was done.')
       if (shown === undefined) throw new ToolError(`No item ${args.item} is shown now: items_list lists the items you may act on. Nothing was done.`)
       const proposal = shown.proposals.find((each) => each.action === args.action)
       if (proposal === undefined) throw new ToolError(`The duty ${shown.duty} has no action ${args.action} for item ${args.item}. Nothing was done.`)
@@ -563,6 +636,7 @@ async function appWorfyAppDeps(): Promise<WorfyAppDeps> {
     { appClosedList },
     { actionJournalFile, actionJournalPath },
     { appSessionMemory },
+    { appLinkedWaits },
   ] = await Promise.all([
       import('../clock'),
       import('../projects/store'),
@@ -583,12 +657,16 @@ async function appWorfyAppDeps(): Promise<WorfyAppDeps> {
       import('../assistant/actions/app'),
       import('../assistant/actions/journal'),
       import('../assistant/session/app'),
+      import('../assistant/window/app'),
     ])
   const projects = (): { id: string; name: string }[] => projectStore().list().map((project) => ({ id: project.id, name: project.name }))
   return {
     now: appNow,
-    // shortcut: this Machine only; the Projects of the Linked machine, read-only, are worfy-assistant ticket 18.
-    machines: () => Promise.resolve([{ name: 'This machine', thisMachine: true, projects: projects() }]),
+    // This Machine, and each Linked machine as it answers now (worfy-assistant ticket 18): read-only.
+    machines: async () => [
+      { id: 'this-machine', name: 'This machine', thisMachine: true, projects: projects(), items: [], problem: null },
+      ...(await appLinkedWaits().refresh()).map((machine) => ({ ...machine, thisMachine: false })),
+    ],
     projects,
     items: () => {
       const core = appAttentionCore()

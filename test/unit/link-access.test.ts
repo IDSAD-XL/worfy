@@ -159,6 +159,17 @@ describe('the initial marks', () => {
     }
   })
 
+  // worfy-assistant ticket 18 (spec, two machines; boundary 5): each Machine's Assistant acts only in its own Projects.
+  // A Linked machine reads what waits here, and every other channel of the Assistant stays on this Machine.
+  it('the Assistant: assistant.waiting is `project` and `read`, every other assistant channel `local`', () => {
+    const assistant = channels.filter((channel) => channel.name.startsWith('assistant.'))
+    expect(assistant.length).toBeGreaterThan(5)
+    for (const channel of assistant) {
+      if (channel.name === 'assistant.waiting') expect([channel.access, channel.use], channel.name).toEqual(['project', 'read'])
+      else expect(channel.access, channel.name).toBe('local')
+    }
+  })
+
   it('projects.browse is `project`: the folders of a Linked machine, only while access is on (worfy-link ticket 11)', () => {
     expect(marked('project')).toContain('projects.browse')
   })
@@ -198,6 +209,9 @@ describe('the read-or-write mark of `project` channels', () => {
     'agent.models',
     // The open permission and question requests, for a window that did not see them go out (worfy-product-session ticket 30).
     'agent.requests',
+    // What waits in the Projects of this Machine, as its Assistant's section shows it (worfy-assistant ticket 18): the
+    // Linked machine's Assistant shows it read-only; nothing in it acts.
+    'assistant.waiting',
     // The Orchestrator modes of a Project (worfy-retry ticket 13): a read-only screen sees them in the Modes menu.
     'autoApproval.read',
     'autoContinue.read',

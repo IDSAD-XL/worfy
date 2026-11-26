@@ -11,6 +11,7 @@ import { join } from 'node:path'
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import type { ActionJournalLine } from '../../src/shared/assistant/actions'
 import type { AttentionEvent } from '../../src/shared/assistant/attention'
+import type { LinkedMachineWaits } from '../../src/shared/assistant/linked'
 import type { AssistantProposal } from '../../src/shared/assistant/proposals'
 import { ASSISTANT_NOTE_TITLE, isUrgentItem, SUMMARY_HOURS, type AssistantView } from '../../src/shared/assistant/window'
 import { AttentionCore } from '../../src/main/assistant/core/attention-core'
@@ -21,7 +22,7 @@ import { ProposalBook } from '../../src/main/assistant/proposals/book'
 import { AssistantNotices } from '../../src/main/assistant/window/notices'
 import { AssistantReveal, type RevealClient } from '../../src/main/assistant/window/reveal'
 import { memoryWindowState } from '../../src/main/assistant/window/store'
-import { ASSISTANT_OFF, AssistantWindow, nextWorkHoursAfter, type AssistantRunLike } from '../../src/main/assistant/window/view'
+import { ASSISTANT_OFF, AssistantWindow, ITEM_GONE, nextWorkHoursAfter, type AssistantRunLike } from '../../src/main/assistant/window/view'
 import { removeTree } from '../../src/main/storage/remove'
 
 const temp = mkdtempSync(join(tmpdir(), 'worfy-assistant-window-'))
@@ -34,6 +35,7 @@ const T0 = Date.parse('2026-11-24T10:00:00Z')
 const WORK = { days: ['mon', 'tue', 'wed', 'thu', 'fri'] as const, windows: [{ from: 9 * 60, to: 18 * 60 }], timeZone: 'UTC' }
 const SHOP = 'shop-api-1'
 const MOBILE = 'mobile-app-2'
+const DEMO = 'demo-project-3'
 
 interface World {
   clock: { now: number }
@@ -43,17 +45,21 @@ interface World {
   journal: ActionJournalLine[]
   started: { projectId: string; text: string }[]
   assistant: { said: string[]; answer: (text: string) => Promise<AssistantRunLike> | null } | null
+  /** What the Linked machines last answered of what waits there (worfy-assistant ticket 18). */
+  linked: LinkedMachineWaits[]
   window: AssistantWindow
 }
 
 let n = 0
-function world(): World {
+function world(options: { demo?: boolean } = {}): World {
   const dir = join(temp, `w${++n}`)
   const clock = { now: T0 }
   const now = () => clock.now
-  const projects = [
+  const projects: { id: string; name: string; localOnly?: true }[] = [
     { id: SHOP, name: 'shop-api' },
     { id: MOBILE, name: 'mobile-app' },
+    // The Demo project of worfy-onboarding 11: this Machine's only, never seen by a Linked machine.
+    ...(options.demo === true ? [{ id: DEMO, name: 'Demo project', localOnly: true as const }] : []),
   ]
   const duties = new Duties({ now, store: memoryFileStore(assistantMemoryPath(dir)), projects: () => projects.map((each) => each.id), projectRules: () => [] })
   const core = new AttentionCore({
@@ -67,7 +73,7 @@ function world(): World {
   const book = new ProposalBook({ now, id: () => `proposal-${++id}` })
   const journal: ActionJournalLine[] = []
   const started: World['started'] = []
-  const w: World = { clock, core, duties, book, journal, started, assistant: null, window: undefined as unknown as AssistantWindow }
+  const w: World = { clock, core, duties, book, journal, started, assistant: null, linked: [], window: undefined as unknown as AssistantWindow }
   w.window = new AssistantWindow({
     now,
     core: () => core,
@@ -85,6 +91,7 @@ function world(): World {
       return { nodeId: 'node-new', sessionId: 'sess-new' }
     },
     newId: () => `m${++id}`,
+    linked: () => w.linked,
   })
   return w
 }
@@ -700,5 +707,116 @@ describe('the reveal of a clicked notification (review round 1)', () => {
     reveal.request((target) => (target as typeof a).got++)
     expect(a.got).toBe(0)
     expect(reveal.take()).toBe(true)
+  })
+})
+
+// worfy-assistant ticket 18 (spec, two machines; boundary 5): the Assistant of each Machine keeps the items of its own
+// Projects; what waits on the Linked machine is shown beside them, read-only.
+describe('two machines (worfy-assistant ticket 18)', () => {
+  let w: World
+  beforeEach(() => {
+    w = world()
+    for (const each of [question(), runStopped(), slack()]) w.core.ingest(each)
+  })
+
+  const pcItem = {
+    id: 'pc-core-id-1',
+    title: 'Asks: Deploy the docs now?',
+    source: 'session',
+    sourceLabel: 'Session',
+    subject: { kind: 'session', label: 'docs 02' },
+    kind: 'question',
+    projectId: 'docs-site-9',
+    projectName: 'docs-site',
+    duty: 'Waits for you',
+    urgent: false,
+    startedAt: T0 - HOUR,
+    lastAt: T0 - HOUR,
+    outside: null,
+  }
+
+  it('answers a Linked machine with this Machine\'s Projects and what waits in them, without anything to act with', () => {
+    const answer = w.window.waiting()
+    expect(answer.projects).toEqual([
+      { id: SHOP, name: 'shop-api' },
+      { id: MOBILE, name: 'mobile-app' },
+    ])
+    const titles = w.window.view().items.map((item) => item.title)
+    expect(answer.items.map((item) => item.title)).toEqual(titles)
+    const asks = answer.items.find((item) => item.title === 'Asks: Use payments SDK v4 now?')!
+    expect(asks).toEqual({
+      id: expect.any(String),
+      title: 'Asks: Use payments SDK v4 now?',
+      source: 'session',
+      sourceLabel: 'Session',
+      subject: { kind: 'session', label: 'checkout 04' },
+      kind: 'question',
+      projectId: MOBILE,
+      projectName: 'mobile-app',
+      duty: 'Waits for you',
+      urgent: false,
+      startedAt: T0 - 2 * HOUR,
+      lastAt: T0 - 2 * HOUR,
+      outside: null,
+    })
+    // No prepared text, no proposal, no target to open and no rating: the Linked machine only reads.
+    for (const each of answer.items) for (const key of ['prepare', 'proposalId', 'open', 'rating', 'why']) expect(each, key).not.toHaveProperty(key)
+    expect(answer.items.find((item) => item.source === 'slack')!.outside).toMatchObject({ author: 'teammate A' })
+  })
+
+  it('never hands the Linked machine what it read from another one', () => {
+    w.linked = [{ id: 'pc', name: 'PC', online: true, projects: [{ id: 'docs-site-9', name: 'docs-site' }], items: [pcItem], problem: null }]
+    expect(w.window.waiting().items.map((item) => item.id)).not.toContain('pc-core-id-1')
+  })
+
+  it('shows what waits on the Linked machine beside its own items, read-only, and counts only its own', () => {
+    w.linked = [
+      { id: 'pc', name: 'PC', online: true, projects: [{ id: 'docs-site-9', name: 'docs-site' }], items: [pcItem], problem: null },
+      { id: 'mini', name: 'Mac mini', online: false, projects: [], items: [], problem: 'Mac mini is offline' },
+    ]
+    const view = w.window.view()
+    expect(view.linked).toEqual(w.linked)
+    // The own list, the summary and the count are this Machine's alone.
+    expect(view.items.map((item) => item.title)).not.toContain(pcItem.title)
+    expect(view.summary.waiting).toBe(view.items.length)
+    expect(view.projects).toBe(2)
+  })
+
+  it('refuses Dismiss, Snooze, like and Start on an item of the Linked machine: only its own Assistant keeps it', () => {
+    w.linked = [{ id: 'pc', name: 'PC', online: true, projects: [{ id: 'docs-site-9', name: 'docs-site' }], items: [pcItem], problem: null }]
+    expect(() => w.window.item(pcItem.id, 'dismiss')).toThrow(ITEM_GONE)
+    expect(() => w.window.snooze(pcItem.id, 'hour')).toThrow(ITEM_GONE)
+    expect(() => w.window.start({ projectId: 'docs-site-9', text: 'Deploy the docs', itemId: null, proposalId: null })).toThrow()
+    expect(w.started).toEqual([])
+  })
+
+  it('never hands the Linked machine a Project local to this Machine, its items, or an item of no Project (review round 1)', () => {
+    const d = world({ demo: true })
+    for (const each of [question(), slack()]) d.core.ingest(each)
+    d.core.ingest(event({ source: 'session', id: 'demo-1:question', projectId: DEMO, subject: { kind: 'session', id: 'demo-1', label: 'demo 01' }, kind: 'question', text: 'Asks: Try the Demo?' }))
+    d.core.ingest(event({ source: 'limits', id: 'limits:five_hour', projectId: null, subject: { kind: 'limit', id: 'five_hour', label: '5-hour window' }, kind: 'high', text: 'The 5-hour window is 85% used' }))
+    // This Machine's own section shows both.
+    const own = d.window.view().items.map((item) => item.projectId)
+    expect(own).toContain(DEMO)
+    expect(own).toContain(null)
+    const answer = d.window.waiting()
+    expect(answer.projects.map((project) => project.id)).toEqual([SHOP, MOBILE])
+    expect(answer.items.map((item) => item.projectId).sort()).toEqual([MOBILE, SHOP])
+  })
+
+  it('an urgent item of the Linked machine is not urgent here: no notification, nothing urgent in the summary (rebase on ticket 23)', () => {
+    const quiet = world()
+    quiet.linked = [{ id: 'pc', name: 'PC', online: true, projects: [{ id: 'docs-site-9', name: 'docs-site' }], items: [{ ...pcItem, urgent: true, kind: 'run-stopped' }], problem: null }]
+    const view = quiet.window.view()
+    expect(view.items).toEqual([])
+    expect(view.summary.projects.reduce((sum, each) => sum + each.urgent, 0)).toBe(0)
+    const shown: unknown[] = []
+    const notes = new AssistantNotices({ focused: () => false, show: (note) => void shown.push(note), reveal: () => undefined })
+    notes.look(view)
+    expect(shown).toEqual([])
+  })
+
+  it('without Linked machines the list of them is empty', () => {
+    expect(w.window.view().linked).toEqual([])
   })
 })

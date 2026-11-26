@@ -6,6 +6,7 @@
 // usage ledger; the window draws it (src/renderer/assistant/) and changes nothing itself: every click goes back to main.
 import { z } from 'zod'
 import { attentionSourceSchema, attentionStateSchema, attentionSubjectSchema, isUrgentStop, type AttentionItem } from './attention'
+import { linkedMachineWaitsSchema } from './linked'
 
 /**
  * Where Open takes the user: a Session on the Canvas, the Pull requests view on a PR, the Pipeline board of a Project, a
@@ -178,6 +179,11 @@ export const assistantViewSchema = z.object({
   usage: usageViewSchema,
   /** The work hours now: inside them or not. */
   workHours: z.boolean(),
+  /**
+   * What waits on each Linked machine (worfy-assistant ticket 18): read-only, kept by that Machine's own Assistant; not in
+   * `items`, the summary or the notifications of this one.
+   */
+  linked: z.array(linkedMachineWaitsSchema),
 })
 export type AssistantView = z.output<typeof assistantViewSchema>
 

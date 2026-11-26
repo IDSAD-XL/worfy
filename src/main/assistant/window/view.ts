@@ -10,11 +10,16 @@
 //   like and dislike reach the duty (Duties.rate), and taking one back uncounts it (Duties.unrate); Start of a prepared
 //   Session starts a new Session with exactly the text the user read, and nothing else starts one (boundary 3); a message
 //   of the user goes to the Assistant's Session (ticket 10), refused while the Assistant is off.
+// - Two machines (worfy-assistant ticket 18; boundary 5): every item and every click is of this Machine's Projects. What
+//   waits on a Linked machine comes as it answered (linked.ts) and is shown beside, read-only: a click on it finds no
+//   item here, and a Session starts only in a Project of this Machine. waiting() is what a Linked machine reads of this
+//   one: this Machine's own items, words and times only, never what it read from another Machine.
 //
 // Nothing here runs a model or sends anything out of worfy. The snoozes, the ratings and the conversation are kept in
 // the section's own file (store.ts).
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import type { ActionJournalLine, ActionRefusal } from '../../../shared/assistant/actions'
+import { LINKED_ITEMS_MAX, linkedItemOf, type LinkedMachineWaits, type LinkedWaits } from '../../../shared/assistant/linked'
 import { OPEN_STATES, type AttentionItem, type AttentionState } from '../../../shared/assistant/attention'
 import type { DutyLook, MemoryRule, ShownItem } from '../../../shared/assistant/duties'
 import type { AssistantProposal } from '../../../shared/assistant/proposals'
@@ -43,6 +48,8 @@ const HOUR = 60 * MINUTE
 export const ASSISTANT_OFF = 'Assistant is off on this machine'
 /** The reason a click is refused on an item the core no longer keeps. */
 export const ITEM_GONE = 'This item is no longer there'
+/** A prepared Session names a Project this Machine does not have: a Linked machine's, which only its own Assistant acts in. */
+export const NOT_THIS_MACHINE = 'A Session starts only in a Project of this Machine'
 /** How many journal lines the view carries, newest first. */
 export const JOURNAL_SHOWN = 200
 /** How many items the summary names to take first. */
@@ -87,8 +94,8 @@ export interface AssistantWindowDeps {
   /** The app's attention core; null while it does not run. */
   core(): WindowCore | null
   duties: WindowDuties
-  /** The Projects of this Machine. */
-  projects(): readonly { id: string; name: string }[]
+  /** The Projects of this Machine; `localOnly` — never seen by a Linked machine (the Demo project, worfy-onboarding 11). */
+  projects(): readonly { id: string; name: string; localOnly?: true }[]
   proposals: WindowProposals
   /** The journal of actions, oldest first. */
   journal(): readonly ActionJournalLine[]
@@ -104,6 +111,8 @@ export interface AssistantWindowDeps {
   start(projectId: string, text: string): { nodeId: string; sessionId: string }
   newId?(): string
   log?(message: string, error: unknown): void
+  /** What each Linked machine last answered of what waits there (worfy-assistant ticket 18, linked.ts); none when absent. */
+  linked?(): readonly LinkedMachineWaits[]
 }
 
 /** The first moment of the next work hours after the ones `moment` is in; the next start when it is outside them. */
@@ -395,6 +404,27 @@ export class AssistantWindow {
       summary: this.summary(now, items, shownItems, lines, conversation, names),
       usage: { today: usage.today, week: usage.week, fiveHour: share('five_hour'), sevenDay: share('seven_day'), estimate: true },
       workHours: inWorkHours(now, this.deps.workHours()),
+      linked: [...(this.deps.linked?.() ?? [])],
+    }
+  }
+
+  /**
+   * What a Linked machine reads of this one (`assistant.waiting`): the Projects of this Machine and the items the section
+   * shows now, urgent first, as words and times — no prepared text, proposal, target or rating. An item's id is a digest
+   * of the core's, which may hold a source's text. Reading counts nothing as shown, and nothing of a third Machine goes.
+   * A Project local to this Machine (`localOnly`, as ProjectStore.states() leaves it out of a Linked machine's list) and
+   * its items stay here, and so do the items of no Project (Limits, a message tied to none): only the items of a Project
+   * the Linked machine may see go, the first LINKED_ITEMS_MAX of them.
+   */
+  waiting(): LinkedWaits {
+    const shared = this.deps.projects().filter((project) => project.localOnly !== true)
+    const ids = new Set(shared.map((project) => project.id))
+    return {
+      projects: shared.map((project) => ({ id: project.id, name: project.name })),
+      items: this.view()
+        .items.filter((item) => item.projectId !== null && ids.has(item.projectId))
+        .slice(0, LINKED_ITEMS_MAX)
+        .map((item) => ({ ...linkedItemOf(item), id: createHash('sha256').update(item.id).digest('hex').slice(0, 24) })),
     }
   }
 
@@ -551,6 +581,7 @@ export class AssistantWindow {
 
   /** Start of a prepared Session, on the user's click, with exactly the text they read. */
   start(request: { projectId: string; text: string; itemId: string | null; proposalId: string | null }): { projectId: string; nodeId: string; sessionId: string } {
+    if (!this.deps.projects().some((project) => project.id === request.projectId)) throw new Error(`${NOT_THIS_MACHINE}: ${request.projectId} is not one`)
     const started = this.deps.start(request.projectId, request.text)
     if (request.itemId !== null) {
       const item = this.allItems().find((each) => each.id === request.itemId)

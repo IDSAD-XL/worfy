@@ -1,12 +1,12 @@
 // The body of the Assistant's section (worfy-assistant ticket 14; spec, UI; stories 1, 2, 16, 21–23, 35 and 38), after the
 // prototype Card the owner accepted: the status, four tabs — Waits, Summary, Journal, Chat — the line of usage and the
-// box to write to the Assistant at any moment.
+// box to write to the Assistant at any moment. Waits shows what waits on each Linked machine too, read-only (ticket 18).
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactElement } from 'react'
 import type { AssistantView, JournalRow, WindowItem, WindowProposal } from '../../shared/assistant/window'
 import { shortTime } from './format'
 import { Icon, Spark } from './icons'
 import { openItem } from './open'
-import { GoneCard, ItemCard, RateButtons } from './parts'
+import { GoneCard, ItemCard, LinkedMachine, RateButtons } from './parts'
 import { dismissProposal, forgetRule, prepareItem, sendMessage, useAssistant, type AssistantTab } from './useAssistant'
 
 const TABS: readonly { tab: AssistantTab; label: string }[] = [
@@ -112,6 +112,9 @@ function Waits({ view }: { view: AssistantView }): ReactElement {
           <p>Nothing waits for you. I’ll tell you when something does.</p>
         </div>
       ) : null}
+      {view.linked.map((machine) => (
+        <LinkedMachine key={machine.id} machine={machine} />
+      ))}
       {view.hidden.length > 0 ? (
         <div className="w-asst-hidden-line" data-testid="assistant-hidden">
           <Icon name="eyeoff" size={12} />

@@ -3,16 +3,21 @@
 // Assistant's system notifications, which follow its view. src/main/ipc/assistant.ts hands the view to the windows;
 // src/main/index.ts starts the notifications after the attention core and stops them on `will-quit`.
 //
+// What waits on the Linked machines (worfy-assistant ticket 18, linked.ts) is read over the link at the start, on every
+// look and on every change RemoteCalls tells of (a connection, an unlink, a change of access), and shown read-only.
+//
 // The conversation reaches the Assistant's Session of ticket 10 (src/main/assistant/session/app.ts, appAssistant) once
 // that ticket is in: until then the Assistant is off and a message is refused with ASSISTANT_OFF.
 import { workHoursOf } from '../../../shared/assistant/schedule/settings'
-import { assistantReveal } from '../../../shared/ipc/assistant'
+import { assistantReveal, assistantWaiting } from '../../../shared/ipc/assistant'
 import { appLimits } from '../../agent/limits'
 import { sharedNodeSessions } from '../../agent/app-node-sessions'
 import { sharedRegistry } from '../../agent/app-registry'
 import type { Client } from '../../clients'
 import { appNow } from '../../clock'
 import { emit } from '../../ipc/index'
+import { appRemoteCalls, callOn } from '../../link/remote-calls'
+import { appLinkService, onAppLinkStart } from '../../link/service'
 import { electronWindowNoteDeps, openNote } from '../../notify'
 import { projectStore } from '../../projects/store'
 import { appSettingsStore } from '../../settings/store'
@@ -24,6 +29,7 @@ import { appDuties } from '../duties/app'
 import { appProposals } from '../proposals/book'
 import { appAssistant, onAssistantRun } from '../session/app'
 import { AssistantNotices } from './notices'
+import { LinkedWaits } from './linked'
 import { AssistantReveal } from './reveal'
 import { windowStateFile, windowStatePath } from './store'
 import { AssistantWindow, type AssistantConversation } from './view'
@@ -36,6 +42,25 @@ const PREPARED_VENDOR = 'claude'
 
 let shared: AssistantWindow | null = null
 let sharedReveal: AssistantReveal<Client> | null = null
+let sharedLinked: LinkedWaits | null = null
+
+/**
+ * What waits on the Linked machines in the running app: every Linked machine of the link service, online while
+ * RemoteCalls has a connection to it; none while the link has not started.
+ */
+export function appLinkedWaits(): LinkedWaits {
+  sharedLinked ??= new LinkedWaits({
+    machines: () => {
+      const service = appLinkService()
+      const calls = appRemoteCalls()
+      if (service === undefined || calls === undefined) return []
+      const online = new Map(calls.machines().map((machine) => [machine.id, machine.online]))
+      return service.linkedMachines().map((machine) => ({ id: machine.id, name: machine.name, online: online.get(machine.id) ?? false }))
+    },
+    call: (machine) => callOn(machine, assistantWaiting.name),
+  })
+  return sharedLinked
+}
 
 /**
  * The Assistant while it runs; null while it is off (ticket 10, appAssistant). Nothing in the app turns it on before the
@@ -69,6 +94,7 @@ export function appAssistantWindow(): AssistantWindow {
       return { nodeId: view.nodeId, sessionId: view.sessionId }
     },
     log: (message, error) => console.warn(message, error),
+    linked: () => appLinkedWaits().snapshot(),
   })
   return shared
 }
@@ -113,6 +139,7 @@ export function startAssistantWindow(): () => void {
   const stopWatch = window.watch()
   const stopRuns = followAssistantRuns(window)
   const stopLook = window.subscribe(look)
+  const stopLinked = followLinkedWaits(appLinkedWaits(), window)
   const timer = setInterval(() => {
     try {
       window.tick()
@@ -120,6 +147,7 @@ export function startAssistantWindow(): () => void {
       console.warn('[assistant] the snoozes could not be looked at', error)
     }
     window.changed()
+    void appLinkedWaits().refresh()
   }, WINDOW_LOOK_MS)
   timer.unref?.()
   look()
@@ -128,5 +156,49 @@ export function startAssistantWindow(): () => void {
     stopLook()
     stopWatch()
     stopRuns()
+    stopLinked()
+  }
+}
+
+/**
+ * The section hears of each change of what the Linked machines answered, and reads them afresh now and on every `changed`
+ * of RemoteCalls: a connection opened or closed, a Machine unlinked, and its `projects-access` message — so access
+ * switched Off, or back to Read only, shows at once. The link service may start after the section. One read runs at a
+ * time; a change during it reads once more after it. Answers the function that stops it.
+ */
+function followLinkedWaits(linked: LinkedWaits, window: AssistantWindow): () => void {
+  const stopChanged = linked.subscribe(() => window.changed())
+  let running = false
+  let again = false
+  const read = (): void => {
+    if (running) {
+      again = true
+      return
+    }
+    running = true
+    void linked.refresh().finally(() => {
+      running = false
+      if (!again) return
+      again = false
+      read()
+    })
+  }
+  let unfollow: (() => void) | null = null
+  const follow = (): void => {
+    unfollow?.()
+    unfollow = null
+    const calls = appRemoteCalls()
+    if (calls === undefined) return
+    calls.on('changed', read)
+    unfollow = () => calls.off('changed', read)
+    read()
+  }
+  const stopStart = onAppLinkStart(follow)
+  follow()
+  read()
+  return () => {
+    stopStart()
+    unfollow?.()
+    stopChanged()
   }
 }

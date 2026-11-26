@@ -1,7 +1,9 @@
 // The pieces of the Assistant's section and speech card (worfy-assistant ticket 14), after the prototype Card the owner
 // accepted: an item with its reason, its source and its duty, its buttons — Open, Prepare, Snooze, Dismiss — and like and
-// dislike; the card of an item a dislike just hid, with the rule and Undo; like and dislike on any message.
+// dislike; the card of an item a dislike just hid, with the rule and Undo; like and dislike on any message; and what waits
+// on a Linked machine, read-only (worfy-assistant ticket 18).
 import { useState, type ReactElement } from 'react'
+import type { LinkedMachineWaits } from '../../shared/assistant/linked'
 import type { Rating, SnoozeChoice, WindowItem } from '../../shared/assistant/window'
 import type { RatingTarget } from '../../shared/ipc/assistant'
 import { Menu, MenuItem, MenuSeparator } from '../theme/kit/Menu'
@@ -223,5 +225,63 @@ export function GoneCard({ gone }: { gone: GoneItem }): ReactElement {
         </div>
       </div>
     </div>
+  )
+}
+
+/**
+ * What waits on a Linked machine (worfy-assistant ticket 18; boundary 5): its items under its name, read-only — that
+ * Machine's own Assistant keeps them, so a card here has no button — or why it shows nothing.
+ */
+export function LinkedMachine({ machine }: { machine: LinkedMachineWaits }): ReactElement {
+  return (
+    <section className="w-asst-linked" data-testid="assistant-linked" data-machine-id={machine.id}>
+      <div className="w-asst-group">
+        On {machine.name} · read-only {machine.items.length > 0 ? <span className="w-asst-group__count">{machine.items.length}</span> : null}
+      </div>
+      {machine.problem !== null ? (
+        <div className="w-asst-hidden-line" data-testid="assistant-linked-problem">
+          <Icon name="info" size={12} />
+          {machine.problem}
+        </div>
+      ) : null}
+      {machine.items.map((item) => (
+        <article key={item.id} className="w-asst-item w-asst-item--linked" data-testid="assistant-linked-item" data-urgent={item.urgent ? '' : undefined}>
+          <div className="w-asst-item__top">
+            <span className="w-asst-kind" data-urgent={item.urgent ? '' : undefined}>
+              <Icon name={itemIcon(item.source, item.kind, item.subject.kind)} />
+            </span>
+            <div className="w-asst-item__main">
+              <div className="w-asst-item__title">{item.title}</div>
+            </div>
+            <span className="w-asst-item__since w-mono">{shortTime(item.lastAt)}</span>
+          </div>
+          <div className="w-asst-meta">
+            {item.urgent ? (
+              <span className="w-asst-chip w-asst-chip--urgent">
+                <Icon name="bolt" size={12} />
+                Urgent
+              </span>
+            ) : null}
+            {item.projectName !== null ? <span className="w-asst-chip w-asst-chip--project w-mono">{item.projectName}</span> : null}
+            {item.duty !== null ? (
+              <span className="w-asst-chip w-asst-chip--duty" title="The duty that raised it there">
+                <Spark size={11} />
+                {item.duty}
+              </span>
+            ) : null}
+            <span className="w-asst-chip" title={`The Assistant of ${machine.name} keeps it: open it there`}>
+              <Icon name="lock" size={12} />
+              Read-only
+            </span>
+          </div>
+          <div className="w-asst-source">
+            <Icon name={item.outside !== null ? 'lock' : 'info'} size={12} />
+            <span>
+              {item.sourceLabel} · {item.subject.label}
+            </span>
+          </div>
+        </article>
+      ))}
+    </section>
   )
 }
