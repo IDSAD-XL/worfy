@@ -138,3 +138,25 @@ exit 0 (769 test-ов); `pnpm lint && pnpm typecheck && pnpm test` — exit 0; g
 3. Что будет с карточкой «было → станет», которую Assistant создал до этого Ticket-а с `pr-follow: pre-approved`?
    - Ответ: Apply откажет с причиной до любой записи, ничего не изменится.
    - Lines: `src/main/assistant/settings/panel.ts:90-92`
+
+## 8. Что нашёл review и что осталось
+
+> VERIFIED — worfy-assistant 26 (pr-follow keeps only ask and hand-over: pre-approved is refused in the mode list, Duties.configure, Settings, proposal_create and Apply; a saved pre-approved reads as ask; pr-follow is no longer an action of worfy-app action_run, the model only proposes it and the user starts it from Pull requests), head 09eb085b9ae40112391d54bf959dd4d3841439e4
+>
+> Gate (depth medium, one round): reviewer (lens: correctness) — MERGE.
+> Checked fine: the ask path (proposal → Open → Pull requests → Fix checks/Resolve conflicts/Address comments → launcher, which refuses while Autopilot runs) is untouched and worked the same on main; every refusal reads DUTY_ACTION_ALLOWED_MODES; a card saved before the PR still reads and is refused on Apply; the launcher's Autopilot refusal stays covered by test/contract/actions.test.ts:791; the instructions, CONTEXT.md:427 and app-server header agree.
+> Noted (docs, next documents PR): spec.md:294 example «pr-follow отказывает, пока идёт Autopilot» among action_run actions, and spec.md:459 row «не выше ask/pre-approved» are stale.
+> Evidence: lint, typecheck, full pnpm test (950 files) exit 0; gate fast green; story-check exit 0; reviewer ran 10 files, 322 tests, exit 0.
+> Not verified: e2e (owner rule).
+
+Code: `test/contract/actions.test.ts:791-791` · key lines: 791
+
+```ts
+      ['while Autopilot runs in the Project', { autopilot: true }, PR_FOLLOW_AUTOPILOT_HINT],
+```
+
+Code: `CONTEXT.md:427-427` · key lines: 427
+
+```md
+Режим одного действия одной Duty — то, насколько Assistant может сделать его сам. Их четыре: `self` — Assistant делает действие сам и пишет строку своего журнала; `pre-approved` — делает сам, потому что пользователь, выбрав этот режим, заранее сказал «да»; `ask` — сначала спрашивает: показывает Proposal, и решает пользователь; `hand-over` — отдаёт пункт пользователю и ничего не делает. Режим выбирает пользователь в Settings → Assistant; Assistant меняет его только через Proposal, который пользователь применил кнопкой Apply. Не у каждого действия все четыре режима: pr-follow — Session, которая работает над PR пользователя, — никогда не бывает `self`. По решению владельца 2026-11-26 у pr-follow остаются только `ask` и `hand-over`; `pre-approved` у него убирается.
+```

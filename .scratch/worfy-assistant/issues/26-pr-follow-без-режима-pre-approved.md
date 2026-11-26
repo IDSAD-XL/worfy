@@ -1,7 +1,8 @@
 # 26 — Действие `pr-follow` только `ask` или `hand-over`: режим `pre-approved` для него тоже запрещён
 
 Type: task
-Status: claimed 2026-11-26T10:01Z
+Status: done 2026-11-26T10:58Z
+PR: #2274
 Blocked by: —
 Source: решение владельца 2026-11-26, второй раунд (Q1–Q6, «все да»), Q1; поправка к Ticket-у 24 и к решению 2
 [Ticket-а 09](09-mcp-сервер-worfy-app.md) («Решено без владельца»); ADR-0114, пункт 4 (сам Assistant делает только
@@ -91,16 +92,22 @@ Ticket 24 запретил для него `self`, но оставил `pre-appr
 - [ ] Unit test: `pre-approved` и `self` для `pr-follow` нельзя выбрать в `Duties.configure`; `ask`, `hand-over` и
       режимы остальных действий — как сейчас.
   - evidence: test-run pass · `pnpm test test/unit/assistant-duties.test.ts` exit 0 · mac - · 193eca821
+  - evidence: review pass · PR #2274 · - - · 09eb085b9ae40112391d54bf959dd4d3841439e4
 - [ ] Unit test: `pre-approved` для `pr-follow` из файла памяти читается как `ask`.
   - evidence: test-run pass · `pnpm test test/unit/assistant-duties.test.ts test/unit/assistant-session.test.ts` exit 0 · mac - · 193eca821
+  - evidence: review pass · PR #2274 · - - · 09eb085b9ae40112391d54bf959dd4d3841439e4
 - [ ] Contract test: `action_run` не запускает `pr-follow` в режиме `pre-approved`.
   - evidence: test-run pass · `pnpm test test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 193eca821
+  - evidence: review pass · PR #2274 · - - · 09eb085b9ae40112391d54bf959dd4d3841439e4
 - [ ] Settings не предлагает `pre-approved` для `pr-follow` (test, если Ticket 15 влит; иначе строка в «Итог»).
   - evidence: test-run pass · `pnpm test test/unit/assistant-settings-panel.test.ts test/unit/settings-assistant.test.tsx test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 193eca821
+  - evidence: review pass · PR #2274 · - - · 09eb085b9ae40112391d54bf959dd4d3841439e4
 - [ ] «Итог»: все места, где `pre-approved` для `pr-follow` теперь отклоняется, с `file:line`.
   - evidence: commit pass · worfy-assistant/26: pr-follow is only ask or hand-over; action_run no longer runs it · - - · 193eca821
+  - evidence: review pass · PR #2274 · - - · 09eb085b9ae40112391d54bf959dd4d3841439e4
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 193eca821
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45800681943/job/139861287348 · ci - · 09eb085b9ae40112391d54bf959dd4d3841439e4
 
 ## Итог
 
