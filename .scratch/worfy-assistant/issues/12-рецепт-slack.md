@@ -55,10 +55,10 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 12; «Решения 
   - evidence: review pass · PR #2239 · - - · 2c131984da0dca51c19dcbeac0d4c46ec4afd246
 - [ ] Записанные ответы лежат как fixture-ы; test-ы не вызывают модель и не ходят в сеть.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-slack-recipe.test.ts` exit 0 · mac - · 389fc7d42
-  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45699584423/job/139540482140 · ci - · 2c131984da0dca51c19dcbeac0d4c46ec4afd246
+  - evidence: review pass · PR #2239 · - - · 2c131984da0dca51c19dcbeac0d4c46ec4afd246
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: test-run pass · `pnpm lint` exit 0, `pnpm typecheck` exit 0 · mac - · 389fc7d42
-  - evidence: review pass · PR #2239 · - - · 2c131984da0dca51c19dcbeac0d4c46ec4afd246
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45699584423/job/139540482140 · ci - · 2c131984da0dca51c19dcbeac0d4c46ec4afd246
 
 ## Итог
 

@@ -79,9 +79,9 @@ Source: audit-pr-rereview-2026-11-13, triage.md «В Ticket-ы»; checked open o
       `work-track-view.test.tsx`) видит счётчик. Красный на origin/main.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/workflow-release.test.ts test/unit/pipeline.test.ts test/unit/work-track-lanes.test.ts test/unit/work-track-view.test.tsx test/unit/work-track-panel.test.tsx test/contract/orchestrator-continue.test.ts test/contract/autopilot-queue.test.ts` exit 0 (224 passed); red on origin/main (markGroups missing, 19 CI marks) · mac - · 0cf57a82c6c299cde2f7f7f473d0d77a9e20c302
   - evidence: test-run pass · `node scripts/vitest-electron.mjs <7 touched test files>` exit 0 (225 passed); review round 1 layouts red on the 4/8 px grouping ([17, 1]), role img red without it · mac - · 86071e2ec6a14f60777e719a9aefa8a8f6af3fc8
-  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45701071965/job/139567377116 · ci - · a0693e460748c885b0797d44352cde3c2b37af36
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: review pass · PR #2235 · - - · a0693e460748c885b0797d44352cde3c2b37af36
+- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45701071965/job/139567377116 · ci - · a0693e460748c885b0797d44352cde3c2b37af36
 
 ## Где в коде
 

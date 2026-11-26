@@ -55,12 +55,12 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 17; «Решения 
 - [ ] Assistant говорит на языке, выбранном для Guide: при выборе RU — русские описания и ответы.
   - evidence: test-run pass · `pnpm test test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 849f153d5
   - evidence: test-run pass · `pnpm test test/contract/worfy-app-tools.test.ts test/contract/feature-pages-in-build.test.ts` exit 0 · mac - · 28cc6db26
-  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45728314530/job/139637181421 · ci - · 62fa2f9a16218d97dbf2830b9f7389c83805c9d1
+  - evidence: review pass · PR #2244 · - - · 62fa2f9a16218d97dbf2830b9f7389c83805c9d1
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 849f153d5
   - evidence: gate pass · `gate fast` exit 0 · mac - · 28cc6db26
   - evidence: gate pass · `gate fast` exit 0 · mac - · afbe4c387
-  - evidence: review pass · PR #2244 · - - · 62fa2f9a16218d97dbf2830b9f7389c83805c9d1
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45728314530/job/139637181421 · ci - · 62fa2f9a16218d97dbf2830b9f7389c83805c9d1
 
 ## Решено без владельца (подтвердить)
 

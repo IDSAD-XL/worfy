@@ -1,7 +1,7 @@
 # 155 — Всплеск `git merge-base --is-ancestor` каждые 6 минут: общий кэш пар, один вопрос на пару, предел процессов git
 
 Type: bug
-Status: claimed 2026-11-26T02:13Z
+Status: done 2026-11-26T04:12Z
 PR: #2254
 Blocked by: —
 Source: баг-репорт владельца #2252 (2026-11-26), часть 1.
@@ -98,15 +98,19 @@ Source: баг-репорт владельца #2252 (2026-11-26), часть 1.
 - [ ] Пары 0/1 хранятся на процесс по (ancestor, descendant); 128 и null — нет; test-ы на каждое — сначала красные.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/git-ancestry.test.ts test/unit/acceptance-stable-line.test.ts test/contract/workflow-stages.test.ts test/contract/flight-recorder-gate-logs.test.ts` exit 0 · mac - · 5b44df34a
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/git-ancestry.test.ts` exit 0 · mac - · ff598002d
+  - evidence: review pass · PR #2254 · - - · af398846c98c5f6975fa03e673bee92f0ce1a966
 - [ ] Один процесс на пару в пути; не больше 3 процессов git одновременно на этих путях.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/git-ancestry.test.ts test/unit/acceptance-stable-line.test.ts` exit 0 · mac - · 5b44df34a
+  - evidence: review pass · PR #2254 · - - · af398846c98c5f6975fa03e673bee92f0ce1a966
 - [ ] Число процессов git за цикл до и после — в «Итог».
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/acceptance-stable-line.test.ts` exit 0 · mac - · 5b44df34a
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/acceptance-stable-line.test.ts` exit 0 · mac - · ff598002d
+  - evidence: review pass · PR #2254 · - - · af398846c98c5f6975fa03e673bee92f0ce1a966
 - [ ] `pnpm lint`, `pnpm typecheck`, unit и contract test-ы затронутых модулей, gate fast — exit 0; `ci-ok` на head PR.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 5b44df34a
   - evidence: gate pass · `gate fast` exit 0 · mac - · 5b44df34a
   - evidence: gate pass · `gate fast` exit 0 · mac - · ff598002d
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45746587647/job/139685292534 · ci - · af398846c98c5f6975fa03e673bee92f0ce1a966
 
 ## Итог
 
