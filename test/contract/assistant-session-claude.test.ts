@@ -6,6 +6,7 @@
 // The unit test of the options reads what goes into the SDK; this one shows what Claude Code does with it:
 // - a tool of worfy-app the "model" calls runs its handler (allowedTools under dontAsk lets it through);
 // - a call of Bash is refused, and its command never runs (the Session has no built-in tool at all).
+import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync, mkdtempSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -25,6 +26,16 @@ const cleanups: (() => Promise<void>)[] = []
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0)) await cleanup()
 })
+
+/** Waits for `child` to exit: SIGTERM at once, SIGKILL after 5 s. */
+async function ended(child: ChildProcess | null): Promise<void> {
+  if (child === null || child.exitCode !== null || child.signalCode !== null) return
+  const exited = new Promise<void>((done) => child.once('exit', () => done()))
+  child.kill('SIGTERM')
+  const late = setTimeout(() => child.kill('SIGKILL'), 5_000)
+  await exited
+  clearTimeout(late)
+}
 
 /**
  * One Session of the Assistant on the real Claude Code whose "model" writes `call` once. The server worfy-app is the
@@ -63,13 +74,31 @@ async function session(call: ScriptedToolUse) {
     harnessPlugin: null,
   })
   const stderr: string[] = []
+  // The test spawns Claude Code itself, to hold its process: the SDK's close() sends SIGTERM only after a grace timer
+  // that does not keep the test worker alive, so a Claude Code waiting on its API could outlive the run.
+  let child: ChildProcess | null = null
   const run = query({
     prompt: 'worfy woke you.',
     // The stand-in in place of the subscription: the environment of the test, with the kind worfy gives the Session.
-    options: { ...options, env: { ...claudeEnv(standIn, home), [SESSION_KIND_VARIABLE]: ASSISTANT_SESSION_KIND }, stderr: (data) => stderr.push(data) },
+    options: {
+      ...options,
+      env: { ...claudeEnv(standIn, home), [SESSION_KIND_VARIABLE]: ASSISTANT_SESSION_KIND },
+      stderr: (data) => stderr.push(data),
+      spawnClaudeCodeProcess: ({ command, args, cwd: dir, env }) => (child = spawn(command, args, { cwd: dir, env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })),
+    },
   })
-  for await (const message of run) if (message.type === 'result') break
-  run.close()
+  // On every way out — a result, a failed expectation, a test that timed out (afterEach runs this first, before the
+  // stand-in closes) — the query is closed and Claude Code is gone before the next step.
+  const stop = async (): Promise<void> => {
+    run.close()
+    await ended(child)
+  }
+  cleanups.unshift(stop)
+  try {
+    for await (const message of run) if (message.type === 'result') break
+  } finally {
+    await stop()
+  }
   return { standIn, memoryPart: () => kept, used, stderr: stderr.join(''), cwd }
 }
 

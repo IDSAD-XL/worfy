@@ -140,7 +140,12 @@ export async function startMessagesApiStandIn(call: ScriptedToolUse, standInOpti
     toolResult: () => recorded,
     offered: () => offered,
     toolsOffered: () => [...seen],
-    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+    close: () =>
+      new Promise<void>((resolve) => {
+        // A request still open (Claude Code waiting on an answer) would hold server.close() for ever.
+        server.closeAllConnections()
+        server.close(() => resolve())
+      }),
   }
 }
 
