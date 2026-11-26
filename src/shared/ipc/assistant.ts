@@ -110,7 +110,11 @@ export const assistantResumeDuty = invokeChannel('assistant.resumeDuty', z.objec
 /** How many ignored proposals or dislikes in a row pause a duty. */
 export const assistantPauseAfter = invokeChannel('assistant.pauseAfter', z.object({ count: z.number().int().min(1).max(100) }), z.object({}), 'local')
 
-/** Check now: a run of the check of `kind` at once, whatever its time; `started: false` when it runs already, or the Assistant is off. */
+/**
+ * Check now: a run of the check of `kind` at once, whatever its time. `started: false` comes with `refused`, the reason
+ * (CheckScheduler.whyNotNow): `not-registered` (the check does not run on this Mac), `stopped`, `asleep`,
+ * `assistant-off`, `check-off` (the person turned the check off) or `running`.
+ */
 export const assistantCheckNow = invokeChannel('assistant.checkNow', z.object({ kind: checkKindSchema }), z.object({ started: z.boolean(), refused: checkNowRefusalSchema.nullable() }), 'local')
 
 declare module './channels' {
