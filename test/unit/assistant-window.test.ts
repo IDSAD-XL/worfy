@@ -201,6 +201,7 @@ describe('Dismiss, Snooze, Open and Prepare', () => {
   })
 
   it('Dismiss takes the item off the list, and its duty counts it declined', () => {
+    w.assistant = { said: [], answer: () => null }
     w.window.item(id, 'dismiss')
     const view = w.window.view()
     expect(view.items.some((item) => item.id === id)).toBe(false)
@@ -208,9 +209,17 @@ describe('Dismiss, Snooze, Open and Prepare', () => {
   })
 
   it('Open marks the item seen, and its duty counts it accepted', () => {
+    w.assistant = { said: [], answer: () => null }
     w.window.item(id, 'open')
     expect(byTitle(w.window.view(), 'Teammate A asks you to look at the rate-limit change before 15:00')?.state).toBe('seen')
     expect(w.duties.look([]).duties.find((duty) => duty.id === 'source:slack')?.counters.accepted).toBe(1)
+  })
+
+  it('while the Assistant is off, Dismiss and Open count nothing at the duty (review round 2)', () => {
+    w.window.item(id, 'open')
+    w.window.item(id, 'dismiss')
+    expect(w.duties.look([]).duties.find((duty) => duty.id === 'source:slack')?.counters).toMatchObject({ shown: 0, accepted: 0, declined: 0 })
+    expect(w.window.view().items.some((item) => item.id === id)).toBe(false)
   })
 
   it('Snooze for an hour moves the item to Snoozed, and it waits again an hour later', () => {
@@ -252,6 +261,7 @@ describe('Dismiss, Snooze, Open and Prepare', () => {
   })
 
   it('Start runs a new Session with exactly the text the user read, and only then', () => {
+    w.assistant = { said: [], answer: () => null }
     const asks = byTitle(w.window.view(), 'Asks: Use payments SDK v4 now?')!
     w.book.create({ title: 'Answer checkout 04', why: 'It blocks the Wave.', item: asks.id, prepare: { projectId: MOBILE, text: 'Decide the SDK version.' } })
     expect(w.started).toEqual([])
@@ -329,6 +339,36 @@ describe('like and dislike', () => {
     expect(counters('source:slack').liked).toBe(1)
     w.window.rate({ kind: 'item', id }, 'dislike')
     expect(counters('source:slack')).toMatchObject({ liked: 0, disliked: 1 })
+  })
+
+  it('Undo of one dislike keeps the rule another dislike still holds: the item and a journal row of it (review round 2)', () => {
+    w.journal.push({ at: T0 - 10 * MIN, action: 'continue-session', by: 'assistant', item: id, duty: 'source:slack', projectId: SHOP, itemKind: 'message', itemText: 'x', mode: 'self', sessionId: 'sess-01', outcome: 'done' })
+    const row = w.window.view().journal[0]!.id
+    const rule = w.window.rate({ kind: 'item', id }, 'dislike')!
+    expect(w.window.rate({ kind: 'journal', id: row }, 'dislike')?.id).toBe(rule.id)
+    w.window.rate({ kind: 'journal', id: row }, null)
+    expect(w.duties.rules().map((each) => each.id)).toEqual([rule.id])
+    expect(w.window.view().items).toEqual([])
+    w.window.rate({ kind: 'item', id }, null)
+    expect(w.duties.rules()).toEqual([])
+  })
+
+  it('Undo of a dislike from an earlier run leaves the current run and its pause alone (review round 2)', () => {
+    const other = (n: number, kind: string): string => {
+      w.core.ingest({ ...slack(), id: `C1/${n}`, kind, subject: { kind: 'message', id: `slack:C1/${n}`, label: 'teammate B' }, text: `Message ${n}` })
+      return w.window.view().items.find((item) => item.title === `Message ${n}`)!.id
+    }
+    const b = other(2, 'mention')
+    const c = other(3, 'thread')
+    w.duties.setPauseAfter(2)
+    w.window.rate({ kind: 'item', id }, 'dislike')
+    w.duties.resume('source:slack')
+    w.window.rate({ kind: 'item', id: b }, 'dislike')
+    w.window.rate({ kind: 'item', id: c }, 'dislike')
+    expect(status('source:slack').paused?.by).toBe('disliked')
+    w.window.rate({ kind: 'item', id }, null)
+    expect(status('source:slack').paused?.by).toBe('disliked')
+    expect(counters('source:slack').disliked).toBe(2)
   })
 
   it('Show again deletes the rule by its id', () => {

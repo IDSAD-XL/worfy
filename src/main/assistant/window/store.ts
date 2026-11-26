@@ -32,7 +32,7 @@ export const windowStateSchema = z.object({
       at: z.number(),
       rule: z.string().optional(),
       /** The duty and the item the rating was counted for (Duties.rate), so taking it back uncounts it (Duties.unrate). */
-      counted: z.object({ duty: z.string(), item: z.string() }).optional(),
+      counted: z.object({ duty: z.string(), item: z.string(), run: z.number().int().nonnegative().optional() }).optional(),
     }),
   ),
   conversation: z.array(conversationMessageSchema),

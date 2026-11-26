@@ -69,6 +69,12 @@ interface Known {
   projectId: string | null
 }
 
+/** The run of ignored proposals and dislikes ends: it starts again from none, as a new run. */
+function endRun(state: { streak: number; run?: number }): void {
+  state.streak = 0
+  state.run = (state.run ?? 0) + 1
+}
+
 const zero = (): DutyCounters => Object.fromEntries(DUTY_COUNTERS.map((name) => [name, 0])) as DutyCounters
 
 /** The text of the Session that fixes the red CI of the main branch: main writes it, not the Assistant. */
@@ -200,7 +206,7 @@ export class Duties {
     this.change((memory) => {
       const state = (memory.duties[id] ??= { counters: zero(), streak: 0 })
       delete state.paused
-      state.streak = 0
+      endRun(state)
     })
   }
 
@@ -239,7 +245,7 @@ export class Duties {
     const state = this.state(item.duty)
     if (rating === 'like') {
       state.counters.liked += 1
-      state.streak = 0
+      endRun(state)
       this.save()
       return null
     }
@@ -267,22 +273,30 @@ export class Duties {
 
   /**
    * Takes back a like or a dislike that rate() counted for the item (worfy-assistant ticket 14): its counter; for a
-   * dislike also its step of the run of dislikes, the pause that run began when it falls short again, and the rule
-   * `ruleId` when this item wrote it. A like's end of the run of ignored proposals is not taken back.
+   * dislike also its step of the run of dislikes — only while `run`, the run it was counted in (runOf), is still the
+   * current one — and the pause that run began when it falls short again; and the rule `ruleId` when this item wrote it
+   * (the caller passes null while another rating still holds that rule). A like's end of a run is not taken back.
    */
-  unrate(duty: string, itemId: string, rating: 'like' | 'dislike', ruleId: string | null): void {
+  unrate(duty: string, itemId: string, rating: 'like' | 'dislike', ruleId: string | null, run?: number): void {
     const memory = this.load()
     const state = memory.duties[duty]
     if (state !== undefined) {
       if (rating === 'like') state.counters.liked = Math.max(0, state.counters.liked - 1)
       else {
         state.counters.disliked = Math.max(0, state.counters.disliked - 1)
-        state.streak = Math.max(0, state.streak - 1)
-        if (state.paused?.by === 'disliked' && state.streak < (memory.pauseAfter ?? DEFAULT_PAUSE_AFTER)) delete state.paused
+        if (run === (state.run ?? 0)) {
+          state.streak = Math.max(0, state.streak - 1)
+          if (state.paused?.by === 'disliked' && state.streak < (memory.pauseAfter ?? DEFAULT_PAUSE_AFTER)) delete state.paused
+        }
       }
     }
     if (ruleId !== null) memory.rules = memory.rules.filter((rule) => rule.id !== ruleId || rule.from !== itemId)
     this.save()
+  }
+
+  /** The number of the duty's current run of ignored proposals and dislikes (unrate). */
+  runOf(duty: string): number {
+    return this.load().duties[duty]?.run ?? 0
   }
 
   /** Counts what became of an item once; false when it was counted before. */
@@ -299,7 +313,7 @@ export class Duties {
     counted.outcome = outcome
     state.counters[outcome] += 1
     if (outcome === 'ignored') this.extend(state, 'ignored')
-    else state.streak = 0
+    else endRun(state)
     return true
   }
 

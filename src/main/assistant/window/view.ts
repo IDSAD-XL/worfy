@@ -68,7 +68,8 @@ export interface WindowCore {
 export interface WindowDuties {
   look(items: readonly AttentionItem[], options?: { countShown?: boolean }): DutyLook
   rate(item: AttentionItem, rating: 'like' | 'dislike'): MemoryRule | null
-  unrate(duty: string, itemId: string, rating: 'like' | 'dislike', ruleId: string | null): void
+  unrate(duty: string, itemId: string, rating: 'like' | 'dislike', ruleId: string | null, run?: number): void
+  runOf(duty: string): number
   react(item: AttentionItem, reaction: 'accepted' | 'declined'): void
   rules(): MemoryRule[]
   deleteRule(id: string): void
@@ -256,6 +257,11 @@ export class AssistantWindow {
     return found
   }
 
+  /** A reaction to an item reaches its duty — and counts it as shown — only while the Assistant is on, as shown() does. */
+  private react(item: AttentionItem, reaction: 'accepted' | 'declined'): void {
+    if (this.deps.assistant() !== null) this.deps.duties.react(item, reaction)
+  }
+
   private mark(item: AttentionItem, state: AttentionState): void {
     this.deps.core()?.mark(item.projectId, item.id, state)
   }
@@ -439,11 +445,11 @@ export class AssistantWindow {
     const item = this.find(itemId)
     if (op === 'open') {
       if (item.state === 'new') this.mark(item, 'seen')
-      this.deps.duties.react(item, 'accepted')
+      this.react(item, 'accepted')
     } else if (op === 'dismiss') {
       this.mark(item, 'dismissed')
       // The user saw the item to dismiss it: the view counts nothing as shown, so the reaction counts it here.
-      this.deps.duties.react(item, 'declined')
+      this.react(item, 'declined')
     } else if (item.state === 'snoozed') {
       this.mark(item, 'new')
     }
@@ -493,12 +499,15 @@ export class AssistantWindow {
       const rule = before?.rule === undefined ? undefined : this.deps.duties.rules().find((each) => each.id === before.rule)
       return rule === undefined ? null : { id: rule.id, text: rule.text }
     }
-    // Taking a rating back uncounts it at its duty; a dislike's rule goes with it, and the items it hid wait again.
-    if (before?.counted !== undefined) this.deps.duties.unrate(before.counted.duty, before.counted.item, before.rating, before.rule ?? null)
-    else if (before?.rule !== undefined) this.deps.duties.deleteRule(before.rule)
+    // Taking a rating back uncounts it at its duty; a dislike's rule goes with it, and the items it hid wait again —
+    // unless another rating still holds that rule (a dislike of the item and one of a journal row it caused).
+    const held = before?.rule !== undefined && this.load().ratings.some((each) => each.key !== key && each.rule === before.rule)
+    const ruleId = before?.rule === undefined || held ? null : before.rule
+    if (before?.counted !== undefined) this.deps.duties.unrate(before.counted.duty, before.counted.item, before.rating, ruleId, before.counted.run)
+    else if (ruleId !== null) this.deps.duties.deleteRule(ruleId)
     let rule: MemoryRule | null = null
     if (rating !== null && item !== null) rule = this.deps.duties.rate(item, rating)
-    const counted = rating !== null && item !== null && item.duty !== null ? { duty: item.duty, item: item.id } : undefined
+    const counted = rating !== null && item !== null && item.duty !== null ? { duty: item.duty, item: item.id, run: this.deps.duties.runOf(item.duty) } : undefined
     this.save((state) => {
       state.ratings = state.ratings.filter((each) => each.key !== key)
       if (rating !== null) state.ratings.push({ key, rating, at: this.deps.now(), ...(rule === null ? {} : { rule: rule.id }), ...(counted === undefined ? {} : { counted }) })
@@ -547,7 +556,7 @@ export class AssistantWindow {
       const item = this.allItems().find((each) => each.id === request.itemId)
       if (item !== undefined) {
         if (item.state === 'new') this.mark(item, 'seen')
-        this.deps.duties.react(item, 'accepted')
+        this.react(item, 'accepted')
       }
     }
     if (request.proposalId !== null && this.deps.proposals.list().some((proposal) => proposal.id === request.proposalId)) this.deps.proposals.remove(request.proposalId)
