@@ -318,3 +318,29 @@ Code: `src/main/assistant/session/runner.ts:200-208` · key lines: 204, 205, 206
    переключится в другое приложение?
    - Ответ: нет: пункт попадает в `done` при первом взгляде, ещё до проверки фокуса, и больше не рассматривается.
    - Строки: `src/main/assistant/window/notices.ts:35-37`
+
+## 12. Что нашёл review и что осталось
+
+> VERIFIED — worfy-assistant 14 (the Assistant's section in the rail next to Canvas and its own notifications, built to the prototype the owner accepted, Card card-2f66a896), head bcda9537ffbba067e73b5df9b192f414d665d19c
+>
+> Gate (depth medium, three rounds):
+> - Round 1, reviewer (lens: correctness) — FIX, three med and one low:
+>   - the background loop counted items as shown while the Assistant was off, so duties paused themselves as ignored;
+>   - Undo of a dislike left the counters and the run;
+>   - Prepare named the item's Project, not the one the Session starts in;
+>   - a notification reveal flag that stuck.
+> - Round 2, narrow reviewer — MERGE on those fixes, four lows. Three were fixed in the PR: a rule shared by two ratings, an undo across runs, Dismiss while off (Open and Start too).
+> - Round 3, checked by the Orchestrator against the diffs 8e630c676..dfae2b3cf:
+>   - the rebase onto main after ticket 10 (#2247) had no conflict;
+>   - the conversation is wired to ticket 10's appAssistant;
+>   - low 4: worfy-app items_list, action_run and the closed list read duties with countShown false;
+>   - an optional onRun hook in composeAssistant (src/main/assistant/session/runner.ts) passes each finished wake's text to the section as the summary and the conversation; a run without an answer posts nothing, and without onRun ticket 10 behaves as before.
+>
+> - Evidence: every round's new tests red first, and mutants of each fix red. On 15f38aea7: 64 test files of the assistant, session, worfy-app/MCP, toast, IPC, notify, sidebar and shell EXIT=0 (1 143 tests); pnpm lint, typecheck, build EXIT=0; gate fast green; story-check ok on dfae2b3cf.
+> - Not verified:
+>   - item 7, the look of the Assistant's card next to its rail icon (colour, icon, position): the app may not be launched here, so the owner's look comes at the acceptance (ticket 20);
+>   - item 9: the e2e with WORFY_AGENT=fake (list, like, dislike) runs only in CI;
+>   - the Assistant is off in the app until ticket 15 adds its switch, so the conversation and the wake texts reach the section only after that.
+> - Handed to ticket 15: call AssistantWindow.changed() when the Assistant starts or stops.
+>
+> - After the verdict, CI e2e red on dfae2b3cf (chat-attachments.spec.ts:160 and sidebar-sections.spec.ts:242 took the first section in the DOM, now the hidden Assistant section). Fix bcda9537f changes only those two specs (the shown section via [data-section]:not([hidden]); AssistantSection first in SECTIONS); diff read by the orchestrator, no product code changed.
