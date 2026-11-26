@@ -1,7 +1,8 @@
 # 156 — Фоновая сборка Update ждёт тихий `main`, идёт с пониженным приоритетом и не ставит зависимости зря
 
 Type: bug
-Status: claimed 2026-11-26T02:14Z
+Status: done 2026-11-26T04:00Z
+PR: #2253
 Blocked by: —
 Source: баг-репорт владельца #2252 (2026-11-26), часть 2.
 
@@ -95,14 +96,19 @@ electron-builder). Сборка держит CPU около 2 минут, и р�
 - [ ] «Update automatically» собирает голову `main` только когда её commit не моложе 20 минут (или `WORFY_UPDATE_QUIET_MINUTES`); новый commit сдвигает ожидание; «Update worfy» собирает сразу.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/update-build-light.test.ts test/unit/update-check.test.ts test/contract/update-github.test.ts test/contract/update-state.test.ts test/contract/update-build.test.ts` exit 0 · mac - · ca912ea55
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/update-build-light.test.ts test/contract/update-build.test.ts` exit 0 · mac - · 694b2bfd8
+  - evidence: review pass · PR #2253 · - - · e3f5a99fab95a74acec23688184fd1a08b263c2b
 - [ ] Шаги сборки идут с приоритетом ниже обычного на macOS, Linux и Windows; test через seam.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/update-build-light.test.ts test/contract/update-build.test.ts` exit 0 · mac - · ca912ea55
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/update-build-light.test.ts test/contract/update-build.test.ts` exit 0 · mac - · 694b2bfd8
+  - evidence: review pass · PR #2253 · - - · e3f5a99fab95a74acec23688184fd1a08b263c2b
 - [ ] `pnpm install` пропускается, когда hash зависимостей тот же и `node_modules` на месте; `git clean` остаётся.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/update-build-light.test.ts test/contract/update-build.test.ts test/contract/update-state.test.ts` exit 0 · mac - · ca912ea55
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/update-build-light.test.ts test/contract/update-build.test.ts` exit 0 · mac - · 694b2bfd8
+  - evidence: review pass · PR #2253 · - - · e3f5a99fab95a74acec23688184fd1a08b263c2b
 - [ ] `docs/features/updates.md` описывает ожидание, приоритет и пропуск `pnpm install`.
   - evidence: commit pass · worfy-polish/156: a lighter background build of Update · - - · ca912ea55
+  - evidence: review pass · PR #2253 · - - · e3f5a99fab95a74acec23688184fd1a08b263c2b
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast зелёный; `ci-ok` на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · ca912ea55
   - evidence: gate pass · `gate fast` exit 0 · mac - · 694b2bfd8
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45746017448/job/139682730656 · ci - · e3f5a99fab95a74acec23688184fd1a08b263c2b
