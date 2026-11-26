@@ -66,9 +66,13 @@ Source: решение владельца 2026-11-26 (раунд Q1–Q12 веч
 ## Готово, когда
 
 - [ ] Unit test: пункт остановки Run-а несёт причину отдельным полем; текст называет её словами.
+  - evidence: test-run pass · `pnpm test test/unit/assistant-attention-sources.test.ts` exit 0 · mac - · 406d907cdb3bb4e0c31517a9f29f64d4b2ba629f
 - [ ] Unit test: остановка самим пользователем не будит Assistant-а, другие остановки будят сразу.
+  - evidence: test-run pass · `pnpm test test/unit/assistant-wake-planner.test.ts` exit 0 · mac - · 406d907cdb3bb4e0c31517a9f29f64d4b2ba629f
 - [ ] Unit test: файл пунктов, записанный до этого Ticket-а, читается.
+  - evidence: test-run pass · `pnpm test test/unit/assistant-attention-sources.test.ts` exit 0 · mac - · 406d907cdb3bb4e0c31517a9f29f64d4b2ba629f
 - [ ] «Итог»: какие причины считаются остановкой пользователем — в «Решено без владельца».
+  - evidence: commit pass · worfy-assistant/23: an Autopilot Run the user stopped does not wake the Assistant · - - · 406d907cdb3bb4e0c31517a9f29f64d4b2ba629f
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
 
 ## Итог
