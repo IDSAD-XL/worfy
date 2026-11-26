@@ -72,10 +72,29 @@ Source: решение владельца 2026-11-26 — polish-Ticket, кото
 ## Готово, когда
 
 - [ ] `orchestrator.md` — около 7 500 знаков или меньше; в отчёте — число до и после и команда счёта.
+  - evidence: commit pass · worfy-polish/160: move the orchestrator rules needed at one moment into skill orchestrator-rules · - - · d4a44e81be915a8ba4c56a180183ce8c4252bef2
 - [ ] Перенесённые разделы лежат в skill-е без изменения смысла; на месте каждого в `orchestrator.md` — строка с
       именем skill-а и раздела; test-ы проверяют, что ссылки ведут к существующим разделам.
+  - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0 · mac - · d4a44e81be915a8ba4c56a180183ce8c4252bef2
 - [ ] Файлы, которые цитируют перенесённые разделы (test-ы, `coverage.json`, страница возможностей), обновлены.
+  - evidence: commit pass · worfy-polish/160: move the orchestrator rules needed at one moment into skill orchestrator-rules · - - · d4a44e81be915a8ba4c56a180183ce8c4252bef2
 - [ ] `bash harness/hooks/tests/rules-hooks.test.sh` и `bash harness/bin/tests/agents-text.test.sh` — exit 0.
+  - evidence: test-run pass · `bash harness/bin/tests/agents-text.test.sh` exit 0 · mac - · d4a44e81be915a8ba4c56a180183ce8c4252bef2
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · d4a44e81be915a8ba4c56a180183ce8c4252bef2
 
 ## Итог
+
+- Новый skill `worfy:orchestrator-rules` (`harness/skills/orchestrator-rules/SKILL.md`) несёт дословно пять разделов
+  прежнего `orchestrator.md`: «Quota», «Long output: filter first, delegate second», «Ticket status», «State file»
+  (с журналом решений Wave), «State file vs ADR». Существующие skill-ы не подошли: `ship-ticket` — про один Ticket, и
+  каждый файл рядом с его `SKILL.md` должен называться из самого `SKILL.md` (`start-context.test.sh`); `epic-wave` —
+  про Wave; эти правила нужны и вне Ticket-а и Wave.
+- В `orchestrator.md` заголовки «Quota» и «Long output» остались, под каждым — строка-ссылка; в «Phase 3» каждое из
+  трёх правил (статус Ticket-а через `bin/ticket`, «задача не закончена без файла состояния», «файл состояния и ADR —
+  разные документы») осталось предложением со ссылкой на раздел skill-а.
+- Счёт знаков (`[...text].length`, как в test-е; вставка — вывод `inject-rules.mjs orchestrator` с длинным корнем
+  test-а): до — 9 572 в файле и 9 991 во вставке; после — 7 114 и 7 533.
+- `rules-hooks.test.sh`: темы правил ищутся в частях и в skill-е вместе; новая проверка — множество ссылок
+  `orchestrator.md` совпадает с разделами skill-а, три заголовка на месте. `agents-text.test.sh` читает «Long
+  output» из skill-а; `coverage.json` относит skill к причине без case-а; `harness-migrate.test.ts` знает новый skill.
