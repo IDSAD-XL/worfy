@@ -79,7 +79,7 @@ Card-а из «Итог» Ticket-а 02.
 - [ ] Тексты UI — английские.
   - evidence: test-run pass · `pnpm lint` exit 0 · mac - · 15f38aea7
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
-  - evidence: gate pass · `gate fast` exit 0 · mac - · 15f38aea7
+  - evidence: gate pass · `gate fast` exit 0 · mac - · d7f663092
 
 ## Решено без владельца (подтвердить)
 
