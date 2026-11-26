@@ -325,9 +325,10 @@ export class Duties {
 
   /**
    * What the duties show of `items` now (and the state of each duty); counts what is shown and what was ignored.
-   * `countShown: false` (the Assistant's section, worfy-assistant ticket 14) counts no item as shown: only an item the
-   * user really saw is one, and the section tells of it itself. An item counted as shown before still counts as ignored
-   * a day later, and a dismissed one as declined.
+   * `countShown: false` counts no item as shown: the section's view, the Assistant's reads (`worfy-app` items_list and
+   * action_run) and the closed list pass it (worfy-assistant ticket 14). An item counts as shown only when the window
+   * showed it to the user — the section's own call of look (AssistantWindow.shown), with the default. An item counted as
+   * shown before still counts as ignored a day later, and a dismissed one as declined.
    */
   look(items: readonly AttentionItem[], { countShown = true }: { countShown?: boolean } = {}): DutyLook {
     const now = this.options.now()

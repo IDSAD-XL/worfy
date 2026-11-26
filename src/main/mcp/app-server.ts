@@ -160,7 +160,7 @@ export interface WorfyAppDeps {
   projects(): readonly { id: string; name: string }[]
   /** The items of the attention core, every scope of this Machine. */
   items(): readonly AttentionItem[]
-  duties: { look(items: readonly AttentionItem[]): DutyLook }
+  duties: { look(items: readonly AttentionItem[], options?: { countShown?: boolean }): DutyLook }
   workflow(projectId: string): Promise<Pick<WorkflowModel, 'epics' | 'tickets' | 'error'>>
   /** The PR inbox of a Project; null when it has none. */
   prInbox(projectId: string): PrInboxSnapshot | null
@@ -326,7 +326,8 @@ function handlers(deps: WorfyAppDeps): Handlers {
       machines: (await deps.machines()).map((machine) => ({ name: machine.name, thisMachine: machine.thisMachine, readOnly: !machine.thisMachine, projects: machine.projects.map((project) => ({ id: project.id, name: project.name })) })),
     }),
 
-    items_list: () => ({ items: deps.duties.look(deps.items()).shown.map((shown) => itemView(shown.item, shown.proposals)) }),
+    // The Assistant's reads count nothing as shown: only what the user saw does (worfy-assistant ticket 14, assistant.shown).
+    items_list: () => ({ items: deps.duties.look(deps.items(), { countShown: false }).shown.map((shown) => itemView(shown.item, shown.proposals)) }),
 
     workflow_read: async ({ projectId, epic }) => {
       const model = await deps.workflow(projectId)
@@ -438,7 +439,7 @@ function handlers(deps: WorfyAppDeps): Handlers {
     },
 
     action_run: async (args) => {
-      const shown = deps.duties.look(deps.items()).shown.find((each) => publicItemId(each.item.id) === args.item)
+      const shown = deps.duties.look(deps.items(), { countShown: false }).shown.find((each) => publicItemId(each.item.id) === args.item)
       if (shown === undefined) throw new ToolError(`No item ${args.item} is shown now: items_list lists the items you may act on. Nothing was done.`)
       const proposal = shown.proposals.find((each) => each.action === args.action)
       if (proposal === undefined) throw new ToolError(`The duty ${shown.duty} has no action ${args.action} for item ${args.item}. Nothing was done.`)

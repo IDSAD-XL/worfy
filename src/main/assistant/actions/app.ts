@@ -58,7 +58,8 @@ export function startClosedList(options: { escalate?: (itemId: string) => void; 
   const limits = appLimits()
   const continuer = sharedOrchestratorContinue()
   const observe = registry.observe.bind(registry)
-  const shown = () => appDuties().look([null, ...projects.list().map((project) => project.id)].flatMap((scope) => core.items(scope))).shown
+  // The closed list counts nothing as shown: only what the user saw does (worfy-assistant ticket 14, assistant.shown).
+  const shown = () => appDuties().look([null, ...projects.list().map((project) => project.id)].flatMap((scope) => core.items(scope)), { countShown: false }).shown
   const waits = new LimitsWaits({
     observe,
     isOrchestrator: (sessionId) => projects.list().some((project) => continuer.sessionOf(project.id) === sessionId),

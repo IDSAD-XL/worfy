@@ -397,6 +397,25 @@ describe('worfy-app: the reading tools', () => {
   })
 })
 
+describe('worfy-app: the reads of the Assistant count nothing as shown (worfy-assistant ticket 14)', () => {
+  // Only an item the user saw counts as shown (the section tells of it, assistant.shown): the Assistant's reads count
+  // nothing, so a day of its wakes never counts items as ignored, nor pauses a duty, before the user saw them.
+  const shownCount = (duties: { look(items: readonly never[]): { duties: { counters: { shown: number; ignored: number } }[] } }) =>
+    duties.look([]).duties.reduce((sum, duty) => sum + duty.counters.shown + duty.counters.ignored, 0)
+
+  it('items_list', async () => {
+    const { rpc, duties } = await world()
+    expect(json<{ items: unknown[] }>(await rpc.call('items_list')).items.length).toBeGreaterThan(0)
+    expect(shownCount(duties)).toBe(0)
+  })
+
+  it('action_run, also when it refuses', async () => {
+    const { rpc, duties } = await world()
+    expect((await rpc.call('action_run', { item: 'no-such-item', action: 'wake-orchestrator' })).isError).toBe(true)
+    expect(shownCount(duties)).toBe(0)
+  })
+})
+
 describe('worfy-app: proposals', () => {
   it('a proposal is created, updated and removed; Prepare answers the exact text of the future Session', async () => {
     const { rpc, itemOf, proposals, core } = await world()

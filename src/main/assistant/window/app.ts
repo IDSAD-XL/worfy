@@ -22,6 +22,7 @@ import { appAssistantUsage } from '../budget/ledger'
 import { appAttentionCore } from '../core/app'
 import { appDuties } from '../duties/app'
 import { appProposals } from '../proposals/book'
+import { appAssistant } from '../session/app'
 import { AssistantNotices } from './notices'
 import { AssistantReveal } from './reveal'
 import { windowStateFile, windowStatePath } from './store'
@@ -36,9 +37,12 @@ const PREPARED_VENDOR = 'claude'
 let shared: AssistantWindow | null = null
 let sharedReveal: AssistantReveal<Client> | null = null
 
-/** The Assistant while it runs; null while it is off. Ticket 10 (appAssistant) answers it. */
+/**
+ * The Assistant while it runs; null while it is off (ticket 10, appAssistant). Nothing in the app turns it on before the
+ * switch of ticket 15, so until then the section says «Assistant is off on this machine» and refuses a message.
+ */
 function runningAssistant(): AssistantConversation | null {
-  return null
+  return appAssistant()
 }
 
 /** The section of the running app, made on first use. */
