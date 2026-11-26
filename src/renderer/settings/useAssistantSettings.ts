@@ -9,6 +9,7 @@ import type { AssistantSettingsView } from '../../shared/assistant/settings-view
 import { followAssistant, useAssistant } from '../assistant/useAssistant'
 import { invoke, readableReason } from '../ipc'
 import { showToast } from '../toast/toasts'
+import { checkNowRefusalText } from './assistant-settings-format'
 import { useAppSettings } from './useAppSettings'
 
 /** The view of main; null until it has answered once. */
@@ -50,9 +51,9 @@ export async function setPauseAfter(count: number): Promise<void> {
   if (!result.ok) refused('Change of the pause', result.error)
 }
 
-/** Check now; says why when the check did not start. */
+/** Check now; says why, as main gives it, when the check did not start. */
 export async function checkNow(kind: CheckKind): Promise<void> {
   const result = await invoke('assistant.checkNow', { kind })
   if (!result.ok) return refused('Check now', result.error)
-  if (!result.value.started) showToast({ kind: 'info', key: `assistant-settings:check-now:${kind}`, text: 'The check did not start: it is running already, or the Assistant is off.' })
+  if (!result.value.started) showToast({ kind: 'info', key: `assistant-settings:check-now:${kind}`, text: checkNowRefusalText(kind, result.value.refused) })
 }

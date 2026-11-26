@@ -9,7 +9,7 @@ import { CheckScheduler, memoryCheckMarks } from '../../src/main/assistant/sched
 import { applySettingsChange, assistantSettingsView } from '../../src/main/assistant/settings/panel'
 import { emptyUsageLedger, usageSummary, type UsageLedger } from '../../src/shared/assistant/budget'
 import type { AssistantScheduleSettings } from '../../src/shared/assistant/schedule/settings'
-import { settingsChangeSchema } from '../../src/shared/assistant/settings-change'
+import { changeRows, settingsChangeSchema } from '../../src/shared/assistant/settings-change'
 import type { AssistantSettings } from '../../src/shared/assistant/settings'
 
 const NOW = Date.UTC(2026, 10, 25, 10, 0)
@@ -123,5 +123,17 @@ describe('applying a change of the settings', () => {
     }
     expect(patches).toEqual([])
     expect(store.saved()).toBeUndefined()
+  })
+})
+
+describe('the rows of a card «before → after»', () => {
+  it('a duty of a Project rule names its Project, so two rules of one title in two Projects read apart', () => {
+    const rule = (id: string, projectId: string) => ({ id, title: 'Release day', projectId, modes: {}, thresholdMinutes: 30, enabled: true })
+    const rows = changeRows(
+      { duties: { 'rule:a': { enabled: false }, 'rule:b': { enabled: false } } },
+      { settings: {}, duties: [rule('rule:a', 'p-shop'), rule('rule:b', 'p-site')], projects: [{ id: 'p-shop', name: 'Shop' }, { id: 'p-site', name: 'Site' }] },
+    )
+    expect(rows.map((row) => row.label)).toEqual(['Duty «Release day» of Shop', 'Duty «Release day» of Site'])
+    expect(new Set(rows.map((row) => row.label)).size).toBe(rows.length)
   })
 })

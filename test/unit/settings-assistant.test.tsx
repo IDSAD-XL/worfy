@@ -22,6 +22,9 @@ const appSettings = (over: Partial<AppSettings> = {}): AppSettings => ({
   ...over,
 })
 
+/** The Slack check turned on, so its Check now may go. */
+const slackOn = appSettings({ assistantSchedule: { checks: { slack: { enabled: true } } } })
+
 const counters = { shown: 4, accepted: 2, declined: 1, ignored: 1, liked: 3, disliked: 0 }
 
 const panel = (over: Partial<AssistantSettingsView> = {}): AssistantSettingsView => ({
@@ -65,7 +68,7 @@ interface Main {
   calls: { channel: string; input: unknown }[]
 }
 
-function preload(state: AppSettings, view: AssistantSettingsView): Main {
+function preload(state: AppSettings, view: AssistantSettingsView, checkNow: unknown = { started: true, refused: null }): Main {
   const main: Main = { calls: [] }
   const bridge: WorfyBridge = {
     invoke: (channel, input) => {
@@ -73,7 +76,7 @@ function preload(state: AppSettings, view: AssistantSettingsView): Main {
       if (channel === 'appSettings.get') return Promise.resolve({ ok: true, value: state } as never)
       if (channel === 'appSettings.set') return Promise.resolve({ ok: true, value: { ...state, revision: state.revision + 1 } } as never)
       if (channel === 'assistant.settings') return Promise.resolve({ ok: true, value: view } as never)
-      if (channel === 'assistant.checkNow') return Promise.resolve({ ok: true, value: { started: true } } as never)
+      if (channel === 'assistant.checkNow') return Promise.resolve({ ok: true, value: checkNow } as never)
       if (channel === 'assistant.open') return Promise.resolve({ ok: false, error: 'not here' } as never)
       return Promise.resolve({ ok: true, value: {} } as IpcResult<unknown> as never)
     },
@@ -92,8 +95,8 @@ afterEach(() => {
   delete (globalThis as { worfy?: WorfyBridge }).worfy
 })
 
-async function mount(state: AppSettings = appSettings(), view: AssistantSettingsView = panel()) {
-  const main = preload(state, view)
+async function mount(state: AppSettings = appSettings(), view: AssistantSettingsView = panel(), checkNow?: unknown) {
+  const main = preload(state, view, checkNow)
   const { default: AssistantSection, title } = await import('../../src/renderer/settings/AssistantSection')
   render(<AssistantSection />)
   await screen.findByTestId('settings-assistant-checks')
@@ -123,12 +126,28 @@ describe('Settings → Assistant: General', () => {
   })
 
   it('a check that failed in a row says how many times and when it goes next, with Check now; the others say nothing', async () => {
-    const { sent } = await mount()
+    const { sent } = await mount(slackOn)
     const line = screen.getByTestId('settings-assistant-failures-slack')
     expect(line.textContent).toContain('Slack: 3 failures in a row, next check at 14:20')
     expect(screen.queryByTestId('settings-assistant-failures-jira')).toBeNull()
     fireEvent.click(within(line).getByRole('button', { name: 'Check now' }))
     await waitFor(() => expect(sent('assistant.checkNow')).toEqual([{ kind: 'slack' }]))
+  })
+
+  it('Check now of a check that is turned off cannot be pressed: it would read a source the person turned off', async () => {
+    const { sent } = await mount()
+    const button = within(screen.getByTestId('settings-assistant-failures-slack')).getByRole('button', { name: 'Check now' })
+    expect((button as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(button)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(sent('assistant.checkNow')).toEqual([])
+  })
+
+  it('a Check now main refuses says the reason main gives', async () => {
+    await mount(slackOn, panel(), { started: false, refused: 'not-registered' })
+    const { toasts } = await import('../../src/renderer/toast/toasts')
+    fireEvent.click(within(screen.getByTestId('settings-assistant-failures-slack')).getByRole('button', { name: 'Check now' }))
+    await waitFor(() => expect(toasts.getState().toasts.map((toast) => toast.text)).toEqual(['The Slack check did not start: it does not run on this Mac.']))
   })
 
   it('work hours: a day turned off sends the work hours whole, the other days kept', async () => {

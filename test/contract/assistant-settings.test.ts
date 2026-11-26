@@ -112,7 +112,7 @@ describe('the channels of Settings → Assistant and of Apply', () => {
       configureDuty: (id: string, choice: unknown) => void got.push(['configure', id, choice]),
       resumeDuty: (id: string) => void got.push(['resume', id]),
       setPauseAfter: (count: number) => void got.push(['pauseAfter', count]),
-      checkNow: (kind: string) => (got.push(['checkNow', kind]), kind === 'slack'),
+      checkNow: (kind: string) => (got.push(['checkNow', kind]), kind === 'slack' ? { started: true, refused: null } : { started: false, refused: 'check-off' }),
     }
     const call = await caller({
       './assistant.ts': () => import('../../src/main/ipc/assistant').then((module) => module.assistantHandlers(() => section as never, undefined, () => panel as never)),
@@ -124,8 +124,8 @@ describe('the channels of Settings → Assistant and of Apply', () => {
     expect(await call('assistant.resumeDuty', { dutyId: 'source:slack' })).toEqual({ ok: true, value: {} })
     expect(await call('assistant.pauseAfter', { count: 3 })).toEqual({ ok: true, value: {} })
     expect((await call('assistant.pauseAfter', { count: 0 })).ok).toBe(false)
-    expect(await call('assistant.checkNow', { kind: 'slack' })).toEqual({ ok: true, value: { started: true } })
-    expect(await call('assistant.checkNow', { kind: 'jira' })).toEqual({ ok: true, value: { started: false } })
+    expect(await call('assistant.checkNow', { kind: 'slack' })).toEqual({ ok: true, value: { started: true, refused: null } })
+    expect(await call('assistant.checkNow', { kind: 'jira' })).toEqual({ ok: true, value: { started: false, refused: 'check-off' } })
     expect(got).toEqual([
       ['apply', 'p1'],
       ['configure', 'waits-for-user', { modes: { 'pr-follow': 'pre-approved' } }],

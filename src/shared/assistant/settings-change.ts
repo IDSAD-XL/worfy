@@ -50,7 +50,9 @@ export type ChangeRow = z.output<typeof changeRowSchema>
 /** What the rows are read against: the app settings and the duties as they are now. */
 export interface SettingsNow {
   settings: AssistantScheduleSettings & AssistantSettings
-  duties: readonly Pick<DutyStatus, 'id' | 'title' | 'modes' | 'thresholdMinutes' | 'enabled'>[]
+  duties: readonly (Pick<DutyStatus, 'id' | 'title' | 'modes' | 'thresholdMinutes' | 'enabled'> & { projectId?: string | null })[]
+  /** The Projects of this Machine, so a row of a Project rule names its Project. */
+  projects?: readonly { id: string; name: string }[]
 }
 
 /** The modes in words, as Settings → Assistant shows them. */
@@ -128,7 +130,9 @@ export function changeRows(change: SettingsChange, now: SettingsNow): ChangeRow[
   if (change.dailyWakeLimit !== undefined) rows.push({ label: 'Daily limit of automatic wakes', before: String(dailyWakeLimitOf(now.settings)), after: String(change.dailyWakeLimit) })
   for (const [id, duty] of Object.entries(change.duties ?? {})) {
     const current = now.duties.find((each) => each.id === id)
-    const name = `Duty «${current?.title ?? id}»`
+    const project = current?.projectId == null ? undefined : (now.projects?.find((each) => each.id === current.projectId)?.name ?? current.projectId)
+    // Two Projects may hold rules of one title: the row of a rule of a Project names it.
+    const name = `Duty «${current?.title ?? id}»${project === undefined ? '' : ` of ${project}`}`
     if (duty.enabled !== undefined) rows.push({ label: name, before: current === undefined ? '—' : onOff(current.enabled), after: onOff(duty.enabled) })
     if (duty.thresholdMinutes !== undefined) rows.push({ label: `${name}: threshold`, before: minutesText(current?.thresholdMinutes ?? null), after: minutesText(duty.thresholdMinutes) })
     for (const [action, mode] of Object.entries(duty.modes ?? {}) as [DutyAction, DutyActionMode][]) {

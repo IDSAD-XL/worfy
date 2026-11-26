@@ -93,7 +93,7 @@ export function assistantHandlers(section: () => AssistantWindow, reveal: () => 
       settings().setPauseAfter(count)
       return {}
     }),
-    defineHandler(assistantCheckNow, ({ kind }) => ({ started: settings().checkNow(kind) })),
+    defineHandler(assistantCheckNow, ({ kind }) => settings().checkNow(kind)),
   ]
 }
 

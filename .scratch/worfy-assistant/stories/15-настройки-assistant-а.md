@@ -55,12 +55,28 @@ export function followAssistantSwitch(deps: AssistantSwitchDeps): () => void {
 
 ## 3. Выключенный Assistant не проверяет ни одного источника
 
-Code: `src/main/assistant/schedule/scheduler.ts:231-246` · key lines: 233, 240, 244
+Code: `src/main/assistant/schedule/scheduler.ts:231-261` · key lines: 236, 237, 249, 256
 
 ```ts
+  whyNotNow(kind: CheckKind): CheckNowRefusal | null {
+    const entry = this.entries.get(kind)
+    if (entry === undefined) return 'not-registered'
+    if (!this.started) return 'stopped'
+    if (this.asleep) return 'asleep'
+    if (!this.active()) return 'assistant-off'
+    if (!checkSettingsOf(this.options.settings(), kind).enabled) return 'check-off'
+    if (entry.running) return 'running'
+    return null
+  }
+
+  /**
+   * Starts a run of `kind` now, whatever its time; answers false and starts nothing when it is not
+   * registered, already running, the scheduler is stopped or asleep, the Assistant is off, or the person turned the
+   * check off (whyNotNow says which).
+   */
   runNow(kind: CheckKind): boolean {
     const entry = this.entries.get(kind)
-    if (entry === undefined || entry.running || !this.started || this.asleep || !this.active()) return false
+    if (entry === undefined || this.whyNotNow(kind) !== null) return false
     this.launch(kind, entry)
     return true
   }
@@ -73,15 +89,17 @@ Code: `src/main/assistant/schedule/scheduler.ts:231-246` · key lines: 233, 240,
   private active(): boolean {
     return this.options.active?.() ?? true
   }
-
 ```
 
 - Что делает: планировщик получил необязательный `active`; в приложении это `assistantOn(настройки)`. Пока он ложен,
-  `dueOf` не даёт срока ни одному виду, а `runNow` отказывает. `failures(kind)` читает число неудач подряд из тех же
-  меток, которые ведёт Ticket 22, — второго хранилища нет.
+  `dueOf` не даёт срока ни одному виду, а `runNow` отказывает. `runNow` отказывает и проверке, которую человек
+  выключил; `whyNotNow` называет причину отказа, и Check now показывает её. `failures(kind)` читает число неудач подряд
+  из тех же меток, которые ведёт Ticket 22, — второго хранилища нет. Проверка CI главной ветки (Ticket 21) снимает
+  взведённое условие и при выключении Assistant-а (`mainCiSwitchOf`, `src/main/assistant/duties/main-ci-check.ts`).
 - Почему здесь: бриф велит читать метки, которые планировщик уже держит, и звать `CheckScheduler.runNow`; решение
   владельца 10 — после включения работают только внутренние обязанности, а выключенный Assistant не тратит ничего.
-- Без него: проверка Slack, включённая раньше, шла бы и при выключенном Assistant-е и оплачивала бы вызовы.
+- Без него: проверка Slack, включённая раньше, шла бы и при выключенном Assistant-е и оплачивала бы вызовы, а красный
+  CI, позеленевший при выключенном Assistant-е, всё равно поднял бы «main CI red».
 - Требование: [Что строить, пункты 1, 3 и 8](../issues/15-настройки-assistant-а.md#что-строить)
 - Риски и пробелы test-ов: без `active` (test-ы планировщика) он всегда включён — так прежние test-ы не меняются.
 
@@ -146,13 +164,14 @@ Code: `src/main/mcp/app-server.ts:422-433` · key lines: 427, 428, 429, 432
 
 ## 6. Строка неудач подряд и Check now
 
-Code: `src/renderer/settings/AssistantSection.tsx:140-147` · key lines: 140, 142, 143
+Code: `src/renderer/settings/AssistantSection.tsx:140-148` · key lines: 140, 142, 144
 
 ```tsx
       {check !== undefined && check.failures > 0 ? (
         <div className="w-asst-set__failures" role="status" data-testid={`settings-assistant-failures-${kind}`}>
           <span>{failureLine(check)}</span>
-          <button type="button" className="w-action" disabled={check.running} onClick={() => void checkNow(kind)}>
+          {/* A check the person turned off is not read on a click either. */}
+          <button type="button" className="w-action" disabled={check.running || !settings.enabled} title={settings.enabled ? undefined : 'Turn the check on to run it'} onClick={() => void checkNow(kind)}>
             Check now
           </button>
         </div>
@@ -160,7 +179,8 @@ Code: `src/renderer/settings/AssistantSection.tsx:140-147` · key lines: 140, 14
 ```
 
 - Что делает: у проверки, у которой больше нуля неудач подряд, — строка «Slack: 3 failures in a row, next check at
-  HH:MM» (срок — `CheckScheduler.nextRun`, уже с backoff) и Check now (`assistant.checkNow` → `runNow`).
+  HH:MM» (срок — `CheckScheduler.nextRun`, уже с backoff) и Check now (`assistant.checkNow` → `runNow`). У выключенной
+  проверки кнопка неактивна; отказ main приходит с причиной (`refused`), и toast её называет.
 - Почему здесь: бриф передаёт эту часть из «Вне скоупа» Ticket-а 22; тексты UI — по-английски по
   `docs/design/BRIEF.md`.
 - Без него: человек не видел бы, что connector сломан, и не мог бы проверить его после починки.
@@ -182,7 +202,7 @@ Code: `src/renderer/settings/AssistantSection.tsx:140-147` · key lines: 140, 14
 1. Почему проверка Slack, включённая в настройках, не идёт, пока Assistant выключен?
    - Ответ: планировщик спрашивает `active` — в приложении `assistantOn` — и при ложном не даёт срока ни одному виду и
      отказывает `runNow`; переключатель самой проверки тут не решает.
-   - Lines: `src/main/assistant/schedule/scheduler.ts:231-246`
+   - Lines: `src/main/assistant/schedule/scheduler.ts:231-261`
 2. Что увидит человек на карточке, если настройки отказали изменение после Apply?
    - Ответ: карточку как была, с Apply: отметка `applied` пишется только после того, как `settings.apply` прошёл, а
      отказ бросает раньше и уходит toast-ом.

@@ -38,6 +38,7 @@
 import { z } from 'zod'
 import { CHECK_INTERVAL_BOUNDS, checkKindSchema, checkSettingsOf, SOURCE_CHECK_KINDS, workHoursOf, type AssistantScheduleSettings, type CheckKind } from '../../../shared/assistant/schedule/settings'
 import { inWorkHours, nextWorkHoursStart, workWindowStartOf } from '../../../shared/assistant/schedule/work-hours'
+import type { CheckNowRefusal } from '../../../shared/assistant/settings-view'
 
 /** The spread of a check's interval, as a share of it: ±10 %. */
 export const SCHEDULE_JITTER = 0.1
@@ -225,12 +226,27 @@ export class CheckScheduler {
   }
 
   /**
+   * Why runNow(kind) would start nothing now; null when it would start a run. The person's Check now shows it (ticket 15).
+   */
+  whyNotNow(kind: CheckKind): CheckNowRefusal | null {
+    const entry = this.entries.get(kind)
+    if (entry === undefined) return 'not-registered'
+    if (!this.started) return 'stopped'
+    if (this.asleep) return 'asleep'
+    if (!this.active()) return 'assistant-off'
+    if (!checkSettingsOf(this.options.settings(), kind).enabled) return 'check-off'
+    if (entry.running) return 'running'
+    return null
+  }
+
+  /**
    * Starts a run of `kind` now, whatever its time; answers false and starts nothing when it is not
-   * registered, already running, the scheduler is stopped or asleep, or the Assistant is off.
+   * registered, already running, the scheduler is stopped or asleep, the Assistant is off, or the person turned the
+   * check off (whyNotNow says which).
    */
   runNow(kind: CheckKind): boolean {
     const entry = this.entries.get(kind)
-    if (entry === undefined || entry.running || !this.started || this.asleep || !this.active()) return false
+    if (entry === undefined || this.whyNotNow(kind) !== null) return false
     this.launch(kind, entry)
     return true
   }

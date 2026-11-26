@@ -140,7 +140,8 @@ function CheckRow({ kind, check, choose }: { kind: CheckKind; check: SettingsChe
       {check !== undefined && check.failures > 0 ? (
         <div className="w-asst-set__failures" role="status" data-testid={`settings-assistant-failures-${kind}`}>
           <span>{failureLine(check)}</span>
-          <button type="button" className="w-action" disabled={check.running} onClick={() => void checkNow(kind)}>
+          {/* A check the person turned off is not read on a click either. */}
+          <button type="button" className="w-action" disabled={check.running || !settings.enabled} title={settings.enabled ? undefined : 'Turn the check on to run it'} onClick={() => void checkNow(kind)}>
             Check now
           </button>
         </div>

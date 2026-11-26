@@ -43,6 +43,14 @@ export const settingsCheckSchema = z.object({
 })
 export type SettingsCheck = z.output<typeof settingsCheckSchema>
 
+/**
+ * Why a Check now started nothing (CheckScheduler.whyNotNow): the check does not run on this Mac (its duty or source is
+ * not there), the checks are stopped or the Mac sleeps, the Assistant or the check is turned off, or it runs already.
+ */
+export const CHECK_NOW_REFUSALS = ['not-registered', 'stopped', 'asleep', 'assistant-off', 'check-off', 'running'] as const
+export const checkNowRefusalSchema = z.enum(CHECK_NOW_REFUSALS)
+export type CheckNowRefusal = z.output<typeof checkNowRefusalSchema>
+
 export const tokenCountSchema = z.object({ tokens: z.number().nonnegative(), calls: z.number().int().nonnegative() })
 export type TokenCount = z.output<typeof tokenCountSchema>
 

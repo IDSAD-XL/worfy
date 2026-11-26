@@ -14,7 +14,9 @@
 //   disabled, the check turned off, the app quits). An item already raised stays.
 // - The marker `main-red` of land is not read: it is worfy's own process, and duties do not name it (ticket 07).
 import { readMainBranchCi } from '../../github/main-ci'
-import type { CheckKind } from '../../../shared/assistant/schedule/settings'
+import { checkSettingsOf, type CheckKind } from '../../../shared/assistant/schedule/settings'
+import { assistantOn } from '../../../shared/assistant/settings'
+import type { AppSettings } from '../../../shared/settings/app-settings'
 import type { AttentionCore } from '../core/attention-core'
 import type { CheckRun, CheckScheduler } from '../schedule/scheduler'
 import { mainCiAttention, mainCiId } from './main-ci'
@@ -125,10 +127,28 @@ export interface MainCiDuty {
   onChange(listener: () => void): () => void
 }
 
-/** Whether the person turned the check of kind `main-ci` on in the settings of checks, and the changes of those settings. */
+/** Whether the check of kind `main-ci` may read (the Assistant on and the check turned on), and the changes of the settings. */
 export interface MainCiSwitch {
   enabled(): boolean
   onChange(listener: () => void): () => void
+}
+
+/**
+ * The switch of the check over the app settings: on while the Assistant is on (ticket 15) and the check of kind `main-ci`
+ * is turned on. Turning either off disarms what the check armed (followMainCiDuty), so a red branch that turns green
+ * while the Assistant is off raises nothing.
+ */
+export function mainCiSwitchOf(settings: { get(): AppSettings; on(event: 'changed', listener: () => void): unknown; off(event: 'changed', listener: () => void): unknown }): MainCiSwitch {
+  return {
+    enabled: () => {
+      const now = settings.get()
+      return assistantOn(now) && checkSettingsOf(now, MAIN_CI_KIND).enabled
+    },
+    onChange: (listener) => {
+      settings.on('changed', listener)
+      return () => void settings.off('changed', listener)
+    },
+  }
 }
 
 /**

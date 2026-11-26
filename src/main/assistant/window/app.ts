@@ -88,7 +88,7 @@ export function appAssistantWindow(): AssistantWindow {
     workHours: () => workHoursOf(appSettingsStore().get()),
     // A card «before → after» reads the settings and the duties as they are, and its Apply changes them (ticket 15).
     settings: {
-      now: () => ({ settings: appSettingsStore().get(), duties: appDuties().look([], { countShown: false }).duties }),
+      now: () => ({ settings: appSettingsStore().get(), duties: appDuties().look([], { countShown: false }).duties, projects: projectStore().list() }),
       apply: (change) => applySettingsChange(change, { duties: appDuties(), setSettings: (patch) => void appSettingsStore().set(patch) }),
     },
     store: windowStateFile(windowStatePath(dataRoot())),

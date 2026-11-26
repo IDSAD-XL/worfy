@@ -266,4 +266,13 @@ describe('a card «before → after» with Apply (worfy-assistant ticket 15)', (
     expect(card1.textContent).toMatch(/Applied at \d\d:\d\d/)
     expect(within(card1).getByRole('button', { name: 'Dismiss' })).toBeTruthy()
   })
+
+  it('two rows of one label both show, with no duplicate React key', () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const twice = { ...change(null), change: { rows: [{ label: 'Duty «Release day»', before: 'On', after: 'Off' }, { label: 'Duty «Release day»', before: 'Off', after: 'On' }], applied: null } }
+    render(<AssistantPanel view={view({ items: [], proposals: [twice] })} />)
+    expect(within(screen.getByTestId('assistant-change')).getAllByText('Duty «Release day»')).toHaveLength(2)
+    expect(errors.mock.calls.filter((args) => String(args[0]).includes('same key'))).toEqual([])
+    errors.mockRestore()
+  })
 })

@@ -31,6 +31,17 @@ export function onResume(power: PowerEvents): (listener: () => void) => () => vo
   }
 }
 
+/**
+ * The changes of the app settings as a change of the loop: a wake the daily limit holds goes as soon as the person
+ * raises the limit (worfy-assistant ticket 15), and new work hours plan at once.
+ */
+export function onSettingsChange(settings: { on(event: 'changed', listener: () => void): unknown; off(event: 'changed', listener: () => void): unknown }): (listener: () => void) => () => void {
+  return (listener) => {
+    settings.on('changed', listener)
+    return () => void settings.off('changed', listener)
+  }
+}
+
 export interface WakeLoopOptions {
   planner: WakePlanner
   now: () => number

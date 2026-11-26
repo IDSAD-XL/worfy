@@ -30,8 +30,9 @@ function ChangeCard({ proposal, change }: { proposal: WindowProposal; change: No
         <span className="w-asst-change__hint">before → after</span>
       </div>
       <div className="w-asst-change__why">{proposal.why}</div>
-      {change.rows.map((row) => (
-        <div key={row.label} className="w-asst-change__row">
+      {change.rows.map((row, index) => (
+        // Rows never move within a card, and two may share a label: the place keeps the key apart.
+        <div key={`${index}:${row.label}`} className="w-asst-change__row">
           <span className="w-asst-change__label">{row.label}</span>
           <span className="w-asst-change__before">{row.before}</span>
           <span className="w-asst-change__after">{row.after}</span>

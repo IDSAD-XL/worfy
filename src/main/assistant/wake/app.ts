@@ -15,7 +15,7 @@ import { dataRoot } from '../../storage/paths'
 import { appAssistantUsage } from '../budget/ledger'
 import { appAttentionCore } from '../core/app'
 import type { PowerEvents } from '../schedule/scheduler'
-import { fileWakeStore, onResume, runWakeLoop, WAKE_FILE, type WakeLoop } from './loop'
+import { fileWakeStore, onResume, onSettingsChange, runWakeLoop, WAKE_FILE, type WakeLoop } from './loop'
 import { WakePlanner, type AssistantWake } from './planner'
 
 /**
@@ -36,5 +36,5 @@ export function startAssistantWake(onWake: (wake: AssistantWake) => void, power:
     store: fileWakeStore(join(dataRoot(), WAKE_FILE)),
     dailyWakeLimit: () => dailyWakeLimitOf(appSettingsStore().get()),
   })
-  return runWakeLoop({ planner, now: appNow, onWake, changes: [(listener) => core.subscribe(listener), (listener) => limits.subscribe(listener), onResume(power)] })
+  return runWakeLoop({ planner, now: appNow, onWake, changes: [(listener) => core.subscribe(listener), (listener) => limits.subscribe(listener), onResume(power), onSettingsChange(appSettingsStore())] })
 }

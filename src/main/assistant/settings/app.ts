@@ -2,7 +2,7 @@
 // scheduler of checks, the usage ledger and the Limits, and what the section changes there. After a change the section of
 // the rail is told (AssistantWindow.changed): the window asks the view again on each `assistant.changed`.
 import type { CheckKind } from '../../../shared/assistant/schedule/settings'
-import type { AssistantSettingsView } from '../../../shared/assistant/settings-view'
+import type { AssistantSettingsView, CheckNowRefusal } from '../../../shared/assistant/settings-view'
 import type { DutyChoice } from '../duties/duties'
 import { appLimits } from '../../agent/limits'
 import { projectStore } from '../../projects/store'
@@ -19,7 +19,8 @@ export interface AssistantSettingsPanel {
   configureDuty(id: string, choice: DutyChoice): void
   resumeDuty(id: string): void
   setPauseAfter(count: number): void
-  checkNow(kind: CheckKind): boolean
+  /** Starts the check now; `refused` says why it did not start (CheckScheduler.whyNotNow). */
+  checkNow(kind: CheckKind): { started: boolean; refused: CheckNowRefusal | null }
 }
 
 /** The panel of the running app. */
@@ -45,6 +46,10 @@ export function appAssistantSettings(): AssistantSettingsPanel {
     configureDuty: (id, choice) => told(duties.configure(id, choice)),
     resumeDuty: (id) => told(duties.resume(id)),
     setPauseAfter: (count) => told(duties.setPauseAfter(count)),
-    checkNow: (kind) => told(checkScheduler().runNow(kind)),
+    checkNow: (kind) => {
+      const scheduler = checkScheduler()
+      const refused = scheduler.whyNotNow(kind)
+      return told(refused === null ? { started: scheduler.runNow(kind), refused: null } : { started: false, refused })
+    },
   }
 }

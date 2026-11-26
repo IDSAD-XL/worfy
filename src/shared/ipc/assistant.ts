@@ -12,7 +12,7 @@ import { DUTY_ACTIONS, dutyActionModeSchema } from '../assistant/duties'
 import { linkedWaitsSchema } from '../assistant/linked'
 import { checkKindSchema } from '../assistant/schedule/settings'
 import { dutyThresholdSchema } from '../assistant/settings-change'
-import { assistantSettingsViewSchema } from '../assistant/settings-view'
+import { assistantSettingsViewSchema, checkNowRefusalSchema } from '../assistant/settings-view'
 import { assistantViewSchema, ratingSchema, snoozeChoiceSchema } from '../assistant/window'
 import { eventChannel, invokeChannel } from './channels'
 
@@ -111,7 +111,7 @@ export const assistantResumeDuty = invokeChannel('assistant.resumeDuty', z.objec
 export const assistantPauseAfter = invokeChannel('assistant.pauseAfter', z.object({ count: z.number().int().min(1).max(100) }), z.object({}), 'local')
 
 /** Check now: a run of the check of `kind` at once, whatever its time; `started: false` when it runs already, or the Assistant is off. */
-export const assistantCheckNow = invokeChannel('assistant.checkNow', z.object({ kind: checkKindSchema }), z.object({ started: z.boolean() }), 'local')
+export const assistantCheckNow = invokeChannel('assistant.checkNow', z.object({ kind: checkKindSchema }), z.object({ started: z.boolean(), refused: checkNowRefusalSchema.nullable() }), 'local')
 
 declare module './channels' {
   interface IpcContract {
