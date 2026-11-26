@@ -8,6 +8,9 @@ import { deflateSync } from 'node:zlib'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { launchApp } from './helpers'
 
+/** The sidebar section the panel shows now (Sidebar.tsx keeps the others mounted, in hidden wrappers). */
+const SHOWN_SECTION = '[data-section]:not([hidden]) .w-sidebar-section'
+
 // Attachments in the Orchestrator's chat (worfy-ui ticket 28) against the built app, on the fake
 // agent with test/fixtures/agent-scripts/message-input.jsonl. A png and a pdf dropped on the
 // transcript (not the input field) become chips; the sent message shows a thumbnail, loaded from
@@ -157,10 +160,12 @@ test('a png and a pdf dropped on the Orchestrator transcript: chips, then a thum
     // rendered: under load (worfy-polish 47, the PC's gate full) the pane was not there yet, and
     // querySelector below gave null.
     await expect(window.locator('.react-flow__pane')).toBeVisible()
-    await expect(window.locator('.w-sidebar-section').first()).toBeVisible()
+    // The section the panel shows: every section stays mounted, the others hidden in their wrappers, and the first in
+    // the DOM is the Assistant's (worfy-assistant ticket 14), which a window does not start on.
+    await expect(window.locator(SHOWN_SECTION)).toBeVisible()
     // Outside the chat — on the Canvas, on the sidebar — nothing takes a file, and the window does
     // not open it either: the drag and the drop of it are refused (dispatchEvent answers false).
-    const refused = await window.evaluate(`(() => ['.react-flow__pane', '.w-sidebar-section'].map((selector) => {
+    const refused = await window.evaluate(`(() => ['.react-flow__pane', ${JSON.stringify(SHOWN_SECTION)}].map((selector) => {
       const target = document.querySelector(selector)
       const data = new DataTransfer()
       data.items.add(new File(['x'], 'outside.png', { type: 'image/png' }))
@@ -172,7 +177,7 @@ test('a png and a pdf dropped on the Orchestrator transcript: chips, then a thum
     }))()`)
     expect(refused).toEqual([
       { selector: '.react-flow__pane', over: false, effect: 'none', drop: false },
-      { selector: '.w-sidebar-section', over: false, effect: 'none', drop: false },
+      { selector: SHOWN_SECTION, over: false, effect: 'none', drop: false },
     ])
     const view = await openSession(window)
     const field = view.getByRole('textbox', { name: 'Message Orchestrator' })
