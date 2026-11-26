@@ -80,11 +80,17 @@ worfy). Тексты Harness велят начинать с него всегд�
 
 - [ ] Skill `worfy:qmd` называет правило по модели: Opus и Sonnet — сначала `grep`, `qmd` — когда `grep` ничего не
       нашёл или вопрос «был ли урок / почему так решили»; Haiku — сначала `qmd`; с цифрами замера и пересмотром.
+  - evidence: commit pass · worfy-polish/157: search order by model in skill qmd and Phase 0 · - - · ed16e594aeabf39bc2c870cb0193006311c3c715
 - [ ] Phase 0 правил Orchestrator-а согласована с правилом; решение — в «Итог».
+  - evidence: commit pass · worfy-polish/157: search order by model in skill qmd and Phase 0 · - - · ed16e594aeabf39bc2c870cb0193006311c3c715
 - [ ] `scout.md`, `implementer.md`, `ship-ticket`, `epic-wave` не противоречат правилу.
+  - evidence: commit pass · worfy-polish/157: search order by model in skill qmd and Phase 0 · - - · ed16e594aeabf39bc2c870cb0193006311c3c715
 - [ ] «Итог»: предложение Ticket-а на повторный замер через месяц на настоящих вопросах.
+  - evidence: commit pass · worfy-polish/157: search order by model in skill qmd and Phase 0 · - - · ed16e594aeabf39bc2c870cb0193006311c3c715
 - [ ] `bash harness/hooks/tests/rules-hooks.test.sh` — exit 0.
+  - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0 · mac - · ed16e594aeabf39bc2c870cb0193006311c3c715
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · ed16e594aeabf39bc2c870cb0193006311c3c715
 
 ## Итог
 
