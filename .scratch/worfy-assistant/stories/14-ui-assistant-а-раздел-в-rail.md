@@ -226,27 +226,34 @@ Code: `src/main/assistant/window/view.ts:278-283` · key lines: 279, 282
   ставил обязанность на паузу (`ignored`) до того, как пользователь включил Assistant-а.
 - Без него: обязанности замолкали бы сами, ни разу не показав пункт.
 - Требование: [Готово, когда, пункт 3](../issues/14-ui-assistant-а-раздел-в-rail.md#готово-когда)
-- Риски и пробелы test-ов: пока Ticket 10 не влит, Assistant всегда выключен, и в приложении ничего не считается;
-  test-ы включают его подменой.
+- Риски и пробелы test-ов: до переключателя Ticket-а 15 Assistant в приложении выключен, и ничего не считается; test-ы
+  включают его подменой. Чтения Assistant-а (`worfy-app` items_list и action_run) и закрытый список тоже передают
+  `countShown: false`.
 
-## 9. Что сознательно не менялось
+## 9. Разговор идёт в собственную Session Assistant-а
 
-Code: `src/main/assistant/window/app.ts:39-42` · key lines: 41
+Code: `src/main/assistant/window/app.ts:40-46` · key lines: 45
 
 ```ts
-/** The Assistant while it runs; null while it is off. Ticket 10 (appAssistant) answers it. */
+/**
+ * The Assistant while it runs; null while it is off (ticket 10, appAssistant). Nothing in the app turns it on before the
+ * switch of ticket 15, so until then the section says «Assistant is off on this machine» and refuses a message.
+ */
 function runningAssistant(): AssistantConversation | null {
-  return null
+  return appAssistant()
 }
 ```
 
-- Что делает: пока Ticket 10 (собственная Session Assistant-а, PR #2247) не влит, разговору не с кем говорить:
-  отправка отвечает «Assistant is off on this machine», а поле ввода выключено.
-- Почему здесь: brief оркестратора: не копировать код Ticket-а 10 в эту ветку; подключить `appAssistant()` после его
-  merge.
-- Без него: ветка зависела бы от неслитого PR.
+- Что делает: сообщение из раздела идёт в `appAssistant()` Ticket-а 10: оно будит Session Assistant-а с этим текстом, а
+  ответ встаёт в разговор раздела. Пока Assistant выключен, `appAssistant()` отвечает null, и раздел отказывает с
+  «Assistant is off on this machine».
+- Почему здесь: brief оркестратора: подключить `appAssistant()` после merge Ticket-а 10 (PR #2247), не добавляя
+  переключатель — его добавит Ticket 15.
+- Без него: разговору не с кем было бы говорить.
 - Требование: [Готово, когда, пункт 5](../issues/14-ui-assistant-а-раздел-в-rail.md#готово-когда)
-- Риски и пробелы test-ов: пункт 5 не выполнен, пока здесь `null`.
+- Риски и пробелы test-ов: `test/unit/assistant-window-app.test.ts` проверяет путь через настоящий `composeAssistant` с
+  подменёнными Session-ами; настоящий Claude Code не запускался. В приложении Assistant не включается до Ticket-а 15.
+  Тексты утреннего и пакетного пробуждения в раздел не попадают: у Ticket-а 10 нет hook-а для текста прогона.
 
 ## 10. Как проверено
 
@@ -262,6 +269,9 @@ function runningAssistant(): AssistantConversation | null {
   даёт exit 1.
 - Review, раунд 2: три новых test-а красные до правки, зелёные после; три mutant-а (правило, которое держит другая оценка;
   номер серии; реакция при выключенном Assistant-е) — exit 1.
+- После merge Ticket-а 10: `test/unit/assistant-window-app.test.ts` красный, пока `runningAssistant()` отвечал null,
+  зелёный после; два test-а в `test/contract/worfy-app-tools.test.ts` (items_list и action_run ничего не считают
+  показанным) красные до правки (5 показанных), зелёные после; `pnpm build` — exit 0.
 - `test/e2e/assistant.spec.ts` (список, like, dislike, Undo) локально не запускался: e2e запускает CI.
 
 ## Проверить себя
