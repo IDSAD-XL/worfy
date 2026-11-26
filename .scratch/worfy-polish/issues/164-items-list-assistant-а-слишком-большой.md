@@ -2,6 +2,7 @@
 
 Type: bug
 Status: claimed 2026-11-26T21:25Z
+PR: #2295
 Branch: worfy-polish/164
 Blocked by: —
 Source: отчёт владельца 2026-11-26 (снимок чата Assistant-а): Assistant-у передали два пункта Project-а CanvasForAI —
