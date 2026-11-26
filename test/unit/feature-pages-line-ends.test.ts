@@ -1,10 +1,11 @@
 // The feature pages with Windows line ends (worfy-assistant ticket 17): a Windows checkout, and so a Windows build,
 // holds docs/features with CRLF. The pages are read with their line ends made \n once, so the headings, the sections,
 // the search and the text the Assistant reads are the same as on macOS.
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { removeTestTree } from '../remove'
 
 vi.mock('electron', () => ({ app: { isPackaged: false, getAppPath: () => '/repo' } }))
 
@@ -13,7 +14,7 @@ const RU = ['# Epic frames', '', '## Epic frame', '', 'Рамка держит T
 
 let dir: string | null = null
 afterEach(() => {
-  if (dir !== null) rmSync(dir, { recursive: true, force: true })
+  if (dir !== null) removeTestTree(dir)
   dir = null
 })
 
