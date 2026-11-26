@@ -1,7 +1,8 @@
 # 25 — Части прототипа, не вошедшие в Ticket 15: настройки уведомлений, Undo применённой карточки, Project-ы обязанности, «On since …»
 
 Type: task
-Status: claimed 2026-11-26T11:04Z
+Status: done 2026-11-26T12:37Z
+PR: #2279
 Blocked by: 15
 Source: решение владельца 2026-11-26, второй раунд (Q1–Q6, «все да»), Q4; раздел «Вне скоупа» Ticket-а 15 (ветка
 `worfy-assistant/15`, PR #2266) и его решения 3 и 4 «Решено без владельца»; принятый прототип-Card Ticket-а 02
@@ -101,17 +102,23 @@ Ticket 15 построил Settings → Assistant по принятому про
 - [ ] Settings → Assistant → General: «In the window» и «System notifications» меняются, сохраняются и действуют на
       уведомления Assistant-а.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/settings-assistant.test.tsx test/unit/assistant-speech.test.tsx test/unit/assistant-window.test.ts test/contract/assistant-settings.test.ts` exit 0 · mac - · c7a14a583611bc768a27a52d0c6b9878e2a62a4d
+  - evidence: review pass · PR #2279 · - - · 829d419f2e5ebfcb937acf4f8bc5e7fbfec14881
 - [ ] Под применённой карточкой «было → станет» есть Undo: настройки возвращаются, строка журнала записана.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/contract/assistant-settings.test.ts` exit 0 · mac - · c7a14a583611bc768a27a52d0c6b9878e2a62a4d
+  - evidence: review pass · PR #2279 · - - · 829d419f2e5ebfcb937acf4f8bc5e7fbfec14881
 - [ ] У обязанности выбираются Project-ы этой Machine или «All Projects»; пункты вне области обязанность не показывает.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-settings-panel.test.ts test/unit/assistant-duties.test.ts test/unit/settings-assistant.test.tsx` exit 0 · mac - · c7a14a583611bc768a27a52d0c6b9878e2a62a4d
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-duties.test.ts test/unit/assistant-settings-panel.test.ts test/unit/settings-assistant.test.tsx` exit 0 · mac - · c42239363a7ee4d566a1c9eecbdbc6b2c564ccf4
+  - evidence: review pass · PR #2279 · - - · 829d419f2e5ebfcb937acf4f8bc5e7fbfec14881
 - [ ] Рядом с переключателем «Assistant on this Mac» — «On since …»; время включения переживает перезапуск worfy.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/assistant-settings.test.ts test/unit/settings-assistant.test.tsx` exit 0 · mac - · c7a14a583611bc768a27a52d0c6b9878e2a62a4d
+  - evidence: review pass · PR #2279 · - - · 829d419f2e5ebfcb937acf4f8bc5e7fbfec14881
 - [ ] e2e с `WORFY_AGENT=fake`: Apply и Undo карточки — зелёный.
+  - evidence: review pass · PR #2279 · - - · 829d419f2e5ebfcb937acf4f8bc5e7fbfec14881
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · c7a14a583611bc768a27a52d0c6b9878e2a62a4d
   - evidence: gate pass · `gate fast` exit 0 · mac - · c42239363a7ee4d566a1c9eecbdbc6b2c564ccf4
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45815541342/job/139913267572 · ci - · 829d419f2e5ebfcb937acf4f8bc5e7fbfec14881
 
 ## Итог
 

@@ -251,3 +251,15 @@ export function assistantAfter(current: AssistantState | undefined, patch: Assis
    - Строки: `src/shared/assistant/settings.ts:83-93`
    - Ответ: нет — `assistantAfter` читает только `on` патча и ставит время сам, при переходе из выключенного во
      включённый.
+
+## 11. Что нашёл review и что осталось
+
+> VERIFIED — worfy-assistant 25 (the parts of the accepted prototype ticket 15 left out: notification settings — in the window Urgent and batched / Urgent only / None, and system notifications on/off, defaults unchanged; Undo of an applied «было → станет» card, refused whole and naming the moved settings if any changed since Apply; choosing the Projects a duty covers; the «On since …» line), head 829d419f2e5ebfcb937acf4f8bc5e7fbfec14881
+>
+> Gate (depth medium, two rounds):
+> - Round 1, reviewer (lens: correctness) — FIX, one med: a duty narrowed to Projects that were all removed later went silent, and Settings showed no button pressed.
+>   Checked fine: Undo (values from before Apply, refusal whole, cards from before the ticket have no Undo, double Undo refused, Apply after Undo stores a fresh before, a removed duty refuses, applied back to null; a mutation of the refusal turned tests red); defaults written back on Undo change no behaviour today; tickets 14 and 23 notice rules hold; an urgent item arriving while system notices are off is not told later («off means off»); scope refusals; Linked machine Projects not choosable; onSince stamped off→on, dropped on off, not patchable, old files read; e2e spec matches.
+> - Fix 829d419f2: Duties.scopeOf counts only chosen Projects still on this Machine (the projects option the app already passes); none left reads as All Projects in the filter and in DutyStatus, so Settings shows All Projects pressed; the memory file keeps the choice (decision 8а). Two tests red first.
+> - Round 2: diff read by the orchestrator (one helper, two uses, app wiring at duties/app.ts:29 checked) — closes the finding.
+> Evidence: 32 assistant/settings unit+contract files (519 tests) exit 0; gate fast green on c42239363 (next commit evidence only); lint exit 0; story-check exit 0.
+> Not verified: e2e locally (owner rule; assistant.spec.ts Apply→Undo runs in CI).
