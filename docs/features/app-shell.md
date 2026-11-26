@@ -34,7 +34,10 @@ top:
 it, and a line of the accent colour shows while the pointer rests on it, while it has the keyboard focus and while it is
 dragged. Dragging it changes the width of the whole sidebar, live. The width is saved once, when the mouse button is let
 go; Escape during a drag puts the width back where the drag started and saves nothing. The handle is a Tab stop: ← and →
-move it by 16 pixels, Home and End to its bounds, and each key saves. A double click puts the default 264 pixels back.
+move it by 16 pixels, Home and End to its bounds, and a key that moves it saves. A double click puts the default 264
+pixels back. A press without a move, a drag back to where it started and a key against a bound save nothing; the drag
+is also cancelled when the window loses focus, at the next press if a release was missed, and when the sidebar is hidden
+mid-drag.
 The width stays between 220 and 640 pixels, and never wider than leaves the rest of the window 480 pixels; a window made
 narrower only shows the sidebar narrower, never below 264 pixels, and a wider one shows the saved width again. The width
 is one per Machine, the same in the normal view and in focus mode, and a sidebar shown again after hiding comes back at

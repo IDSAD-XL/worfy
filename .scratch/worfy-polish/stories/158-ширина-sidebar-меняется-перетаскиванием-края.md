@@ -96,11 +96,19 @@ Code: `src/renderer/shell/sidebar-width.ts:60-75` · key lines: 64, 69, 71, 74
 - Риски и пробелы test-ов: отказ main (файл не пишется) оставляет ширину только в этом окне — путь виден в коде, test-а
   на него нет.
 
-## 5. Общий разделитель: Escape отменяет drag
+## 5. Общий разделитель: пишется только изменённое, любой обрыв drag — отмена
 
-Code: `src/renderer/theme/kit/Divider.tsx:77-91` · key lines: 79, 80, 87, 89, 90
+Code: `src/renderer/theme/kit/Divider.tsx:77-102` · key lines: 79, 87, 88, 95, 99, 100
 
 ```tsx
+    const onPointerUp = (up: PointerEvent) => {
+      if (up.pointerId !== drag.pointerId) return
+      if (drag.last === drag.start) cancel()
+      else {
+        end()
+        onCommit(drag.last)
+      }
+    }
     const cancel = () => {
       end()
       if (onCancel === undefined) onMove(drag.start)
@@ -109,6 +117,9 @@ Code: `src/renderer/theme/kit/Divider.tsx:77-91` · key lines: 79, 80, 87, 89, 9
     const onPointerCancel = (event: PointerEvent) => {
       if (event.pointerId === drag.pointerId) cancel()
     }
+    // A press while the drag still runs: its release was missed. Added during the press that starts the
+    // drag, this listener does not hear that press.
+    const onPointerDownWhileDragging = (): void => cancel()
     // Escape ends the drag where it started; nothing else under the pointer hears it (focus mode would close).
     const onKeyDownWhileDragging = (key: globalThis.KeyboardEvent) => {
       if (key.key !== 'Escape') return
@@ -119,17 +130,21 @@ Code: `src/renderer/theme/kit/Divider.tsx:77-91` · key lines: 79, 80, 87, 89, 9
 ```
 
 - Что делает: логика `SplitDivider` вынесена в `theme/kit/Divider.tsx` и считает в любых единицах: `perPixel` —
-  1 для пикселей sidebar, 1 / ширина родителя для доли Product Session. `SplitDivider` стал обёрткой над ним. Новое
-  для обоих — Escape во время drag: слушатель на window в фазе capture возвращает значение начала drag и не пускает
-  Escape дальше; отпущенная после этого кнопка ничего не пишет. Подсветка разделителя во время drag теперь по
-  `data-dragging` на нём самом, а не по классу `body`, иначе drag края sidebar подсвечивал бы и разделитель Product
-  Session.
-- Почему здесь: Ticket велит не писать второй разделитель, а обобщить `SplitDivider`; Escape — решение 5 Orchestrator-а.
-- Без него: второй разделитель с той же логикой drag, клавиш и двойного щелчка; Escape во время drag закрывал бы focus
-  mode вместо отмены.
+  1 для пикселей sidebar, 1 / ширина родителя для доли Product Session; `SplitDivider` стал обёрткой. Жест пишет
+  только значение, которое изменил: щелчок без движения и drag, вернувшийся к началу, идут как отмена; клавиша у
+  предела ничего не пишет. Отмена — Escape (слушатель на window в фазе capture, дальше Escape не идёт),
+  `pointercancel`, следующее нажатие во время drag (отпускание было пропущено), потеря фокуса окном и уход
+  разделителя (sidebar спрятали посреди drag). Подсветка во время drag — по `data-dragging` на самом разделителе.
+- Почему здесь: Ticket велит не писать второй разделитель, а обобщить `SplitDivider`; Escape — решение 5
+  Orchestrator-а. Правило «писать только изменённое» и отмены по нажатию, blur и уходу разделителя — из ревью #2287,
+  круг 2: щелчок по краю в узком окне записывал суженные 264 поверх сохранённых 600.
+- Без него: щелчок по краю, когда окно сужает sidebar, навсегда терял сохранённую ширину; спрятанный посреди drag
+  sidebar возвращался с шириной drag; пропущенное отпускание оставляло drag живым, и следующее движение с нажатой
+  кнопкой двигало край и писало его.
 - Требование: [Что строить, п. 8](../issues/158-ширина-sidebar-меняется-перетаскиванием-края.md#что-строить)
-- Риски и пробелы test-ов: Escape в Product Session — новое поведение старого разделителя (test
-  `product-session-panel`); на настоящий захват указателя Chromium в unit test-ах нет, это проверяет e2e.
+- Риски и пробелы test-ов: `pointermove` без нажатой кнопки drag не обрывает — Chromium шлёт такие посреди drag
+  (`FocusMode.tsx`, `followPointer`); пропущенное отпускание ловится только blur-ом или следующим нажатием. Настоящий
+  захват указателя Chromium в unit test-ах не проверяется, это делает e2e.
 
 ## 6. Что сознательно не меняли
 
@@ -154,7 +169,7 @@ mode. `SidebarView` рисует полосу только с `resizable` — е
 2. Почему Escape ловится на window в фазе capture и останавливается?
    - Ответ: фокус во время drag может быть где угодно, а Escape без остановки дошёл бы до focus mode и закрыл его;
      capture на window слышит клавишу первым.
-   - Строки: `src/renderer/theme/kit/Divider.tsx:85-91`
+   - Строки: `src/renderer/theme/kit/Divider.tsx:96-102`
 3. Что получит файл после двойного щелчка по краю и почему?
    - Ответ: patch `{ sidebar: { width: null } }`, и поле исчезает: `null` в `sidebarWidthAfter` даёт `undefined`, а
      нет поля — ширина по умолчанию.

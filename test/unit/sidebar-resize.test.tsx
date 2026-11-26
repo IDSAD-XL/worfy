@@ -269,6 +269,124 @@ describe('the width of the sidebar', () => {
   })
 })
 
+// Review of #2287, round 2: a gesture writes only a width it really changed, and a drag that ends
+// without its release — the handle gone, the release missed — writes nothing and leaves nothing behind.
+describe('a gesture that changes nothing, or ends without its release, writes nothing', () => {
+  /** A window that leaves the sidebar no more than the default: a saved 600 shows as 264. */
+  async function mountClamped(): Promise<void> {
+    setWindowWidth(700)
+    await mount(600)
+    expect(variable()).toBe('')
+    expect(handle().getAttribute('aria-valuemax')).toBe('264')
+  }
+
+  const widen = () =>
+    act(() => {
+      setWindowWidth(1400)
+      window.dispatchEvent(new Event('resize'))
+    })
+
+  it('a click on the edge without a move keeps the saved width, though the window shows it narrower', async () => {
+    await mountClamped()
+    act(() => {
+      handle().dispatchEvent(pointer('pointerdown', 264))
+      document.body.dispatchEvent(pointer('pointerup', 264))
+    })
+    await settle()
+    expect(writes).toEqual([])
+    widen()
+    expect(variable()).toBe('600px')
+  })
+
+  it('a drag that comes back to where it started writes nothing', async () => {
+    await mount(300)
+    act(() => {
+      handle().dispatchEvent(pointer('pointerdown', 300))
+      document.body.dispatchEvent(pointer('pointermove', 420))
+      document.body.dispatchEvent(pointer('pointermove', 300))
+      document.body.dispatchEvent(pointer('pointerup', 300))
+    })
+    await settle()
+    expect(writes).toEqual([])
+    expect(variable()).toBe('300px')
+  })
+
+  it('a key that cannot move the edge past the window writes nothing; a key that moves it writes where it went', async () => {
+    await mountClamped()
+    handle().focus()
+    fireEvent.keyDown(handle(), { key: 'ArrowRight' })
+    fireEvent.keyDown(handle(), { key: 'End' })
+    await settle()
+    expect(writes).toEqual([])
+    fireEvent.keyDown(handle(), { key: 'ArrowLeft' })
+    await settle()
+    expect(writes).toEqual([{ sidebar: { width: 248 } }])
+    expect(variable()).toBe('248px')
+  })
+
+  it('hiding the sidebar mid-drag cancels the drag: shown again, it has the saved width', async () => {
+    await mount(300)
+    act(() => {
+      handle().dispatchEvent(pointer('pointerdown', 300))
+      document.body.dispatchEvent(pointer('pointermove', 500))
+    })
+    expect(variable()).toBe('500px')
+    fireEvent.click(screen.getByRole('button', { name: 'Hide sidebar' }))
+    await settle()
+    expect(screen.queryByRole('navigation', { name: 'Sidebar' })).toBeNull()
+    expect(variable()).toBe('300px')
+    expect(document.body.classList.contains('w-divider-dragging')).toBe(false)
+    act(() => {
+      document.body.dispatchEvent(pointer('pointerup', 500))
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Show sidebar' }))
+    await settle()
+    expect(variable()).toBe('300px')
+    expect(writes.filter((patch) => patch.sidebar?.width !== undefined)).toEqual([])
+  })
+
+  it('the window losing focus mid-drag — the release missed over another app — cancels it, and a later press-and-move moves nothing', async () => {
+    await mount(300)
+    act(() => {
+      handle().dispatchEvent(pointer('pointerdown', 300))
+      document.body.dispatchEvent(pointer('pointermove', 450))
+    })
+    expect(variable()).toBe('450px')
+    act(() => {
+      window.dispatchEvent(new Event('blur'))
+    })
+    expect(variable()).toBe('300px')
+    expect(document.body.classList.contains('w-divider-dragging')).toBe(false)
+    expect(handle().hasAttribute('data-dragging')).toBe(false)
+    act(() => {
+      document.body.dispatchEvent(pointer('pointermove', 600))
+      document.body.dispatchEvent(pointer('pointerup', 600))
+    })
+    await settle()
+    expect(variable()).toBe('300px')
+    expect(writes).toEqual([])
+  })
+
+  it('a press anywhere while a drag is still under way — its release was missed — cancels it', async () => {
+    await mount(300)
+    act(() => {
+      handle().dispatchEvent(pointer('pointerdown', 300))
+      document.body.dispatchEvent(pointer('pointermove', 450))
+    })
+    act(() => {
+      document.body.dispatchEvent(pointer('pointerdown', 700))
+    })
+    expect(variable()).toBe('300px')
+    act(() => {
+      document.body.dispatchEvent(pointer('pointermove', 800))
+      document.body.dispatchEvent(pointer('pointerup', 800))
+    })
+    await settle()
+    expect(variable()).toBe('300px')
+    expect(writes).toEqual([])
+  })
+})
+
 describe('the bounds of the width against the window', () => {
   it('sidebarWidthMax: 640 at the most, the window less 480 px, never below the default', async () => {
     const { sidebarWidthMax, sidebarWidthIn } = await import('../../src/renderer/shell/sidebar-width')

@@ -6,12 +6,17 @@ import './divider.css'
 // owner lays the panes out by it. A drag with the mouse moves it, so do ←/→ (a step), Home and End
 // (the bounds); a double click puts it back to `reset`. `onMove` follows the drag; `onCommit` gets the
 // value where a gesture ended — the pointer let go, a key, a double click — so an owner writes it once
-// per gesture, not on every pointer move. A cancelled drag — the pointer cancelled, or Escape pressed —
-// puts the value back where it started and commits nothing (worfy-polish ticket 158).
+// per gesture, not on every pointer move. A gesture commits only a value it changed: a click without a
+// move, a drag back to where it started, a key against a bound commit nothing, so a value its owner
+// shows narrowed (the sidebar in a narrow window) is never written over the one it keeps. A cancelled
+// drag — the pointer cancelled, Escape pressed, the divider gone, the window left — puts the value back
+// where it started and commits nothing (worfy-polish ticket 158).
 //
 // The drag follows the pointer on window, as Focus mode's dividers do (src/renderer/focus/FocusMode.tsx,
 // followPointer): a pointermove with the primary button up is skipped rather than taken for a release,
-// so a capture Chromium takes away mid-drag does not end the gesture.
+// so a capture Chromium takes away mid-drag does not end the gesture. A release it did miss — the
+// button let go over another app — shows as the window losing focus or as the next press, and either
+// cancels the drag.
 
 export interface DividerProps {
   value: number
@@ -52,7 +57,7 @@ const same = (value: number): number => value
 
 export function Divider({ value, min, max, step, reset, perPixel, round, ariaValue = same, onMove, onCommit, onCancel, className, label, title, testId }: DividerProps) {
   const stop = useRef<(() => void) | null>(null)
-  // A drag still under way when the divider goes (its pane closed) stops following the pointer.
+  // A drag still under way when the divider goes (its pane closed, the sidebar hidden) is cancelled.
   useEffect(() => () => stop.current?.(), [])
   const clamp = (next: number): number => round(Math.min(Math.max(next, min), max))
 
@@ -71,8 +76,11 @@ export function Divider({ value, min, max, step, reset, perPixel, round, ariaVal
     }
     const onPointerUp = (up: PointerEvent) => {
       if (up.pointerId !== drag.pointerId) return
-      end()
-      onCommit(drag.last)
+      if (drag.last === drag.start) cancel()
+      else {
+        end()
+        onCommit(drag.last)
+      }
     }
     const cancel = () => {
       end()
@@ -82,6 +90,9 @@ export function Divider({ value, min, max, step, reset, perPixel, round, ariaVal
     const onPointerCancel = (event: PointerEvent) => {
       if (event.pointerId === drag.pointerId) cancel()
     }
+    // A press while the drag still runs: its release was missed. Added during the press that starts the
+    // drag, this listener does not hear that press.
+    const onPointerDownWhileDragging = (): void => cancel()
     // Escape ends the drag where it started; nothing else under the pointer hears it (focus mode would close).
     const onKeyDownWhileDragging = (key: globalThis.KeyboardEvent) => {
       if (key.key !== 'Escape') return
@@ -94,6 +105,8 @@ export function Divider({ value, min, max, step, reset, perPixel, round, ariaVal
       window.removeEventListener('pointerup', onPointerUp, true)
       window.removeEventListener('pointercancel', onPointerCancel, true)
       window.removeEventListener('keydown', onKeyDownWhileDragging, true)
+      window.removeEventListener('pointerdown', onPointerDownWhileDragging, true)
+      window.removeEventListener('blur', cancel)
       document.body.classList.remove('w-divider-dragging')
       delete element.dataset.dragging
       stop.current = null
@@ -103,9 +116,11 @@ export function Divider({ value, min, max, step, reset, perPixel, round, ariaVal
     window.addEventListener('pointerup', onPointerUp, true)
     window.addEventListener('pointercancel', onPointerCancel, true)
     window.addEventListener('keydown', onKeyDownWhileDragging, true)
+    window.addEventListener('pointerdown', onPointerDownWhileDragging, true)
+    window.addEventListener('blur', cancel)
     document.body.classList.add('w-divider-dragging')
     element.dataset.dragging = ''
-    stop.current = end
+    stop.current = cancel
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -122,6 +137,8 @@ export function Divider({ value, min, max, step, reset, perPixel, round, ariaVal
     if (next === undefined) return
     event.preventDefault()
     const kept = clamp(next)
+    // Against a bound the key changes nothing, and writes nothing.
+    if (kept === value) return
     onMove(kept)
     onCommit(kept)
   }
