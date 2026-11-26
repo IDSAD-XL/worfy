@@ -24,7 +24,6 @@ vi.mock('../../src/renderer/shell/sidebar/AdrSection.tsx', async (importOriginal
   return {
     railEnd: undefined,
     railDefault: undefined,
-    RailIcon: undefined,
     ...real,
     default: function AdrSection() {
       if (broken.adr) throw new Error('ADR section broke')
