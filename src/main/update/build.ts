@@ -187,7 +187,8 @@ export function spawnBelowNormal(start: () => ChildProcess, priority: BuildPrior
     priority.set(child.pid, BUILD_PRIORITY)
     return { child, problem: null }
   } catch (error) {
-    return { child, problem: why(error) }
+    // ESRCH: the step has ended already (a git step can, before this call), and takes no CPU any more.
+    return { child, problem: (error as { info?: { code?: unknown } } | null)?.info?.code === 'ESRCH' ? null : why(error) }
   }
 }
 

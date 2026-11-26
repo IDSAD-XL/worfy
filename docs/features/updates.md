@@ -289,7 +289,7 @@ restart does and from which copy), `result.json` (what the helper wrote) and `re
 Environment variables for tests: `WORFY_UPDATE=1` turns Update on in an unpacked build, `WORFY_UPDATE_API` replaces the
 GitHub API address, `WORFY_UPDATE_REPO` the repository of the clone, `WORFY_UPDATE_BUILD` the build command,
 `WORFY_UPDATE_STABLE` the place of the Stable copy, and `WORFY_UPDATE_QUIET_MINUTES` the 20 minutes `main` must be quiet
-(a whole number; `0` builds at once).
+(a whole number; `0` builds at once, a day at most).
 
 Tests: the GitHub stub `test/update-stub.ts`; `test/unit/update-check.test.ts`, `test/contract/update-github.test.ts`,
 `test/contract/update-state.test.ts`, `test/contract/update-build.test.ts`, `test/unit/update-build-light.test.ts`, `test/unit/update-idle.test.ts`,

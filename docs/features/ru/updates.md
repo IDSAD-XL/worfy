@@ -289,7 +289,7 @@ Update принадлежит Machine, на которой запущен. Вс�
 перезапуск и из какой копии), `result.json` (что записал помощник) и `restart.log` (что помощник напечатал). Переменные
 окружения для test-ов: `WORFY_UPDATE=1` включает Update в неупакованной сборке, `WORFY_UPDATE_API` подменяет адрес GitHub
 API, `WORFY_UPDATE_REPO` — репозиторий clone-а, `WORFY_UPDATE_BUILD` — команду сборки, `WORFY_UPDATE_STABLE` — место
-Stable copy, `WORFY_UPDATE_QUIET_MINUTES` — 20 минут тишины `main` (целое число; `0` — собирать сразу).
+Stable copy, `WORFY_UPDATE_QUIET_MINUTES` — 20 минут тишины `main` (целое число; `0` — собирать сразу, не больше суток).
 
 Test-ы: stub GitHub `test/update-stub.ts`; `test/unit/update-check.test.ts`, `test/contract/update-github.test.ts`,
 `test/contract/update-state.test.ts`, `test/contract/update-build.test.ts`, `test/unit/update-idle.test.ts`,

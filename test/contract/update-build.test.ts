@@ -263,6 +263,27 @@ describe('UpdateBuilder', () => {
     expect(readUpdateState(stateFile()).build).toMatchObject({ phase: 'ready', sha: git(work, 'rev-parse', 'HEAD') })
   })
 
+  it('installs again after a change of each file pnpm install depends on, the postinstall too, and not after a change of another file (worfy-polish ticket 156)', async () => {
+    // Named here, not taken from DEPENDENCY_FILES: a file dropped from that list fails this test.
+    const hashed = ['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', '.npmrc', 'scripts/postinstall.mjs']
+    mkdirSync(join(work, 'scripts'), { recursive: true })
+    const builds = builder()
+    builds.install(available(commit('A')))
+    await builds.settled()
+    const installs = (): number => readFileSync(join(dir, 'repo', 'node_modules', '.installs'), 'utf8').split('\n').filter(Boolean).length
+    expect(installs()).toBe(1)
+    let expected = 1
+    for (const [at, name] of ['README.md', ...hashed].entries()) {
+      // package.json stays JSON the stand-in can read: a field of its own changes it.
+      writeFileSync(join(work, name), name === 'package.json' ? '{ "name": "fixture", "version": "0.9.0", "private": true }\n' : `changed ${name}\n`)
+      builds.install(available(commit(`C${at}`)))
+      await builds.settled()
+      expect(readUpdateState(stateFile()).build.phase, name).toBe('ready')
+      if (name !== 'README.md') expected += 1
+      expect(installs(), name).toBe(expected)
+    }
+  })
+
   it('a build that fails after pnpm install keeps no hash: the next build installs again, though nothing changed (worfy-polish ticket 156)', async () => {
     const ok = builder()
     ok.install(available(commit('A')))
@@ -837,6 +858,37 @@ describe('UpdateService and "Update automatically"', () => {
       expect(asked).toEqual([B])
       await advance(60 * 60_000)
       expect(asked).toEqual([B])
+    })
+
+    it('a check during the wait ("Check now", or the hourly one) replaces its timer: one timer, one check when it ends, one build', async () => {
+      committedAt = ago(5)
+      const updates = service()
+      await updates.check()
+      // The wait for A ends 15 minutes from now; 5 minutes in, "Check now" finds B, 1 minute old.
+      await advance(5 * 60_000)
+      head = B
+      committedAt = ago(1)
+      await updates.check()
+      expect(reads.head).toBe(2)
+      // The timer of A would have fired here: it is gone.
+      await advance(10 * 60_000)
+      expect(reads.head).toBe(2)
+      expect(asked).toEqual([])
+      // B is 20 minutes old 19 minutes after "Check now".
+      await advance(9 * 60_000)
+      expect(reads.head).toBe(3)
+      expect(asked).toEqual([B])
+      await advance(2 * 60 * 60_000)
+      expect(reads.head).toBe(3)
+      expect(asked).toEqual([B])
+    })
+
+    it('a wait longer than a timer can hold does not turn into a check every millisecond', async () => {
+      committedAt = ago(0)
+      await service({ quietMs: 2 ** 32 }).check()
+      await advance(60_000)
+      expect(reads.head).toBe(1)
+      expect(asked).toEqual([])
     })
 
     it('a head older than the wait, or one whose commit time is not known, is built by the check at once', async () => {

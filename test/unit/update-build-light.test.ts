@@ -7,7 +7,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { constants, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { quietWaitMs, UPDATE_QUIET_MS, updateQuietMs } from '../../src/main/update/auto'
+import { MAX_QUIET_MS, quietWaitMs, UPDATE_QUIET_MS, updateQuietMs } from '../../src/main/update/auto'
 import { BUILD_PRIORITY, dependencyHash, spawnBelowNormal, type BuildPriority } from '../../src/main/update/build'
 import { removeTestTree } from '../remove'
 
@@ -32,6 +32,18 @@ describe('the wait for a quiet main', () => {
     expect(quietWaitMs({ sha: SHA, version: 'v', quiet: false, committedAt: minutesAgo(90) }, NOW, quiet)).toBe(0)
     expect(quietWaitMs({ sha: SHA, version: 'v', quiet: false }, NOW, quiet)).toBe(0)
     expect(quietWaitMs({ sha: SHA, version: 'v', quiet: false, committedAt: minutesAgo(5) }, NOW, 0)).toBe(0)
+  })
+
+  it('is 24 hours at most, however many minutes WORFY_UPDATE_QUIET_MINUTES names', () => {
+    expect(MAX_QUIET_MS).toBe(24 * 60 * 60_000)
+    expect(updateQuietMs({ WORFY_UPDATE_QUIET_MINUTES: String(24 * 60) })).toBe(MAX_QUIET_MS)
+    for (const many of ['1441', '35792', '99999999999999999999']) expect(updateQuietMs({ WORFY_UPDATE_QUIET_MINUTES: many }), many).toBe(MAX_QUIET_MS)
+  })
+
+  it('never answers more than a timer can wait (2^31 - 1 ms): a longer delay would fire after 1 ms, again and again', () => {
+    const fresh = { sha: SHA, version: 'v', quiet: false, committedAt: NOW.toISOString() }
+    expect(quietWaitMs(fresh, NOW, 2 ** 32)).toBe(2 ** 31 - 1)
+    expect(quietWaitMs(fresh, NOW, MAX_QUIET_MS)).toBe(MAX_QUIET_MS)
   })
 
   it('never waits longer than N minutes, though the commit is dated in the future (the clocks of GitHub and the machine differ)', () => {
@@ -106,6 +118,23 @@ describe('the priority of a build step', () => {
     expect(calls).toContain('spawn')
     expect(started.child).toEqual(child(4242))
     expect(started.problem).toContain('EPERM')
+  })
+
+  it('a step that has ended already (ESRCH: no such process) is no problem to note: it no longer competes for the CPU', () => {
+    const calls: string[] = []
+    const priority: BuildPriority = {
+      get: () => 0,
+      set: (pid) => {
+        calls.push(`set ${pid}`)
+        // The shape of os.setPriority's error on a pid that is gone.
+        throw Object.assign(new Error('A system error occurred: uv_os_setpriority returned ESRCH (no such process)'), {
+          code: 'ERR_SYSTEM_ERROR',
+          info: { errno: -3, code: 'ESRCH', message: 'no such process', syscall: 'uv_os_setpriority' },
+        })
+      },
+    }
+    expect(spawnBelowNormal(() => child(4242), priority, 'darwin')).toEqual({ child: child(4242), problem: null })
+    expect(calls).toEqual(['set 4242'])
   })
 
   it('a step that never got a pid is not lowered', () => {

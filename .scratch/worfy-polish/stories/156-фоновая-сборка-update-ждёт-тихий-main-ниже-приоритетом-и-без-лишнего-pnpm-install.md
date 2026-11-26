@@ -14,21 +14,22 @@ Issue #2252, часть 2: Stable copy на Windows собирала Update в �
 
 ## 2. Сколько ждать тихий `main`
 
-Code: `src/main/update/auto.ts:50-54` · key lines: 51, 53
+Code: `src/main/update/auto.ts:63-67` · key lines: 64, 66
 
 ```ts
 export function quietWaitMs(update: AvailableUpdate, now: Date, quietMs: number): number {
   if (update.committedAt === undefined) return 0
   const age = now.getTime() - Date.parse(update.committedAt)
-  return Math.min(quietMs, Math.max(0, quietMs - age))
+  return Math.min(quietMs, MAX_TIMER_MS, Math.max(0, quietMs - age))
 }
 ```
 
 - Что делает: остаток ожидания до сборки головы: `quietMs` минус возраст commit-а головы, не меньше 0 и не больше
-  `quietMs`. Время commit-а — committer date из того же ответа GitHub о ветке `main` (`github.ts`), лишнего запроса нет.
+  `quietMs` и не больше 2^31 − 1 ms (дольше таймер Node не держит: он сработал бы через 1 ms, и проверка пошла бы по
+  кругу). Время commit-а — committer date из того же ответа GitHub о ветке `main` (`github.ts`), лишнего запроса нет.
   Время неизвестно — 0, то есть сборка сразу, как до Ticket-а.
 - Почему здесь: Ticket называет `auto.ts` в «Где в коде»; там же `autoBuildFor` решает, что собирать само. N = 20 минут
-  и переменная `WORFY_UPDATE_QUIET_MINUTES` записаны в «Решено без владельца».
+  и переменная `WORFY_UPDATE_QUIET_MINUTES` (не больше суток, `MAX_QUIET_MS`) записаны в «Решено без владельца».
 - Без него: каждая проверка, нашедшая новую голову, собирает её сразу, и серия merge-ей даёт серию сборок.
 - Требование: [Что строить, п. 1](../issues/156-фоновая-сборка-update-ждёт-тихий-main-ниже-приоритетом-и-без-лишнего-pnpm-install.md#что-строить)
 - Риски и пробелы test-ов: часы машины и GitHub могут расходиться; commit «из будущего» ждёт не больше N
@@ -74,7 +75,7 @@ Code: `src/main/ipc/update.ts:235-254` · key lines: 238, 243, 248, 250
 
 ## 4. Приоритет шагов сборки
 
-Code: `src/main/update/build.ts:165-192` · key lines: 169, 170, 175, 178, 187
+Code: `src/main/update/build.ts:165-193` · key lines: 169, 170, 175, 178, 187, 191
 
 ```ts
 export function spawnBelowNormal(start: () => ChildProcess, priority: BuildPriority, platform: NodeJS.Platform): { child: ChildProcess; problem: string | null } {
@@ -102,7 +103,8 @@ export function spawnBelowNormal(start: () => ChildProcess, priority: BuildPrior
     priority.set(child.pid, BUILD_PRIORITY)
     return { child, problem: null }
   } catch (error) {
-    return { child, problem: why(error) }
+    // ESRCH: the step has ended already (a git step can, before this call), and takes no CPU any more.
+    return { child, problem: (error as { info?: { code?: unknown } } | null)?.info?.code === 'ESRCH' ? null : why(error) }
   }
 }
 ```
@@ -110,7 +112,7 @@ export function spawnBelowNormal(start: () => ChildProcess, priority: BuildPrior
 - Что делает: на macOS и Linux сразу после `spawn` ставит шагу `PRIORITY_BELOW_NORMAL` (nice 10); дети шага наследуют
   nice. На Windows worfy на время `spawn` понижает свой класс до `BELOW_NORMAL` и возвращает прежний: процесс,
   созданный процессом класса `BELOW_NORMAL`, получает этот класс, так что `cmd.exe` для `pnpm.cmd` и всё, что он
-  запускает, рождаются пониженными. Сбой понижения — строка в `build.log`, шаг идёт.
+  запускает, рождаются пониженными. Сбой понижения — строка в `build.log`, шаг идёт; `ESRCH` (шаг уже закончился) строки не даёт.
 - Почему здесь: все шаги сборки идут через `step()` этого файла; `start` — seam, через который test-ы подменяют
   `spawn`, а `priority` — вызовы `node:os`. Понижать и `git` тоже — решение из «Решено без владельца».
 - Без него: `pnpm install` и electron-builder конкурируют с интерфейсом пользователя на равных.
@@ -121,7 +123,7 @@ export function spawnBelowNormal(start: () => ChildProcess, priority: BuildPrior
 
 ## 5. `pnpm install` только когда зависимости изменились
 
-Code: `src/main/update/build.ts:411-421` · key lines: 413, 418
+Code: `src/main/update/build.ts:412-422` · key lines: 414, 419
 
 ```ts
     this.stepTo('install')
@@ -195,4 +197,4 @@ fast — exit 0, green. Настоящих pnpm, сборки, e2e и Electron �
 3. Почему hash снимается до `pnpm install`, а не после неудачи?
    - Ответ: установка, прерванная выходом worfy или сбоем, оставляет `node_modules` наполовину новым; запись,
      снятая заранее, не даст следующей сборке её пропустить, что бы ни случилось дальше.
-   - Строки: `src/main/update/build.ts:415-419`
+   - Строки: `src/main/update/build.ts:416-420`
