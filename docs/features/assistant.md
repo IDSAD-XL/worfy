@@ -98,10 +98,10 @@ itself speaks the language of the Guide.
 - "3 hidden by your ratings · Show": the items the user's dislikes hide, each with its rule and "Show again".
 
 **An item** shows its text and time, an "Urgent" mark, its Project, the duty that raised it, and its source and subject.
-A message of Slack or Jira is marked "data": the Assistant reads text from outside as data, never as
-instructions. When the Assistant proposed something for the item, the item shows why. An item is urgent when an
-Autopilot Run stopped not by the user, or when a check of Slack or Jira marked the message urgent. A Run stopped by
-Stop, Force stop, Cancel while it waited for the Orchestrator, or discarded by the user is not urgent.
+A message of Slack or Jira is marked "data": the Assistant reads text from outside as data, never as instructions. When
+the Assistant proposed something for the item, the item shows why. An item is urgent when an Autopilot Run stopped not
+by the user, or when a check of Slack or Jira marked the message urgent. A Run stopped by Stop, Force stop, Cancel while
+it waited for the Orchestrator, or discarded by the user is not urgent.
 
 The buttons of an item:
 
@@ -164,13 +164,13 @@ the mark "estimate" (see "Wakes, the daily limit and usage").
 A window that shows a Linked machine's Projects shows in this section only "Assistant works with the Projects of its own
 machine. Open it there."
 
-Waits of this Machine shows, for each Linked machine that is online, a group "On PC · read-only": what its own Assistant
-shows now, each item with its text, time, Urgent mark, Project, duty and source, and the mark "Read-only". The items
-have no buttons: that Machine's Assistant keeps them. When the Machine gives nothing, a line says why: it is offline,
-its access is off, or its build does not offer it to Linked machines. These items count nowhere else: not in Needs you
-now, the summary, the tab's number, the cards or the system notifications. A Linked machine reads the items with the
-Read only access level as well as with Full access, and not with Off ([Link](link.md)). It never gets the items of a
-local-only Project such as the Demo project, or the items of no Project, such as the Limits.
+Waits of this Machine shows, for each Linked machine, a group "On PC · read-only": what its own Assistant shows now,
+each item with its text, time, Urgent mark, Project, duty and source, and the mark "Read-only". The items have no
+buttons: that Machine's Assistant keeps them. When the Machine gives nothing, a line says why: it is offline, its access
+is off, or its build does not offer it to Linked machines. These items count nowhere else: not in Needs you now, the
+summary, the tab's number, the cards or the system notifications. A Linked machine reads the items with the Read only
+access level as well as with Full access, and not with Off ([Link](link.md)). It never gets the items of a local-only
+Project such as the Demo project, or the items of no Project, such as the Limits.
 
 ### How it works
 
@@ -265,10 +265,11 @@ Project of this Machine. A duty narrowed to some Projects does not show the item
 when every Project it named is gone from worfy, it covers all Projects again. Unpicking the last Project goes back to
 "All Projects".
 
-**The pause.** After 5 ignored proposals or dislikes in a row ("Pause a duty after", 1 to 100), a duty pauses, and its
-items are not shown: "Paused at 14:20: its suggestions were ignored too many times in a row. Its items are not shown.",
-with Resume. Only the user resumes it. A proposal is ignored when its item is still open a day after it was first shown,
-with no reaction. A like, an Open, a Start or a Dismiss breaks the run. Dismiss counts as declined.
+**The pause.** After 5 ignored proposals or dislikes in a row a duty pauses ("Pause a duty after": the screen offers 3,
+5, 10 or 20 in a row), and its items are not shown: "Paused at 14:20: its suggestions were ignored too many times in a
+row. Its items are not shown.", with Resume. Only the user resumes it. A proposal is ignored when its item is still open
+a day after it was first shown, with no reaction. A like, an Open, a Start or a Dismiss breaks the run. Dismiss counts
+as declined.
 
 **Memory.** Settings → Assistant → Memory lists the rules the Assistant wrote from dislikes: "It follows them; delete
 one and its items show again."
@@ -339,13 +340,13 @@ then counts as failed.
 
 **Failures.** A check of Slack or Jira fails when the connector is not there or waits for a sign-in to claude.ai, the
 call is refused or has no answer, the answer is out of form, every entry of it fails the form, or it takes too long. The
-next run covers the same time again. After 3 failures in a row the check waits longer: twice its interval, then four
-times, and so on up to a day (Slack: 20 minutes, 40, 80…; Jira: 2 hours, 4…). The row in Settings then says "Slack: 3
-failures in a row, next check at 14:20", with "Check now". A success ends the count, and so does turning the check off
-and on or changing its interval; a restart of worfy keeps it. Check now does not start a check while the Assistant is
-off, the check is off (the button is disabled), or it is running already; a toast names the reason. The CI of the main
-branch has no backoff: its read is a free GitHub query, and a red main branch must be seen soon after the network is
-back.
+next run covers the same time again. From the first failure the row in Settings says so, "Slack: 1 failure in a row,
+next check at 14:20", with "Check now". After 3 failures in a row the check waits longer: twice its interval, then four
+times, and so on up to a day (Slack: 20 minutes, 40, 80…; Jira: 2 hours, 4…). A success ends the count, and so does
+turning the check off and on or changing its interval; a restart of worfy keeps it. Check now does not start a check
+while the Assistant is off, the check is off (the button is disabled), or it is running already; a toast names the
+reason. The CI of the main branch has no backoff: its read is a free GitHub query, and a red main branch must be seen
+soon after the network is back.
 
 ### How it works
 
@@ -444,8 +445,8 @@ notifications ([Notifications](notifications.md)). Both kinds come only while th
 - **In the window**, a speech card next to the Assistant's rail icon, at the left edge, in its colour: an item with
   Open, Prepare, Snooze, like and dislike, and Close, which leaves it in the list. One card at a time; the icon shows
   how many more wait ("+2"), or without a card how many items wait. No card while the section is in front. Settings →
-  Assistant → Notifications → "In the window": "Urgent and batched" (by default), "Urgent only" or "None: the list
-  only". The number on the icon and the list stay with any choice.
+  Assistant → General → Notifications → "In the window": "Urgent and batched" (by default), "Urgent only" or "None: the
+  list only". The number on the icon and the list stay with any choice.
 - **System notifications**, while worfy is not in front: only of an urgent item, only in work hours, titled "worfy
   Assistant", the text "<Project>: <item>". A click raises worfy's window and opens the section. One notification per
   item; an item seen while worfy was in front never comes later, and one that came outside the work hours waits for
