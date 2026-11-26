@@ -118,6 +118,8 @@ MCP-сервер `worfy-app` — единственный набор tools Sessi
    **Поправка владельца 2026-11-26** (раунд Q1–Q12, Q2): у `pr-follow` режим не выше `ask`/`pre-approved`, `self`
    запрещён (ADR-0114: сам Assistant делает только закрытый список); `autopilot-start` — как есть, его диалог и есть
    подтверждение. Отказ `self` для `pr-follow` — Ticket 24.
+   **Вторая поправка владельца 2026-11-26** (второй раунд, Q1): у `pr-follow` убирается и `pre-approved` — остаются
+   только `ask` и `hand-over`; это Ticket 26.
 3. **Чужой текст** — JSON-блок `outside-text`; `author` — `null`, где worfy автора не знает (текст пункта ядра,
    Ticket-а, workflow).
 4. **Предложения хранятся в памяти main**, перезапуск worfy их теряет; файл состояния Assistant-а — Ticket 10.
