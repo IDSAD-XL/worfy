@@ -1,7 +1,8 @@
 # 17 — Помощь по worfy: описания функций в сборке, поиск и чтение через `worfy-app`, ответ со ссылкой, язык Guide
 
 Type: task
-Status: claimed 2026-11-25T22:32Z
+Status: done 2026-11-26T01:52Z
+PR: #2244
 Branch: worfy-assistant/17
 Blocked by: 09
 Source: [spec.md](../spec.md), «Ticket-ы», строка 17; «Решения владельца», 12; «Решения по реализации» → «MCP-сервер
@@ -39,21 +40,27 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 17; «Решения 
 
 - [ ] Упакованная сборка содержит `docs/features` на английском и русском.
   - evidence: test-run pass · `pnpm test test/contract/feature-pages-in-build.test.ts` exit 0 · mac - · 849f153d5
+  - evidence: review pass · PR #2244 · - - · 62fa2f9a16218d97dbf2830b9f7389c83805c9d1
 - [ ] Contract test: поиск по описаниям находит страницу; чтение отдаёт её текст и ссылку на неё.
   - evidence: test-run pass · `pnpm test test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 849f153d5
   - evidence: test-run pass · `pnpm test test/contract/worfy-app-tools.test.ts test/contract/feature-pages-in-build.test.ts` exit 0 · mac - · 28cc6db26
+  - evidence: review pass · PR #2244 · - - · 62fa2f9a16218d97dbf2830b9f7389c83805c9d1
 - [ ] Contract test: поиск без подходящей страницы отдаёт пустой ответ, а не чужую страницу.
   - evidence: test-run pass · `pnpm test test/contract/worfy-app-tools.test.ts test/contract/feature-pages-in-build.test.ts` exit 0 · mac - · 849f153d5
   - evidence: test-run pass · `pnpm test test/contract/feature-pages-in-build.test.ts test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 28cc6db26
+  - evidence: review pass · PR #2244 · - - · 62fa2f9a16218d97dbf2830b9f7389c83805c9d1
 - [ ] Правила Session Assistant-а велят отвечать со ссылкой на страницу описания, а без страницы — говорить «не знаю».
   - evidence: test-run pass · `pnpm test test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 849f153d5
+  - evidence: review pass · PR #2244 · - - · 62fa2f9a16218d97dbf2830b9f7389c83805c9d1
 - [ ] Assistant говорит на языке, выбранном для Guide: при выборе RU — русские описания и ответы.
   - evidence: test-run pass · `pnpm test test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 849f153d5
   - evidence: test-run pass · `pnpm test test/contract/worfy-app-tools.test.ts test/contract/feature-pages-in-build.test.ts` exit 0 · mac - · 28cc6db26
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45728314530/job/139637181421 · ci - · 62fa2f9a16218d97dbf2830b9f7389c83805c9d1
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 849f153d5
   - evidence: gate pass · `gate fast` exit 0 · mac - · 28cc6db26
   - evidence: gate pass · `gate fast` exit 0 · mac - · afbe4c387
+  - evidence: review pass · PR #2244 · - - · 62fa2f9a16218d97dbf2830b9f7389c83805c9d1
 
 ## Решено без владельца (подтвердить)
 
