@@ -67,6 +67,7 @@
   color: var(--text-secondary);
   font: inherit;
   font-size: var(--text-12);
+  white-space: nowrap;
   cursor: pointer;
 }
 .w-asst-set__day[aria-pressed='true'],
@@ -156,9 +157,11 @@
   font-size: var(--text-12);
   color: var(--text-secondary);
 }
+/* A row wraps rather than squeezes: a long action name puts its modes on the next line (worfy-polish 159). */
 .w-asst-set__action {
   display: flex;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 6px 10px;
   align-items: center;
   justify-content: space-between;
   margin-top: 6px;
@@ -166,7 +169,38 @@
   border-top: 1px solid var(--border);
   font-size: var(--text-12);
 }
+.w-asst-set__action-label {
+  flex: 1 1 10em;
+  min-width: 0;
+}
+/* The Projects of a duty: the label at the top of the buttons, the buttons in rows of their own, as many as they need,
+   so the counters below never run under them. */
+.w-asst-set__action--projects {
+  flex-wrap: nowrap;
+  align-items: flex-start;
+}
+.w-asst-set__action--projects > .w-asst-set__action-label {
+  flex: none;
+  line-height: 24px;
+}
+.w-asst-set__chips {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+}
+/* As wide as its name; a very long one ends in an ellipsis, its full name in the tooltip. */
+.w-asst-set__project {
+  flex: none;
+  max-width: min(16em, 100%);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .w-asst-set__modes {
+  flex: none;
+  margin-left: auto;
   display: inline-flex;
   gap: 2px;
   padding: 2px;
@@ -182,6 +216,7 @@
   color: var(--text-secondary);
   font: inherit;
   font-size: var(--text-11);
+  white-space: nowrap;
   cursor: pointer;
 }
 .w-asst-set__modes button[aria-pressed='true'] {
