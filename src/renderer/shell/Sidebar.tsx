@@ -213,7 +213,11 @@ export function SidebarView({ sections, onToggle }: SidebarViewProps) {
   // Focus mode has its own button for the sidebar in its bar (focus/FocusMode.tsx); one is enough.
   const focusMode = useFocusState((state) => state.active)
   const ordered = [...sections.filter((section) => !section.rail?.end), ...sections.filter((section) => section.rail?.end)]
-  const active = pickSection(saved, ordered.map((section) => section.id))
+  const active = pickSection(
+    saved,
+    ordered.map((section) => section.id),
+    ordered.filter((section) => section.rail?.start !== false).map((section) => section.id),
+  )
   const rail = useRef<HTMLDivElement>(null)
   const tabId = (id: string) => `${base}-tab-${id}`
   const panelId = (id: string) => `${base}-panel-${id}`

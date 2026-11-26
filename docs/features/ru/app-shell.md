@@ -22,7 +22,8 @@ Runs и Pull requests неактивны без Project-а. Каждый вид 
   кнопка, которая скрывает sidebar (⌘B, Ctrl+B на Windows). Перетаскивание полосы двигает окно.
 - **Project switcher** — отдельная строка под полосой, шириной с sidebar: название того, что показывает sidebar, и шеврон на
   её правом конце. Длинному имени Project-а отдана вся строка.
-- **Rail** — колонка иконок, по одной на секцию: Projects, Sessions, Pull requests, Acceptance, Pipeline, Epics, ADR, а внизу
+- **Rail** — колонка иконок, по одной на секцию: первым Assistant, своим цветом и над чертой, затем Projects, Sessions,
+  Pull requests, Acceptance, Pipeline, Epics, ADR, а внизу
   Health check, Machines и Settings. У выбранной секции акцентная полоса. На иконке секции есть badge, который виден, пока
   открыта другая секция: число занятых Session-ов в Project-ах, которые показывает switcher, цветом работы; число pull
   request-ов, которым нужны вы (review, ответ или исправление); число проверок в Ready to check вида
@@ -31,7 +32,16 @@ Runs и Pull requests неактивны без Project-а. Каждый вид 
   список, который прокручивается сам по себе.
 
 Rail — одна позиция в порядке Tab. ↑ и ↓ ходят по нему и заворачивают по кругу, Home и End ведут к его концам, а секция под
-фокусом открывается сразу. Открытая секция запоминается для окна.
+фокусом открывается сразу. Открытая секция запоминается для окна. Окно, в котором секцию ещё не выбирали, открывается на
+Projects, а не на Assistant-е над ними.
+
+**Assistant** (worfy-assistant, Ticket 14) — отдельная секция: что ждёт во всех Project-ах этой Machine, у каждого пункта
+причина, источник и обязанность, и кнопки Open, Prepare, Snooze и Dismiss; like и dislike на каждом его сообщении; журнал
+его действий, у каждой строки — пункт, который её вызвал; сводка; разговор; строка расхода, где доля Limits помечена как
+оценка. Prepare показывает точный текст Session до старта; ничего не стартует до Start. Пока Assistant включён, его
+собственное уведомление — карточка у его иконки в rail, его цветом, одна за раз, остальное — число на иконке; когда worfy
+не впереди, системное уведомление с заголовком «worfy Assistant» приходит только о срочном и только в work hours, а щелчок
+открывает секцию.
 
 **Health check** — кнопка rail прямо над Machines, она есть всегда. Это не секция: в панели она ничего не показывает, а щелчок
 открывает Settings → Health (строки описаны в [First run](onboarding.md#first-run)). Как и Settings, она не входит в tab-ы, по
@@ -96,8 +106,8 @@ worfy («No Project open», если Project не открыт), и «worfy — 
 
 ### How it works
 
-Каждая секция — файл `src/renderer/shell/sidebar/<Name>Section.tsx` со своим порядком и своей записью в rail: заголовок, иконка
-и стоит ли она внизу. Каждая секция остаётся смонтированной, пока показана другая, поэтому сохраняет прочитанное, и её badge
+Каждая секция — файл `src/renderer/shell/sidebar/<Name>Section.tsx` со своим порядком и своей записью в rail: заголовок, иконка,
+стоит ли она внизу и может ли окно, где секцию не выбирали, открыться на ней. Каждая секция остаётся смонтированной, пока показана другая, поэтому сохраняет прочитанное, и её badge
 остаётся актуальным; остальные только скрыты. Ответ switcher-а и открытая секция хранятся в local storage окна, в папке данных
 worfy. Никакая настройка приложения их не хранит.
 
@@ -118,6 +128,7 @@ Project, который хранится только на этой Machine. Pul
 | Что | Где |
 |---|---|
 | Полоса, rail и панель | `src/renderer/shell/Sidebar.tsx`, `src/renderer/shell/shell.css` |
+| Секция Assistant-а, его карточка и Prepare | `src/renderer/shell/sidebar/AssistantSection.tsx`, `src/renderer/assistant/`, в main — `src/main/assistant/window/` и `src/main/ipc/assistant.ts`, каналы — в `src/shared/ipc/assistant.ts`, token-ы `--assistant*` в `src/renderer/theme/tokens.css` |
 | Кнопка Health check и её точка | `HealthRailButton` в `src/renderer/shell/Sidebar.tsx`, `openHealthCheck` в `src/renderer/settings/settings-window.ts`, худший уровень — в `src/shared/health/severity.ts`, token-ы `--health-critical` и `--health-warning` в `src/renderer/theme/tokens.css` |
 | Рамка секции | `src/renderer/shell/SidebarSection.tsx`, `src/renderer/shell/sidebar-section.css` |
 | Project switcher | `src/renderer/shell/ProjectSwitcher.tsx` |
@@ -127,7 +138,7 @@ Project, который хранится только на этой Machine. Pul
 | Секции | `src/renderer/shell/sidebar/` |
 | Записи секций в rail | `src/renderer/shell/registry.ts` |
 
-Главные test-ы: `test/unit/sidebar-scope.test.tsx`, `test/unit/sidebar-section.test.tsx`, `test/unit/health-rail-button.test.tsx`, `test/unit/acceptance-section.test.tsx`, `test/e2e/sidebar-rail.spec.ts`,
+Главные test-ы: `test/unit/sidebar-scope.test.tsx`, `test/unit/assistant-window.test.ts`, `test/unit/assistant-panel.test.tsx`, `test/unit/assistant-speech.test.tsx`, `test/e2e/assistant.spec.ts`, `test/unit/sidebar-section.test.tsx`, `test/unit/health-rail-button.test.tsx`, `test/unit/acceptance-section.test.tsx`, `test/e2e/sidebar-rail.spec.ts`,
 `test/e2e/sidebar-sections.spec.ts`.
 
 ## Command palette

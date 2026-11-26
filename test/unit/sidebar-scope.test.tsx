@@ -167,6 +167,20 @@ describe('the rail and the panel', () => {
     expect(document.getElementById(tab.getAttribute('aria-controls') ?? '')?.textContent).toBe('Projects body')
   })
 
+  it('a section with railDefault false stands first on the rail, yet a window that chose none starts on the next (worfy-assistant ticket 14)', async () => {
+    const { collectExtensions } = await import('../../src/renderer/shell/registry')
+    const { SidebarView } = await import('../../src/renderer/shell/Sidebar')
+    const sections = collectExtensions({
+      './sidebar/AssistantSection.tsx': { default: stand('Assistant body'), order: 1, railTitle: 'Assistant', railDefault: false },
+      './sidebar/ProjectsSection.tsx': { default: stand('Projects body'), order: 10, railTitle: 'Projects' },
+    })
+    render(<SidebarView sections={sections} />)
+    expect(tabNames()).toEqual(['Assistant', 'Projects'])
+    expect(shownBodies()).toEqual(['Projects body'])
+    fireEvent.click(within(rail()).getByRole('tab', { name: 'Assistant' }))
+    expect(shownBodies()).toEqual(['Assistant body'])
+  })
+
   it('a click on a tab shows its section and saves the choice', async () => {
     await drawSidebar()
     fireEvent.click(within(rail()).getByRole('tab', { name: 'Epics' }))
