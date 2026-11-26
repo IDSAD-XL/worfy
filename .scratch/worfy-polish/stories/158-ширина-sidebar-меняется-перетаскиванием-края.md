@@ -174,3 +174,37 @@ mode. `SidebarView` рисует полосу только с `resizable` — е
    - Ответ: patch `{ sidebar: { width: null } }`, и поле исчезает: `null` в `sidebarWidthAfter` даёт `undefined`, а
      нет поля — ширина по умолчанию.
    - Строки: `src/main/settings/store.ts:313-316`
+
+## 8. Что нашёл review и что осталось
+
+> VERIFIED — worfy-polish 158 (the left sidebar's width changes by dragging its right edge or with arrow keys, 220–640 px and never more than the window minus 480; double-click resets to 264; stored per machine as sidebar.width; the drag logic is shared with the Product Session divider in theme/kit/Divider.tsx), head f04035461cbc0cd2568b67d7b6f9e562e2b3309e
+>
+> Gate (depth medium, two rounds):
+> - Round 1, reviewer (lens: correctness) — FIX, one med and two low:
+>   - med: a click with no move committed the shown, window-clamped width, so the stored width was lost;
+>   - low: hiding the sidebar mid-drag left the drag width unsaved in the store;
+>   - low: a lost pointerup left the drag running.
+>   Checked fine:
+>   - settings read, clamp, null and rollback; visible/width patches are independent;
+>   - a window resize never writes;
+>   - Product Session split unchanged; no leftover w-split-dragging;
+>   - Escape scope;
+>   - the handle unmounts with the sidebar;
+>   - the e2e spec reads stable.
+>   Mutations (no clamp on read; commit on every move) turned tests red.
+> - Fix 3ecde9b38:
+>   - a gesture commits only a changed value: a click without a move or a drag back to the start is a cancel, and a key at a bound writes nothing;
+>   - an unmount, a window blur or the next press during a drag cancels it;
+>   - not taken, with a reason: ending a drag on a pointermove with buttons 0 (Chromium sends those mid-drag, as FocusMode followPointer notes);
+>   - 6 tests red first.
+> - Round 2: diff of Divider.tsx read by the orchestrator — closes the findings.
+> Evidence:
+> - 40 unit and contract files (821 tests) exit 0;
+> - pnpm lint and typecheck exit 0;
+> - gate fast green;
+> - story-check exit 0.
+> Not verified:
+> - e2e sidebar-resize.spec.ts locally (owner rule; CI runs it);
+> - a release outside the window in real Electron;
+> - the owner's manual item in Stable.
+> - After round 2, CI run 45882586377 red: sidebar-resize.spec.ts:87 (263 vs 264) and snapping.spec.ts:422 (box selection took 1 of 13), both on macOS and Windows. One cause: the 6 px handle strip sat at right -3px from the padding box (260..266), 3 px over the Canvas, so a box selection starting at the Canvas's first pixel began a sidebar drag. Fix 29eab03d1: shell.css strip wholly inside the sidebar (258..264, right -1px), accent line on the border; e2e asserts the strip's width and right edge exactly and that presses 0 and 10 px right of the sidebar reach the Canvas (elementFromPoint). Diff read by the orchestrator. Unit sidebar-resize/shell/interface-scale exit 0, lint+typecheck exit 0, gate fast green.
