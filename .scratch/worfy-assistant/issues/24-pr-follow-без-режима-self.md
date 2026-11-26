@@ -73,10 +73,15 @@ Ticket 09 добавил обязанностям два действия main: 
 ## Готово, когда
 
 - [ ] Unit test: `self` для `pr-follow` нельзя выбрать; остальные режимы и `autopilot-start` — как сейчас.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant- test/contract/assistant- test/contract/worfy-app test/unit/worfy-app` exit 0 · mac - · 7f1c88660686b8069baf638b5ee86961c9b90aa9
 - [ ] Unit test: `self` для `pr-follow` из файла памяти читается как `ask`.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant- test/contract/assistant- test/contract/worfy-app test/unit/worfy-app` exit 0 · mac - · 7f1c88660686b8069baf638b5ee86961c9b90aa9
 - [ ] Contract test: `action_run` отказывает `pr-follow` в режиме `self`.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant- test/contract/assistant- test/contract/worfy-app test/unit/worfy-app` exit 0 · mac - · 7f1c88660686b8069baf638b5ee86961c9b90aa9
 - [ ] «Итог»: все места, где режим `self` для `pr-follow` теперь отклоняется, с `file:line`.
+  - evidence: commit pass · worfy-assistant/24: pr-follow is never self — refused when chosen, when read from the memory file and in action_run · - - · 7f1c88660686b8069baf638b5ee86961c9b90aa9
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 7f1c88660686b8069baf638b5ee86961c9b90aa9
 
 ## Итог
 
