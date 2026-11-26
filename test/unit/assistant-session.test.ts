@@ -12,6 +12,7 @@ import { afterAll, describe, expect, it, vi } from 'vitest'
 import type { AttentionItem } from '../../src/shared/assistant/attention'
 import type { UsageCallInput } from '../../src/shared/assistant/budget'
 import { ANSWER_TEXT_MAX, ANSWERS_MAX, COMMITMENT_TEXT_MAX, COMMITMENTS_MAX } from '../../src/shared/assistant/memory'
+import { setTurnCostSink } from '../../src/main/agent/turn-cost'
 import { Duties } from '../../src/main/assistant/duties/duties'
 import { assistantMemoryPath, memoryFileStore, sessionMemoryStore } from '../../src/main/assistant/duties/memory'
 import { memoryProposalStore, ProposalBook } from '../../src/main/assistant/proposals/book'
@@ -148,6 +149,20 @@ describe('the Session of the Assistant: each wake is a new Session', () => {
       { kind: 'wake', source: null, wakeId: 'wake-7', model: 'claude-opus-5-5', usage: { inputTokens: 1200, outputTokens: 300, cacheCreationInputTokens: 10, cacheReadInputTokens: 4000 }, costUsd: 0.12 },
       { kind: 'conversation', source: null, wakeId: null, model: 'claude-opus-5-5', usage: { inputTokens: 1200, outputTokens: 300, cacheCreationInputTokens: 10, cacheReadInputTokens: 4000 }, costUsd: 0.12 },
     ])
+  })
+
+  // worfy-assistant ticket 27: the cost of the Assistant's own call is noted once, by noteCall, never as another turn.
+  it('notes its calls nowhere but noteCall: never as a turn of another Session', async () => {
+    const others: number[] = []
+    setTurnCostSink((costUsd) => void others.push(costUsd))
+    try {
+      const { runner, calls } = sessions()
+      await runner.wake(wakeOf({ id: 'wake-9' }))
+      expect(calls).toHaveLength(1)
+      expect(others).toEqual([])
+    } finally {
+      setTurnCostSink(null)
+    }
   })
 
   it('a Session that fails to start is a failed run, noted nowhere, and the next wake still runs', async () => {

@@ -1,7 +1,7 @@
 # 27 — Доля Limits Assistant-а считается от всего расхода окна
 
 Type: task
-Status: open 2026-11-26T13:07Z
+Status: claimed 2026-11-26T13:15Z
 Blocked by: —
 Source: найдено Ticket-ом 19 (PR #2281), раздел «Вне скоупа»; [spec.md](../spec.md), «Ticket-ы», строка 27.
 Пункт Ticket-а 20 «Владелец смотрит, сколько token-ов и какую долю Limits потратил Assistant» опирается на эту долю.

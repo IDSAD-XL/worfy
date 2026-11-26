@@ -7,8 +7,9 @@
 //   that fails still counts against the daily limit; the user's own messages are not wakes;
 // - noteCall — each `result` of an Assistant Session (ticket 10) and each check of a source
 //   (ticket 11), with the `usage` and `costUsd` of that result;
-// - noteOtherTurn — the `result` of every other Session worfy runs, for the estimate of the share;
-//   never a turn of the Assistant, which noteCall already counts.
+// - noteOtherTurn — the cost of each turn of every other Session and request worfy runs, for the estimate of the
+//   share (ticket 27): the app points src/main/agent/turn-cost.ts at it, which takes each turn once, as the
+//   difference from the last `result` of its process; never a turn of the Assistant, which noteCall already counts.
 //
 // Every note is written at once, synchronously (src/main/storage/json-file.ts), and drops what is
 // older than USAGE_KEEP_MS. The file is bounded by that retention of 8 days, not by a count: Slack
