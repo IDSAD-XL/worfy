@@ -105,7 +105,7 @@ Code: `src/main/assistant/schedule/scheduler.ts:231-261` · key lines: 236, 237,
 
 ## 4. Apply — единственный путь изменения из карточки к настройкам
 
-Code: `src/main/assistant/window/view.ts:586-597` · key lines: 590, 593, 594, 595
+Code: `src/main/assistant/window/view.ts:616-627` · key lines: 620, 623, 624, 625
 
 ```ts
   apply(proposalId: string): void {
@@ -134,10 +134,11 @@ Code: `src/main/assistant/window/view.ts:586-597` · key lines: 590, 593, 594, 5
 
 ## 5. Assistant только предлагает изменение
 
-Code: `src/main/mcp/app-server.ts:422-433` · key lines: 427, 428, 429, 432
+Code: `src/main/mcp/app-server.ts:493-505` · key lines: 499, 500, 501, 504
 
 ```ts
-    proposal_create: (args) => {
+    proposal_create: async (args) => {
+      if (args.item !== undefined) await refuseLinkedItem(args.item, 'Propose without item, and tell the user it waits there. Nothing was kept.')
       const item = args.item === undefined ? null : itemOfPublicId(args.item)
       checkPrepare(args.prepare)
       // A change of the settings is only kept for its card «before → after»: the user's Apply in the window applies it
@@ -206,8 +207,8 @@ Code: `src/renderer/settings/AssistantSection.tsx:140-148` · key lines: 140, 14
 2. Что увидит человек на карточке, если настройки отказали изменение после Apply?
    - Ответ: карточку как была, с Apply: отметка `applied` пишется только после того, как `settings.apply` прошёл, а
      отказ бросает раньше и уходит toast-ом.
-   - Lines: `src/main/assistant/window/view.ts:586-597`
+   - Lines: `src/main/assistant/window/view.ts:616-627`
 3. Почему Assistant не может отметить изменение применённым сам?
    - Ответ: `proposal_create` и `proposal_update` не принимают `applied`; его пишет только `AssistantWindow.apply` на
      щелчок Apply.
-   - Lines: `src/main/mcp/app-server.ts:422-433`
+   - Lines: `src/main/mcp/app-server.ts:493-505`
