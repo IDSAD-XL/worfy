@@ -36,7 +36,7 @@ Code: `electron-builder.yml:42-49` · key lines: 46, 47, 49
 
 ## 3. Страница находится, только если её раздел — о вопросе
 
-Code: `src/main/assistant/help/feature-pages.ts:176-194` · key lines: 186, 187, 192
+Code: `src/main/assistant/help/feature-pages.ts:180-198` · key lines: 190, 191, 196
 
 ```ts
 /**
@@ -76,7 +76,7 @@ function about(block: Block, words: readonly Term[]): number | null {
 
 ## 4. Ответ — страница на языке Guide со ссылкой
 
-Code: `src/main/assistant/help/feature-pages.ts:232-260` · key lines: 241, 257, 258
+Code: `src/main/assistant/help/feature-pages.ts:236-264` · key lines: 245, 261, 262
 
 ```ts
 export function searchFeaturePages(files: readonly FeaturePageFile[], query: string, limit: number, options: FeatureHelpOptions): FeatureHit[] {
@@ -198,10 +198,10 @@ renderer-а их реэкспортируют. Страницы `docs/features` 
 1. Почему вопрос «dark mode» не находит страницу Sessions, хотя в её разделе есть и «dark», и «modes»?
    - Ответ: слова стоят дальше 12 слов друг от друга, а «model» и «mode» для латинского слова — разные слова; раздел не
      о вопросе, и `about` отдаёт null.
-   - Lines: `src/main/assistant/help/feature-pages.ts:186-192`
+   - Lines: `src/main/assistant/help/feature-pages.ts:190-196`
 2. Guide на русском, вопрос `badge` совпал только в английской версии. Какие разделы придут в ответе?
    - Ответ: разделы русской страницы на тех же местах оглавления («Значки CI»), если число заголовков совпадает.
-   - Lines: `src/main/assistant/help/feature-pages.ts:226-229`, `src/main/assistant/help/feature-pages.ts:256-257`
+   - Lines: `src/main/assistant/help/feature-pages.ts:230-233`, `src/main/assistant/help/feature-pages.ts:260-261`
 3. Пользователь переключил Guide на EN посреди Session. На каком языке ответят tool-ы?
    - Ответ: на языке, взятом при создании Session: `worfyAppForSession` подменяет `guideLanguage` значением, взятым один раз.
    - Lines: `src/main/mcp/app-server.ts:459-461`
