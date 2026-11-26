@@ -100,11 +100,16 @@ Ticket 15 построил Settings → Assistant по принятому про
 
 - [ ] Settings → Assistant → General: «In the window» и «System notifications» меняются, сохраняются и действуют на
       уведомления Assistant-а.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/settings-assistant.test.tsx test/unit/assistant-speech.test.tsx test/unit/assistant-window.test.ts test/contract/assistant-settings.test.ts` exit 0 · mac - · c7a14a583611bc768a27a52d0c6b9878e2a62a4d
 - [ ] Под применённой карточкой «было → станет» есть Undo: настройки возвращаются, строка журнала записана.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/contract/assistant-settings.test.ts` exit 0 · mac - · c7a14a583611bc768a27a52d0c6b9878e2a62a4d
 - [ ] У обязанности выбираются Project-ы этой Machine или «All Projects»; пункты вне области обязанность не показывает.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-settings-panel.test.ts test/unit/assistant-duties.test.ts test/unit/settings-assistant.test.tsx` exit 0 · mac - · c7a14a583611bc768a27a52d0c6b9878e2a62a4d
 - [ ] Рядом с переключателем «Assistant on this Mac» — «On since …»; время включения переживает перезапуск worfy.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/assistant-settings.test.ts test/unit/settings-assistant.test.tsx` exit 0 · mac - · c7a14a583611bc768a27a52d0c6b9878e2a62a4d
 - [ ] e2e с `WORFY_AGENT=fake`: Apply и Undo карточки — зелёный.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · c7a14a583611bc768a27a52d0c6b9878e2a62a4d
 
 ## Итог
 
