@@ -81,10 +81,24 @@ test('the edge of the sidebar drags its width, Escape cancels a drag, the width 
     expect(await sidebarWidth(window)).toBe(DEFAULT_WIDTH)
     const edge = edgeOf(window)
     await expect(edge).toHaveAttribute('aria-valuenow', String(DEFAULT_WIDTH))
-    // The edge lies on the right border of the sidebar.
+    // The edge lies inside the sidebar and ends where the sidebar ends, on the outer side of its border:
+    // nothing of it covers the Canvas, and a press right of the sidebar is the Canvas's (a box selection
+    // that starts there, test/e2e/snapping.spec.ts).
     const side = await box(sidebarOf(window))
     const handle = await box(edge)
-    expect(handle.x + handle.width / 2).toBeCloseTo(side.x + side.width, 0)
+    expect(handle.width).toBe(6)
+    expect(handle.x + handle.width).toBe(side.x + side.width)
+    for (const right of [0, 10]) {
+      const reached = await window.evaluate(
+        ({ x, y }) => {
+          const page = globalThis as unknown as { document: { elementFromPoint(x: number, y: number): { closest(selector: string): unknown } | null } }
+          const hit = page.document.elementFromPoint(x, y)
+          return { sidebar: hit?.closest('.w-sidebar') != null, canvas: hit?.closest('[data-testid="canvas"]') != null }
+        },
+        { x: side.x + side.width + right, y: side.y + side.height / 2 },
+      )
+      expect(reached, `a press ${right} px right of the sidebar`).toEqual({ sidebar: false, canvas: true })
+    }
 
     await dragEdge(window, 120)
     await expect.poll(() => sidebarWidth(window)).toBe(DEFAULT_WIDTH + 120)
