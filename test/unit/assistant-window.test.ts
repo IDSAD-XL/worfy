@@ -804,6 +804,18 @@ describe('two machines (worfy-assistant ticket 18)', () => {
     expect(answer.items.map((item) => item.projectId).sort()).toEqual([MOBILE, SHOP])
   })
 
+  it('an urgent item of the Linked machine is not urgent here: no notification, nothing urgent in the summary (rebase on ticket 23)', () => {
+    const quiet = world()
+    quiet.linked = [{ id: 'pc', name: 'PC', online: true, projects: [{ id: 'docs-site-9', name: 'docs-site' }], items: [{ ...pcItem, urgent: true, kind: 'run-stopped' }], problem: null }]
+    const view = quiet.window.view()
+    expect(view.items).toEqual([])
+    expect(view.summary.projects.reduce((sum, each) => sum + each.urgent, 0)).toBe(0)
+    const shown: unknown[] = []
+    const notes = new AssistantNotices({ focused: () => false, show: (note) => void shown.push(note), reveal: () => undefined })
+    notes.look(view)
+    expect(shown).toEqual([])
+  })
+
   it('without Linked machines the list of them is empty', () => {
     expect(w.window.view().linked).toEqual([])
   })
