@@ -89,8 +89,28 @@ Source: баг-репорт владельца #2252 (2026-11-26), часть 1.
 ## Готово, когда
 
 - [ ] Пары 0/1 хранятся на процесс по (ancestor, descendant); 128 и null — нет; test-ы на каждое — сначала красные.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/git-ancestry.test.ts test/unit/acceptance-stable-line.test.ts test/contract/workflow-stages.test.ts test/contract/flight-recorder-gate-logs.test.ts` exit 0 · mac - · 5b44df34a
 - [ ] Один процесс на пару в пути; не больше 3 процессов git одновременно на этих путях.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/git-ancestry.test.ts test/unit/acceptance-stable-line.test.ts` exit 0 · mac - · 5b44df34a
 - [ ] Число процессов git за цикл до и после — в «Итог».
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/acceptance-stable-line.test.ts` exit 0 · mac - · 5b44df34a
 - [ ] `pnpm lint`, `pnpm typecheck`, unit и contract test-ы затронутых модулей, gate fast — exit 0; `ci-ok` на head PR.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 5b44df34a
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 5b44df34a
 
 ## Итог
+
+Число процессов git за цикл — unit test `test/unit/acceptance-stable-line.test.ts` («the Stable copy line over many
+merges and worktrees»): три worktree одного репозитория (`/worfy`, `/worfy-w16` и `/worfy-demo` без коммита Stable copy),
+20 Ticket-ов с merge-ами, fake git со счётчиком вызовов; цикл — строки всех Ticket-ов всех worktree, пока ни одна не
+ждёт ответа; второй цикл — через `RETRY_MS` + tick 60 s.
+
+| | Первый цикл | Каждый следующий цикл | Одновременно, пик |
+|---|---|---|---|
+| До (origin/main) | 269 (60 `merge-base`, 20 `cat-file`, по 63 `rev-parse`/`rev-list`/`show`) | 43 (20 `merge-base`, 20 `cat-file`, 3 сборки) | 249 |
+| После | 149 (20 `merge-base`, 3 `cat-file`, по 42 `rev-parse`/`rev-list`/`show`) | 1 (`cat-file -e` в `/worfy-demo`) | 3 |
+
+Test-ы были красными до правки: второй цикл, пик процессов (`acceptance-stable-line`), вторая копия StageReader
+(`workflow-stages`, 2 вопроса вместо 1), второе чтение local merge (`flight-recorder-gate-logs`, 4 вместо 2). Шесть
+mutant-ов (хранить 128, без предела, без общего вопроса в пути, ключ всегда с путём, хранить ref, без проверки коммита
+Stable copy) — все убиты.
