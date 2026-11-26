@@ -32,9 +32,9 @@ Code: `src/renderer/shell/Sidebar.tsx:216-220` · key lines: 219
 - Риски и пробелы test-ов: `test/unit/sidebar-scope.test.tsx` проверяет порядок и выбор на заглушках секций; на
   собранном приложении — `test/e2e/assistant.spec.ts` и `test/e2e/sidebar-rail.spec.ts`, их запускает только CI.
 
-## 3. Like и dislike доходят до обязанности
+## 3. Like и dislike доходят до обязанности, а снятая оценка снимает свой счёт
 
-Code: `src/main/assistant/window/view.ts:472-489` · key lines: 481, 483, 486
+Code: `src/main/assistant/window/view.ts:488-507` · key lines: 492, 497, 500, 504
 
 ```ts
   rate(target: RatingTarget, rating: Rating | null): { id: string; text: string } | null {
@@ -45,30 +45,65 @@ Code: `src/main/assistant/window/view.ts:472-489` · key lines: 481, 483, 486
       const rule = before?.rule === undefined ? undefined : this.deps.duties.rules().find((each) => each.id === before.rule)
       return rule === undefined ? null : { id: rule.id, text: rule.text }
     }
-    // Taking a dislike back deletes the rule it wrote: the items it hid wait again.
-    if (before?.rule !== undefined) this.deps.duties.deleteRule(before.rule)
+    // Taking a rating back uncounts it at its duty; a dislike's rule goes with it, and the items it hid wait again.
+    if (before?.counted !== undefined) this.deps.duties.unrate(before.counted.duty, before.counted.item, before.rating, before.rule ?? null)
+    else if (before?.rule !== undefined) this.deps.duties.deleteRule(before.rule)
     let rule: MemoryRule | null = null
     if (rating !== null && item !== null) rule = this.deps.duties.rate(item, rating)
+    const counted = rating !== null && item !== null && item.duty !== null ? { duty: item.duty, item: item.id } : undefined
     this.save((state) => {
       state.ratings = state.ratings.filter((each) => each.key !== key)
-      if (rating !== null) state.ratings.push({ key, rating, at: this.deps.now(), ...(rule === null ? {} : { rule: rule.id }) })
+      if (rating !== null) state.ratings.push({ key, rating, at: this.deps.now(), ...(rule === null ? {} : { rule: rule.id }), ...(counted === undefined ? {} : { counted }) })
     })
     return rule === null ? null : { id: rule.id, text: rule.text }
   }
 ```
 
 - Что делает: оценка пункта или строки журнала идёт в `duties.rate` (Ticket 07): like считается обязанности, dislike
-  пишет правило, которое прячет такие пункты. Оценка хранится в `<data>/assistant/window.json`, чтобы кнопка осталась
-  нажатой; снятие dislike удаляет его правило.
-- Почему здесь: spec, «Границы», 6: у каждого действия like и dislike, и они доходят до обязанности. Что снятие dislike
-  удаляет правило — решено без владельца.
-- Без него: dislike прятал бы пункт навсегда, без способа вернуть, или не доходил бы до обязанности вовсе.
+  пишет правило, которое прячет такие пункты. Запись оценки в `<data>/assistant/window.json` помнит, какой обязанности и
+  какому пункту она засчитана (`counted`). Снятая оценка — Undo, повторное нажатие или смена like на dislike — идёт в
+  `duties.unrate`. Та же оценка второй раз ничего не считает.
+- Почему здесь: spec, «Границы», 6: у каждого действия like и dislike, и они доходят до обязанности. Что снятие оценки
+  снимает её счёт — находка review, раунд 1.
+- Без него: пять раз dislike и Undo ставили обязанность на паузу (`by: 'disliked'`), а like, снятие, like считали два
+  like.
 - Требование: [Готово, когда, пункт 3](../issues/14-ui-assistant-а-раздел-в-rail.md#готово-когда)
-- Риски и пробелы test-ов: оценка сообщения, предложения и сводки только хранится — обязанности у них нет.
+- Риски и пробелы test-ов: оценка сообщения, предложения и сводки только хранится — обязанности у неё нет. Один пункт,
+  оценённый и в списке, и в журнале, — две разные оценки, и обязанность сочтёт обе.
 
-## 4. Session стартует только по Start и ровно с показанным текстом
+## 4. Duties.unrate: что снимает снятая оценка
 
-Code: `src/main/assistant/window/view.ts:526-538` · key lines: 527, 532
+Code: `src/main/assistant/duties/duties.ts:273-287` · key lines: 278, 280, 281, 284
+
+```ts
+  unrate(duty: string, itemId: string, rating: 'like' | 'dislike', ruleId: string | null): void {
+    const memory = this.load()
+    const state = memory.duties[duty]
+    if (state !== undefined) {
+      if (rating === 'like') state.counters.liked = Math.max(0, state.counters.liked - 1)
+      else {
+        state.counters.disliked = Math.max(0, state.counters.disliked - 1)
+        state.streak = Math.max(0, state.streak - 1)
+        if (state.paused?.by === 'disliked' && state.streak < (memory.pauseAfter ?? DEFAULT_PAUSE_AFTER)) delete state.paused
+      }
+    }
+    if (ruleId !== null) memory.rules = memory.rules.filter((rule) => rule.id !== ruleId || rule.from !== itemId)
+    this.save()
+  }
+
+```
+
+- Что делает: снимает like или dislike с обязанности: счётчик, для dislike — его шаг в серии dislike-ов и паузу, которую
+  серия начала, если серия снова короче порога; правило удаляется, только если его написал этот пункт.
+- Почему здесь: счётчики, серия и пауза живут в `Duties` (Ticket 07); review, раунд 1, предложил `Duties.unrate`.
+- Без него: снятая оценка оставляла бы свой счёт, серию и паузу.
+- Требование: [Готово, когда, пункт 3](../issues/14-ui-assistant-а-раздел-в-rail.md#готово-когда)
+- Риски и пробелы test-ов: снятый like не возвращает серию проигнорированных предложений, которую он оборвал, —
+  решено без владельца: это только отодвигает паузу.
+
+## 5. Session стартует только по Start и ровно с показанным текстом
+
+Code: `src/main/assistant/window/view.ts:544-556` · key lines: 545, 550
 
 ```ts
   start(request: { projectId: string; text: string; itemId: string | null; proposalId: string | null }): { projectId: string; nodeId: string; sessionId: string } {
@@ -90,13 +125,15 @@ Code: `src/main/assistant/window/view.ts:526-538` · key lines: 527, 532
   изменений в новую Session на Canvas Project-а; пункт отмечается как увиденный, обязанность получает «принято», а
   предложение уходит из списка.
 - Почему здесь: spec, «Границы», 3: Session с текстом Assistant-а стартует только по щелчку пользователя.
-- Без него: текст Session мог бы разойтись с тем, что пользователь прочитал.
+- Без него: текст Session мог бы разойтись с тем, что пользователь прочитал; а окно Prepare называло бы Project пункта,
+  хотя предложение Assistant-а может вести в другой Project — теперь оно показывает `prepare.projectName`, имя Project-а
+  из `prepare.projectId` (находка review, раунд 1).
 - Требование: [Готово, когда, пункт 2](../issues/14-ui-assistant-а-раздел-в-rail.md#готово-когда)
 - Риски и пробелы test-ов: старт настоящей Session (`sharedNodeSessions().create`) test-ами не проверен: в
   `test/unit/assistant-window.test.ts` она подменена; что окно отправляет ровно показанный или исправленный текст,
   проверяет `test/unit/assistant-panel.test.tsx` (mutant «отправить исходный текст» — красный).
 
-## 5. Системное уведомление: только срочное, только в work hours, только когда worfy не впереди
+## 6. Системное уведомление: только срочное, только в work hours, только когда worfy не впереди
 
 Code: `src/main/assistant/window/notices.ts:33-48` · key lines: 34, 35, 39, 43
 
@@ -129,9 +166,9 @@ Code: `src/main/assistant/window/notices.ts:33-48` · key lines: 34, 35, 39, 43
 - Риски и пробелы test-ов: настоящее системное уведомление Electron не показано ни одним test-ом; `focused` и `show`
   подменены.
 
-## 6. Одна карточка у значка, остальное — число
+## 7. Одна карточка у значка, и показанным считается только то, что видно
 
-Code: `src/renderer/assistant/speech.ts:11-28` · key lines: 12, 13, 24, 27
+Code: `src/renderer/assistant/speech.ts:11-25` · key lines: 13, 22, 23, 24
 
 ```ts
 export function speechQueue(view: AssistantView | null, closed: ReadonlySet<string>, sectionShown: boolean): WindowItem[] {
@@ -140,29 +177,52 @@ export function speechQueue(view: AssistantView | null, closed: ReadonlySet<stri
 }
 
 /**
- * The badge of the Assistant's rail button: while a card speaks, how many more wait behind it («+2»); without a card, how
- * many items wait. None while the Assistant is off, or nothing waits.
+ * The items the window shows the user now, which their duties count as shown (`assistant.shown`): the item of the speech
+ * card, and every item of the list while the section is in front on its tab of what waits. Nothing while the Assistant is
+ * off: its duties count nothing before the user turns it on.
  */
-export function assistantBadge(view: AssistantView | null, queue: readonly WindowItem[]): RailBadge | undefined {
-  if (view === null || !view.on) return undefined
-  if (queue.length > 0) {
-    const more = queue.length - 1
-    return more > 0 ? { tone: 'assistant', count: more, label: `${more} more from Assistant` } : undefined
-  }
-  const waiting = view.items.length
-  return waiting > 0 ? { tone: 'assistant', count: waiting, label: waiting === 1 ? '1 item waits for you' : `${waiting} items wait for you` } : undefined
+export function shownItemIds(view: AssistantView | null, sectionShown: boolean, tab: string, queue: readonly WindowItem[]): string[] {
+  if (view === null || !view.on) return []
+  if (sectionShown) return tab === 'waits' ? view.items.map((item) => item.id) : []
+  return queue.length > 0 ? [queue[0]!.id] : []
 }
 ```
 
 - Что делает: очередь карточек — новые пункты без закрытых; первая из них показывается карточкой у значка в rail, а
-  значок показывает, сколько ещё ждёт за ней. Пока раздел открыт или Assistant выключен, карточек нет.
-- Почему здесь: spec, «UI»: одна карточка за раз, остальное — число на значке.
-- Без него: несколько карточек сразу закрывали бы окно, или пользователь не знал бы, что ждёт ещё.
+  значок показывает, сколько ещё ждёт за ней. `shownItemIds` говорит, что окно сейчас показывает пользователю: пункт
+  карточки или весь список, пока раздел открыт на вкладке Waits. Окно сообщает это в main (`assistant.shown`).
+- Почему здесь: spec, «UI»: одна карточка за раз, остальное — число на значке. Что показанным считается только видимое,
+  — находка review, раунд 1.
+- Без него: несколько карточек сразу закрывали бы окно; а без `shownItemIds` обязанности считали бы показанным то, что
+  никто не видел.
 - Требование: [Готово, когда, пункт 7](../issues/14-ui-assistant-а-раздел-в-rail.md#готово-когда)
-- Риски и пробелы test-ов: положение и цвет карточки (`AssistantSpeech.tsx`, `assistant.css`) не проверены ни
-  test-ом, ни screenshot-ом: приложение по правилу владельца не запускалось.
+- Риски и пробелы test-ов: окно на заднем плане или свёрнутое тоже считается «показало». Положение и цвет карточки
+  (`AssistantSpeech.tsx`, `assistant.css`) не проверены ни test-ом, ни screenshot-ом.
 
-## 7. Что сознательно не менялось
+## 8. Показанное считает main, и только пока Assistant включён
+
+Code: `src/main/assistant/window/view.ts:272-277` · key lines: 273, 276
+
+```ts
+  shown(itemIds: readonly string[]): void {
+    if (this.deps.assistant() === null || itemIds.length === 0) return
+    const ids = new Set(itemIds)
+    const items = this.allItems().filter((item) => ids.has(item.id))
+    if (items.length > 0) this.deps.duties.look(items)
+  }
+```
+
+- Что делает: пункты, которые окно показало, обязанности считают показанными — только пока Assistant включён. Сам
+  `view()` смотрит обязанности с `countShown: false`, поэтому фоновый цикл раз в минуту и системные уведомления ничего не
+  считают.
+- Почему здесь: `view()` строят и фоновый цикл, и уведомления; review, раунд 1, показал, что через сутки такой счёт
+  ставил обязанность на паузу (`ignored`) до того, как пользователь включил Assistant-а.
+- Без него: обязанности замолкали бы сами, ни разу не показав пункт.
+- Требование: [Готово, когда, пункт 3](../issues/14-ui-assistant-а-раздел-в-rail.md#готово-когда)
+- Риски и пробелы test-ов: пока Ticket 10 не влит, Assistant всегда выключен, и в приложении ничего не считается;
+  test-ы включают его подменой.
+
+## 9. Что сознательно не менялось
 
 Code: `src/main/assistant/window/app.ts:39-42` · key lines: 41
 
@@ -181,7 +241,7 @@ function runningAssistant(): AssistantConversation | null {
 - Требование: [Готово, когда, пункт 5](../issues/14-ui-assistant-а-раздел-в-rail.md#готово-когда)
 - Риски и пробелы test-ов: пункт 5 не выполнен, пока здесь `null`.
 
-## 8. Как проверено
+## 10. Как проверено
 
 - `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts` — exit 1 до кода (нет модуля), exit 0 после.
 - `node scripts/vitest-electron.mjs test/unit/assistant-speech.test.tsx` — exit 1 без `speech.ts`, exit 0 с ним.
@@ -190,6 +250,9 @@ function runningAssistant(): AssistantConversation | null {
 - `node scripts/vitest-electron.mjs test/unit/assistant-panel.test.tsx` — exit 0; mutant «Start отправляет исходный
   текст» — exit 1.
 - `pnpm lint`, `pnpm typecheck` — exit 0; gate fast — exit 0, `[gate] green (fast)`.
+- Review, раунд 1: новые test-ы в `test/unit/assistant-window.test.ts`, `assistant-panel.test.tsx` и
+  `assistant-speech.test.tsx` красные до правки (9 и 6 упавших), зелёные после; семь mutant-ов правок раунда — каждый
+  даёт exit 1.
 - `test/e2e/assistant.spec.ts` (список, like, dislike, Undo) локально не запускался: e2e запускает CI.
 
 ## Проверить себя
@@ -198,10 +261,10 @@ function runningAssistant(): AssistantConversation | null {
    - Ответ: выбор по умолчанию берёт первую секцию, у которой `rail.start` не false, а секция Assistant-а
      экспортирует `railDefault = false`.
    - Строки: `src/renderer/shell/Sidebar.tsx:216-220`
-2. Что происходит с правилом, когда пользователь снимает свой dislike?
-   - Ответ: прежняя оценка хранит id правила, и `rate` удаляет его через `duties.deleteRule` до записи новой оценки —
-     спрятанные пункты снова ждут.
-   - Строки: `src/main/assistant/window/view.ts:480-481`
+2. Почему пять раундов dislike и Undo больше не ставят обязанность на паузу?
+   - Ответ: запись оценки помнит, кому она засчитана, и снятие идёт в `duties.unrate`: оно снимает счётчик, шаг серии
+     dislike-ов и паузу, которую серия начала, и удаляет правило этого пункта.
+   - Строки: `src/main/assistant/window/view.ts:496-498`
 3. Придёт ли системное уведомление о срочном пункте, который появился, пока worfy был впереди, когда пользователь
    переключится в другое приложение?
    - Ответ: нет: пункт попадает в `done` при первом взгляде, ещё до проверки фокуса, и больше не рассматривается.

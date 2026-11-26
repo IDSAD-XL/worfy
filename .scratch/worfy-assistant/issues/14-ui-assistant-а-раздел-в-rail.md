@@ -59,11 +59,14 @@ Card-а из «Итог» Ticket-а 02.
 - [ ] Раздел Assistant-а открывается из rail рядом с Canvas и показывает список «что ждёт» с причиной, источником и
       обязанностью у каждого пункта.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx` exit 0 · mac - · 2b9c65933
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx` exit 0 · mac - · 6fceafc4f
 - [ ] У предложения есть Dismiss, Snooze, Open и Prepare; Prepare показывает точный текст Session, Session стартует
       только по щелчку пользователя.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx` exit 0 · mac - · 2b9c65933
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx` exit 0 · mac - · 6fceafc4f
 - [ ] Like и dislike стоят на каждом сообщении Assistant-а и доходят до обязанности (Ticket 07).
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx` exit 0 · mac - · 2b9c65933
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx` exit 0 · mac - · 6fceafc4f
 - [ ] Журнал показывает действия Assistant-а, у каждой строки — пункт, который её вызвал.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx` exit 0 · mac - · 2b9c65933
 - [ ] Раздел показывает сводку и разговор; пользователь может написать Assistant-у в любой момент.
@@ -74,11 +77,13 @@ Card-а из «Итог» Ticket-а 02.
 - [ ] Когда worfy не впереди, системное уведомление уходит только о срочном и только в work hours, с
       заголовком «worfy Assistant»; щелчок открывает раздел Assistant-а.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx` exit 0 · mac - · 2b9c65933
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx` exit 0 · mac - · 6fceafc4f
 - [ ] e2e с `WORFY_AGENT=fake`: список, like и dislike — зелёный.
 - [ ] Тексты UI — английские.
   - evidence: test-run pass · `pnpm lint` exit 0 · mac - · 2b9c65933
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 2b9c65933
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 6fceafc4f
 
 ## Решено без владельца (подтвердить)
 
@@ -106,3 +111,15 @@ Card-а из «Итог» Ticket-а 02.
 - Новые token-ы `--assistant*` в `tokens.css`, светлая и тёмная тема, — из прототипа.
 - Разговор ждёт Ticket 10 (PR #2247): до его merge `runningAssistant()` в `src/main/assistant/window/app.ts` отвечает
   null, и отправка отвечает «Assistant is off on this machine».
+- После review, раунд 1:
+  - Показанным пункт считается, только когда окно его действительно показало: в открытом разделе на вкладке Waits или на
+    карточке у значка (канал `assistant.shown`), и только пока Assistant включён. Сам вид раздела ничего не считает, так
+    что фоновый цикл и уведомления не ставят обязанность на паузу. Пункт, показанный и оставленный без ответа на сутки,
+    по-прежнему считается проигнорированным и при фоновом взгляде. Окно на заднем плане тоже считается «показало».
+  - Dismiss сам считает отказ (`declined`): пользователь видел пункт, раз его отклонил.
+  - Снятая оценка снимает свой счёт (`Duties.unrate`): счётчик like или dislike, шаг серии dislike-ов, паузу, которую
+    серия начала, и правило, если его написал этот пункт. Снятый like не возвращает серию проигнорированных предложений,
+    которую он оборвал.
+  - Prepare и toast после старта называют Project, в котором Session стартует (`prepare.projectName`).
+  - Щелчок по системному уведомлению открывает раздел в окнах, которые за ним следят; ждёт он только когда таких окон
+    нет, и только первого окна, которое откроет раздел.
