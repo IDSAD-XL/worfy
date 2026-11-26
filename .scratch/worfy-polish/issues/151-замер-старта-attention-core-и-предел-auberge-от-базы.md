@@ -1,7 +1,8 @@
 # 151 — Замер старта attention core на Project-е из 155 Ticket-ов и предел Auberge-test-а от замеренной базы
 
 Type: bug
-Status: claimed 2026-11-25T19:13Z
+Status: done 2026-11-26T02:56Z
+PR: #2234
 Branch: worfy-polish/151
 Blocked by: 150
 Source: Ticket worfy-polish 150 (карантин flaky e2e test-а старта Auberge-проекта на macOS CI) и его таблица evidence;
@@ -48,15 +49,20 @@ Project-а пишет `assistant-items.json` синхронно и с прове
 - [ ] Стоимость старта attention core на Project-е из 155 Ticket-ов замерена (CPU profile или timing marks), числа в
       «Итог».
   - evidence: test-run pass · unit-level timing in vitest (682 Tickets, file store): 96 writes 24-35 ms before, 1 write 3-12 ms after; local e2e with temporary timing marks before the e2e ban: 51 ms of 825 ms N, numbers in Итог · mac - · 756c189708fbfac3356991fc29f1b0db8d4250a5
+  - evidence: review pass · PR #2234 · - - · a83568506508bb56bf2e0fae2ed8d0aed740ed66
 - [ ] Если записи заметны — одно сохранение на scope за tick, test на ядро это проверяет; иначе в «Итог» — почему
       код не тронут.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-*.test.ts test/contract/assistant-*.test.ts test/unit/e2e-start-budget.test.ts test/unit/quarantine.test.ts test/unit/quarantine-suggest.test.ts` exit 0 (19 files, 318 passed) · mac - · 756c189708fbfac3356991fc29f1b0db8d4250a5
+  - evidence: review pass · PR #2234 · - - · a83568506508bb56bf2e0fae2ed8d0aed740ed66
 - [ ] Предел Auberge-test-а на CI зависит от замеренной базы, не от потолка; `START_MS` = 3000 не поднят;
       `test/unit/e2e-start-budget.test.ts` проверяет новое правило.
+  - evidence: review pass · PR #2234 · - - · a83568506508bb56bf2e0fae2ed8d0aed740ed66
 - [ ] Карантин снят: записи и метки нет; `test/unit/quarantine.test.ts` зелёный.
+  - evidence: review pass · PR #2234 · - - · a83568506508bb56bf2e0fae2ed8d0aed740ed66
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast зелёный; `ci-ok` зелёный на head PR, test идёт в
       `macos-e2e` и зелёный.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 12a56ca92f13d52753043c60a9f394e309ea4fd3
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45735566520/job/139660130414 · ci - · a83568506508bb56bf2e0fae2ed8d0aed740ed66
 
 ## Где в коде
 

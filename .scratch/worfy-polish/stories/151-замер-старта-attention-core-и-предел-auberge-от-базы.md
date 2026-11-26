@@ -134,3 +134,28 @@ runner-е не найдена; её поиск — отдельный Ticket.
    - Ответ: `onItem` получает каждый item сразу, как он взят; `subscribe` — один раз на scope, когда `flush` записал
      файл.
    - Строки: `src/main/assistant/core/attention-core.ts:113-126`
+
+## 7. Что нашёл review и что осталось
+
+> VERIFIED — worfy-polish 151 (attention core writes each scope once per batch: one write instead of 96 on an Auberge-sized start), head a83568506508bb56bf2e0fae2ed8d0aed740ed66
+>
+> Gate (depth medium, two rounds): reviewer (lens: correctness) — part A (batch) MERGE with 4 lows, fixed on f07fe8392 and checked by the Orchestrator; part B (removing the 7300 ms start ceiling) went to the owner.
+>
+> - Owner 2026-11-26, variant (б): merge only the core fix; the start budget, RUNNER_START_CAP_MS 7300, the quarantine of the macOS e2e «Auberge-sized Project interactive in 3 s» until 2026-12-09 and its quarantined() label stay exactly as on main; the cause of the slow start goes to a separate ticket.
+> - Round 2 checked by the Orchestrator: the branch diff against origin/main touches only the core, its two unit tests, the ticket and its story; the core and test patch is byte-identical to f07fe8392 after the rebase; 318 tests of the assistant, start budget and quarantine EXIT=0; gate fast green on 12a56ca92 (head adds one Evidence line); story-check ok.
+> - Not verified: the Auberge e2e itself (quarantined); items 3 and 4 of the ticket are not done by the owner's choice and move to the cause ticket.
+> - Noted: src/main/assistant/core/install.ts:89-97 — the Autopilot journal catch-up still ingests per line outside a batch.
+
+Code: `src/main/assistant/core/install.ts:89-97` · key lines: 89
+
+```ts
+  for (const project of sources.projects()) {
+    sources.journal.recent(project.id).then(
+      guard('the Autopilot journal', (runs: JournalEvent[][]) => {
+        const from = core.catchUpFrom(project.id)
+        for (const line of runs.flat()) if (Date.parse(line.at) >= from) autopilotAttention(core, line)
+      }),
+      (error: unknown) => log(`[assistant] ${project.id}: the Autopilot journal could not be read`, error),
+    )
+  }
+```
