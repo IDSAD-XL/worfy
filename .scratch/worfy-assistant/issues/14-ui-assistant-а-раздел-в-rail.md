@@ -64,9 +64,11 @@ Card-а из «Итог» Ticket-а 02.
       только по щелчку пользователя.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx` exit 0 · mac - · 2b9c65933
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx` exit 0 · mac - · 6fceafc4f
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx` exit 0 · mac - · dad4d1019
 - [ ] Like и dislike стоят на каждом сообщении Assistant-а и доходят до обязанности (Ticket 07).
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx` exit 0 · mac - · 2b9c65933
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx` exit 0 · mac - · 6fceafc4f
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx` exit 0 · mac - · dad4d1019
 - [ ] Журнал показывает действия Assistant-а, у каждой строки — пункт, который её вызвал.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-window.test.ts test/unit/assistant-panel.test.tsx test/unit/assistant-speech.test.tsx test/unit/sidebar-scope.test.tsx` exit 0 · mac - · 2b9c65933
 - [ ] Раздел показывает сводку и разговор; пользователь может написать Assistant-у в любой момент.
@@ -84,6 +86,7 @@ Card-а из «Итог» Ticket-а 02.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 2b9c65933
   - evidence: gate pass · `gate fast` exit 0 · mac - · 6fceafc4f
+  - evidence: gate pass · `gate fast` exit 0 · mac - · dad4d1019
 
 ## Решено без владельца (подтвердить)
 
@@ -123,3 +126,10 @@ Card-а из «Итог» Ticket-а 02.
   - Prepare и toast после старта называют Project, в котором Session стартует (`prepare.projectName`).
   - Щелчок по системному уведомлению открывает раздел в окнах, которые за ним следят; ждёт он только когда таких окон
     нет, и только первого окна, которое откроет раздел.
+- После review, раунд 2:
+  - Снятый dislike удаляет правило, только если его не держит другая оценка (dislike пункта и dislike строки журнала,
+    которую он вызвал, держат одно правило).
+  - У каждой обязанности есть номер серии проигнорированных предложений и dislike-ов (`run` в файле памяти); оценка
+    помнит серию, в которой её засчитали, и снятие уменьшает серию и снимает паузу, только пока идёт та же серия.
+  - Open, Dismiss и Start доходят до обязанности — и считают пункт показанным — только пока Assistant включён. Пока он
+    выключен, они меняют только пункт.

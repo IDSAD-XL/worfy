@@ -34,7 +34,7 @@ Code: `src/renderer/shell/Sidebar.tsx:216-220` · key lines: 219
 
 ## 3. Like и dislike доходят до обязанности, а снятая оценка снимает свой счёт
 
-Code: `src/main/assistant/window/view.ts:488-507` · key lines: 492, 497, 500, 504
+Code: `src/main/assistant/window/view.ts:494-516` · key lines: 504, 505, 506, 510
 
 ```ts
   rate(target: RatingTarget, rating: Rating | null): { id: string; text: string } | null {
@@ -45,12 +45,15 @@ Code: `src/main/assistant/window/view.ts:488-507` · key lines: 492, 497, 500, 5
       const rule = before?.rule === undefined ? undefined : this.deps.duties.rules().find((each) => each.id === before.rule)
       return rule === undefined ? null : { id: rule.id, text: rule.text }
     }
-    // Taking a rating back uncounts it at its duty; a dislike's rule goes with it, and the items it hid wait again.
-    if (before?.counted !== undefined) this.deps.duties.unrate(before.counted.duty, before.counted.item, before.rating, before.rule ?? null)
-    else if (before?.rule !== undefined) this.deps.duties.deleteRule(before.rule)
+    // Taking a rating back uncounts it at its duty; a dislike's rule goes with it, and the items it hid wait again —
+    // unless another rating still holds that rule (a dislike of the item and one of a journal row it caused).
+    const held = before?.rule !== undefined && this.load().ratings.some((each) => each.key !== key && each.rule === before.rule)
+    const ruleId = before?.rule === undefined || held ? null : before.rule
+    if (before?.counted !== undefined) this.deps.duties.unrate(before.counted.duty, before.counted.item, before.rating, ruleId, before.counted.run)
+    else if (ruleId !== null) this.deps.duties.deleteRule(ruleId)
     let rule: MemoryRule | null = null
     if (rating !== null && item !== null) rule = this.deps.duties.rate(item, rating)
-    const counted = rating !== null && item !== null && item.duty !== null ? { duty: item.duty, item: item.id } : undefined
+    const counted = rating !== null && item !== null && item.duty !== null ? { duty: item.duty, item: item.id, run: this.deps.duties.runOf(item.duty) } : undefined
     this.save((state) => {
       state.ratings = state.ratings.filter((each) => each.key !== key)
       if (rating !== null) state.ratings.push({ key, rating, at: this.deps.now(), ...(rule === null ? {} : { rule: rule.id }), ...(counted === undefined ? {} : { counted }) })
@@ -62,7 +65,8 @@ Code: `src/main/assistant/window/view.ts:488-507` · key lines: 492, 497, 500, 5
 - Что делает: оценка пункта или строки журнала идёт в `duties.rate` (Ticket 07): like считается обязанности, dislike
   пишет правило, которое прячет такие пункты. Запись оценки в `<data>/assistant/window.json` помнит, какой обязанности и
   какому пункту она засчитана (`counted`). Снятая оценка — Undo, повторное нажатие или смена like на dislike — идёт в
-  `duties.unrate`. Та же оценка второй раз ничего не считает.
+  `duties.unrate`. Та же оценка второй раз ничего не считает. Правило уходит, только если его не держит другая оценка —
+  например dislike того же пункта и dislike строки журнала, которую он вызвал (review, раунд 2).
 - Почему здесь: spec, «Границы», 6: у каждого действия like и dislike, и они доходят до обязанности. Что снятие оценки
   снимает её счёт — находка review, раунд 1.
 - Без него: пять раз dislike и Undo ставили обязанность на паузу (`by: 'disliked'`), а like, снятие, like считали два
@@ -73,28 +77,30 @@ Code: `src/main/assistant/window/view.ts:488-507` · key lines: 492, 497, 500, 5
 
 ## 4. Duties.unrate: что снимает снятая оценка
 
-Code: `src/main/assistant/duties/duties.ts:273-287` · key lines: 278, 280, 281, 284
+Code: `src/main/assistant/duties/duties.ts:280-295` · key lines: 287, 288, 289, 293
 
 ```ts
-  unrate(duty: string, itemId: string, rating: 'like' | 'dislike', ruleId: string | null): void {
+  unrate(duty: string, itemId: string, rating: 'like' | 'dislike', ruleId: string | null, run?: number): void {
     const memory = this.load()
     const state = memory.duties[duty]
     if (state !== undefined) {
       if (rating === 'like') state.counters.liked = Math.max(0, state.counters.liked - 1)
       else {
         state.counters.disliked = Math.max(0, state.counters.disliked - 1)
-        state.streak = Math.max(0, state.streak - 1)
-        if (state.paused?.by === 'disliked' && state.streak < (memory.pauseAfter ?? DEFAULT_PAUSE_AFTER)) delete state.paused
+        if (run === (state.run ?? 0)) {
+          state.streak = Math.max(0, state.streak - 1)
+          if (state.paused?.by === 'disliked' && state.streak < (memory.pauseAfter ?? DEFAULT_PAUSE_AFTER)) delete state.paused
+        }
       }
     }
     if (ruleId !== null) memory.rules = memory.rules.filter((rule) => rule.id !== ruleId || rule.from !== itemId)
     this.save()
   }
-
 ```
 
 - Что делает: снимает like или dislike с обязанности: счётчик, для dislike — его шаг в серии dislike-ов и паузу, которую
-  серия начала, если серия снова короче порога; правило удаляется, только если его написал этот пункт.
+  серия начала, если серия снова короче порога, но только пока идёт та же серия (`run`, номер серии, запомнен при оценке;
+  review, раунд 2); правило удаляется, только если его написал этот пункт.
 - Почему здесь: счётчики, серия и пауза живут в `Duties` (Ticket 07); review, раунд 1, предложил `Duties.unrate`.
 - Без него: снятая оценка оставляла бы свой счёт, серию и паузу.
 - Требование: [Готово, когда, пункт 3](../issues/14-ui-assistant-а-раздел-в-rail.md#готово-когда)
@@ -103,7 +109,7 @@ Code: `src/main/assistant/duties/duties.ts:273-287` · key lines: 278, 280, 281,
 
 ## 5. Session стартует только по Start и ровно с показанным текстом
 
-Code: `src/main/assistant/window/view.ts:544-556` · key lines: 545, 550
+Code: `src/main/assistant/window/view.ts:553-565` · key lines: 554, 559
 
 ```ts
   start(request: { projectId: string; text: string; itemId: string | null; proposalId: string | null }): { projectId: string; nodeId: string; sessionId: string } {
@@ -112,7 +118,7 @@ Code: `src/main/assistant/window/view.ts:544-556` · key lines: 545, 550
       const item = this.allItems().find((each) => each.id === request.itemId)
       if (item !== undefined) {
         if (item.state === 'new') this.mark(item, 'seen')
-        this.deps.duties.react(item, 'accepted')
+        this.react(item, 'accepted')
       }
     }
     if (request.proposalId !== null && this.deps.proposals.list().some((proposal) => proposal.id === request.proposalId)) this.deps.proposals.remove(request.proposalId)
@@ -201,7 +207,7 @@ export function shownItemIds(view: AssistantView | null, sectionShown: boolean, 
 
 ## 8. Показанное считает main, и только пока Assistant включён
 
-Code: `src/main/assistant/window/view.ts:272-277` · key lines: 273, 276
+Code: `src/main/assistant/window/view.ts:278-283` · key lines: 279, 282
 
 ```ts
   shown(itemIds: readonly string[]): void {
@@ -214,7 +220,8 @@ Code: `src/main/assistant/window/view.ts:272-277` · key lines: 273, 276
 
 - Что делает: пункты, которые окно показало, обязанности считают показанными — только пока Assistant включён. Сам
   `view()` смотрит обязанности с `countShown: false`, поэтому фоновый цикл раз в минуту и системные уведомления ничего не
-  считают.
+  считают. Open, Dismiss и Start тоже доходят до обязанности — и считают пункт показанным — только пока Assistant включён
+  (review, раунд 2).
 - Почему здесь: `view()` строят и фоновый цикл, и уведомления; review, раунд 1, показал, что через сутки такой счёт
   ставил обязанность на паузу (`ignored`) до того, как пользователь включил Assistant-а.
 - Без него: обязанности замолкали бы сами, ни разу не показав пункт.
@@ -253,6 +260,8 @@ function runningAssistant(): AssistantConversation | null {
 - Review, раунд 1: новые test-ы в `test/unit/assistant-window.test.ts`, `assistant-panel.test.tsx` и
   `assistant-speech.test.tsx` красные до правки (9 и 6 упавших), зелёные после; семь mutant-ов правок раунда — каждый
   даёт exit 1.
+- Review, раунд 2: три новых test-а красные до правки, зелёные после; три mutant-а (правило, которое держит другая оценка;
+  номер серии; реакция при выключенном Assistant-е) — exit 1.
 - `test/e2e/assistant.spec.ts` (список, like, dislike, Undo) локально не запускался: e2e запускает CI.
 
 ## Проверить себя
@@ -264,7 +273,7 @@ function runningAssistant(): AssistantConversation | null {
 2. Почему пять раундов dislike и Undo больше не ставят обязанность на паузу?
    - Ответ: запись оценки помнит, кому она засчитана, и снятие идёт в `duties.unrate`: оно снимает счётчик, шаг серии
      dislike-ов и паузу, которую серия начала, и удаляет правило этого пункта.
-   - Строки: `src/main/assistant/window/view.ts:496-498`
+   - Строки: `src/main/assistant/window/view.ts:504-506`
 3. Придёт ли системное уведомление о срочном пункте, который появился, пока worfy был впереди, когда пользователь
    переключится в другое приложение?
    - Ответ: нет: пункт попадает в `done` при первом взгляде, ещё до проверки фокуса, и больше не рассматривается.
