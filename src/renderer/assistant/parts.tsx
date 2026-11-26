@@ -16,15 +16,16 @@ import { closeCard, itemAction, prepareItem, rate, snoozeItem, undoDislike, type
 /**
  * The text of a message the Assistant wrote — in the Chat and the morning summary of Summary — as Markdown, with the
  * renderer of the Session view (markdown/Markdown.tsx, `breaks` as the transcript has it; worfy-polish ticket 162).
- * That renderer keeps raw HTML as text, loads no image and opens only http(s):// links, in the browser: an answer may
- * quote outside text from a source (worfy-assistant ticket 09), and that text acts on nothing. One-line labels — an
- * item's title and reason, the Journal's rows, the speech card's head — stay plain text, and so do the user's messages,
- * as in the Session view. No Project: a relative link of the Assistant names no Project's file, so it opens nothing.
+ * That renderer keeps raw HTML as text and loads no image. An answer may quote outside text from a source
+ * (worfy-assistant ticket 09): its http(s):// links still open, in the browser, so `showLinkHost` puts the host a link
+ * opens beside one whose text names something else — «Approve (evil.example)». Other schemes open nothing. One-line
+ * labels — an item's title and reason, the Journal's rows, the speech card's head — stay plain text, and so do the
+ * user's messages, as in the Session view. No Project: a file link names no Project's file, so it is inert text.
  */
 export function AssistantWords({ text }: { text: string }): ReactElement {
   return (
     <div className="w-asst-text w-asst-md">
-      <Markdown text={text} breaks />
+      <Markdown text={text} breaks showLinkHost />
     </div>
   )
 }

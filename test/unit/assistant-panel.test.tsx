@@ -385,7 +385,7 @@ describe('the Assistant’s messages as Markdown (worfy-polish ticket 162)', () 
     expect(said.textContent).toContain('<img src="x" onerror="globalThis.pwned = 1">')
   })
 
-  it('keeps outside text the Assistant quotes from a source inert: no markup, no image fetched, no link that acts', () => {
+  it('keeps outside text the Assistant quotes from a source from acting on its own: raw markup is text, no image is fetched, javascript: and file: links do nothing', () => {
     // What a Slack message may carry into the Assistant's answer when it quotes it (outside-text JSON, worfy-assistant 09).
     const quoted = [
       'Teammate A wrote in #shop-api:',
@@ -407,6 +407,34 @@ describe('the Assistant’s messages as Markdown (worfy-polish ticket 162)', () 
     fireEvent.click(within(said).getByText('Open settings'))
     expect((globalThis as { pwned?: unknown }).pwned).toBeUndefined()
     expect(ipc.invoke).not.toHaveBeenCalledWith('shell.openExternal', expect.anything())
+  })
+
+  it('shows the real host next to a quoted link whose text names another address (review round 1)', async () => {
+    const quoted = ['> Please look: [https://jira.example/SHOP-12](https://evil.example/steal)', '>', '> or [Approve][2]', '', '[2]: https://evil.example/ref'].join('\n')
+    const said = within(chat(message('m1', quoted))).getByTestId('assistant-message')
+    const disguised = within(said).getByRole('link', { name: 'https://jira.example/SHOP-12' })
+    expect(disguised.nextElementSibling?.className).toBe('w-md__link-host')
+    expect(disguised.nextElementSibling?.textContent).toBe('(evil.example)')
+    const approve = within(said).getByRole('link', { name: 'Approve' })
+    expect(approve.nextElementSibling?.textContent).toBe('(evil.example)')
+    // An http(s) link of a quote still opens, in the browser: the host beside it says where.
+    fireEvent.click(approve)
+    await waitFor(() => expect(ipc.invoke).toHaveBeenCalledWith('shell.openExternal', { url: 'https://evil.example/ref' }))
+  })
+
+  it('shows no extra host for a link whose text is its own address', () => {
+    const text = ['[https://example.com/page](https://example.com/page) and https://example.com/bare and [example.com/x](https://example.com/x)'].join('\n')
+    const said = within(chat(message('m1', text))).getByTestId('assistant-message')
+    expect(within(said).getAllByRole('link')).toHaveLength(3)
+    expect(said.querySelector('.w-md__link-host')).toBeNull()
+  })
+
+  it('shows a file link of a message, which names no Project, as inert text, not a link', () => {
+    const said = within(chat(message('m1', 'Read [rel](foo.md), [disk](/etc/passwd) and [win](C:\\Users\\x\\f.md).'))).getByTestId('assistant-message')
+    expect(within(said).queryByRole('link')).toBeNull()
+    expect([...said.querySelectorAll('.w-md__inert-link')].map((each) => each.textContent)).toEqual(['rel', 'disk', 'win'])
+    fireEvent.click(within(said).getByText('rel'))
+    expect(ipc.invoke).not.toHaveBeenCalledWith('shell.openInEditor', expect.anything())
   })
 
   it('keeps the user’s own message plain text, as the Session view does', () => {
