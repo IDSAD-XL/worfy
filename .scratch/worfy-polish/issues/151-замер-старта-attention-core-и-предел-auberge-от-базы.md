@@ -47,8 +47,10 @@ Project-а пишет `assistant-items.json` синхронно и с прове
 
 - [ ] Стоимость старта attention core на Project-е из 155 Ticket-ов замерена (CPU profile или timing marks), числа в
       «Итог».
+  - evidence: test-run pass · unit-level timing in vitest (682 Tickets, file store): 96 writes 24-35 ms before, 1 write 3-12 ms after; local e2e with temporary timing marks before the e2e ban: 51 ms of 825 ms N, numbers in Итог · mac - · 756c189708fbfac3356991fc29f1b0db8d4250a5
 - [ ] Если записи заметны — одно сохранение на scope за tick, test на ядро это проверяет; иначе в «Итог» — почему
       код не тронут.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-*.test.ts test/contract/assistant-*.test.ts test/unit/e2e-start-budget.test.ts test/unit/quarantine.test.ts test/unit/quarantine-suggest.test.ts` exit 0 (19 files, 318 passed) · mac - · 756c189708fbfac3356991fc29f1b0db8d4250a5
 - [ ] Предел Auberge-test-а на CI зависит от замеренной базы, не от потолка; `START_MS` = 3000 не поднят;
       `test/unit/e2e-start-budget.test.ts` проверяет новое правило.
 - [ ] Карантин снят: записи и метки нет; `test/unit/quarantine.test.ts` зелёный.
