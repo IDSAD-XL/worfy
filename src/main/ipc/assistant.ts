@@ -2,7 +2,8 @@
 // that opens the view gets the whole view again on `assistant.changed` after every change, until it is destroyed. Each
 // click is the section's own function in main (src/main/assistant/window/view.ts), which refuses, with the reason, an
 // item or a message that is no longer there. A window that opens the view follows the section: a clicked notification
-// reveals the section in it (AssistantReveal).
+// reveals the section in it (AssistantReveal). `assistant.waiting` is the one channel a Linked machine reaches
+// (worfy-assistant ticket 18): it reads what waits here, and the link adapter answers it by the caller's access level.
 import {
   assistantChanged,
   assistantDismissProposal,
@@ -14,6 +15,7 @@ import {
   assistantShown,
   assistantSnooze,
   assistantStart,
+  assistantWaiting,
 } from '../../shared/ipc/assistant'
 import { appAssistantReveal, appAssistantWindow } from '../assistant/window/app'
 import type { AssistantReveal } from '../assistant/window/reveal'
@@ -64,6 +66,7 @@ export function assistantHandlers(section: () => AssistantWindow, reveal: () => 
       section().send(text)
       return {}
     }),
+    defineHandler(assistantWaiting, () => section().waiting()),
   ]
 }
 

@@ -67,6 +67,7 @@ const view = (over: Partial<AssistantView> = {}): AssistantView => ({
   summary: { id: 'summary-1', since: NOW - 16 * 3_600_000, came: 2, done: 0, stopped: 0, waiting: 2, projects: [], first: [], morning: null, rating: null },
   usage: { today: 1200, week: 5400, fiveHour: 0.02, sevenDay: 0.01, estimate: true },
   workHours: true,
+  linked: [],
   ...over,
 })
 
@@ -186,5 +187,50 @@ describe('the Assistant section', () => {
     const usage = screen.getByTestId('assistant-usage')
     expect(usage.textContent).toMatch(/1[.,]?2\s?k|1,?200/)
     expect(usage.textContent?.toLowerCase()).toContain('estimate')
+  })
+})
+
+// worfy-assistant ticket 18 (spec, two machines; boundary 5): what waits on the Linked machine is in the list too, under
+// its Machine's name, read-only: its own Assistant keeps it, so nothing here acts on it.
+describe('the Linked machine in the section', () => {
+  const PC_ITEM = {
+    id: 'pc-1',
+    title: 'Asks: Deploy the docs now?',
+    source: 'session',
+    sourceLabel: 'Session',
+    subject: { kind: 'session', label: 'docs 02' },
+    kind: 'question',
+    projectId: 'docs-9',
+    projectName: 'docs-site',
+    duty: 'Waits for you',
+    urgent: true,
+    startedAt: NOW - 600_000,
+    lastAt: NOW - 600_000,
+    outside: null,
+  }
+
+  it('lists what waits on the Linked machine under its name, read-only, with no button that acts', () => {
+    render(<AssistantPanel view={view({ linked: [{ id: 'pc', name: 'PC', online: true, projects: [{ id: 'docs-9', name: 'docs-site' }], items: [PC_ITEM], problem: null }] })} />)
+    const group = screen.getByTestId('assistant-linked')
+    expect(group.textContent).toContain('On PC')
+    expect(group.textContent).toContain('read-only')
+    const [linked] = within(group).getAllByTestId('assistant-linked-item')
+    expect(linked!.textContent).toContain('Asks: Deploy the docs now?')
+    expect(linked!.textContent).toContain('docs-site')
+    expect(linked!.textContent).toContain('Waits for you')
+    expect(within(linked!).queryAllByRole('button')).toEqual([])
+    // This Machine's own items keep their buttons.
+    expect(within(card('item-1')).getByRole('button', { name: 'Like' })).toBeTruthy()
+  })
+
+  it('says why a Linked machine shows nothing: offline, or access off', () => {
+    render(<AssistantPanel view={view({ linked: [{ id: 'pc', name: 'PC', online: false, projects: [], items: [], problem: 'PC is offline' }] })} />)
+    expect(screen.getByTestId('assistant-linked').textContent).toContain('PC is offline')
+    expect(screen.queryAllByTestId('assistant-linked-item')).toEqual([])
+  })
+
+  it('shows no Linked machine part without one', () => {
+    render(<AssistantPanel view={view()} />)
+    expect(screen.queryByTestId('assistant-linked')).toBeNull()
   })
 })

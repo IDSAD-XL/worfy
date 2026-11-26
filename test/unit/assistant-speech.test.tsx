@@ -40,6 +40,7 @@ const view = (items: WindowItem[], on = true): AssistantView => ({
   summary: { id: 'd', since: 0, came: 0, done: 0, stopped: 0, waiting: 0, projects: [], first: [], morning: null, rating: null },
   usage: { today: 0, week: 0, fiveHour: null, sevenDay: null, estimate: true },
   workHours: true,
+  linked: [],
 })
 
 describe('the speech cards of the Assistant', () => {
