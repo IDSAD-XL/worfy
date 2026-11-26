@@ -428,26 +428,50 @@ describe('pr-follow is never self (ticket 24, the owner\'s decision of 2026-11-2
     void w.core.ingest({ source: 'pr-inbox', id: 'acme/app#7:needs-review', revision: '2026-11-25T09:30:00Z', projectId: PROJECT, subject: { kind: 'pr', id: 'acme/app#7', label: 'acme/app#7 Fix' }, kind: 'needs-review', text: 'Needs your review: acme/app#7 Fix' })
   const prFollowMode = (w: ReturnType<typeof world>) => w.look().shown.find((each) => each.duty === 'waits-for-user')!.proposals.find((each) => each.action === 'pr-follow')?.mode
 
-  it('one list says which modes each action may have: pr-follow never self, the rest all four', () => {
-    expect(DUTY_ACTION_ALLOWED_MODES['pr-follow']).toEqual(['pre-approved', 'ask', 'hand-over'])
+  it('one list says which modes each action may have: pr-follow only ask or hand-over (ticket 26), the rest all four', () => {
+    expect(DUTY_ACTION_ALLOWED_MODES['pr-follow']).toEqual(['ask', 'hand-over'])
     for (const [action, modes] of Object.entries(DUTY_ACTION_ALLOWED_MODES)) if (action !== 'pr-follow') expect(modes, action).toEqual(DUTY_ACTION_MODES)
     // Every built-in default is a mode its action may have.
     for (const duty of BUILTIN_DUTIES) for (const [action, mode] of Object.entries(duty.actions)) expect(DUTY_ACTION_ALLOWED_MODES[action as keyof typeof DUTY_ACTION_ALLOWED_MODES], `${duty.id} ${action}`).toContain(mode)
   })
 
-  it('configure refuses self for pr-follow with a reason and changes nothing; the other modes, and self for autopilot-start, are taken', () => {
+  it('configure refuses self and pre-approved for pr-follow with a reason and changes nothing; ask, hand-over, and every mode of autopilot-start, are taken', () => {
     const w = world()
     w.duties.configure('waits-for-user', { modes: { 'pr-follow': 'hand-over' } })
-    expect(() => w.duties.configure('waits-for-user', { modes: { 'pr-follow': 'self' } })).toThrow(/pr-follow.*self/)
-    expect(() => w.duties.configure('waits-for-user', { modes: { open: 'ask', 'pr-follow': 'self' } })).toThrow()
+    for (const mode of ['self', 'pre-approved'] as const) {
+      expect(() => w.duties.configure('waits-for-user', { modes: { 'pr-follow': mode } })).toThrow(new RegExp(`pr-follow may not be ${mode}: it may be ask, hand-over`))
+      expect(() => w.duties.configure('waits-for-user', { modes: { open: 'ask', 'pr-follow': mode } })).toThrow()
+    }
     expect(w.status('waits-for-user').modes).toEqual({ open: 'hand-over', 'pr-follow': 'hand-over' })
     expect(w.memory().duties['waits-for-user'].modes).toEqual({ 'pr-follow': 'hand-over' })
-    for (const mode of ['pre-approved', 'ask', 'hand-over'] as const) {
+    for (const mode of ['ask', 'hand-over'] as const) {
       w.duties.configure('waits-for-user', { modes: { 'pr-follow': mode } })
       expect(w.status('waits-for-user').modes['pr-follow']).toBe(mode)
     }
-    w.duties.configure('work-stalled', { modes: { 'autopilot-start': 'self' } })
-    expect(w.status('work-stalled').modes['autopilot-start']).toBe('self')
+    for (const mode of DUTY_ACTION_MODES) {
+      w.duties.configure('work-stalled', { modes: { 'autopilot-start': mode } })
+      expect(w.status('work-stalled').modes['autopilot-start']).toBe(mode)
+    }
+  })
+
+  it('a memory file that holds pre-approved for pr-follow, chosen before ticket 26, reads it as the default ask, with a line in the log', () => {
+    const w = world()
+    const file = assistantMemoryPath(w.root)
+    mkdirSync(dirname(file), { recursive: true })
+    const counters = { shown: 0, accepted: 0, declined: 0, ignored: 0, liked: 0, disliked: 0 }
+    writeFileSync(file, JSON.stringify({ duties: { 'waits-for-user': { modes: { 'pr-follow': 'pre-approved', open: 'ask' }, counters, streak: 0 }, 'work-stalled': { modes: { 'autopilot-start': 'pre-approved' }, counters, streak: 0 } }, rules: [], items: {} }))
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      prItem(w)
+      w.add(20 * MIN)
+      expect(prFollowMode(w)).toBe('ask')
+      expect(w.status('waits-for-user').modes).toEqual({ open: 'ask', 'pr-follow': 'ask' })
+      expect(w.status('work-stalled').modes['autopilot-start']).toBe('pre-approved')
+      expect(warn).toHaveBeenCalledWith(expect.stringMatching(/pr-follow: pre-approved/))
+      expect(w.memory().duties['waits-for-user'].modes).toEqual({ open: 'ask' })
+    } finally {
+      warn.mockRestore()
+    }
   })
 
   it('a memory file that holds self for pr-follow reads it as the default ask, with a line in the log; the rest of the file reads as written', () => {

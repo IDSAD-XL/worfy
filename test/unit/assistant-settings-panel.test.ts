@@ -63,7 +63,7 @@ describe('the view of Settings → Assistant', () => {
     expect(waits).toMatchObject({ title: 'Waits for you', enabled: true, thresholdMinutes: 15, paused: null, counters: { shown: 0, accepted: 0, declined: 0, ignored: 0, liked: 0, disliked: 0 } })
     expect(waits?.actions).toEqual([
       { action: 'open', mode: 'hand-over', allowed: ['self', 'pre-approved', 'ask', 'hand-over'] },
-      { action: 'pr-follow', mode: 'ask', allowed: ['pre-approved', 'ask', 'hand-over'] },
+      { action: 'pr-follow', mode: 'ask', allowed: ['ask', 'hand-over'] },
     ])
     expect(view().pauseAfter).toBe(5)
   })
@@ -114,10 +114,10 @@ describe('applying a change of the settings', () => {
     expect(stalled).toMatchObject({ enabled: false, modes: { 'wake-orchestrator': 'pre-approved' } })
   })
 
-  it('a change of a duty there is not, or a mode its action may not have, changes nothing at all', () => {
+  it('a change of a duty there is not, or a mode its action may not have (self or pre-approved of pr-follow), changes nothing at all', () => {
     const { duties, store } = world()
     const patches: unknown[] = []
-    for (const duties1 of [{ 'no-such-duty': { enabled: false } }, { 'waits-for-user': { modes: { 'pr-follow': 'self' } } }]) {
+    for (const duties1 of [{ 'no-such-duty': { enabled: false } }, { 'waits-for-user': { modes: { 'pr-follow': 'self' } } }, { 'waits-for-user': { modes: { 'pr-follow': 'pre-approved' } } }]) {
       const change = settingsChangeSchema.parse({ dailyWakeLimit: 10, duties: duties1 })
       expect(() => applySettingsChange(change, { duties, setSettings: (patch) => void patches.push(patch) })).toThrow()
     }

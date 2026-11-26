@@ -148,7 +148,6 @@ function thisAssistant(level: AccessLevel) {
     throw new Error('an action of the Linked machine reached a function of main')
   }
   const closedList = { act: vi.fn(refuse) }
-  const prFollow = vi.fn(refuse)
   const autopilotStart = vi.fn(refuse)
   const journal = vi.fn()
   const proposals = new ProposalBook({ now: () => NOW, id: () => 'prop-1' })
@@ -165,7 +164,6 @@ function thisAssistant(level: AccessLevel) {
     limits: () => ({ windows: {} }),
     proposals,
     closedList,
-    prFollow,
     autopilotStart,
     sessionId: () => null,
     journal,
@@ -174,7 +172,7 @@ function thisAssistant(level: AccessLevel) {
     buildVersion: () => null,
     memory: { note: refuse, forget: refuse },
   })
-  return { call, closedList, prFollow, autopilotStart, journal, proposals, waits }
+  return { call, closedList, autopilotStart, journal, proposals, waits }
 }
 
 describe("worfy-app gives the Linked machine's Projects to read, and refuses to act on them (seam B)", () => {
@@ -215,8 +213,8 @@ describe("worfy-app gives the Linked machine's Projects to read, and refuses to 
   it('refuses every action, proposal and Prepare on the Linked machine\'s item or Project; nothing reaches main', async () => {
     const w = thisAssistant('read')
     const [item] = json<{ linked: { items: { id: string }[] }[] }>(await w.call('items_list', {})).linked[0]!.items
-    for (const action of ['wake-orchestrator', 'continue-session', 'pr-follow', 'autopilot-start']) {
-      const answer = await w.call('action_run', { item: item!.id, action, follow: 'fixChecks', epic: 'worfy-x' })
+    for (const action of ['wake-orchestrator', 'continue-session', 'autopilot-start']) {
+      const answer = await w.call('action_run', { item: item!.id, action, epic: 'worfy-x' })
       expect(answer.isError, action).toBe(true)
       expect(textOf(answer), action).toMatch(/waits on the Linked machine PC: its Projects are read-only/u)
     }
@@ -236,7 +234,6 @@ describe("worfy-app gives the Linked machine's Projects to read, and refuses to 
       expect(textOf(answer), name).toMatch(/is a Project of the Linked machine PC/u)
     }
     expect(w.closedList.act).not.toHaveBeenCalled()
-    expect(w.prFollow).not.toHaveBeenCalled()
     expect(w.autopilotStart).not.toHaveBeenCalled()
     expect(w.journal).not.toHaveBeenCalled()
     expect(w.proposals.list()).toEqual([])

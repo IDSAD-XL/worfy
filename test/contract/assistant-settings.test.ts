@@ -119,7 +119,7 @@ describe('the channels of Settings → Assistant and of Apply', () => {
     })
     expect(await call('assistant.apply', { proposalId: 'p1' })).toEqual({ ok: true, value: {} })
     expect(await call('assistant.apply', { proposalId: 'gone' })).toMatchObject({ ok: false, error: expect.stringContaining('This proposal is no longer there') })
-    expect(await call('assistant.configureDuty', { dutyId: 'waits-for-user', modes: { 'pr-follow': 'pre-approved' } })).toEqual({ ok: true, value: {} })
+    expect(await call('assistant.configureDuty', { dutyId: 'waits-for-user', modes: { 'pr-follow': 'hand-over' } })).toEqual({ ok: true, value: {} })
     expect((await call('assistant.configureDuty', { dutyId: 'waits-for-user', modes: { 'pr-follow': 'always' } })).ok).toBe(false)
     expect(await call('assistant.resumeDuty', { dutyId: 'source:slack' })).toEqual({ ok: true, value: {} })
     expect(await call('assistant.pauseAfter', { count: 3 })).toEqual({ ok: true, value: {} })
@@ -128,7 +128,7 @@ describe('the channels of Settings → Assistant and of Apply', () => {
     expect(await call('assistant.checkNow', { kind: 'jira' })).toEqual({ ok: true, value: { started: false, refused: 'check-off' } })
     expect(got).toEqual([
       ['apply', 'p1'],
-      ['configure', 'waits-for-user', { modes: { 'pr-follow': 'pre-approved' } }],
+      ['configure', 'waits-for-user', { modes: { 'pr-follow': 'hand-over' } }],
       ['resume', 'source:slack'],
       ['pauseAfter', 3],
       ['checkNow', 'slack'],

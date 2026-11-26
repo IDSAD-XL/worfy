@@ -17,9 +17,10 @@ import { assistantProposalSchema } from '../../../shared/assistant/proposals'
 import { readJsonFile, writeJsonFile } from '../../storage/json-file'
 
 /**
- * The modes the user chose, by action. A mode its action may not have (DUTY_ACTION_ALLOWED_MODES: `self` of
- * `pr-follow`, written by hand or by an older build) reads as not chosen — the duty's default holds — with a line in
- * the log; the rest of the file reads as written, and the next write of the duties leaves that mode out (ticket 24).
+ * The modes the user chose, by action. A mode its action may not have (DUTY_ACTION_ALLOWED_MODES: `self` or
+ * `pre-approved` of `pr-follow`, written by hand or chosen in an older build) reads as not chosen — the duty's default
+ * holds — with a line in the log; the rest of the file reads as written, and the next write of the duties leaves that
+ * mode out (tickets 24 and 26).
  */
 const dutyModesSchema = z.partialRecord(z.enum(DUTY_ACTIONS), dutyActionModeSchema).transform((modes) => {
   const kept: Partial<Record<DutyAction, DutyActionMode>> = {}

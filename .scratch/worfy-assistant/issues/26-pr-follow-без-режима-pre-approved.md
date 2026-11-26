@@ -1,7 +1,7 @@
 # 26 — Действие `pr-follow` только `ask` или `hand-over`: режим `pre-approved` для него тоже запрещён
 
 Type: task
-Status: open
+Status: claimed 2026-11-26T10:01Z
 Blocked by: —
 Source: решение владельца 2026-11-26, второй раунд (Q1–Q6, «все да»), Q1; поправка к Ticket-у 24 и к решению 2
 [Ticket-а 09](09-mcp-сервер-worfy-app.md) («Решено без владельца»); ADR-0114, пункт 4 (сам Assistant делает только
@@ -90,8 +90,68 @@ Ticket 24 запретил для него `self`, но оставил `pre-appr
 
 - [ ] Unit test: `pre-approved` и `self` для `pr-follow` нельзя выбрать в `Duties.configure`; `ask`, `hand-over` и
       режимы остальных действий — как сейчас.
+  - evidence: test-run pass · `pnpm test test/unit/assistant-duties.test.ts` exit 0 · mac - · 193eca821
 - [ ] Unit test: `pre-approved` для `pr-follow` из файла памяти читается как `ask`.
+  - evidence: test-run pass · `pnpm test test/unit/assistant-duties.test.ts test/unit/assistant-session.test.ts` exit 0 · mac - · 193eca821
 - [ ] Contract test: `action_run` не запускает `pr-follow` в режиме `pre-approved`.
+  - evidence: test-run pass · `pnpm test test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 193eca821
 - [ ] Settings не предлагает `pre-approved` для `pr-follow` (test, если Ticket 15 влит; иначе строка в «Итог»).
+  - evidence: test-run pass · `pnpm test test/unit/assistant-settings-panel.test.ts test/unit/settings-assistant.test.tsx test/contract/worfy-app-tools.test.ts` exit 0 · mac - · 193eca821
 - [ ] «Итог»: все места, где `pre-approved` для `pr-follow` теперь отклоняется, с `file:line`.
+  - evidence: commit pass · worfy-assistant/26: pr-follow is only ask or hand-over; action_run no longer runs it · - - · 193eca821
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 193eca821
+
+## Итог
+
+У `pr-follow` остались только `ask` и `hand-over`, а `action_run` сервера `worfy-app` больше не знает действия
+`pr-follow`: Assistant его только предлагает, запускает пользователь. Все места отказа читают один список.
+
+- **Список** — `DUTY_ACTION_ALLOWED_MODES['pr-follow']` = `ask`, `hand-over` (`src/shared/assistant/duties.ts:45`),
+  комментарий над списком (`:30-38`) говорит, почему и `pre-approved` запрещён. `autopilot-start` и остальные
+  действия — все четыре режима, как было.
+- **Отказ при выборе** — `Duties.configure` (`src/main/assistant/duties/duties.ts:190`): `pr-follow: pre-approved`
+  бросает «The action pr-follow may not be pre-approved: it may be ask, hand-over», ничего не меняется.
+- **Отказ при чтении** — `dutyModesSchema` (`src/main/assistant/duties/memory.ts:28`): `pre-approved`, выбранный до
+  этого Ticket-а, читается как не выбранный — действует `ask` по умолчанию, одна строка в log; следующая запись
+  обязанностей убирает запись. Первое сообщение Session Assistant-а (`readMemoryView`) читает ту же схему и
+  `pre-approved` не показывает.
+- **Settings** — экран обязанностей Ticket-а 15 (влит, #2266) берёт режимы из списка: main отдаёт `allowed`
+  (`src/main/assistant/settings/panel.ts:63`), экран рисует только их (`src/renderer/settings/AssistantSection.tsx:238`).
+  Кнопки «Pre-approved» у `pr-follow` нет.
+- **Карточка «было → станет»** — `dutyChangeProblems` (`src/shared/assistant/settings-change.ts:157`) отказывает режим,
+  запрещённый действию, в двух местах: `proposal_create` с `change` (`src/main/mcp/app-server.ts:484`) и Apply
+  (`src/main/assistant/settings/panel.ts:91`) — так и карточка, созданная до этого Ticket-а, на Apply ничего не меняет.
+- **Действие** — `APP_ACTIONS` без `pr-follow` (`src/shared/assistant/app-tools.ts:23`), у `action_run` нет аргумента
+  `follow` (`:50`): `action_run` с `pr-follow` в любом режиме — отказ схемы, main ничего не запускает. Ушли ветка
+  `pr-follow` в `act`, `prOf` и зависимость `prFollow` сервера (`src/main/mcp/app-server.ts`).
+- **Тексты для модели** — описание `action_run` (`src/shared/assistant/app-tools.ts:96-97`), правила Session
+  (`src/main/mcp/agent-instructions-app.md:19-20`) и комментарий в начале `app-server.ts` (`:19-25`): `pr-follow` всегда
+  предложение или дело пользователя.
+- Не менялось, сверено: `src/main/assistant/actions/auto.ts:64` — main сам делает только действия закрытого списка
+  (`isClosedAction`), `pr-follow` в нём нет.
+- Test-ы: `test/unit/assistant-duties.test.ts` (список; `configure` отказывает `self` и `pre-approved`, принимает `ask`,
+  `hand-over` и все режимы `autopilot-start`; файл памяти с `pre-approved`), `test/unit/assistant-session.test.ts`
+  (первое сообщение без `self` и `pre-approved`), `test/unit/assistant-settings-panel.test.ts` (`allowed` у `pr-follow`;
+  Apply отказывает `pre-approved`), `test/unit/settings-assistant.test.tsx` (кнопки «Pre-approved» нет),
+  `test/contract/worfy-app-tools.test.ts` (`proposal_create` с `pr-follow: pre-approved` отказан; `action_run` с
+  `pr-follow` в любом режиме, пришедшем в обход обязанностей, отказан, ничего не запущено, журнал пуст).
+
+### Решено без владельца
+
+1. **`pr-follow` убран из `action_run`, а не оставлен с одним отказом.** После этого Ticket-а ни один режим `pr-follow`
+   не доходит до запуска: `ask` и `hand-over` `action_run` отказывает раньше. Оставленная ветка запуска была бы кодом,
+   до которого не дойти и который не проверить test-ом; список действий в схеме tool-а сам говорит модели, что
+   `pr-follow` она не делает. Цена: test-ы ветки `pr-follow` (отказ launcher-а, пока идёт Autopilot; строка журнала
+   этого отказа) ушли вместе с ней; строку журнала и «журнал не записан — ответ остаётся» теперь проверяет
+   `autopilot-start`. Отказ launcher-а при Autopilot проверяют его собственные test-ы. Если владелец снова разрешит
+   `pre-approved`, ветку придётся вернуть (её прежний вид — в коде после PR #2260 Ticket-а 24).
+2. **Проверка режима в `act` осталась** (Ticket 24): она общая для любого действия `action_run` и сработает, если список
+   режимов сузят для `autopilot-start` или действия закрытого списка. Сегодня она не срабатывает: у оставшихся действий
+   разрешены все четыре режима.
+3. **Тексты для модели говорят про `pr-follow` прямо** — в описании `action_run` и в правилах Session: иначе модель,
+   увидев у элемента `pr-follow` с режимом `ask`, могла бы попробовать `action_run` и получить только отказ схемы без
+   объяснения.
+4. **Test IPC `assistant.configureDuty`** (`test/contract/assistant-settings.test.ts`) теперь передаёт
+   `pr-follow: hand-over`: схема IPC режимы не сужает (это делает `Duties.configure`), но пример запрещённого режима в
+   test-е вводил бы в заблуждение.

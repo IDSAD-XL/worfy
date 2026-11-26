@@ -28,11 +28,13 @@ export const DUTY_ACTIONS = ['open', 'wake-orchestrator', 'continue-session', 'f
 export type DutyAction = (typeof DUTY_ACTIONS)[number]
 
 /**
- * The modes each action may have (worfy-assistant ticket 24, the owner's decision of 2026-11-26; ADR-0114, point 4:
- * the Assistant does by itself only the actions of the closed list). `pr-follow` starts a Session that works on a PR,
- * outside the closed list: never `self`; `pre-approved` stays, for choosing it is the user's «yes» given in advance.
+ * The modes each action may have (worfy-assistant tickets 24 and 26, the owner's decisions of 2026-11-26; ADR-0114,
+ * point 4: the Assistant does by itself only the actions of the closed list). `pr-follow` starts a Session that works on
+ * a PR, outside the closed list: only `ask` or `hand-over`. `pre-approved` would start it with no question exactly as
+ * `self` does, so it is refused too (ticket 26), and `action_run` has no `pr-follow` at all.
  * `autopilot-start` keeps all four: it only opens the Start Autopilot dialog, and the dialog is the user's confirmation.
- * main refuses any other mode (Duties.configure, the memory file, `action_run`); the settings offer only these.
+ * main refuses any other mode (Duties.configure, the memory file, a proposed change of the settings and its Apply); the
+ * settings offer only these.
  */
 export const DUTY_ACTION_ALLOWED_MODES: Readonly<Record<DutyAction, readonly DutyActionMode[]>> = Object.freeze({
   open: DUTY_ACTION_MODES,
@@ -40,7 +42,7 @@ export const DUTY_ACTION_ALLOWED_MODES: Readonly<Record<DutyAction, readonly Dut
   'continue-session': DUTY_ACTION_MODES,
   'fix-session': DUTY_ACTION_MODES,
   summary: DUTY_ACTION_MODES,
-  'pr-follow': ['pre-approved', 'ask', 'hand-over'],
+  'pr-follow': ['ask', 'hand-over'],
   'autopilot-start': DUTY_ACTION_MODES,
 })
 
