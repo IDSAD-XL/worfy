@@ -40,6 +40,13 @@ them, the link "worfy Guide" opens the [worfy Guide](app-shell.md#worfy-guide) o
 checks already run behind it. "Next" goes to them. "Close" closes the dialog like any other close, so the page does not come
 again by itself. Opened in any other way, First run starts on the checks.
 
+**The page "Meet Assistant".** Between the welcome page and the checks, worfy offers the
+[Assistant](app-shell.md#sidebar) once, while the offer stands: the Assistant is off, has never introduced itself, and the
+user has neither turned it on nor refused it. The page says what the Assistant does and never does, and that it uses the
+user's Claude Limits; it shows no price. "Turn on and meet" turns the Assistant on, and it introduces itself in its
+section. "Not now" refuses the offer for good. Either one goes on to the checks. Closed on this page, First run closes as
+from the welcome page, and the offer stays at the top of the Assistant's section.
+
 **The checks.** Each row has a chip (OK, Warning, Failed, Unknown, or Running… while its action runs), what was found, a line
 of what to do, and sometimes a command with "Copy" or an action button. A row not in OK names its level beside its name:
 "Critical" or "Non-critical". A row that could not be checked says "Couldn't check: <reason>" in place of what was found,
@@ -204,6 +211,13 @@ in the app settings, so it outlives a restart and is the same in every window of
 
 The notice stays until the user answers or closes it. However it left, it does not come back in a later window or start. "Open"
 shows the panel.
+
+An existing user is offered the Assistant once in the same way, while the offer stands: one notice in the corner, "New:
+Assistant, worfy’s own agent, tells you what waits across your Projects and why. It is off until you turn it on.", with "Meet
+Assistant" and "Not now". "Not now" refuses the offer for good. "Meet Assistant" opens the Assistant's section, where the
+offer stands with "Turn on and meet". Closed any other way, the notice does not come back, and the offer stays in the
+section. A new user gets the offer on the page "Meet Assistant" of First run instead. Nothing is forced: the Assistant stays
+off until the user turns it on.
 
 **The steps.** A step marks itself when the fact is true, in any order, also when the work was done another way. The first
 unmarked step is the current one, and only it has a button. A button is a shortcut, not a condition. A marked step shows a

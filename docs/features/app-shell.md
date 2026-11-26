@@ -41,6 +41,17 @@ nothing starts until Start. While the Assistant is on, its own notification is a
 colour, one at a time, the rest a number on the icon; when worfy is not in front, a system notification titled
 "worfy Assistant" comes only for an urgent item and only in work hours, and a click opens the section.
 
+The Assistant is off until the user turns it on (worfy-assistant ticket 16). worfy offers it once: on the page "Meet
+Assistant" of [First run](onboarding.md#first-run) for a new user, in one notice in the corner for an existing one, and at
+the top of the section while the offer stands — "Turn on and meet" or "Not now", which ends the offer for good. The first
+time the Assistant is turned on, by the offer or in Settings → Assistant, it introduces itself in the conversation, in the
+language of the Guide: who it is, what it does and what it can, which of Slack and Jira it sees connected in claude.ai
+and where to connect the others (claude.ai → Settings → Connectors). It never asks for a token. It asks the work hours,
+and a card "before → after" with the first setup follows: the work hours Monday to Friday, 09:00–18:00 in this Machine's
+zone, unless chosen, and the check of each connected source. Nothing changes until Apply. worfy writes the introduction
+itself, without a model, so it costs no tokens; an Assistant that was on before the introduction existed is not
+introduced.
+
 **Health check** is a button of the rail right above Machines, always there. It is not a section: it shows nothing in the
 panel, and a click opens Settings → Health ([First run](onboarding.md#first-run) describes the rows). Like Settings, it is
 not one of the tabs that ↑ and ↓ walk; Tab reaches it after them. Its dot is the worst level of the Health check report of
@@ -129,6 +140,7 @@ watcher. Only the open Project's documents are watched.
 |---|---|
 | Strip, rail and panel | `src/renderer/shell/Sidebar.tsx`, `src/renderer/shell/shell.css` |
 | The Assistant's section, speech card and Prepare | `src/renderer/shell/sidebar/AssistantSection.tsx`, `src/renderer/assistant/`, in main `src/main/assistant/window/` and `src/main/ipc/assistant.ts`, channels in `src/shared/ipc/assistant.ts`, tokens `--assistant*` in `src/renderer/theme/tokens.css` |
+| The offer of the Assistant and its introduction | `src/renderer/assistant/Offer.tsx`, `src/renderer/assistant/offer-notice.ts`, the page in `src/renderer/shell/FirstRun.tsx`, in main `src/main/assistant/intro/` (its words in `src/main/assistant/intro/words/`), the state in `src/shared/assistant/intro.ts` |
 | Health check button and its dot | `HealthRailButton` in `src/renderer/shell/Sidebar.tsx`, `openHealthCheck` in `src/renderer/settings/settings-window.ts`, the worst level in `src/shared/health/severity.ts`, the tokens `--health-critical` and `--health-warning` in `src/renderer/theme/tokens.css` |
 | Frame of a section | `src/renderer/shell/SidebarSection.tsx`, `src/renderer/shell/sidebar-section.css` |
 | Project switcher | `src/renderer/shell/ProjectSwitcher.tsx` |
@@ -138,7 +150,7 @@ watcher. Only the open Project's documents are watched.
 | Sections | `src/renderer/shell/sidebar/` |
 | Rail entries of the sections | `src/renderer/shell/registry.ts` |
 
-Main tests: `test/unit/sidebar-scope.test.tsx`, `test/unit/assistant-window.test.ts`, `test/unit/assistant-panel.test.tsx`, `test/unit/assistant-speech.test.tsx`, `test/e2e/assistant.spec.ts`, `test/unit/sidebar-section.test.tsx`, `test/unit/health-rail-button.test.tsx`, `test/unit/acceptance-section.test.tsx`, `test/e2e/sidebar-rail.spec.ts`,
+Main tests: `test/unit/sidebar-scope.test.tsx`, `test/unit/assistant-window.test.ts`, `test/unit/assistant-panel.test.tsx`, `test/unit/assistant-speech.test.tsx`, `test/unit/assistant-intro.test.ts`, `test/unit/assistant-offer.test.tsx`, `test/e2e/assistant.spec.ts`, `test/unit/sidebar-section.test.tsx`, `test/unit/health-rail-button.test.tsx`, `test/unit/acceptance-section.test.tsx`, `test/e2e/sidebar-rail.spec.ts`,
 `test/e2e/sidebar-sections.spec.ts`.
 
 ## Command palette

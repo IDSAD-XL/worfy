@@ -168,6 +168,9 @@ async function screen(window: Page, first: 'concepts' | 'checks'): Promise<Locat
   if (first === 'concepts') {
     await expect(dialog.getByRole('heading', { level: 2 })).toHaveText('Welcome to worfy')
     await dialog.getByRole('button', { name: 'Next' }).click()
+    // The one offer of the Assistant comes between (worfy-assistant ticket 16): refused, it goes on to the checks.
+    await expect(dialog).toHaveAttribute('data-page', 'assistant')
+    await dialog.getByRole('button', { name: 'Not now' }).click()
     await expect(dialog).toHaveAttribute('data-page', 'checks')
   }
   await expect(dialog.locator('[data-check]')).toHaveCount(CHECK_IDS.length, { timeout: ms(30_000) })

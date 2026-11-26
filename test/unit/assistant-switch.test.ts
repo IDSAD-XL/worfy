@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest'
 import { followAssistantSwitch } from '../../src/main/assistant/session/switch'
 
-function harness(initial: boolean, { startFails = false } = {}) {
+function harness(initial: boolean, { startFails = false, introduce = false } = {}) {
   let on = initial
   const listeners = new Set<() => void>()
   const calls: string[] = []
@@ -19,6 +19,7 @@ function harness(initial: boolean, { startFails = false } = {}) {
       return startFails ? null : () => void calls.push('stop')
     },
     changed: () => void calls.push('changed'),
+    ...(introduce ? { started: (atStartup: boolean) => void calls.push(`started ${atStartup ? 'with worfy' : 'later'}`) } : {}),
     log: (message) => void calls.push(`log: ${message}`),
   })
   const turn = (next: boolean): void => {
@@ -63,5 +64,20 @@ describe('the switch of the Assistant', () => {
     expect(listeners.size).toBe(0)
     turn(false)
     expect(calls).toHaveLength(3)
+  })
+
+  it('after each start the introduction hears of it, and whether the start came with worfy\'s own (worfy-assistant ticket 16)', () => {
+    const atStart = harness(true, { introduce: true })
+    expect(atStart.calls).toEqual(['start', 'changed', 'started with worfy'])
+    const later = harness(false, { introduce: true })
+    later.turn(true)
+    later.turn(false)
+    later.turn(true)
+    expect(later.calls).toEqual(['start', 'changed', 'started later', 'stop', 'changed', 'start', 'changed', 'started later'])
+  })
+
+  it('a start that does not take tells the introduction nothing', () => {
+    const { calls } = harness(true, { startFails: true, introduce: true })
+    expect(calls.some((call) => call.startsWith('started'))).toBe(false)
   })
 })

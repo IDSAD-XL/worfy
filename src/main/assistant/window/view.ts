@@ -23,6 +23,7 @@ import type { ActionJournalLine, ActionRefusal } from '../../../shared/assistant
 import { LINKED_ITEMS_MAX, linkedItemOf, type LinkedMachineWaits, type LinkedWaits } from '../../../shared/assistant/linked'
 import { OPEN_STATES, type AttentionItem, type AttentionState } from '../../../shared/assistant/attention'
 import type { DutyLook, MemoryRule, ShownItem } from '../../../shared/assistant/duties'
+import { NO_OFFER, type OfferView } from '../../../shared/assistant/intro'
 import type { AssistantProposal } from '../../../shared/assistant/proposals'
 import { changeRows, type ChangeRow, type SettingsChange, type SettingsNow } from '../../../shared/assistant/settings-change'
 import { inWorkHours, nextWorkHoursStart, type WorkHours } from '../../../shared/assistant/schedule/work-hours'
@@ -127,6 +128,8 @@ export interface AssistantWindowDeps {
   log?(message: string, error: unknown): void
   /** What each Linked machine last answered of what waits there (worfy-assistant ticket 18, linked.ts); none when absent. */
   linked?(): readonly LinkedMachineWaits[]
+  /** The one offer to turn the Assistant on (worfy-assistant ticket 16, src/main/assistant/intro/); none when absent. */
+  offer?(): OfferView
 }
 
 /** The first moment of the next work hours after the ones `moment` is in; the next start when it is outside them. */
@@ -421,6 +424,7 @@ export class AssistantWindow {
       usage: { today: usage.today, week: usage.week, fiveHour: share('five_hour'), sevenDay: share('seven_day'), estimate: true },
       workHours: inWorkHours(now, this.deps.workHours()),
       linked: [...(this.deps.linked?.() ?? [])],
+      offer: this.deps.offer?.() ?? { ...NO_OFFER },
     }
   }
 
@@ -683,10 +687,13 @@ export class AssistantWindow {
     this.noteAssistantMessage(run.reason, run.text)
   }
 
-  /** A message of the Assistant from one of its wakes (ticket 10): the morning one is the summary's. */
-  noteAssistantMessage(reason: 'urgent' | 'batch' | 'morning', text: string): void {
+  /**
+   * A message of the Assistant from one of its wakes (ticket 10): the morning one is the summary's. Or one of its
+   * introduction (ticket 16), whose last message hands over the proposal of the first setup: its card follows it.
+   */
+  noteAssistantMessage(reason: 'urgent' | 'batch' | 'morning' | 'intro', text: string, proposalId: string | null = null): void {
     if (text.trim() === '') return
-    const message: ConversationMessage = { id: this.newId(), at: this.deps.now(), who: 'assistant', text, state: 'done', reason, rating: null }
+    const message: ConversationMessage = { id: this.newId(), at: this.deps.now(), who: 'assistant', text, state: 'done', reason, rating: null, ...(proposalId === null ? {} : { proposalId }) }
     this.save((state) => void state.conversation.push(message))
   }
 }

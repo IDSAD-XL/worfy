@@ -28,6 +28,7 @@ import { appAttentionCore } from '../core/app'
 import { appDuties } from '../duties/app'
 import { appProposals } from '../proposals/book'
 import { applySettingsChange } from '../settings/panel'
+import { appAssistantIntro } from '../intro/app'
 import { appAssistant, onAssistantRun } from '../session/app'
 import { AssistantNotices } from './notices'
 import { LinkedWaits } from './linked'
@@ -101,6 +102,8 @@ export function appAssistantWindow(): AssistantWindow {
     },
     log: (message, error) => console.warn(message, error),
     linked: () => appLinkedWaits().snapshot(),
+    // The one offer to turn the Assistant on (worfy-assistant ticket 16).
+    offer: () => appAssistantIntro().offer(),
   })
   return shared
 }

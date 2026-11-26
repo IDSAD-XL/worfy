@@ -1,10 +1,13 @@
 // The body of the Assistant's section (worfy-assistant ticket 14; spec, UI; stories 1, 2, 16, 21–23, 35 and 38), after the
 // prototype Card the owner accepted: the status, four tabs — Waits, Summary, Journal, Chat — the line of usage and the
 // box to write to the Assistant at any moment. Waits shows what waits on each Linked machine too, read-only (ticket 18).
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactElement } from 'react'
+// While the one offer to turn the Assistant on stands, it heads the body (ticket 16, Offer.tsx); in the conversation the
+// card of the first setup of its introduction follows the message that hands it over.
+import { Fragment, useEffect, useRef, useState, type KeyboardEvent, type ReactElement } from 'react'
 import type { AssistantView, JournalRow, WindowItem, WindowProposal } from '../../shared/assistant/window'
 import { shortTime } from './format'
 import { Icon, Spark } from './icons'
+import { OfferCard } from './Offer'
 import { openItem } from './open'
 import { GoneCard, ItemCard, LinkedMachine, RateButtons } from './parts'
 import { applyChange, dismissProposal, forgetRule, prepareItem, sendMessage, useAssistant, type AssistantTab } from './useAssistant'
@@ -335,33 +338,40 @@ function Chat({ view }: { view: AssistantView }): ReactElement {
   return (
     <div data-testid="assistant-chat">
       {count === 0 ? <p className="w-asst-empty">Write to Assistant at any moment: to set it up, or to understand worfy. It answers in the language of the Guide.</p> : null}
-      {view.conversation.map((message) =>
-        message.who === 'you' ? (
-          <div key={message.id} className="w-asst-message w-asst-message--you">
-            <div className="w-asst-bubble">{message.text}</div>
-          </div>
-        ) : (
-          <div key={message.id} className="w-asst-message" data-testid="assistant-message" data-state={message.state}>
-            <span className="w-asst-avatar w-asst-avatar--small">
-              <Spark size={11} />
-            </span>
-            <div className="w-asst-bubble">
-              {message.state === 'pending' ? (
-                <span className="w-asst-typing" aria-label="Assistant is writing">
-                  <i />
-                  <i />
-                  <i />
-                </span>
-              ) : (
-                <>
-                  <span className="w-asst-text">{message.text}</span>
-                  <RateButtons target={{ kind: 'message', id: message.id }} rating={message.rating} />
-                </>
-              )}
+      {view.conversation.map((message) => {
+        if (message.who === 'you') {
+          return (
+            <div key={message.id} className="w-asst-message w-asst-message--you">
+              <div className="w-asst-bubble">{message.text}</div>
             </div>
-          </div>
-        ),
-      )}
+          )
+        }
+        const handed = message.proposalId === undefined || message.proposalId === null ? undefined : view.proposals.find((proposal) => proposal.id === message.proposalId)
+        return (
+          <Fragment key={message.id}>
+            <div className="w-asst-message" data-testid="assistant-message" data-state={message.state} data-reason={message.reason}>
+              <span className="w-asst-avatar w-asst-avatar--small">
+                <Spark size={11} />
+              </span>
+              <div className="w-asst-bubble">
+                {message.state === 'pending' ? (
+                  <span className="w-asst-typing" aria-label="Assistant is writing">
+                    <i />
+                    <i />
+                    <i />
+                  </span>
+                ) : (
+                  <>
+                    <span className="w-asst-text">{message.text}</span>
+                    <RateButtons target={{ kind: 'message', id: message.id }} rating={message.rating} />
+                  </>
+                )}
+              </div>
+            </div>
+            {handed?.change === null || handed?.change === undefined ? null : <ChangeCard proposal={handed} change={handed.change} />}
+          </Fragment>
+        )
+      })}
       <div ref={end} />
     </div>
   )
@@ -472,6 +482,7 @@ export function AssistantPanel({ view }: { view: AssistantView }): ReactElement 
         ))}
       </div>
       <div ref={body} className="w-asst-body" role="tabpanel">
+        {view.offer.owed ? <OfferCard /> : null}
         {tab === 'waits' ? <Waits view={view} /> : tab === 'summary' ? <Summary view={view} /> : tab === 'journal' ? <Journal view={view} /> : <Chat view={view} />}
       </div>
       <UsageLine view={view} />

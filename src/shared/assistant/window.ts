@@ -6,6 +6,7 @@
 // usage ledger; the window draws it (src/renderer/assistant/) and changes nothing itself: every click goes back to main.
 import { z } from 'zod'
 import { attentionSourceSchema, attentionStateSchema, attentionSubjectSchema, isUrgentStop, type AttentionItem } from './attention'
+import { offerViewSchema } from './intro'
 import { linkedMachineWaitsSchema } from './linked'
 import { changeRowSchema } from './settings-change'
 
@@ -110,8 +111,11 @@ export const journalRowSchema = z.object({
 })
 export type JournalRow = z.output<typeof journalRowSchema>
 
-/** Why a message of the Assistant came: the user wrote, or one of its wakes (urgent, a batch, the morning). */
-export const MESSAGE_REASONS = ['user', 'urgent', 'batch', 'morning'] as const
+/**
+ * Why a message of the Assistant came: the user wrote, one of its wakes (urgent, a batch, the morning), or its
+ * introduction the first time it was turned on (ticket 16).
+ */
+export const MESSAGE_REASONS = ['user', 'urgent', 'batch', 'morning', 'intro'] as const
 
 export const conversationMessageSchema = z.object({
   id: z.string(),
@@ -122,6 +126,8 @@ export const conversationMessageSchema = z.object({
   state: z.enum(['done', 'pending', 'failed']),
   reason: z.enum(MESSAGE_REASONS),
   rating: ratingSchema.nullable(),
+  /** A proposal the message hands over — the first setup of the introduction (ticket 16): its card follows the message. */
+  proposalId: z.string().nullable().optional(),
 })
 export type ConversationMessage = z.output<typeof conversationMessageSchema>
 
@@ -193,6 +199,8 @@ export const assistantViewSchema = z.object({
    * `items`, the summary or the notifications of this one.
    */
   linked: z.array(linkedMachineWaitsSchema),
+  /** The one offer to turn the Assistant on (ticket 16): whether it stands, and whether its message for an updated user is owed. */
+  offer: offerViewSchema,
 })
 export type AssistantView = z.output<typeof assistantViewSchema>
 

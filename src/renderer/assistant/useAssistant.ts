@@ -3,6 +3,7 @@
 // sight, the speech cards the user closed, the item whose dislike just hid it. Every click goes to main through the
 // functions at the end of this file; an error says why in a toast.
 import { create } from 'zustand'
+import type { OfferAnswer } from '../../shared/assistant/intro'
 import type { AssistantView, Rating, SnoozeChoice, WindowItem } from '../../shared/assistant/window'
 import type { RatingTarget } from '../../shared/ipc/assistant'
 import { hasPreloadBridge, invoke, readableReason, subscribe } from '../ipc'
@@ -147,6 +148,22 @@ export async function startPrepared(request: PrepareRequest, text: string): Prom
     return false
   }
   showToast({ kind: 'success', key: `assistant:started:${result.value.sessionId}`, text: `Session started in ${request.projectName ?? 'the Project'}.` })
+  return true
+}
+
+/**
+ * The person's answer to the one offer to turn the Assistant on (worfy-assistant ticket 16): `accepted` turns it on, and
+ * the section shows the conversation, where it introduces itself; `declined` ends the offer; `seen` notes its message
+ * for an updated user was shown. Answers whether main took it.
+ */
+export async function answerOffer(answer: OfferAnswer): Promise<boolean> {
+  const result = await invoke('assistant.offer', { answer })
+  if (!result.ok) {
+    if (answer === 'seen') console.warn('assistant.offer failed:', result.error)
+    else refused(answer === 'accepted' ? 'Turn on' : 'Not now', result.error)
+    return false
+  }
+  if (answer === 'accepted') useAssistant.setState({ tab: 'chat', focus: null })
   return true
 }
 

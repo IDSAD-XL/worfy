@@ -87,6 +87,9 @@ test('a new user: the three concepts, "Next" to the checks, "Start Getting start
     await shoot(window, dialog, 'concepts')
 
     await dialog.getByRole('button', { name: 'Next' }).click()
+    // The one offer of the Assistant comes between (worfy-assistant ticket 16): refused, it goes on to the checks.
+    await expect(dialog).toHaveAttribute('data-page', 'assistant')
+    await dialog.getByRole('button', { name: 'Not now' }).click()
     await expect(dialog).toHaveAttribute('data-page', 'checks')
     await expect(dialog.getByRole('heading', { level: 2 })).toHaveText('First run')
     await expect(dialog.getByTestId('first-run-summary')).not.toHaveText('Checking…', { timeout: ms(30_000) })

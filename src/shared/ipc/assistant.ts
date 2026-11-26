@@ -9,6 +9,7 @@
 // (src/shared/assistant/linked.ts).
 import { z } from 'zod'
 import { DUTY_ACTIONS, dutyActionModeSchema } from '../assistant/duties'
+import { offerAnswerSchema } from '../assistant/intro'
 import { linkedWaitsSchema } from '../assistant/linked'
 import { checkKindSchema } from '../assistant/schedule/settings'
 import { dutyThresholdSchema } from '../assistant/settings-change'
@@ -117,8 +118,16 @@ export const assistantPauseAfter = invokeChannel('assistant.pauseAfter', z.objec
  */
 export const assistantCheckNow = invokeChannel('assistant.checkNow', z.object({ kind: checkKindSchema }), z.object({ started: z.boolean(), refused: checkNowRefusalSchema.nullable() }), 'local')
 
+/**
+ * The person's answer to the one offer to turn the Assistant on (worfy-assistant ticket 16; src/shared/assistant/intro.ts):
+ * `accepted` turns it on, as its switch in Settings → Assistant does, and it introduces itself; `declined` ends the offer
+ * for good; `seen` notes that the message for an updated user was shown. The view then says the offer in `offer`.
+ */
+export const assistantOffer = invokeChannel('assistant.offer', z.object({ answer: offerAnswerSchema }), z.object({}), 'local')
+
 declare module './channels' {
   interface IpcContract {
+    'assistant.offer': typeof assistantOffer
     'assistant.open': typeof assistantOpen
     'assistant.changed': typeof assistantChanged
     'assistant.reveal': typeof assistantReveal

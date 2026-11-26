@@ -68,6 +68,7 @@ const view = (over: Partial<AssistantView> = {}): AssistantView => ({
   usage: { today: 1200, week: 5400, fiveHour: 0.02, sevenDay: 0.01, estimate: true },
   workHours: true,
   linked: [],
+  offer: { owed: false, notice: false },
   ...over,
 })
 
@@ -274,5 +275,63 @@ describe('a card «before → after» with Apply (worfy-assistant ticket 15)', (
     expect(within(screen.getByTestId('assistant-change')).getAllByText('Duty «Release day»')).toHaveLength(2)
     expect(errors.mock.calls.filter((args) => String(args[0]).includes('same key'))).toEqual([])
     errors.mockRestore()
+  })
+})
+
+describe('the introduction in the section (worfy-assistant ticket 16)', () => {
+  const setup = {
+    id: 'proposal-setup',
+    title: 'Set up Assistant',
+    why: 'The first setup: your work hours and the checks of the sources connected in claude.ai.',
+    prepare: null,
+    change: { rows: [{ label: 'Work hours', before: 'Mon–Fri, 09:00–18:00', after: 'Mon–Fri, 09:00–18:00, Europe/Berlin' }], applied: null },
+    createdAt: NOW,
+    rating: null,
+  }
+  const said = (id: string, text: string, proposalId?: string) => ({ id, at: NOW, who: 'assistant' as const, text, state: 'done' as const, reason: 'intro' as const, rating: null, ...(proposalId === undefined ? {} : { proposalId }) })
+
+  it('while the offer stands, the section offers the Assistant once: what it does, what it never does, what it uses; the list still shows', async () => {
+    render(<AssistantPanel view={view({ on: false, offer: { owed: true, notice: false } })} />)
+    const offer = screen.getByRole('region', { name: 'Meet Assistant' })
+    expect(offer.textContent).toContain('It does')
+    expect(offer.textContent).toContain('It never')
+    expect(offer.textContent).toMatch(/uses your Claude Limits/u)
+    expect(offer.textContent).not.toMatch(/[$€]|USD|price/iu)
+    expect(offer.textContent).toContain('worfy asks once')
+    expect(screen.getAllByTestId('assistant-item')).toHaveLength(2)
+    fireEvent.click(within(offer).getByRole('button', { name: 'Turn on and meet' }))
+    await waitFor(() => expect(ipc.invoke).toHaveBeenCalledWith('assistant.offer', { answer: 'accepted' }))
+    await waitFor(() => expect(useAssistant.getState().tab).toBe('chat'))
+  })
+
+  it('Not now refuses the offer', async () => {
+    render(<AssistantPanel view={view({ on: false, offer: { owed: true, notice: false } })} />)
+    fireEvent.click(within(screen.getByRole('region', { name: 'Meet Assistant' })).getByRole('button', { name: 'Not now' }))
+    await waitFor(() => expect(ipc.invoke).toHaveBeenCalledWith('assistant.offer', { answer: 'declined' }))
+  })
+
+  it('no offer once it no longer stands', () => {
+    render(<AssistantPanel view={view({ on: false })} />)
+    expect(screen.queryByRole('region', { name: 'Meet Assistant' })).toBeNull()
+  })
+
+  it('in the conversation, the card of the first setup follows the message that hands it over, with Apply', async () => {
+    useAssistant.setState({ tab: 'chat' })
+    const conversation = [said('m1', 'Hi, I’m Assistant.'), said('m2', 'A setup to start with:', setup.id), said('m3', 'Later words.')]
+    render(<AssistantPanel view={view({ conversation, proposals: [setup] })} />)
+    const chat = screen.getByTestId('assistant-chat')
+    const card1 = within(chat).getByTestId('assistant-change')
+    const messages = within(chat).getAllByTestId('assistant-message')
+    expect(messages[1]?.compareDocumentPosition(card1) ?? 0).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(card1.compareDocumentPosition(messages[2]!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    fireEvent.click(within(card1).getByRole('button', { name: 'Apply' }))
+    await waitFor(() => expect(ipc.invoke).toHaveBeenCalledWith('assistant.apply', { proposalId: setup.id }))
+  })
+
+  it('a card dismissed since leaves the conversation; the message stays', () => {
+    useAssistant.setState({ tab: 'chat' })
+    render(<AssistantPanel view={view({ conversation: [said('m2', 'A setup to start with:', setup.id)], proposals: [] })} />)
+    expect(screen.queryByTestId('assistant-change')).toBeNull()
+    expect(screen.getByTestId('assistant-message').textContent).toContain('A setup to start with:')
   })
 })

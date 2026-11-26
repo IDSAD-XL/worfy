@@ -1,0 +1,17 @@
+{
+  "who": "Hi, I’m Assistant — worfy’s own agent on this {machine}. I look after all the Projects of this {machine}; the Projects of a Linked machine I only read.",
+  "what": "I tell you what waits for you and why: a Session that went quiet or asks something, an Autopilot run that stopped, a red main branch, a PR or a message that needs you. On my own I only do a short fixed list of internal steps, like continuing a Session after the Limits reset; everything else I propose, and it starts on your click. Ask me anything about worfy: I answer from its feature pages, and say so when there is none.",
+  "unread": "I could not read your claude.ai connectors just now. I read Slack and Jira only through them, never with a token of yours: connect them in {where}, and tell me.",
+  "connectedOne": "I see {list} connected in claude.ai, so I need no tokens from you.",
+  "connectedMany": "I see {list} connected in claude.ai, so I need no tokens from you.",
+  "notConnectedOne": "{list} is not connected in claude.ai. If you want me to check it, connect it in {where} and tell me: I read it only through that connector, never with a token.",
+  "notConnectedMany": "{list} are not connected in claude.ai. If you want me to check them, connect them in {where} and tell me: I read them only through that connector, never with a token.",
+  "hours": "What are your work hours? Outside them I let the checks of Slack and Jira sleep.",
+  "setup": "A setup to start with — nothing changes until you press Apply, and you can tell me what to change:",
+  "noSetup": "Tell me, and I will propose the change.",
+  "setupTitle": "Set up Assistant",
+  "setupWhy": "The first setup: your work hours and the checks of the sources connected in claude.ai.",
+  "and": "and",
+  "machineMac": "Mac",
+  "machinePC": "PC"
+}

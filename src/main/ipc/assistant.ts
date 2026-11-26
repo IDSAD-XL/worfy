@@ -14,6 +14,7 @@ import {
   assistantDismissProposal,
   assistantForgetRule,
   assistantItem,
+  assistantOffer,
   assistantOpen,
   assistantPauseAfter,
   assistantRate,
@@ -25,6 +26,8 @@ import {
   assistantStart,
   assistantWaiting,
 } from '../../shared/ipc/assistant'
+import { appAssistantIntro } from '../assistant/intro/app'
+import type { AssistantIntro } from '../assistant/intro/intro'
 import { appAssistantSettings, type AssistantSettingsPanel } from '../assistant/settings/app'
 import { appAssistantReveal, appAssistantWindow } from '../assistant/window/app'
 import type { AssistantReveal } from '../assistant/window/reveal'
@@ -32,8 +35,16 @@ import type { AssistantWindow } from '../assistant/window/view'
 import { clientOf, type Client } from '../clients'
 import { defineHandler, emit, type HandlerModule } from './index'
 
-/** The handlers over a section; tests pass their own, their own reveal of a clicked notification and their own Settings → Assistant. */
-export function assistantHandlers(section: () => AssistantWindow, reveal: () => AssistantReveal<Client> = appAssistantReveal, settings: () => AssistantSettingsPanel = appAssistantSettings): HandlerModule {
+/**
+ * The handlers over a section; tests pass their own, their own reveal of a clicked notification, their own Settings →
+ * Assistant and their own introduction (worfy-assistant ticket 16).
+ */
+export function assistantHandlers(
+  section: () => AssistantWindow,
+  reveal: () => AssistantReveal<Client> = appAssistantReveal,
+  settings: () => AssistantSettingsPanel = appAssistantSettings,
+  intro: () => Pick<AssistantIntro, 'answer'> = appAssistantIntro,
+): HandlerModule {
   const subscribed = new WeakSet<Client>()
   return [
     defineHandler(assistantOpen, (_input, { event }) => {
@@ -94,6 +105,10 @@ export function assistantHandlers(section: () => AssistantWindow, reveal: () => 
       return {}
     }),
     defineHandler(assistantCheckNow, ({ kind }) => settings().checkNow(kind)),
+    defineHandler(assistantOffer, ({ answer }) => {
+      intro().answer(answer)
+      return {}
+    }),
   ]
 }
 
