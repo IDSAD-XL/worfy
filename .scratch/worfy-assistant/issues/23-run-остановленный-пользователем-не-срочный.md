@@ -1,7 +1,8 @@
 # 23 — Run Autopilot-а, остановленный пользователем, не срочный: пункт несёт причину остановки
 
 Type: task
-Status: open
+Status: claimed 2026-11-26T03:53Z
+PR: #2259
 Blocked by: —
 Source: решение владельца 2026-11-26 (раунд Q1–Q12 вечернего отчёта 2026-11-25), Q5; меняет решение 3 Ticket-а 06
 («Остановка самим пользователем тоже срочная», [Ticket 06](06-решение-о-пробуждении.md), «Решено без владельца»).
@@ -66,7 +67,54 @@ Source: решение владельца 2026-11-26 (раунд Q1–Q12 веч
 ## Готово, когда
 
 - [ ] Unit test: пункт остановки Run-а несёт причину отдельным полем; текст называет её словами.
+  - evidence: test-run pass · `pnpm test test/unit/assistant-attention-sources.test.ts` exit 0 · mac - · 406d907cdb3bb4e0c31517a9f29f64d4b2ba629f
 - [ ] Unit test: остановка самим пользователем не будит Assistant-а, другие остановки будят сразу.
+  - evidence: test-run pass · `pnpm test test/unit/assistant-wake-planner.test.ts` exit 0 · mac - · 406d907cdb3bb4e0c31517a9f29f64d4b2ba629f
 - [ ] Unit test: файл пунктов, записанный до этого Ticket-а, читается.
+  - evidence: test-run pass · `pnpm test test/unit/assistant-attention-sources.test.ts` exit 0 · mac - · 406d907cdb3bb4e0c31517a9f29f64d4b2ba629f
 - [ ] «Итог»: какие причины считаются остановкой пользователем — в «Решено без владельца».
+  - evidence: commit pass · worfy-assistant/23: an Autopilot Run the user stopped does not wake the Assistant · - - · 406d907cdb3bb4e0c31517a9f29f64d4b2ba629f
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+
+## Итог
+
+- Причина — необязательное поле `stopReason` события (`AttentionEvent`, тип `AutopilotStopReason`) и пункта
+  (`attentionItemSchema`, `src/shared/assistant/attention.ts`). Источник (`autopilotAttention`,
+  `src/main/assistant/core/sources.ts`) ставит его на каждую строку `run-stopped`, `tickets-done` (`run-finished`) тоже.
+  Ядро (`attention-core.ts`) кладёт поле в новый пункт; при склейке поле берётся из последнего события: строка Run-а
+  после остановки его убирает.
+- Текст пункта называет причину словами: `AUTOPILOT_STOP_WORDS` в `sources.ts`, по одной короткой английской фразе на
+  каждую причину `AUTOPILOT_STOP_REASONS` (`Record` по всему списку: новая причина без слов не пройдёт typecheck). Для
+  `start-cancelled`, `start-refused`, `waits-owner`, `main-red`, `turn-hung` — те же слова, что в Run history
+  (`src/renderer/flight-recorder/span-words.ts`; у `turn-hung` без числа минут). За словами в скобках остаётся id причины
+  (`worfy-x: stopped by the user (user-stop)`): правило Project-а сравнивает текст пункта (`when.item.text`,
+  `src/main/assistant/duties/rules.ts`), и правило с текстом `main-red` продолжает срабатывать.
+- Срочность — одно правило `isUrgentStop` с `USER_STOP_REASONS` и `URGENT_ITEM_KINDS` в `src/shared/assistant/attention.ts`:
+  пункт `run-stopped` с причиной пользователя не срочный и идёт с пачкой или утренней сводкой. Остальные остановки, пункт
+  без поля (файл до этого Ticket-а) и причина, которую сборка не знает, — срочные, как раньше. Правило читают и решение
+  о пробуждении (`src/main/assistant/wake/planner.ts`), и окно Assistant-а (`isUrgentItem`,
+  `src/shared/assistant/window.ts`, Ticket 14): остановка пользователем не даёт и системного уведомления.
+- Test-ы: `test/unit/assistant-attention-sources.test.ts` (блок «the stop of an Autopilot Run (ticket 23)»),
+  `test/unit/assistant-wake-planner.test.ts` (два test-а про остановку пользователем); оба файла сначала красные на
+  нынешнем коде. Test склейки строки Run-а после остановки красный без `delete glued.stopReason`.
+
+### Решено без владельца
+
+1. **Остановка пользователем** — `user-stop` (Stop), `user-force-stop` (Force stop), `start-cancelled` (Cancel, Stop или
+   Force stop, пока Run ждал Orchestrator) и `discarded` (человек отбросил Run, оборванный перезапуском): обо всех
+   четырёх пользователь знает сам, по рекомендации Ticket-а. `app-quit` (только старые журналы), `limits-timeout`,
+   `turn-error` и `interrupted` остаются срочными, хотя каждую из них может вызвать и действие пользователя:
+   `limits-timeout` пишет и отмена ожидания Limits кнопкой Cancel, и истечение 24 часов; `turn-error` — и ошибка хода, и
+   Cancel ожидания повтора в чате Orchestrator-а; `interrupted` — и прерванный ход Wave, и Interrupt из чата
+   Orchestrator-а. По строке журнала их не различить.
+2. **Форма поля** — необязательное поле `stopReason`, не свой вид пункта: вид `run-stopped` остаётся, обязанность «Work
+   stands» и всё, что смотрит на вид, работают как раньше. В файле поле — любая строка (`z.string()`), не перечисление:
+   `cycle.ts` через шаблоны действий и обязанности импортирует `attention.ts`, и импорт списка причин в схему дал бы
+   цикл импорта; к тому же причина, которую добавит более поздняя сборка, не сделает файл нечитаемым. Источник кладёт
+   только причины из `AUTOPILOT_STOP_REASONS`; незнакомую причину он оставляет только в тексте, как журнал её записал.
+   Старая сборка читает файл с полем: схема пункта не `strict`, zod отбрасывает незнакомое поле.
+3. **Слова бюджета** (`budgetStopText`, `src/shared/autopilot/budget.ts`) не используются: остановка бюджетом — строка
+   `budget-stop` и ожидание, а не `run-stopped`, и у `run-stopped` нет ни причины бюджета, ни времени продолжения.
+4. **Предложение `autopilot-start` у «Work stands» остаётся**: действия задаются на обязанность, а не на пункт, режим
+   `ask` только предлагает, и само действие лишь открывает диалог Start Autopilot. Пользователь, который остановил Run,
+   может хотеть запустить его снова; убирать предложение только для его пунктов — отдельная логика ради малого.

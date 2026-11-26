@@ -2,12 +2,13 @@
 // fields, the waits are counted for every Project of the Machine with no window open, and what came while worfy was
 // closed becomes an item after the start. Fixture events take the shape the events measurement saw
 // (the events measurement of the proactive-runtime map, docs/product/proactive-runtime/): rules (d), (e) and (f).
-import { mkdirSync, mkdtempSync, realpathSync, symlinkSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import type { LimitsState } from '../../src/shared/agent/limits'
+import { attentionItemSchema } from '../../src/shared/assistant/attention'
 import type { JournalEvent } from '../../src/shared/autopilot/journal'
 import type { FirstRunReport } from '../../src/shared/ipc/first-run'
 import type { PrInboxSnapshot } from '../../src/shared/ipc/pr-inbox'
@@ -324,5 +325,94 @@ describe('catching up after the start', () => {
     await settle()
     expect(two.core.items(ALPHA.id).map((item) => [item.kind, item.startedAt])).toEqual([['run-stopped', Date.parse('2026-11-20T09:00:00.000Z')]])
     two.stop()
+  })
+})
+
+describe('the stop of an Autopilot Run (ticket 23)', () => {
+  const RUN = '2026-11-17T08-00-00-000Z-abcd'
+  it('the item of a stop carries its reason in a field of its own and names it in words', async () => {
+    const h = harness({})
+    const { core, stop } = installAttentionCore(h.sources)
+    h.journalLine(runStopped('2026-11-13T11:00:00.000Z', 'user-stop'))
+    expect(core.items(ALPHA.id).map((item) => [item.kind, item.stopReason, item.text])).toEqual([['run-stopped', 'user-stop', 'worfy-x: stopped by the user (user-stop)']])
+    stop()
+  })
+
+  it('another stop carries its own reason; a Run that did its Tickets is still run-finished, with its reason', async () => {
+    const h = harness({})
+    const { core, stop } = installAttentionCore(h.sources)
+    h.journalLine(runStopped('2026-11-13T11:00:00.000Z', 'main-red'))
+    h.journalLine({ ...runStopped('2026-11-13T11:30:00.000Z', 'tickets-done'), run: 'run-2' } as JournalEvent)
+    expect(core.items(ALPHA.id).map((item) => [item.subject.id, item.kind, item.stopReason, item.text])).toEqual([
+      [RUN, 'run-stopped', 'main-red', 'worfy-x: main was red, so the stuck Ticket was not continued (main-red)'],
+      ['run-2', 'run-finished', 'tickets-done', 'worfy-x: every Ticket of the Run is done (tickets-done)'],
+    ])
+    stop()
+  })
+
+  it('a stop glued into an item of the Run gives it the reason; a reason this build does not know stays text only', async () => {
+    const h = harness({})
+    const { core, stop } = installAttentionCore(h.sources)
+    h.journalLine({ kind: 'ticket-set-aside', at: '2026-11-13T10:00:00.000Z', run: RUN, project: ALPHA.id, epic: 'worfy-x', ticket: '03', cause: 'no-progress', attempts: 2 } as unknown as JournalEvent)
+    expect(core.items(ALPHA.id)[0]?.stopReason).toBeUndefined()
+    h.journalLine(runStopped('2026-11-13T11:00:00.000Z', 'user-force-stop'))
+    expect(core.items(ALPHA.id).map((item) => [item.kind, item.events, item.stopReason, item.text])).toEqual([['run-stopped', 2, 'user-force-stop', 'worfy-x: force-stopped by the user (user-force-stop)']])
+    h.journalLine({ ...runStopped('2026-11-13T11:30:00.000Z', 'some-later-reason'), run: 'run-3' } as JournalEvent)
+    const later = core.items(ALPHA.id).find((item) => item.subject.id === 'run-3')
+    expect(later).toMatchObject({ kind: 'run-stopped', text: 'worfy-x: some-later-reason' })
+    expect(later).not.toHaveProperty('stopReason')
+    stop()
+  })
+
+  it('a line of the Run glued in after its stop takes the reason away: the item is no longer a stop', async () => {
+    const h = harness({})
+    const { core, stop } = installAttentionCore(h.sources)
+    h.journalLine(runStopped('2026-11-13T11:00:00.000Z', 'user-stop'))
+    h.journalLine({ kind: 'session-error', at: '2026-11-13T11:05:00.000Z', run: RUN, project: ALPHA.id, epic: 'worfy-x', message: 'the Session failed' } as unknown as JournalEvent)
+    const [item] = core.items(ALPHA.id)
+    expect([item?.kind, item?.events, item?.text]).toEqual(['session-error', 2, 'worfy-x: the Session failed'])
+    expect(item).not.toHaveProperty('stopReason')
+    stop()
+  })
+
+  it('a project rule that matches the reason id in the text still matches', async () => {
+    const h = harness({})
+    const { core, stop } = installAttentionCore(h.sources)
+    h.journalLine(runStopped('2026-11-13T11:00:00.000Z', 'blocked-tickets'))
+    expect(core.items(ALPHA.id)[0]?.text).toContain('blocked-tickets')
+    stop()
+  })
+
+  it('a file of items written before the field reads, and so does a reason a later build wrote', async () => {
+    const root = join(temp, 'stop-reason-old-file')
+    const item = (id: string, extra: Record<string, unknown> = {}) => ({
+      id,
+      source: 'autopilot',
+      projectId: ALPHA.id,
+      subject: { kind: 'run', id, label: 'Autopilot · worfy-x' },
+      kind: 'run-stopped',
+      text: 'worfy-x: user-stop',
+      startedAt: Date.parse('2026-11-13T11:00:00.000Z'),
+      updatedAt: Date.parse('2026-11-13T11:00:00.000Z'),
+      revision: 'r1',
+      state: 'new',
+      duty: null,
+      events: 1,
+      ...extra,
+    })
+    const store = attentionFileStore(attentionPaths((id) => join(root, 'projects', id), root))
+    mkdirSync(join(root, 'projects', ALPHA.id), { recursive: true })
+    writeFileSync(
+      join(root, 'projects', ALPHA.id, 'assistant-items.json'),
+      JSON.stringify({ since: Date.parse('2026-11-13T09:00:00.000Z'), items: [item('old'), item('newer', { stopReason: 'some-later-reason' })], seen: {}, conditions: [] }),
+    )
+    const read = store.read(ALPHA.id)
+    expect(read?.items.map((each) => [each.id, each.stopReason])).toEqual([
+      ['old', undefined],
+      ['newer', 'some-later-reason'],
+    ])
+    // A build before the field: the same schema without it drops the field and reads the item.
+    const before = attentionItemSchema.omit({ stopReason: true })
+    expect(before.parse(item('x', { stopReason: 'user-stop' }))).not.toHaveProperty('stopReason')
   })
 })

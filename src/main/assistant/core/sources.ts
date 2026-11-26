@@ -7,6 +7,7 @@ import { posix, win32 } from 'node:path'
 import type { AttentionSubject } from '../../../shared/assistant/attention'
 import type { AgentEvent } from '../../../shared/agent/events'
 import type { LimitsState } from '../../../shared/agent/limits'
+import { AUTOPILOT_STOP_REASONS, type AutopilotStopReason } from '../../../shared/autopilot/cycle'
 import type { JournalEvent } from '../../../shared/autopilot/journal'
 import type { FirstRunReport } from '../../../shared/ipc/first-run'
 import { PR_INBOX_GROUP_TITLES, PR_NEED_YOU, type PrInboxSnapshot } from '../../../shared/ipc/pr-inbox'
@@ -177,11 +178,59 @@ function takePrInbox(core: Core, snapshot: PrInboxSnapshot): void {
   }
 }
 
-/** One line of an Autopilot run journal: a stop, a Ticket set aside or a failure line is an item of the run. */
+/**
+ * Why a Run stopped, in words for the item's line (ticket 23); the words of the reasons that waited for the
+ * Orchestrator, of `waits-owner`, `main-red` and `turn-hung` follow the Run history (src/renderer/flight-recorder/span-words.ts).
+ */
+export const AUTOPILOT_STOP_WORDS: Readonly<Record<AutopilotStopReason, string>> = {
+  'no-ready-wave': 'no Wave is ready',
+  'tickets-done': 'every Ticket of the Run is done',
+  'blocked-tickets': 'the Tickets left are blocked',
+  'no-progress': 'the same Wave came back after its continuations',
+  'wave-unfinished': 'a Ticket stayed in work after its continuations',
+  'session-error': "the Orchestrator's Session failed",
+  'turn-error': 'a turn of the Wave ended with an error',
+  interrupted: 'a turn of the Wave was interrupted',
+  'session-closed': "the Orchestrator's Session closed",
+  'send-failed': 'Run wave could not be sent',
+  'workflow-error': 'the workflow could not be read',
+  'limits-timeout': 'the wait for the Limits ended',
+  'vendor-quota': "the Vendor's quota is used",
+  'background-stalled': 'background tasks gave no sign of life for an hour',
+  'window-too-short': 'the next Wave is longer than the Start window',
+  'user-stop': 'stopped by the user',
+  'user-force-stop': 'force-stopped by the user',
+  'app-quit': 'the app quit',
+  'start-cancelled': 'cancelled while it waited for the Orchestrator',
+  'start-refused': 'refused once the Orchestrator was free',
+  'waits-owner': 'the last Epic of the queue waits for the owner',
+  'main-red': 'main was red, so the stuck Ticket was not continued',
+  'turn-hung': "the Orchestrator's turn gave no sign of life",
+  discarded: 'a Run a restart cut off was discarded',
+}
+
+const stopReasonOf = (reason: string): AutopilotStopReason | null => ((AUTOPILOT_STOP_REASONS as readonly string[]).includes(reason) ? (reason as AutopilotStopReason) : null)
+
+/**
+ * One line of an Autopilot run journal: a stop, a Ticket set aside or a failure line is an item of the run. A stop
+ * carries its reason in `stopReason` and names it in words; a reason this build does not know stays as the journal
+ * wrote it, in the text only.
+ */
 export function autopilotAttention(core: Core, line: JournalEvent): void {
   if (!AUTOPILOT_ITEM_KINDS.has(line.kind)) return
   const finished = line.kind === 'run-stopped' && line.reason === 'tickets-done'
-  const detail = line.kind === 'run-stopped' ? line.reason : line.kind === 'ticket-set-aside' ? `Ticket ${line.ticket} set aside` : line.kind === 'session-error' ? line.message : line.kind
+  const stopReason = line.kind === 'run-stopped' ? stopReasonOf(line.reason) : null
+  const detail =
+    line.kind === 'run-stopped'
+      ? stopReason === null
+        ? line.reason
+        : // The id stays next to the words: a Project's rule matches the item's text (duties/rules.ts, `when.item.text`).
+          `${AUTOPILOT_STOP_WORDS[stopReason]} (${stopReason})`
+      : line.kind === 'ticket-set-aside'
+        ? `Ticket ${line.ticket} set aside`
+        : line.kind === 'session-error'
+          ? line.message
+          : line.kind
   const at = Date.parse(line.at)
   core.ingest({
     source: 'autopilot',
@@ -193,6 +242,7 @@ export function autopilotAttention(core: Core, line: JournalEvent): void {
     kind: finished ? 'run-finished' : line.kind,
     text: clip(`${line.epic}: ${detail}`),
     ...(Number.isNaN(at) ? {} : { at }),
+    ...(stopReason === null ? {} : { stopReason }),
   })
 }
 

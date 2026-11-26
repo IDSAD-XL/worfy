@@ -2,6 +2,8 @@
 // in the Projects of this Machine, kept as items, not counters. main builds them (src/main/assistant/core/); the
 // window and the Assistant read them later (tickets 09 and 14).
 import { z } from 'zod'
+// Types only: cycle.ts reaches this module back through the action templates and the duties.
+import type { AutopilotStopReason } from '../autopilot/cycle'
 import { SOURCE_CHECK_KINDS } from './schedule/settings'
 
 /**
@@ -78,6 +80,8 @@ export interface AttentionEvent {
   pr?: AttentionPr
   /** The message of an outside source the event is (ticket 11); absent for the core's own sources. */
   message?: SourceMessage
+  /** Why an Autopilot Run stopped, for its `run-stopped` line (ticket 23); absent for every other event. */
+  stopReason?: AutopilotStopReason
 }
 
 export const attentionItemSchema = z.object({
@@ -109,5 +113,30 @@ export const attentionItemSchema = z.object({
   condition: z.string().optional(),
   /** The message of an outside source of the latest event glued into it (ticket 11). */
   message: sourceMessageSchema.optional(),
+  /**
+   * Why the Autopilot Run stopped, one of AUTOPILOT_STOP_REASONS, when the latest event glued into the item is its
+   * `run-stopped` line (ticket 23). Absent in a file written before the field. Any text reads, so a reason a later
+   * build added does not make the file unreadable; the wake treats a reason it does not know as urgent.
+   */
+  stopReason: z.string().optional(),
 })
 export type AttentionItem = z.infer<typeof attentionItemSchema>
+
+/** The kinds of item that are urgent by themselves. `run-finished` (a Run that did its Tickets) is not one. */
+export const URGENT_ITEM_KINDS: ReadonlySet<string> = new Set(['run-stopped'])
+
+/**
+ * The stops a person made (worfy-assistant ticket 23, owner's decision 2026-11-26): Stop, Force stop, Cancel while the
+ * Run waited for its Orchestrator, and a Run a restart cut off that a person discarded. The user knows of them
+ * already, so they are not urgent. Decided without the owner (ticket 23, result section).
+ */
+export const USER_STOP_REASONS: ReadonlySet<string> = new Set<AutopilotStopReason>(['user-stop', 'user-force-stop', 'start-cancelled', 'discarded'])
+
+/**
+ * Whether an item is urgent by its kind: a stopped Run, unless the user stopped it. An item without a reason (a file
+ * before ticket 23) or with a reason this build does not know stays urgent. One rule for the decision to wake
+ * (src/main/assistant/wake/planner.ts) and the window (isUrgentItem, ./window.ts).
+ */
+export function isUrgentStop(item: Pick<AttentionItem, 'kind' | 'stopReason'>): boolean {
+  return URGENT_ITEM_KINDS.has(item.kind) && !USER_STOP_REASONS.has(item.stopReason ?? '')
+}
