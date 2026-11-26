@@ -2,6 +2,7 @@
 
 Type: bug
 Status: claimed 2026-11-26T02:13Z
+PR: #2254
 Blocked by: —
 Source: баг-репорт владельца #2252 (2026-11-26), часть 1.
 
