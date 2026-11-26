@@ -89,9 +89,11 @@ Source: решение владельца 2026-11-26 (раунд Q1–Q12 веч
   (`src/renderer/flight-recorder/span-words.ts`; у `turn-hung` без числа минут). За словами в скобках остаётся id причины
   (`worfy-x: stopped by the user (user-stop)`): правило Project-а сравнивает текст пункта (`when.item.text`,
   `src/main/assistant/duties/rules.ts`), и правило с текстом `main-red` продолжает срабатывать.
-- Решение о пробуждении (`src/main/assistant/wake/planner.ts`): `USER_STOP_REASONS`; пункт `run-stopped` с такой причиной
-  не срочный и идёт с пачкой или утренней сводкой. Остальные остановки, пункт без поля (файл до этого Ticket-а) и причина,
-  которую сборка не знает, — срочные, как раньше.
+- Срочность — одно правило `isUrgentStop` с `USER_STOP_REASONS` и `URGENT_ITEM_KINDS` в `src/shared/assistant/attention.ts`:
+  пункт `run-stopped` с причиной пользователя не срочный и идёт с пачкой или утренней сводкой. Остальные остановки, пункт
+  без поля (файл до этого Ticket-а) и причина, которую сборка не знает, — срочные, как раньше. Правило читают и решение
+  о пробуждении (`src/main/assistant/wake/planner.ts`), и окно Assistant-а (`isUrgentItem`,
+  `src/shared/assistant/window.ts`, Ticket 14): остановка пользователем не даёт и системного уведомления.
 - Test-ы: `test/unit/assistant-attention-sources.test.ts` (блок «the stop of an Autopilot Run (ticket 23)»),
   `test/unit/assistant-wake-planner.test.ts` (два test-а про остановку пользователем); оба файла сначала красные на
   нынешнем коде. Test склейки строки Run-а после остановки красный без `delete glued.stopReason`.

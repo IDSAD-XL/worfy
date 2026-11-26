@@ -5,7 +5,7 @@
 // (src/main/assistant/window/view.ts) from the attention core, the duties, the proposals, the journal of actions and the
 // usage ledger; the window draws it (src/renderer/assistant/) and changes nothing itself: every click goes back to main.
 import { z } from 'zod'
-import { attentionSourceSchema, attentionStateSchema, attentionSubjectSchema, type AttentionItem } from './attention'
+import { attentionSourceSchema, attentionStateSchema, attentionSubjectSchema, isUrgentStop, type AttentionItem } from './attention'
 
 /**
  * Where Open takes the user: a Session on the Canvas, the Pull requests view on a PR, the Pipeline board of a Project, a
@@ -181,12 +181,12 @@ export const assistantViewSchema = z.object({
 })
 export type AssistantView = z.output<typeof assistantViewSchema>
 
-/** The item kinds that are urgent by themselves: an Autopilot run that stopped (as the decision to wake reads them, ticket 06). */
-const URGENT_KINDS: ReadonlySet<string> = new Set(['run-stopped'])
-
-/** Urgent: a run that stopped, or a message an outside source's check marked urgent. */
-export function isUrgentItem(item: Pick<AttentionItem, 'kind' | 'message'>): boolean {
-  return URGENT_KINDS.has(item.kind) || item.message?.urgent === true
+/**
+ * Urgent: a run that stopped not by the user (isUrgentStop, the rule the decision to wake reads, ticket 23), or a
+ * message an outside source's check marked urgent.
+ */
+export function isUrgentItem(item: Pick<AttentionItem, 'kind' | 'message' | 'stopReason'>): boolean {
+  return isUrgentStop(item) || item.message?.urgent === true
 }
 
 /** The source of an item in words. */

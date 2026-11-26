@@ -12,7 +12,7 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import type { ActionJournalLine } from '../../src/shared/assistant/actions'
 import type { AttentionEvent } from '../../src/shared/assistant/attention'
 import type { AssistantProposal } from '../../src/shared/assistant/proposals'
-import { ASSISTANT_NOTE_TITLE, SUMMARY_HOURS, type AssistantView } from '../../src/shared/assistant/window'
+import { ASSISTANT_NOTE_TITLE, isUrgentItem, SUMMARY_HOURS, type AssistantView } from '../../src/shared/assistant/window'
 import { AttentionCore } from '../../src/main/assistant/core/attention-core'
 import { attentionFileStore, attentionPaths } from '../../src/main/assistant/core/store'
 import { Duties } from '../../src/main/assistant/duties/duties'
@@ -150,6 +150,17 @@ describe('what waits', () => {
     expect(view.items.slice(1).every((item) => !item.urgent)).toBe(true)
     const rest = view.items.slice(1).map((item) => item.lastAt)
     expect(rest).toEqual([...rest].sort((a, b) => b - a))
+  })
+
+  it('a Run the user stopped is not urgent, as the decision to wake reads it; another stop is (worfy-assistant ticket 23)', () => {
+    w.core.ingest(event({ source: 'autopilot', id: 'run-8:stopped', subject: { kind: 'run', id: 'run-8', label: 'Autopilot · billing' }, kind: 'run-stopped', text: 'billing: stopped by the user (user-stop)', stopReason: 'user-stop', at: T0 - HOUR }))
+    const view = w.window.view()
+    expect(byTitle(view, 'billing: stopped by the user (user-stop)')?.urgent).toBe(false)
+    expect(byTitle(view, 'The Run of invoice-export stopped on a red gate')?.urgent).toBe(true)
+    // One rule on both sides: the window's urgency is the planner's for every stop reason.
+    for (const stopReason of ['user-stop', 'user-force-stop', 'start-cancelled', 'discarded']) expect(isUrgentItem({ kind: 'run-stopped', stopReason })).toBe(false)
+    for (const stopReason of ['main-red', 'turn-hung', 'some-later-reason', undefined]) expect(isUrgentItem({ kind: 'run-stopped', ...(stopReason === undefined ? {} : { stopReason }) })).toBe(true)
+    expect(isUrgentItem({ kind: 'run-finished', stopReason: 'tickets-done' })).toBe(false)
   })
 
   it('marks the text of an outside source as data, with its author and link', () => {
