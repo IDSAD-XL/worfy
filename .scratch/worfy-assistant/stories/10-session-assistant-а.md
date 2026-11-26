@@ -315,3 +315,24 @@ Code: `src/main/assistant/session/memory.ts:158-169` · key lines: 160, 161, 163
    - Ответ: `userMessage` запоминает текст в `said` до вызова цикла; цикл синхронно вызывает `onWake`, и тот
      забирает текст для пробуждения с причиной `user`.
    - Строки: `src/main/assistant/session/runner.ts:198-201`
+
+## 12. Что нашёл review и что осталось
+
+> VERIFIED — worfy-assistant 10 (the Assistant's own Session: cwd outside the Projects, a third Session kind in the Harness, only the worfy-app tools, a memory file), head 81b96cb0fead7b614c0dea90ec3b3db55b60290b
+>
+> Gate (depth medium, three rounds):
+> - Round 1, reviewer (lens: correctness, security weight) — FIX:
+>   - high: allowManagedPermissionRulesOnly made Claude Code deny every worfy-app tool under dontAsk (proved with the real Claude Code against a Messages API stand-in);
+>   - med: stop() left the running Session and its queue;
+>   - lows: canUseTool dead under dontAsk, common.md injected each wake, uncapped memory in the first message, memory notes carrying outside text.
+> - Round 2, narrow reviewer — MERGE on the round-1 fixes.
+> - Round 3, checked by the Orchestrator against the implementer's report: the contract test spawns Claude Code itself and waits for its exit on every way out (SIGTERM, then SIGKILL after 5 s); a silent stand-in run left no orphan process.
+>
+> - Evidence: session/worfy-app/SDK contract tests, lint, typecheck EXIT=0; gate fast green on 3524a8c0f.
+> - Rebased by the implementer onto origin/main 296dc5c4c after worfy-assistant 17 (#2244) landed. Conflicts were in src/main/mcp/app-server.ts and test/contract/worfy-app-tools.test.ts:
+>   - both sides kept: the help deps (featurePages, guideLanguage, buildVersion) and memory;
+>   - main's console.info journal shortcut is replaced by this ticket's journalTo, as the shortcut's own comment foresaw.
+> - Range-diff: 6 of 7 commits unchanged, the first carries the conflict resolution.
+> - On 81b96cb0f: typecheck, lint, 868 tests of assistant/worfy-app/MCP/SDK/help, rules-hooks 382 EXIT=0, pnpm build EXIT=0, gate fast green, story-check ok.
+> - Not verified: the Assistant does not start in the app until ticket 15 adds its switch (decided without the owner, in the ticket).
+> - Noted: test/contract/harness-plugin.test.ts and ask-user-question-sdk.test.ts may leave a Claude Code process after a timeout, the same case this PR closed for its own test.
