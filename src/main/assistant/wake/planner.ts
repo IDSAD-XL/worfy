@@ -3,8 +3,9 @@
 // (ticket 03), the clock, the work hours (ticket 04) and the Limits come in; a decision to wake goes out, and the
 // Session of the Assistant (ticket 10) starts on it.
 //
-// - Urgent wakes at once, at any hour: an Autopilot Run stopped (an item of kind `run-stopped`), or work stands and
-//   the closed list of actions did not help (escalate(), called by the closed list, ticket 08).
+// - Urgent wakes at once, at any hour: an Autopilot Run stopped (an item of kind `run-stopped`) not by the user
+//   (USER_STOP_REASONS, ticket 23), or work stands and the closed list of actions did not help (escalate(), called by
+//   the closed list, ticket 08).
 // - Non-urgent items wait and go in one batch in work hours: BATCH_GATHER_MS after the oldest of them came, and not
 //   sooner than BATCH_SPACING_MS after the previous wake. Outside work hours they wait for the morning.
 // - The morning summary: one wake per working day, at the first moment of work hours worfy sees (09:00, or when the
@@ -18,6 +19,7 @@
 import { z } from 'zod'
 import type { LimitsState } from '../../../shared/agent/limits'
 import { OPEN_STATES, type AttentionItem } from '../../../shared/assistant/attention'
+import type { AutopilotStopReason } from '../../../shared/autopilot/cycle'
 import { inWorkHours, machineTimeZone, nextWorkHoursStart, workWindowStartOf, type WorkHours } from '../../../shared/assistant/schedule/work-hours'
 import { assistantWakeGate, type WakeVerdict } from '../budget/wake-gate'
 import { dayOf } from '../core/attention-core'
@@ -29,6 +31,16 @@ export const BATCH_SPACING_MS = 60 * 60_000
 
 /** The kinds of item that wake at once. `run-finished` (a Run that did its Tickets) is not one. */
 export const URGENT_ITEM_KINDS: ReadonlySet<string> = new Set(['run-stopped'])
+
+/**
+ * The stops a person made (ticket 23, owner's decision 2026-11-26): Stop, Force stop, Cancel while the Run waited for
+ * its Orchestrator, and a Run a restart cut off that a person discarded. The user knows of them already, so they are
+ * not urgent: they go with a batch or the morning summary. Decided without the owner (ticket 23, result section).
+ */
+export const USER_STOP_REASONS: ReadonlySet<string> = new Set<AutopilotStopReason>(['user-stop', 'user-force-stop', 'start-cancelled', 'discarded'])
+
+/** Whether an item wakes at once by itself: a stopped Run, unless the user stopped it. */
+const urgentItem = (item: AttentionItem): boolean => URGENT_ITEM_KINDS.has(item.kind) && !USER_STOP_REASONS.has(item.stopReason ?? '')
 
 export type WakeReason = 'urgent' | 'batch' | 'morning' | 'user'
 
@@ -120,7 +132,7 @@ export class WakePlanner {
     const pending = this.pending(items)
     this.track(pending, now)
     const escalated = items.filter((item) => isOpen(item) && this.state.escalated.includes(item.id))
-    const urgent = escalated.length > 0 || pending.some((item) => URGENT_ITEM_KINDS.has(item.kind) && item.updatedAt >= this.state.since)
+    const urgent = escalated.length > 0 || pending.some((item) => urgentItem(item) && item.updatedAt >= this.state.since)
     let reason: Exclude<WakeReason, 'user'> | null = null
     if (urgent) reason = 'urgent'
     else if (inWorkHours(now, hours)) {

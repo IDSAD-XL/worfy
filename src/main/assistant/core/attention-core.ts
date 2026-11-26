@@ -207,6 +207,9 @@ export class AttentionCore {
       })
       if (event.pr !== undefined) glued.pr = event.pr
       if (event.message !== undefined) glued.message = event.message
+      // The reason belongs to the latest event: a stop gives it, any later line of the Run takes it away.
+      if (event.stopReason !== undefined) glued.stopReason = event.stopReason
+      else delete glued.stopReason
       // A dismissed or snoozed item stays so; a seen, closed or stale one asks again.
       if (glued.state === 'seen' || glued.state === 'closed' || glued.state === 'stale') glued.state = 'new'
       item = glued
@@ -308,6 +311,7 @@ export class AttentionCore {
       state: 'new',
       duty: this.dutyOf(event),
       ...(event.pr === undefined ? {} : { pr: event.pr }),
+      ...(event.stopReason === undefined ? {} : { stopReason: event.stopReason }),
     }
   }
 

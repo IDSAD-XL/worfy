@@ -2,6 +2,8 @@
 // in the Projects of this Machine, kept as items, not counters. main builds them (src/main/assistant/core/); the
 // window and the Assistant read them later (tickets 09 and 14).
 import { z } from 'zod'
+// Types only: cycle.ts reaches this module back through the action templates and the duties.
+import type { AutopilotStopReason } from '../autopilot/cycle'
 import { SOURCE_CHECK_KINDS } from './schedule/settings'
 
 /**
@@ -78,6 +80,8 @@ export interface AttentionEvent {
   pr?: AttentionPr
   /** The message of an outside source the event is (ticket 11); absent for the core's own sources. */
   message?: SourceMessage
+  /** Why an Autopilot Run stopped, for its `run-stopped` line (ticket 23); absent for every other event. */
+  stopReason?: AutopilotStopReason
 }
 
 export const attentionItemSchema = z.object({
@@ -109,5 +113,11 @@ export const attentionItemSchema = z.object({
   condition: z.string().optional(),
   /** The message of an outside source of the latest event glued into it (ticket 11). */
   message: sourceMessageSchema.optional(),
+  /**
+   * Why the Autopilot Run stopped, one of AUTOPILOT_STOP_REASONS, when the latest event glued into the item is its
+   * `run-stopped` line (ticket 23). Absent in a file written before the field. Any text reads, so a reason a later
+   * build added does not make the file unreadable; the wake treats a reason it does not know as urgent.
+   */
+  stopReason: z.string().optional(),
 })
 export type AttentionItem = z.infer<typeof attentionItemSchema>

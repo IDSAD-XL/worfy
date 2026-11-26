@@ -119,6 +119,41 @@ describe('an urgent item wakes at once', () => {
     expect(wakesNoted()).toEqual([])
   })
 
+  it('a Run the user stopped is not urgent: it waits for the morning; another stop at night wakes at once (ticket 23)', () => {
+    const wake = planner()
+    expect(wake.evaluate()).toBeNull()
+    clock = wed(3, 10)
+    const mine = (['user-stop', 'user-force-stop', 'start-cancelled', 'discarded'] as const).map((stopReason) => {
+      const item = runStopped()
+      item.stopReason = stopReason
+      return item
+    })
+    expect(wake.evaluate()).toBeNull()
+    expect(wakesNoted()).toEqual([])
+    for (const stopReason of ['main-red', 'turn-hung'] as const) {
+      clock += MINUTE
+      const other = runStopped()
+      other.stopReason = stopReason
+      const decision = wake.evaluate()
+      expect(decision).toMatchObject({ type: 'wake', reason: 'urgent', at: clock })
+      // The urgent wake carries what is pending, the user's stops too: they wait for no later wake.
+      expect(decision?.type === 'wake' && decision.items.map((item) => item.id)).toEqual(stopReason === 'main-red' ? [...mine, other].map((item) => item.id) : [other.id])
+    }
+  })
+
+  it('a Run the user stopped goes with the morning summary', () => {
+    const wake = planner()
+    expect(wake.evaluate()).toBeNull()
+    clock = wed(3, 10)
+    const mine = runStopped()
+    mine.stopReason = 'user-stop'
+    expect(wake.evaluate()).toBeNull()
+    clock = wed(9)
+    const morning = wake.evaluate()
+    expect(morning).toMatchObject({ type: 'wake', reason: 'morning' })
+    expect(morning?.type === 'wake' && morning.items.map((item) => item.id)).toEqual([mine.id])
+  })
+
   it('a Run that stopped before the Assistant first ran is not urgent: it goes with the morning', () => {
     clock = wed(2)
     const old = runStopped()
