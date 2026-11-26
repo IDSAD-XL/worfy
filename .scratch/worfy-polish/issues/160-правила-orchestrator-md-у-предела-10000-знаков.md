@@ -1,7 +1,8 @@
 # 160 — Правила `orchestrator.md` у предела 10 000 знаков: разделы «по случаю» — в skill, в файле — ссылки
 
 Type: task
-Status: claimed 2026-11-26T19:53Z
+Status: done 2026-11-26T21:09Z
+PR: #2289
 Branch: worfy-polish/160
 Blocked by: —
 Source: решение владельца 2026-11-26 — polish-Ticket, который выносит разделы файла в skill и оставляет в файле ссылки.
@@ -73,15 +74,20 @@ Source: решение владельца 2026-11-26 — polish-Ticket, кото
 
 - [ ] `orchestrator.md` — около 7 500 знаков или меньше; в отчёте — число до и после и команда счёта.
   - evidence: commit pass · worfy-polish/160: move the orchestrator rules needed at one moment into skill orchestrator-rules · - - · d4a44e81be915a8ba4c56a180183ce8c4252bef2
+  - evidence: review pass · PR #2289 · - - · c7881bbb888529b9af1dafa6ca77b79600c583fd
 - [ ] Перенесённые разделы лежат в skill-е без изменения смысла; на месте каждого в `orchestrator.md` — строка с
       именем skill-а и раздела; test-ы проверяют, что ссылки ведут к существующим разделам.
   - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0 · mac - · d4a44e81be915a8ba4c56a180183ce8c4252bef2
+  - evidence: review pass · PR #2289 · - - · c7881bbb888529b9af1dafa6ca77b79600c583fd
 - [ ] Файлы, которые цитируют перенесённые разделы (test-ы, `coverage.json`, страница возможностей), обновлены.
   - evidence: commit pass · worfy-polish/160: move the orchestrator rules needed at one moment into skill orchestrator-rules · - - · d4a44e81be915a8ba4c56a180183ce8c4252bef2
+  - evidence: review pass · PR #2289 · - - · c7881bbb888529b9af1dafa6ca77b79600c583fd
 - [ ] `bash harness/hooks/tests/rules-hooks.test.sh` и `bash harness/bin/tests/agents-text.test.sh` — exit 0.
   - evidence: test-run pass · `bash harness/bin/tests/agents-text.test.sh` exit 0 · mac - · d4a44e81be915a8ba4c56a180183ce8c4252bef2
+  - evidence: review pass · PR #2289 · - - · c7881bbb888529b9af1dafa6ca77b79600c583fd
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · d4a44e81be915a8ba4c56a180183ce8c4252bef2
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45893136346/job/140164689253 · ci - · c7881bbb888529b9af1dafa6ca77b79600c583fd
 
 ## Итог
 
