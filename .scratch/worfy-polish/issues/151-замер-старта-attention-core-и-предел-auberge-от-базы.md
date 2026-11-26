@@ -56,6 +56,7 @@ Project-а пишет `assistant-items.json` синхронно и с прове
 - [ ] Карантин снят: записи и метки нет; `test/unit/quarantine.test.ts` зелёный.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast зелёный; `ci-ok` зелёный на head PR, test идёт в
       `macos-e2e` и зелёный.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 12a56ca92f13d52753043c60a9f394e309ea4fd3
 
 ## Где в коде
 
