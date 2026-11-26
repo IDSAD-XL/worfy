@@ -44,6 +44,7 @@ Epic-ам и Ticket-ам.
 | [Transcripts и usage](transcripts-and-usage.md) | Transcript, Claude home, Memory, Limits |
 | [Gate и GitHub](gate-and-github.md) | Gate, Gate full, Failure records, бейджи PR и CI |
 | [Pull requests](pr-inbox.md) | PR inbox: открытые PR пользователя и запросы ревью Project-а, нити ревью, раздел sidebar |
+| [Assistant](assistant.md) | Assistant: собственный агент worfy над всеми Project-ами Machine; включение и знакомство, его раздел (Waits, Summary, Journal, Chat), Duty и Action mode, Check Slack, Jira и CI основной ветки, пробуждения, дневной предел и расход, его уведомления, Linked machine |
 | [Acceptance](acceptance.md) | Acceptance: ручные пункты всех Project-ов, которые ждут владельца, их Evidence и строка Stable copy, Pass и Fail, входы, Linked machine |
 | [Browser](browser.md) | Browser, Browser profile |
 | [Link](link.md) | Machine, Linked machine |

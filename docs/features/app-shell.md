@@ -33,7 +33,7 @@ The rail is one Tab stop. ↑ and ↓ walk it and wrap round, Home and End go to
 opens at once. The section that is open is remembered for the window. A window that never chose a section opens on
 Projects, not on the Assistant above it.
 
-**The Assistant** (worfy-assistant ticket 14) is a section of its own: what waits over every Project of this Machine,
+**The [Assistant](assistant.md)** (worfy-assistant ticket 14) is a section of its own: what waits over every Project of this Machine,
 each item with its reason, its source and its duty, and Open, Prepare, Snooze and Dismiss; like and dislike on each of
 its messages; the journal of its actions, each row with the item that caused it; a summary; the conversation; and its
 usage line, whose share of Limits is marked as an estimate. Prepare shows the exact text of the Session before it starts;
