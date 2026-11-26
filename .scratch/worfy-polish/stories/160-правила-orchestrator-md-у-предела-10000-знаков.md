@@ -153,3 +153,32 @@ done
    - Ответ: строки-ссылки повторяют слова правил («Before a phase», «fifth»), и поиск по обоим файлам находил их
      даже после удаления абзаца из skill-а.
    - Строки: `harness/hooks/tests/rules-hooks.test.sh:650-654`
+
+## 7. Что нашёл review и что осталось
+
+> VERIFIED — worfy-polish 160 (harness/hooks/rules/orchestrator.md brought from 9991 to about 7534 injected characters, under the 10000 limit of rules-hooks.test.sh, which was not raised: Quota, Long output, Ticket status, State file and State file vs ADR moved word for word into the new skill orchestrator-rules, with a one-line pointer each left in the file), head c7881bbb888529b9af1dafa6ca77b79600c583fd
+>
+> Gate (depth medium, two rounds):
+> - Round 1, reviewer (lens: correctness) — FIX, one med, one low.
+>   - med: the topics of the moved sections were searched in orchestrator.md and SKILL.md joined, and the pointer lines repeat the Quota phrases. Deleting a Quota paragraph from the skill left every test green (mutation, exit 0).
+>   - low: docs/features/skills-agents-and-hooks.md:13 gave the wrong skill count and had no owner-check row.
+>   - Checked fine:
+>     - the moved text matches the deleted lines word for word (word diff: 0 differences);
+>     - the status block, the Stage-line rule, the closed list and the delegate list stay in orchestrator.md;
+>     - the pointers name real sections, and the frontmatter matches the other skills;
+>     - the migrate plan's pluginRuleHeadings result is unchanged;
+>     - no other test quotes a moved phrase;
+>     - the new text is English only.
+> - Fix c7881bbb8:
+>   - SKILL_TOPICS in rules-hooks.test.sh:601-607, searched in each section of the skill alone, with at least one phrase per paragraph and none from the pointer lines (:647-658);
+>   - 11 mutations, one paragraph each across all five sections: every one exits 1;
+>   - docs count fixed to 15 and an owner-check row added; the ru page was already stale and is left (rules.md: behaviour PRs edit the English page).
+> - Round 2: the test diff read by the orchestrator. It closes the finding.
+> Evidence: rules-hooks, agents-text, start-context and plugin-neutral tests exit 0; harness-migrate contract exit 0; lint exit 0; gate fast green; story-check exit 0.
+> Not verified: whether the model opens the skill at the right moment (no eval case).
+
+Code: `docs/features/skills-agents-and-hooks.md:13-13` · key lines: 13
+
+```md
+plugin carries fifteen skills of worfy's own and twenty copied from Matt Pocock's skills.
+```
