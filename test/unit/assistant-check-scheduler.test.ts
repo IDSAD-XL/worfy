@@ -598,6 +598,46 @@ describe('failures in a row (worfy-assistant ticket 22)', () => {
     warn.mockRestore()
   })
 
+  it('turning a backed-off check off and on, or changing its interval, clears the count: the next run is its plain interval', async () => {
+    const start = utc(2026, 11, 25, 8, 0)
+    vi.setSystemTime(start)
+    choose({ checks: { slack: { enabled: true, intervalMinutes: 10, sleepOutsideWorkHours: false } } })
+    const slack = failing({ fail: true })
+    const checks = scheduler()
+    checks.register('slack', slack.run)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined)
+    checks.start()
+    await vi.advanceTimersByTimeAsync(0)
+    for (let run = 2; run <= 4; run += 1) await toNextRun(checks, 'slack')
+    const last = slack.starts.at(-1) ?? 0
+    expect(checks.nextRun('slack')).toBe(last + 40 * MINUTE)
+
+    // Off, then on again: the person asks for the check, so it is no longer held back.
+    choose({ checks: { slack: { enabled: false, intervalMinutes: 10, sleepOutsideWorkHours: false } } })
+    checks.reschedule()
+    choose({ checks: { slack: { enabled: true, intervalMinutes: 10, sleepOutsideWorkHours: false } } })
+    checks.reschedule()
+    expect(marks.read().slack?.failures).toBeUndefined()
+    expect(checks.nextRun('slack')).toBe(last + 10 * MINUTE)
+
+    // Backed off again, then a new interval: the new one counts from the plain interval.
+    for (let run = 1; run <= 3; run += 1) await toNextRun(checks, 'slack')
+    const again = slack.starts.at(-1) ?? 0
+    expect(checks.nextRun('slack')).toBe(again + 20 * MINUTE)
+    choose({ checks: { slack: { enabled: true, intervalMinutes: 15, sleepOutsideWorkHours: false } } })
+    checks.reschedule()
+    expect(checks.nextRun('slack')).toBe(again + 15 * MINUTE)
+
+    // A change of another field (sleep outside work hours) or of another kind keeps the count.
+    for (let run = 1; run <= 3; run += 1) await toNextRun(checks, 'slack')
+    choose({ workHours: EVERY_DAY, checks: { slack: { enabled: true, intervalMinutes: 15, sleepOutsideWorkHours: false }, jira: { enabled: true } } })
+    checks.reschedule()
+    expect(marks.read().slack?.failures).toBe(3)
+    warn.mockRestore()
+    info.mockRestore()
+  })
+
   it('the count outlives a restart: a new scheduler over the same marks keeps the longer interval; marks without the count read as no failures', async () => {
     const start = utc(2026, 11, 25, 8, 0)
     vi.setSystemTime(start)

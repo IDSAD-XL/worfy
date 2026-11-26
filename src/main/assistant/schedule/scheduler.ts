@@ -21,7 +21,9 @@
 // Failures in a row (worfy-assistant ticket 22): a check of an outside source (BACKOFF_KINDS) that failed
 // BACKOFF_AFTER_FAILURES times in a row waits BACKOFF_FACTOR times longer with each further failure, up to
 // BACKOFF_CEILING_MS — a broken connector is not asked, and paid for, every few minutes without end. The
-// first success brings the usual interval back. The count is kept in the marks, so it outlives a restart.
+// first success brings the usual interval back, and so does the person turning the check on again or changing its
+// interval (reschedule): they ask for the check, so it is no longer held back. The count is kept in the marks, so it
+// outlives a restart.
 //
 // The Mac's sleep: suspend() clears the timer and refuses every start until resume(), which plans again —
 // so no check goes while the Mac sleeps, and the missed one goes on waking. worfy closed: the starts and
@@ -138,6 +140,8 @@ interface Entry {
   running: boolean
   /** The spread of the next run, as a share of the interval; drawn after each run. */
   spread: number
+  /** Whether the kind was on, and its interval, at the last reschedule: a change of either clears its failures in a row. */
+  seen: { enabled: boolean; intervalMinutes: number }
 }
 
 export class CheckScheduler {
@@ -152,7 +156,8 @@ export class CheckScheduler {
   /** Registers the check of `kind`; answers a function that removes it. One check per kind. */
   register(kind: CheckKind, run: CheckRun): () => void {
     if (this.entries.has(kind)) throw new Error(`a check of kind ${kind} is registered already`)
-    const entry: Entry = { run, running: false, spread: this.draw() }
+    const { enabled, intervalMinutes } = checkSettingsOf(this.options.settings(), kind)
+    const entry: Entry = { run, running: false, spread: this.draw(), seen: { enabled, intervalMinutes } }
     this.entries.set(kind, entry)
     this.plan()
     return () => {
@@ -186,8 +191,23 @@ export class CheckScheduler {
     this.plan()
   }
 
-  /** The settings changed: plans again by them. */
+  /**
+   * The settings changed: plans again by them. A kind turned on again, or given another interval, loses its failures
+   * in a row: the person asked for the check, so its next run is its plain interval (ticket 22).
+   */
   reschedule(): void {
+    const settings = this.options.settings()
+    for (const [kind, entry] of this.entries) {
+      const { enabled, intervalMinutes } = checkSettingsOf(settings, kind)
+      const turnedOn = enabled && !entry.seen.enabled
+      const newInterval = intervalMinutes !== entry.seen.intervalMinutes
+      entry.seen = { enabled, intervalMinutes }
+      const failures = this.readMarks()[kind]?.failures
+      if ((turnedOn || newInterval) && failures !== undefined) {
+        this.mark(kind, { failures: undefined })
+        if (failures >= BACKOFF_AFTER_FAILURES) console.info(`[assistant] the ${kind} check was ${turnedOn ? 'turned on again' : 'given another interval'}: back to its usual interval`)
+      }
+    }
     this.plan()
   }
 

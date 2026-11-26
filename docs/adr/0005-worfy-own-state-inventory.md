@@ -86,7 +86,7 @@ worfy ничего не пишет в репозитории Project-ов — н
     строка Health check.
   - `<WORFY_DATA_DIR>/assistant-check-marks.json` — отметки планировщика проверок (Ticket 04,
     `src/main/assistant/schedule/app.ts`): по виду проверки (Slack, Jira) время последнего старта и последнего
-    успеха. Файла нет, пока ни одна проверка не включена.
+    успеха и число неудач подряд (Ticket 22 эпика worfy-assistant). Файла нет, пока ни одна проверка не включена.
   - `<WORFY_DATA_DIR>/assistant/usage.json` — журнал расхода Assistant-а (Ticket 05,
     `src/main/assistant/budget/ledger.ts`): его вызовы с `usage` и `costUsd`, его автоматические пробуждения и цена
     остальных ходов worfy, чтобы оценить долю Assistant-а. Записи старше 8 дней удаляются.
