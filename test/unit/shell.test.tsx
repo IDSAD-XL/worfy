@@ -67,6 +67,29 @@ describe('SidebarView', () => {
   })
 })
 
+describe('the edge of the sidebar (worfy-polish ticket 158)', () => {
+  it('SidebarView draws the edge only when asked; the shell asks, and the edge lies inside the sidebar, which the focus keeper watches', () => {
+    const { unmount } = render(<SidebarView sections={[]} />)
+    expect(screen.queryByRole('separator', { name: 'Resize the sidebar' })).toBeNull()
+    unmount()
+    render(<AppShell />)
+    const edge = screen.getByRole('separator', { name: 'Resize the sidebar' })
+    expect(edge.closest('nav')).toBe(screen.getByRole('navigation', { name: 'Sidebar' }))
+    expect(edge.classList.contains('w-sidebar__resize')).toBe(true)
+  })
+
+  it('hidden with the focus on the edge, the sidebar gives the focus to «Show sidebar»', () => {
+    render(<AppShell />)
+    screen.getByRole('separator', { name: 'Resize the sidebar' }).focus()
+    fireEvent.click(screen.getByRole('button', { name: 'Hide sidebar' }))
+    // The click took no focus in jsdom: the edge still had it when the sidebar went away.
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Show sidebar' }))
+    // Shown again: the switch lives in a module, and the tests after this one start with the sidebar shown.
+    fireEvent.click(screen.getByRole('button', { name: 'Show sidebar' }))
+    expect(screen.getByRole('navigation', { name: 'Sidebar' })).not.toBeNull()
+  })
+})
+
 describe('ToolbarView', () => {
   const base = { items: [], view: 'canvas' as const, onViewChange: () => {}, sidebarVisible: true, onToggleSidebar: () => {} }
 

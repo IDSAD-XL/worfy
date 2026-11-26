@@ -10,6 +10,10 @@
 //   collapse — the sidebar shows one at a time (worfy-polish ticket 94) — so the keys of section ids
 //   an older version wrote stay in the file and are not read;
 // - `sidebar.visible` — whether the sidebar is shown, apart for the normal view and the focus mode;
+// - `sidebar.width` — how wide the sidebar is, in CSS pixels, once the person dragged its edge
+//   (worfy-polish ticket 158); absent — SIDEBAR_WIDTH_DEFAULT. One width for the normal view and focus
+//   mode. CSS pixels, because main zooms the whole window by the interface scale: a width kept in
+//   them grows with the scale as the default 264 px always did, and nothing multiplies it again;
 // - `autoCompactWindow` — the autocompact window of a Session in tokens (worfy-polish ticket 24):
 //   `orchestrator` for a Project's Orchestrator, Autopilot's included, and its Subagents;
 //   `other` for every other Session of worfy. null — "Claude Code default": worfy passes nothing,
@@ -296,12 +300,30 @@ export const productSessionSplitSchema = z.number().min(PRODUCT_SESSION_SPLIT_MI
  */
 export const productSessionChoiceSchema = z.object({ split: productSessionSplitSchema.optional(), liveSummary: z.boolean().optional() })
 
+/** The width of the sidebar until the person drags its edge, and again after a double click on it: `--sidebar-width` of theme/tokens.css. */
+export const SIDEBAR_WIDTH_DEFAULT = 264
+/** The narrowest sidebar: the rail (48 px) and a panel where a section's rows still read. */
+export const SIDEBAR_WIDTH_MIN = 220
+/** The widest sidebar, whatever the window; the renderer also keeps SIDEBAR_CANVAS_ROOM for the Canvas. */
+export const SIDEBAR_WIDTH_MAX = 640
+/** What a wide sidebar leaves the rest of the window at the least, in CSS pixels (src/renderer/shell/sidebar-width.ts). */
+export const SIDEBAR_CANVAS_ROOM = 480
+export const sidebarWidthSchema = z.number().int().min(SIDEBAR_WIDTH_MIN).max(SIDEBAR_WIDTH_MAX)
+
+/** A width brought into SIDEBAR_WIDTH_MIN … SIDEBAR_WIDTH_MAX, in whole pixels; a number that is none (NaN) is the default. */
+export function clampSidebarWidth(width: number): number {
+  if (!Number.isFinite(width)) return SIDEBAR_WIDTH_DEFAULT
+  return Math.min(Math.max(Math.round(width), SIDEBAR_WIDTH_MIN), SIDEBAR_WIDTH_MAX)
+}
+
 export const appSettingsSchema = z.object({
   interfaceScale: z.number().min(INTERFACE_SCALE_MIN).max(INTERFACE_SCALE_MAX),
   sidebar: z.object({
     /** Collapsed (true) or expanded (false), by section id; no key — the section's own default. */
     collapsed: z.record(sectionIdSchema, z.boolean()),
     visible: sidebarVisibilitySchema,
+    /** The width the person dragged the sidebar to, in CSS pixels; absent — SIDEBAR_WIDTH_DEFAULT (see sidebarWidthOf). */
+    width: sidebarWidthSchema.optional(),
   }),
   autoCompactWindow: z.object({
     /** A Project's Orchestrator, attended or under Autopilot; its Subagents inherit the window. */
@@ -362,6 +384,8 @@ export const appSettingsPatchSchema = z.object({
     .object({
       collapsed: z.record(sectionIdSchema, z.boolean()).optional(),
       visible: sidebarVisibilitySchema.partial().optional(),
+      /** Any width: the store brings it into range with clampSidebarWidth. null takes it back to the default: the field goes. */
+      width: z.number().nullable().optional(),
     })
     .optional(),
   autoCompactWindow: z
@@ -429,6 +453,11 @@ export function defaultAppSettings(): AppSettings {
 /** Whether "Update automatically" is on: on unless set off. */
 export function autoUpdateOf(settings: Pick<AppSettings, 'autoUpdate'>): boolean {
   return settings.autoUpdate ?? true
+}
+
+/** The width of the sidebar the person chose, else SIDEBAR_WIDTH_DEFAULT; the window may show it narrower (sidebar-width.ts). */
+export function sidebarWidthOf(settings: Pick<AppSettings, 'sidebar'>): number {
+  return settings.sidebar.width ?? SIDEBAR_WIDTH_DEFAULT
 }
 
 /** The Mind map's share of a Product Session's screen: the one the person chose, else 60 / 40. */

@@ -11,6 +11,7 @@ import { useFirstRun } from './first-run-store'
 import { ProjectSwitcher } from './ProjectSwitcher'
 import { collectExtensions, type ShellExtension } from './registry'
 import { pickSection, showSidebarSection, useRailBadge, useSidebarScope } from './sidebar-scope'
+import { SidebarResizeHandle } from './SidebarResizeHandle'
 import { SidebarToggle } from './sidebar-visibility'
 
 // Each sidebar section is its own file, src/renderer/shell/sidebar/<Name>Section.tsx, with a
@@ -28,6 +29,8 @@ export interface SidebarViewProps {
   sections: readonly ShellExtension[]
   /** The button that hides the sidebar, in the strip at the top; without it (a unit test) there is none. */
   onToggle?: () => void
+  /** The edge that changes the sidebar's width (worfy-polish ticket 158); without it (a unit test) there is none. */
+  resizable?: boolean
 }
 
 /** The name of a section on the rail: its own, or the file name without "Section". */
@@ -207,7 +210,7 @@ const gearIcon = (
   </svg>
 )
 
-export function SidebarView({ sections, onToggle }: SidebarViewProps) {
+export function SidebarView({ sections, onToggle, resizable = false }: SidebarViewProps) {
   const base = useId()
   const saved = useSidebarScope((state) => state.section)
   // Focus mode has its own button for the sidebar in its bar (focus/FocusMode.tsx); one is enough.
@@ -286,10 +289,12 @@ export function SidebarView({ sections, onToggle }: SidebarViewProps) {
           ))}
         </div>
       </div>
+      {/* Last in the sidebar: its right edge, over the border, drawn above the panel. */}
+      {resizable ? <SidebarResizeHandle /> : null}
     </nav>
   )
 }
 
 export function Sidebar({ onToggle }: { onToggle?: () => void }) {
-  return <SidebarView sections={sections} onToggle={onToggle} />
+  return <SidebarView sections={sections} onToggle={onToggle} resizable />
 }

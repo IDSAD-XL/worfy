@@ -1,16 +1,11 @@
-import { useEffect, useRef, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
+import { Divider } from '../theme/kit/Divider'
 
 // The divider between two side-by-side panes (worfy-product-session ticket 07: the Mind map and
 // the chat of a Product Session). It holds the left pane's share of its parent's width; the parent
-// lays the panes out by it. A drag with the mouse moves it, so do ←/→ (a step), Home and End (the
-// edges); a double click puts it back to `reset`. Each side keeps at least `min`. `onMove` follows
-// the drag; `onCommit` gets the share where a gesture ended — the pointer let go, a key, a double
-// click — so a caller writes it once per gesture, not on every pointer move. A cancelled drag puts
-// the share back where it started and commits nothing.
-//
-// The drag follows the pointer on window, as Focus mode's dividers do (src/renderer/focus/FocusMode.tsx,
-// followPointer): a pointermove with the primary button up is skipped rather than taken for a release,
-// so a capture Chromium takes away mid-drag does not end the gesture.
+// lays the panes out by it. The drag, the keys, the double click and the cancelled drag are those of
+// the kit's Divider (theme/kit/Divider.tsx), which the sidebar's edge shares (worfy-polish ticket 158);
+// this one counts in shares: a pixel of the pointer is 1 / the parent's width, and each side keeps at
+// least `min`.
 
 /** How far one arrow key moves the divider, as a share of the width. */
 export const SPLIT_KEY_STEP = 0.05
@@ -29,102 +24,29 @@ export interface SplitDividerProps {
   testId?: string
 }
 
-/** `share` within `min` … 1 − `min`, rounded to a tenth of a percent: a drag to 70 / 30 is 0.7, not 0.70000001. */
-function clampShare(share: number, min: number): number {
-  const kept = Math.min(Math.max(share, min), 1 - min)
-  return Math.round(kept * 1000) / 1000
-}
-
-interface Drag {
-  pointerId: number
-  startX: number
-  startShare: number
-  width: number
-  last: number
-}
+/** A share rounded to a tenth of a percent: a drag to 70 / 30 is 0.7, not 0.70000001. */
+const roundShare = (share: number): number => Math.round(share * 1000) / 1000
+/** A pixel of the pointer as a share of the parent's width; Infinity — no parent width, no drag. */
+const sharePerPixel = (divider: HTMLElement): number => 1 / (divider.parentElement?.getBoundingClientRect().width ?? 0)
+const percent = (share: number): number => Math.round(share * 100)
 
 export function SplitDivider({ share, min, reset, onMove, onCommit, label, title, testId }: SplitDividerProps) {
-  const stop = useRef<(() => void) | null>(null)
-  // A drag still under way when the divider goes (the Session closed) stops following the pointer.
-  useEffect(() => () => stop.current?.(), [])
-
-  const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0) return
-    const width = event.currentTarget.parentElement?.getBoundingClientRect().width ?? 0
-    if (width <= 0) return
-    event.preventDefault()
-    stop.current?.()
-    const drag: Drag = { pointerId: event.pointerId, startX: event.clientX, startShare: share, width, last: share }
-    const onPointerMove = (move: PointerEvent) => {
-      if (move.pointerId !== drag.pointerId || (move.buttons & 1) === 0) return
-      drag.last = clampShare(drag.startShare + (move.clientX - drag.startX) / drag.width, min)
-      onMove(drag.last)
-    }
-    const onPointerUp = (up: PointerEvent) => {
-      if (up.pointerId !== drag.pointerId) return
-      end()
-      onCommit(drag.last)
-    }
-    const onPointerCancel = (cancel: PointerEvent) => {
-      if (cancel.pointerId !== drag.pointerId) return
-      end()
-      onMove(drag.startShare)
-    }
-    const end = () => {
-      window.removeEventListener('pointermove', onPointerMove, true)
-      window.removeEventListener('pointerup', onPointerUp, true)
-      window.removeEventListener('pointercancel', onPointerCancel, true)
-      document.body.classList.remove('w-split-dragging')
-      stop.current = null
-    }
-    // Capture phase: a pane that stops a pointer event must not stall the drag.
-    window.addEventListener('pointermove', onPointerMove, true)
-    window.addEventListener('pointerup', onPointerUp, true)
-    window.addEventListener('pointercancel', onPointerCancel, true)
-    document.body.classList.add('w-split-dragging')
-    stop.current = end
-  }
-
-  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    const next =
-      event.key === 'ArrowLeft'
-        ? share - SPLIT_KEY_STEP
-        : event.key === 'ArrowRight'
-          ? share + SPLIT_KEY_STEP
-          : event.key === 'Home'
-            ? min
-            : event.key === 'End'
-              ? 1 - min
-              : undefined
-    if (next === undefined) return
-    event.preventDefault()
-    const kept = clampShare(next, min)
-    onMove(kept)
-    onCommit(kept)
-  }
-
-  const onDoubleClick = () => {
-    onMove(reset)
-    onCommit(reset)
-  }
-
   return (
-    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- a focusable separator with a value is the WAI-ARIA window splitter; jsx-a11y counts every separator as static.
-    <div
+    <Divider
       className="w-split-divider"
-      role="separator"
-      aria-orientation="vertical"
-      aria-label={label}
-      aria-valuemin={Math.round(min * 100)}
-      aria-valuemax={Math.round((1 - min) * 100)}
-      aria-valuenow={Math.round(share * 100)}
-      // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- the window splitter takes the focus to move with the arrows.
-      tabIndex={0}
+      value={share}
+      min={min}
+      max={1 - min}
+      step={SPLIT_KEY_STEP}
+      reset={reset}
+      perPixel={sharePerPixel}
+      round={roundShare}
+      ariaValue={percent}
+      onMove={onMove}
+      onCommit={onCommit}
+      label={label}
       title={title}
-      data-testid={testId}
-      onPointerDown={onPointerDown}
-      onKeyDown={onKeyDown}
-      onDoubleClick={onDoubleClick}
+      testId={testId}
     />
   )
 }

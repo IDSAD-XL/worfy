@@ -14,7 +14,8 @@ so switching back finds it as it was.
 
 ### Behaviour
 
-The column on the left of the window, 264 pixels wide. From the top:
+The column on the left of the window, 264 pixels wide until you drag its right edge (worfy-polish ticket 158). From the
+top:
 
 - **The strip**, as high as the toolbar. On macOS the traffic lights sit on its left. Then comes the wordmark "worfy" and,
   at the right edge, the button that hides the sidebar (⌘B, Ctrl+B on Windows). Dragging the strip moves the window.
@@ -28,6 +29,19 @@ The column on the left of the window, 264 pixels wide. From the top:
   someone, and the dot of the Linked machines.
 - **The panel**, next to the rail. It shows one section: its name, which Projects it shows, its own buttons, and its list,
   which scrolls by itself.
+
+**The width.** The right edge of the sidebar is a handle about 6 pixels wide: the pointer turns into a resize cursor over
+it, and a line of the accent colour shows while the pointer rests on it, while it has the keyboard focus and while it is
+dragged. Dragging it changes the width of the whole sidebar, live. The width is saved once, when the mouse button is let
+go; Escape during a drag puts the width back where the drag started and saves nothing. The handle is a Tab stop: ← and →
+move it by 16 pixels, Home and End to its bounds, and a key that moves it saves. A double click puts the default 264
+pixels back. A press without a move, a drag back to where it started and a key against a bound save nothing; the drag
+is also cancelled when the window loses focus, at the next press if a release was missed, and when the sidebar is hidden
+mid-drag.
+The width stays between 220 and 640 pixels, and never wider than leaves the rest of the window 480 pixels; a window made
+narrower only shows the sidebar narrower, never below 264 pixels, and a wider one shows the saved width again. The width
+is one per Machine, the same in the normal view and in focus mode, and a sidebar shown again after hiding comes back at
+it. It counts in pixels of the page, so the interface scale enlarges it as it enlarges the rest of the window.
 
 The rail is one Tab stop. ↑ and ↓ walk it and wrap round, Home and End go to its ends, and the section under the focus
 opens at once. The section that is open is remembered for the window. A window that never chose a section opens on
@@ -143,6 +157,7 @@ watcher. Only the open Project's documents are watched.
 | What | Where |
 |---|---|
 | Strip, rail and panel | `src/renderer/shell/Sidebar.tsx`, `src/renderer/shell/shell.css` |
+| Width of the sidebar and its edge | `src/renderer/shell/sidebar-width.ts`, `src/renderer/shell/SidebarResizeHandle.tsx`, the divider `src/renderer/theme/kit/Divider.tsx`, the bounds in `src/shared/settings/app-settings.ts` |
 | The Assistant's section, speech card and Prepare | `src/renderer/shell/sidebar/AssistantSection.tsx`, `src/renderer/assistant/`, in main `src/main/assistant/window/` and `src/main/ipc/assistant.ts`, channels in `src/shared/ipc/assistant.ts`, tokens `--assistant*` in `src/renderer/theme/tokens.css` |
 | The offer of the Assistant and its introduction | `src/renderer/assistant/Offer.tsx`, `src/renderer/assistant/offer-notice.ts`, the page in `src/renderer/shell/FirstRun.tsx`, in main `src/main/assistant/intro/` (its words in `src/main/assistant/intro/words/`), the state in `src/shared/assistant/intro.ts` |
 | Health check button and its dot | `HealthRailButton` in `src/renderer/shell/Sidebar.tsx`, `openHealthCheck` in `src/renderer/settings/settings-window.ts`, the worst level in `src/shared/health/severity.ts`, the tokens `--health-critical` and `--health-warning` in `src/renderer/theme/tokens.css` |
@@ -154,7 +169,7 @@ watcher. Only the open Project's documents are watched.
 | Sections | `src/renderer/shell/sidebar/` |
 | Rail entries of the sections | `src/renderer/shell/registry.ts` |
 
-Main tests: `test/unit/sidebar-scope.test.tsx`, `test/unit/assistant-window.test.ts`, `test/unit/assistant-panel.test.tsx`, `test/unit/assistant-speech.test.tsx`, `test/unit/assistant-intro.test.ts`, `test/unit/assistant-offer.test.tsx`, `test/e2e/assistant.spec.ts`, `test/unit/sidebar-section.test.tsx`, `test/unit/health-rail-button.test.tsx`, `test/unit/acceptance-section.test.tsx`, `test/e2e/sidebar-rail.spec.ts`,
+Main tests: `test/unit/sidebar-scope.test.tsx`, `test/unit/sidebar-resize.test.tsx`, `test/e2e/sidebar-resize.spec.ts`, `test/unit/assistant-window.test.ts`, `test/unit/assistant-panel.test.tsx`, `test/unit/assistant-speech.test.tsx`, `test/unit/assistant-intro.test.ts`, `test/unit/assistant-offer.test.tsx`, `test/e2e/assistant.spec.ts`, `test/unit/sidebar-section.test.tsx`, `test/unit/health-rail-button.test.tsx`, `test/unit/acceptance-section.test.tsx`, `test/e2e/sidebar-rail.spec.ts`,
 `test/e2e/sidebar-sections.spec.ts`.
 
 ## Command palette
@@ -507,8 +522,9 @@ setting stays as it was. Most sections word it "Not saved: …".
 - A value set by hand outside the offered list, within the bounds, shows as it is. This holds for the Browser values and the
   reserve.
 
-The sidebar has two more settings of the same kind and no row in this window: whether the «Older» Epics of a Project are
-folded, and whether the sidebar is shown (separately for the normal view and focus mode).
+The sidebar has three more settings of the same kind and no row in this window: whether the «Older» Epics of a Project are
+folded, whether the sidebar is shown (separately for the normal view and focus mode), and its width (dragged at its right
+edge, see [Sidebar](#sidebar)).
 
 Settings of a Project, such as its Terminal shell, are not here. They are in "Project settings…": see
 [Projects](projects.md).

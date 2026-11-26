@@ -17,9 +17,9 @@ import { AppShell } from '../../src/renderer/shell/AppShell'
 import type { IpcResult, WorfyBridge } from '../../src/shared/ipc/channels'
 import type { AppSettings } from '../../src/shared/settings/app-settings'
 
-const settings = (revision: number, interfaceScale: number): AppSettings => ({
+const settings = (revision: number, interfaceScale: number, sidebarWidth?: number): AppSettings => ({
   interfaceScale,
-  sidebar: { collapsed: {}, visible: { normal: true, focus: true } },
+  sidebar: { collapsed: {}, visible: { normal: true, focus: true }, ...(sidebarWidth === undefined ? {} : { width: sidebarWidth }) },
   autoCompactWindow: { orchestrator: 400_000, other: 500_000 },
   memoryIndicator: true,
   revision,
@@ -268,5 +268,20 @@ describe('the scale on <html>', () => {
     expect(variables()).toEqual({ scale: '1.3', toolbar: 'calc(52px / 1.3)' })
     scaleIs(0.9)
     expect(variables()).toEqual({ scale: '0.9', toolbar: 'calc(52px / 0.9)' })
+  })
+
+  it('the width of the sidebar stays in CSS pixels at any scale: the zoom of the window enlarges it once (worfy-polish ticket 158)', () => {
+    const width = () => root.style.getPropertyValue('--sidebar-width')
+    act(() => acceptAppSettings(settings(++revision, 1, 400)))
+    render(<AppShell />)
+    expect(width()).toBe('400px')
+    act(() => acceptAppSettings(settings(++revision, 1.5, 400)))
+    expect(variables().scale).toBe('1.5')
+    expect(width()).toBe('400px')
+    act(() => acceptAppSettings(settings(++revision, 0.8, 400)))
+    expect(width()).toBe('400px')
+    // Back to the default width: the token of tokens.css counts again.
+    act(() => acceptAppSettings(settings(++revision, 1)))
+    expect(width()).toBe('')
   })
 })

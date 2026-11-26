@@ -12,6 +12,7 @@
  * the rail of sections and the panel with one section.
  */
 .w-sidebar {
+  position: relative;
   flex: none;
   width: var(--sidebar-width);
   display: flex;
@@ -210,6 +211,41 @@
   background: var(--sidebar);
   border: 1.5px solid var(--text-muted);
 }
+/*
+ * The right edge of the sidebar (SidebarResizeHandle.tsx, worfy-polish ticket 158): a strip 6 px wide,
+ * wholly inside the sidebar's box and ending on the outer side of its 1 px border — `right` counts from
+ * the padding box, so −1 px puts the strip's right side where the sidebar ends. Nothing of it lies over
+ * the Canvas: a press one pixel right of the sidebar is the Canvas's (a box selection there). A 2 px
+ * line of the accent over the border while the pointer rests on it, the keyboard focus is on it or it
+ * is dragged.
+ */
+.w-sidebar__resize {
+  position: absolute;
+  top: 0;
+  right: -1px;
+  bottom: 0;
+  z-index: 2;
+  width: 6px;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+}
+.w-sidebar__resize::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 2px;
+  background: transparent;
+  transition: background-color 120ms ease;
+}
+.w-sidebar__resize:hover::after,
+.w-sidebar__resize:focus-visible::after,
+.w-sidebar__resize[data-dragging]::after {
+  background: var(--accent);
+}
+
 /* The panel: the one section shown (sidebar-section.css). */
 .w-sidebar__sections {
   flex: 1;

@@ -474,16 +474,9 @@
 
 .w-split-divider:hover,
 .w-split-divider:focus-visible,
-body.w-split-dragging .w-split-divider {
+.w-split-divider[data-dragging] {
   background: color-mix(in srgb, var(--accent) 35%, transparent);
   outline: none;
-}
-
-/* While the divider is dragged the cursor stays a resize one, and no text gets selected. */
-body.w-split-dragging,
-body.w-split-dragging * {
-  cursor: col-resize !important;
-  user-select: none !important;
 }
 
 .w-product__agents {

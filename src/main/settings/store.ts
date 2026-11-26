@@ -59,6 +59,7 @@ import {
   autoUpdateOf,
   clampAutoCompactWindow,
   clampScale,
+  clampSidebarWidth,
   defaultAppSettings,
   INTERFACE_SCALE_DEFAULT,
   sectionIdSchema,
@@ -137,6 +138,8 @@ const appSettingsFileSchema = z.object({
       visible: z
         .object({ normal: z.boolean().default(true), focus: z.boolean().default(true) })
         .default(() => ({ normal: true, focus: true })),
+      // Clamped like the scale; a width of the wrong type is dropped rather than setting the whole file aside.
+      width: z.number().transform(clampSidebarWidth).optional().catch(undefined),
     })
     .default(() => defaultAppSettings().sidebar),
   autoCompactWindow: z
@@ -301,10 +304,21 @@ function roleWindow(settings: Pick<AppSettings, 'autoCompactWindow' | 'autoCompa
   return { window: settings.autoCompactWindow[role], chosen: autoCompactWindowChosen(settings, role) }
 }
 
+/** `sidebar` with the width only when there is one: absent is the default (sidebarWidthOf). */
+function sidebarOf(collapsed: AppSettings['sidebar']['collapsed'], visible: AppSettings['sidebar']['visible'], width: number | undefined): AppSettings['sidebar'] {
+  return { collapsed: { ...collapsed }, visible: { ...visible }, ...(width === undefined ? {} : { width }) }
+}
+
+/** The sidebar's width after a patch: kept when left out, gone for null, else brought into range. */
+function sidebarWidthAfter(current: number | undefined, patched: number | null | undefined): number | undefined {
+  if (patched === undefined) return current
+  return patched === null ? undefined : clampSidebarWidth(patched)
+}
+
 function copy(settings: AppSettings): AppSettings {
   return {
     interfaceScale: settings.interfaceScale,
-    sidebar: { collapsed: { ...settings.sidebar.collapsed }, visible: { ...settings.sidebar.visible } },
+    sidebar: sidebarOf(settings.sidebar.collapsed, settings.sidebar.visible, settings.sidebar.width),
     ...windows(roleWindow(settings, 'orchestrator'), roleWindow(settings, 'other')),
     memoryIndicator: settings.memoryIndicator,
     autoUpdate: autoUpdateOf(settings),
@@ -338,10 +352,7 @@ function windowAfter(current: AppSettings, role: AutoCompactRole, patched: numbe
 function merge(current: AppSettings, patch: AppSettingsPatch, now: number): AppSettings {
   return {
     interfaceScale: patch.interfaceScale === undefined ? current.interfaceScale : clampScale(patch.interfaceScale),
-    sidebar: {
-      collapsed: { ...current.sidebar.collapsed, ...patch.sidebar?.collapsed },
-      visible: { ...current.sidebar.visible, ...patch.sidebar?.visible },
-    },
+    sidebar: sidebarOf({ ...current.sidebar.collapsed, ...patch.sidebar?.collapsed }, { ...current.sidebar.visible, ...patch.sidebar?.visible }, sidebarWidthAfter(current.sidebar.width, patch.sidebar?.width)),
     ...windows(windowAfter(current, 'orchestrator', patch.autoCompactWindow?.orchestrator), windowAfter(current, 'other', patch.autoCompactWindow?.other)),
     memoryIndicator: patch.memoryIndicator ?? current.memoryIndicator,
     autoUpdate: patch.autoUpdate ?? autoUpdateOf(current),
@@ -387,6 +398,7 @@ function same(a: AppSettings, b: AppSettings): boolean {
     a.interfaceScale === b.interfaceScale &&
     a.sidebar.visible.normal === b.sidebar.visible.normal &&
     a.sidebar.visible.focus === b.sidebar.visible.focus &&
+    a.sidebar.width === b.sidebar.width &&
     a.memoryIndicator === b.memoryIndicator &&
     a.autoUpdate === b.autoUpdate &&
     a.sessionArchive?.after === b.sessionArchive?.after &&

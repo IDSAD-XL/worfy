@@ -1,0 +1,6 @@
+/* While a divider (Divider.tsx) is dragged the cursor stays a resize one wherever the pointer goes, and no text gets selected. */
+body.w-divider-dragging,
+body.w-divider-dragging * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
