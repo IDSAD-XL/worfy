@@ -11,7 +11,7 @@ import { appDuties } from '../duties/app'
 import { checkScheduler } from '../schedule/app'
 import { appAssistant } from '../session/app'
 import { appAssistantWindow } from '../window/app'
-import { assistantSettingsView } from './panel'
+import { assistantSettingsView, checkDutyProjects } from './panel'
 
 /** What Settings → Assistant reads and changes in main; the IPC handlers (src/main/ipc/assistant.ts) call it. */
 export interface AssistantSettingsPanel {
@@ -43,7 +43,11 @@ export function appAssistantSettings(): AssistantSettingsPanel {
         wakesToday: () => ledger.automaticWakesToday(),
       })
     },
-    configureDuty: (id, choice) => told(duties.configure(id, choice)),
+    configureDuty: (id, choice) => {
+      // The Projects a duty covers are this Machine's (ticket 25): checked before anything changes.
+      checkDutyProjects(id, choice, { duties, projects: () => projectStore().list() })
+      told(duties.configure(id, choice))
+    },
     resumeDuty: (id) => told(duties.resume(id)),
     setPauseAfter: (count) => told(duties.setPauseAfter(count)),
     checkNow: (kind) => {

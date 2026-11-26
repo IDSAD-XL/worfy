@@ -10,7 +10,8 @@
 //   like and dislike reach the duty (Duties.rate), and taking one back uncounts it (Duties.unrate); Start of a prepared
 //   Session starts a new Session with exactly the text the user read, and nothing else starts one (boundary 3); a message
 //   of the user goes to the Assistant's Session (ticket 10), refused while the Assistant is off. Apply under a card
-//   «before → after» applies the change of the settings a proposal carries (ticket 15): nothing else does.
+//   «before → after» applies the change of the settings a proposal carries (ticket 15): nothing else does. Undo under an
+//   applied card puts those settings back as they were, unless one of them changed since (ticket 25).
 // - Two machines (worfy-assistant ticket 18; boundary 5): every item and every click is of this Machine's Projects. What
 //   waits on a Linked machine comes as it answered (linked.ts) and is shown beside, read-only: a click on it finds no
 //   item here, and a Session starts only in a Project of this Machine. waiting() is what a Linked machine reads of this
@@ -25,7 +26,7 @@ import { OPEN_STATES, type AttentionItem, type AttentionState } from '../../../s
 import type { DutyLook, MemoryRule, ShownItem } from '../../../shared/assistant/duties'
 import { NO_OFFER, type OfferView } from '../../../shared/assistant/intro'
 import type { AssistantProposal } from '../../../shared/assistant/proposals'
-import { changeRows, type ChangeRow, type SettingsChange, type SettingsNow } from '../../../shared/assistant/settings-change'
+import { changeBefore, changedSince, changeRows, type SettingsChange, type SettingsNow, type SettingsRestore } from '../../../shared/assistant/settings-change'
 import { inWorkHours, nextWorkHoursStart, type WorkHours } from '../../../shared/assistant/schedule/work-hours'
 import {
   isUrgentItem,
@@ -90,16 +91,16 @@ export interface WindowProposals {
   list(): AssistantProposal[]
   subscribe(listener: () => void): () => void
   remove(id: string): void
-  /** Notes the user's Apply of a proposal's change (ticket 15). */
-  update(id: string, change: { applied: { at: number; rows: ChangeRow[] } }): unknown
+  /** Notes the user's Apply of a proposal's change (ticket 15), and its Undo (null, ticket 25). */
+  update(id: string, change: { applied: AssistantProposal['applied'] }): unknown
 }
 
 /** The settings a card «before → after» reads and its Apply changes (ticket 15). */
 export interface WindowSettings {
   /** The app settings and the duties as they are now: the «before» of the rows. */
   now(): SettingsNow
-  /** Applies the change whole, or throws, with the reason, and changes nothing. */
-  apply(change: SettingsChange): void
+  /** Applies the change, or the settings as they were before one (Undo), whole; or throws, with the reason, and changes nothing. */
+  apply(change: SettingsChange | SettingsRestore): void
 }
 
 export interface AssistantWindowDeps {
@@ -112,6 +113,8 @@ export interface AssistantWindowDeps {
   proposals: WindowProposals
   /** The journal of actions, oldest first. */
   journal(): readonly ActionJournalLine[]
+  /** Adds a line to the journal of actions (the user's Undo of a card, ticket 25); absent: Undo writes none. */
+  record?(line: ActionJournalLine): void
   /** The Assistant's tokens today and this week, and its estimated share (0..1) of each Limits window. */
   usage(): { today: number; week: number; shares: readonly { window: string; share: number }[] }
   workHours(): WorkHours
@@ -153,9 +156,13 @@ const REFUSALS: Record<ActionRefusal, string> = {
   failed: 'the Session did not take the message',
 }
 
+/** The action of the journal line of an Undo under a card «before → after» (ticket 25): the user's, not the closed list's. */
+export const SETTINGS_UNDO_ACTION = 'settings-undo'
+
 const DONE: Record<string, string> = {
   'wake-orchestrator': "Woke the Orchestrator with worfy's fixed message",
   'continue-session': 'Continued the Session after the Limits reset',
+  [SETTINGS_UNDO_ACTION]: 'Undid the settings change',
 }
 
 const VERB: Record<string, string> = {
@@ -602,7 +609,7 @@ export class AssistantWindow {
   /** The card «before → after» of a proposal: its rows now, or as they were when the user applied it; null without a change. */
   private changeCard(proposal: AssistantProposal): WindowProposal['change'] {
     if (proposal.change == null) return null
-    if (proposal.applied != null) return { rows: proposal.applied.rows, applied: proposal.applied.at }
+    if (proposal.applied != null) return { rows: proposal.applied.rows, applied: proposal.applied.at, undoable: proposal.applied.before !== undefined }
     if (this.deps.settings === undefined) return { rows: [], applied: null }
     try {
       return { rows: changeRows(proposal.change, this.deps.settings.now()), applied: null }
@@ -624,9 +631,47 @@ export class AssistantWindow {
     if (proposal.applied != null) throw new Error('This change is applied already')
     const settings = this.deps.settings
     if (settings === undefined) throw new Error('Settings cannot be changed here')
-    const rows = changeRows(proposal.change, settings.now())
+    const now = settings.now()
+    const rows = changeRows(proposal.change, now)
+    // What Undo puts back (ticket 25): each setting the change names, as it is before this Apply.
+    const before = changeBefore(proposal.change, now)
     settings.apply(proposal.change)
-    this.deps.proposals.update(proposalId, { applied: { at: this.deps.now(), rows } })
+    this.deps.proposals.update(proposalId, { applied: { at: this.deps.now(), rows, before } })
+    this.changed()
+  }
+
+  /**
+   * Undo under an applied card «before → after» (ticket 25; the prototype's `undoapply`): each setting the change named
+   * goes back to the value it had before the Apply, through the same path as Apply, and the card is not applied again
+   * (Apply shows once more). Refused whole, changing nothing, when any of those settings no longer holds the value the
+   * Apply gave it — the user or another card changed it since — and the refusal names them: Undo never overwrites a
+   * later choice. Writes the line «Undid the settings change» to the journal.
+   */
+  undo(proposalId: string): void {
+    const proposal = this.deps.proposals.list().find((each) => each.id === proposalId)
+    if (proposal === undefined) throw new Error('This proposal is no longer there')
+    if (proposal.change == null || proposal.applied == null) throw new Error('This change is not applied')
+    if (proposal.applied.before === undefined) throw new Error('This change was applied before Undo existed: change it back in Settings → Assistant')
+    const settings = this.deps.settings
+    if (settings === undefined) throw new Error('Settings cannot be changed here')
+    const moved = changedSince(proposal.change, settings.now())
+    if (moved.length > 0) throw new Error(`Changed since Apply, so Undo would overwrite it: ${moved.join(', ')}. Change it in Settings → Assistant`)
+    settings.apply(proposal.applied.before)
+    this.deps.proposals.update(proposalId, { applied: null })
+    this.deps.record?.({
+      at: this.deps.now(),
+      action: SETTINGS_UNDO_ACTION,
+      by: 'user',
+      item: `proposal:${proposal.id}`,
+      duty: null,
+      projectId: null,
+      itemKind: null,
+      itemText: `Before → after card: ${proposal.title}`,
+      mode: null,
+      sessionId: null,
+      outcome: 'done',
+      detail: proposal.applied.rows.map((row) => `${row.label}: ${row.after} → ${row.before}`).join('; '),
+    })
     this.changed()
   }
 

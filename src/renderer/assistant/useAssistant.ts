@@ -140,6 +140,15 @@ export async function applyChange(proposalId: string): Promise<void> {
   if (!result.ok) refused('Apply', result.error)
 }
 
+/**
+ * Undo under an applied card «before → after» (ticket 25): main puts the settings back as they were, and the card shows
+ * Apply again; refused, with the settings that changed since the Apply, when one did.
+ */
+export async function undoChange(proposalId: string): Promise<void> {
+  const result = await invoke('assistant.undo', { proposalId })
+  if (!result.ok) refused('Undo', result.error)
+}
+
 /** Start of the prepared Session with exactly the text the user read; answers whether it started. */
 export async function startPrepared(request: PrepareRequest, text: string): Promise<boolean> {
   const result = await invoke('assistant.start', { projectId: request.projectId, text, itemId: request.itemId, proposalId: request.proposalId })

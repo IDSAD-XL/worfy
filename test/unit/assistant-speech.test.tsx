@@ -60,6 +60,14 @@ describe('the speech cards of the Assistant', () => {
     expect(speechQueue(view(items), new Set(), true)).toEqual([])
   })
 
+  it('«Urgent only» tells of the urgent items alone; «None: the list only» of nothing, and the icon still counts what waits (ticket 25)', () => {
+    const v = view(items)
+    expect(speechQueue(v, new Set(), false, 'batched').map((each) => each.id)).toEqual(['a', 'b', 'd'])
+    expect(speechQueue(v, new Set(), false, 'urgent').map((each) => each.id)).toEqual(['a'])
+    expect(speechQueue(v, new Set(), false, 'none')).toEqual([])
+    expect(assistantBadge(v, speechQueue(v, new Set(), false, 'none'))).toMatchObject({ tone: 'assistant', count: 4, label: '4 items wait for you' })
+  })
+
   it('leave the rest to the number on the icon; without a card the icon counts what waits', () => {
     const v = view(items)
     expect(assistantBadge(v, speechQueue(v, new Set(), false))).toMatchObject({ tone: 'assistant', count: 2, label: '2 more from Assistant' })

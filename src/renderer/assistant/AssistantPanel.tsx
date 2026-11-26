@@ -10,7 +10,7 @@ import { Icon, Spark } from './icons'
 import { OfferCard } from './Offer'
 import { openItem } from './open'
 import { GoneCard, ItemCard, LinkedMachine, RateButtons } from './parts'
-import { applyChange, dismissProposal, forgetRule, prepareItem, sendMessage, useAssistant, type AssistantTab } from './useAssistant'
+import { applyChange, dismissProposal, forgetRule, prepareItem, sendMessage, undoChange, useAssistant, type AssistantTab } from './useAssistant'
 
 const TABS: readonly { tab: AssistantTab; label: string }[] = [
   { tab: 'waits', label: 'Waits' },
@@ -21,7 +21,9 @@ const TABS: readonly { tab: AssistantTab; label: string }[] = [
 
 /**
  * The card «before → after» of a change of the settings (ticket 15; story 26): each setting as it is and as it would be.
- * Nothing changes until Apply; Not now dismisses the proposal; once applied, the card says when.
+ * Nothing changes until Apply; Not now dismisses the proposal; once applied, the card says when and offers Undo (ticket
+ * 25), which puts the settings back and shows Apply again, as the prototype does. A card applied before Undo existed
+ * keeps ticket 15's line.
  */
 function ChangeCard({ proposal, change }: { proposal: WindowProposal; change: NonNullable<WindowProposal['change']> }): ReactElement {
   const applied = change.applied !== null
@@ -45,10 +47,18 @@ function ChangeCard({ proposal, change }: { proposal: WindowProposal; change: No
         {applied ? (
           <>
             <Icon name="check" />
-            <span>Applied at {shortTime(change.applied ?? 0)}. Change it back in Settings → Assistant.</span>
+            <span>
+              Applied at {shortTime(change.applied ?? 0)}.{change.undoable === true ? null : ' Change it back in Settings → Assistant.'}
+            </span>
             <button type="button" className="w-asst-button w-asst-button--ghost" onClick={() => void dismissProposal(proposal.id)}>
               Dismiss
             </button>
+            {change.undoable === true ? (
+              <button type="button" className="w-asst-button" onClick={() => void undoChange(proposal.id)}>
+                <Icon name="undo" />
+                Undo
+              </button>
+            ) : null}
           </>
         ) : (
           <>

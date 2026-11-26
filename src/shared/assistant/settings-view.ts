@@ -1,11 +1,11 @@
-// What Settings → Assistant shows besides the app settings (worfy-assistant ticket 15; stories 14, 15 and 17–20, 34, 35):
-// whether the Assistant runs now; each duty with the mode of each action, its counters and its pause; the rules its
-// dislikes wrote; each check of a source with its failures in a row (ticket 22) and its next time; the automatic wakes
-// of today; and the details of its usage — tokens by source, by wake and for the conversation, for the day and the week,
-// and its share of each Limits window, always an estimate. main builds it (src/main/assistant/settings/panel.ts) from
-// the duties, the scheduler of checks and the usage ledger; the section draws it (src/renderer/settings/AssistantSection.tsx).
-// The work hours, the checks' own switches and intervals, the switch of the Assistant and the daily limit are app
-// settings: the section reads them there.
+// What Settings → Assistant shows besides the app settings (worfy-assistant tickets 15 and 25; stories 14, 15 and 17–20,
+// 34, 35): whether the Assistant runs now; each duty with the mode of each action, its Projects, its counters and its
+// pause; the rules its dislikes wrote; each check of a source with its failures in a row (ticket 22) and its next time;
+// the automatic wakes of today; and the details of its usage — tokens by source, by wake and for the conversation, for
+// the day and the week, and its share of each Limits window, always an estimate. main builds it
+// (src/main/assistant/settings/panel.ts) from the duties, the scheduler of checks and the usage ledger; the section draws
+// it (src/renderer/settings/AssistantSection.tsx). The work hours, the checks' own switches and intervals, the switch of
+// the Assistant and the daily limit are app settings: the section reads them there.
 import { z } from 'zod'
 import { DUTY_ACTIONS, dutyActionModeSchema, dutyCountersSchema } from './duties'
 import { checkKindSchema } from './schedule/settings'
@@ -25,6 +25,11 @@ export const settingsDutySchema = z.object({
   projectName: z.string().nullable(),
   /** The sources its trigger covers, in words. */
   sources: z.array(z.string()),
+  /**
+   * The Projects of this Machine whose items it shows (ticket 25): `all`, or their ids. Null when its scope is not by
+   * Project — a rule of a Project, the morning summary, a check of an outside source — and the section offers no choice.
+   */
+  projects: z.union([z.literal('all'), z.array(z.string())]).nullable(),
   enabled: z.boolean(),
   thresholdMinutes: z.number().nullable(),
   actions: z.array(settingsActionSchema),
@@ -73,6 +78,8 @@ export const assistantSettingsViewSchema = z.object({
   /** Whether the Assistant runs now: the switch may be on while its start did not take. */
   running: z.boolean(),
   duties: z.array(settingsDutySchema),
+  /** The Projects of this Machine a duty may cover (ticket 25); a Linked machine's are not among them. */
+  projects: z.array(z.object({ id: z.string(), name: z.string() })),
   /** How many ignored proposals or dislikes in a row pause a duty. */
   pauseAfter: z.number().int().positive(),
   /** The rules the user's dislikes wrote, oldest first. */

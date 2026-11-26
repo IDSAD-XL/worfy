@@ -68,12 +68,13 @@
 //   Main reads it with autoContinueOn() of src/main/settings/store.ts;
 // - `assistantSchedule` — the work hours and the checks of sources of the Assistant (worfy-assistant
 //   ticket 04, src/shared/assistant/schedule/settings.ts); absent while nothing is chosen;
-// - `assistant` — whether the Assistant runs on this Machine and the daily limit of its automatic wakes
-//   (worfy-assistant ticket 15, src/shared/assistant/settings.ts); absent while nothing is chosen: off;
+// - `assistant` — whether the Assistant runs on this Machine and since when, the daily limit of its automatic
+//   wakes and how it may notify (worfy-assistant tickets 15 and 25, src/shared/assistant/settings.ts); absent
+//   while nothing is chosen: off;
 // - `revision` — grows with every write, so a renderer keeps the newest of the states it hears.
 import { z } from 'zod'
 import { assistantScheduleChoiceSchema } from '../assistant/schedule/settings'
-import { assistantChoiceSchema } from '../assistant/settings'
+import { assistantChoiceSchema, assistantStateSchema } from '../assistant/settings'
 import { DEFAULT_START_WINDOW, RUN_MODES, type RunMode, type StartWindow } from '../autopilot/run-mode'
 import { PROJECT_ID_HASH_LENGTH, PROJECT_ID_HASH_SUFFIX } from '../projects/project-id'
 
@@ -336,8 +337,8 @@ export const appSettingsSchema = z.object({
   autoContinue: autoContinueSchema.optional(),
   /** The Assistant's work hours and checks (worfy-assistant ticket 04); absent while nothing is chosen (see checkSettingsOf). */
   assistantSchedule: assistantScheduleChoiceSchema.optional(),
-  /** Whether the Assistant runs, and its daily limit of wakes (worfy-assistant ticket 15); absent while nothing is chosen: off (see assistantOn). */
-  assistant: assistantChoiceSchema.optional(),
+  /** Whether the Assistant runs and since when, its daily limit of wakes and its notifications (worfy-assistant tickets 15 and 25); absent while nothing is chosen: off (see assistantOn). */
+  assistant: assistantStateSchema.optional(),
   /** The Product Session screen the person chose; absent while nothing is (see productSessionSplitOf). */
   productSession: productSessionChoiceSchema.optional(),
   /** Notifications of the PR inbox (worfy-pr-inbox ticket 07); absent while not chosen: on (see prInboxNotifyOf). */
@@ -388,7 +389,7 @@ export const appSettingsPatchSchema = z.object({
   guideLanguage: guideLanguageSchema.optional(),
   /** Each check field given is chosen, as in `sessionArchive`; work hours given replace the old ones whole. */
   assistantSchedule: assistantScheduleChoiceSchema.optional(),
-  /** Each field given is chosen, as in `assistantSchedule`. */
+  /** Each field given is chosen, as in `assistantSchedule`; `onSince` is main's own (assistantAfter), never a patch's. */
   assistant: assistantChoiceSchema.optional(),
   /**
    * The divider of a Product Session — a share outside PRODUCT_SESSION_SPLIT_MIN … 1 − PRODUCT_SESSION_SPLIT_MIN is

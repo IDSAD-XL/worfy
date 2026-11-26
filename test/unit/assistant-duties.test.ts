@@ -95,6 +95,29 @@ describe('a duty', () => {
     expect(() => w.duties.configure('main-ci-red', { modes: { 'fix-session': 'always' as never } })).toThrow()
     expect(w.status('main-ci-red').modes['fix-session']).toBe('hand-over')
   })
+
+  it('All Projects widens a narrowed scope back: the item outside it shows again (ticket 25)', () => {
+    const w = world()
+    w.duties.configure('waits-for-user', { projects: ['p-beta'] })
+    w.core.ingest(waits(1))
+    expect(w.shownOf('waits-for-user')).toEqual([])
+    w.duties.configure('waits-for-user', { projects: 'all' })
+    expect(w.status('waits-for-user').scope.projects).toBe('all')
+    expect(w.shownOf('waits-for-user')).toHaveLength(1)
+    w.duties.configure('waits-for-user', { projects: [PROJECT] })
+    expect(w.shownOf('waits-for-user')).toHaveLength(1)
+  })
+
+  it('a threshold of null drops the user\'s one: back to the duty\'s own, none for a duty that has none (Undo, ticket 25)', () => {
+    const w = world()
+    w.duties.configure('waits-for-user', { thresholdMinutes: 60 })
+    w.duties.configure('source:slack', { thresholdMinutes: 45 })
+    expect(w.status('source:slack').thresholdMinutes).toBe(45)
+    w.duties.configure('waits-for-user', { thresholdMinutes: null })
+    w.duties.configure('source:slack', { thresholdMinutes: null })
+    expect(w.status('waits-for-user').thresholdMinutes).toBe(15)
+    expect(w.status('source:slack').thresholdMinutes).toBeNull()
+  })
 })
 
 describe('the built-in duties', () => {

@@ -17,7 +17,8 @@ import { ms } from '../time-scale'
 //   deletes the rule and the item waits again;
 // - a card «before → after» (ticket 15): a proposal of the Assistant with a change of its settings, kept in its memory
 //   file, shows the setting as it is and as it would be; app-settings.json does not change until Apply, and after Apply
-//   it holds the new interval and the card says it was applied;
+//   it holds the new interval and the card says it was applied; Undo under it (ticket 25) puts the interval in
+//   app-settings.json back to the value in force before Apply and shows Apply again;
 // - the introduction (ticket 16): while the offer stands the section offers the Assistant once; «Turn on and meet» turns
 //   it on in app-settings.json, and it introduces itself in the conversation — who it is, what it does, the work hours
 //   and the claude.ai connectors, without asking for a token — with the card of the first setup, whose Apply writes the
@@ -145,7 +146,7 @@ function appSettingsFile(): { assistant?: { on?: boolean }; assistantSchedule?: 
   return existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as ReturnType<typeof appSettingsFile>) : null
 }
 
-test('a card «before → after» changes the settings only on Apply', async () => {
+test('a card «before → after» changes the settings only on Apply, and Undo puts them back', async () => {
   const now = Date.now()
   mkdirSync(join(dataDir, 'assistant'), { recursive: true })
   writeFileSync(
@@ -173,6 +174,11 @@ test('a card «before → after» changes the settings only on Apply', async () 
     await expect(change).toContainText('Applied at')
     await expect(change.getByRole('button', { name: 'Apply', exact: true })).toHaveCount(0)
     await expect.poll(() => appSettingsFile()?.assistantSchedule?.checks?.slack?.intervalMinutes).toBe(20)
+
+    // Undo (ticket 25): the interval in force before Apply, the default 10 min, is back in the file.
+    await change.getByRole('button', { name: 'Undo', exact: true }).click()
+    await expect(change.getByRole('button', { name: 'Apply', exact: true })).toBeVisible()
+    await expect.poll(() => appSettingsFile()?.assistantSchedule?.checks?.slack?.intervalMinutes).toBe(10)
   } finally {
     await launched.close()
   }

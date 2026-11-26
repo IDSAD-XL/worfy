@@ -3,8 +3,8 @@
 // click is the section's own function in main (src/main/assistant/window/view.ts), which refuses, with the reason, an
 // item or a message that is no longer there. A window that opens the view follows the section: a clicked notification
 // reveals the section in it (AssistantReveal). Settings → Assistant (ticket 15) reads its view and changes the duties
-// and the checks through AssistantSettingsPanel (src/main/assistant/settings/app.ts); Apply under a card «before → after»
-// is the section's own function. `assistant.waiting` is the one channel a Linked machine reaches (worfy-assistant
+// and the checks through AssistantSettingsPanel (src/main/assistant/settings/app.ts); Apply and Undo (ticket 25) under a
+// card «before → after» are the section's own functions. `assistant.waiting` is the one channel a Linked machine reaches (worfy-assistant
 // ticket 18): it reads what waits here, and the link adapter answers it by the caller's access level.
 import {
   assistantApply,
@@ -24,6 +24,7 @@ import {
   assistantShown,
   assistantSnooze,
   assistantStart,
+  assistantUndo,
   assistantWaiting,
 } from '../../shared/ipc/assistant'
 import { appAssistantIntro } from '../assistant/intro/app'
@@ -89,6 +90,10 @@ export function assistantHandlers(
     defineHandler(assistantWaiting, () => section().waiting()),
     defineHandler(assistantApply, ({ proposalId }) => {
       section().apply(proposalId)
+      return {}
+    }),
+    defineHandler(assistantUndo, ({ proposalId }) => {
+      section().undo(proposalId)
       return {}
     }),
     defineHandler(assistantSettings, () => settings().view()),

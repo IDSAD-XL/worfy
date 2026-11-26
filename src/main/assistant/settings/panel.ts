@@ -4,12 +4,13 @@
 // file (Duties), the checks their marks (CheckScheduler, assistant-check-marks.json), the usage its ledger.
 import { DUTY_ACTION_ALLOWED_MODES, type DutyAction, type DutyActionMode } from '../../../shared/assistant/duties'
 import type { LimitsShareEstimate, TokenTotals, UsagePeriod, UsageSummary } from '../../../shared/assistant/budget'
-import { CHECK_KINDS } from '../../../shared/assistant/schedule/settings'
-import { dutyChangeProblems, settingsPatchOf, type SettingsChange } from '../../../shared/assistant/settings-change'
+import { CHECK_KINDS, SOURCE_CHECK_KINDS } from '../../../shared/assistant/schedule/settings'
+import { dutyChangeProblems, settingsPatchOf, type SettingsChange, type SettingsRestore } from '../../../shared/assistant/settings-change'
 import type { AssistantSettingsView, TokenCount, UsagePeriodView } from '../../../shared/assistant/settings-view'
 import { SOURCE_LABELS } from '../../../shared/assistant/window'
 import type { AppSettingsPatch } from '../../../shared/settings/app-settings'
-import type { Duties } from '../duties/duties'
+import type { DutyStatus } from '../../../shared/assistant/duties'
+import type { Duties, DutyChoice } from '../duties/duties'
 import type { CheckScheduler } from '../schedule/scheduler'
 
 export interface SettingsPanelDeps {
@@ -43,21 +44,52 @@ function period(of: UsagePeriod): UsagePeriodView {
   }
 }
 
+const OUTSIDE_SOURCES: ReadonlySet<string> = new Set(SOURCE_CHECK_KINDS)
+
+/**
+ * Whether a duty's scope is by Project (ticket 25): a built-in duty over items of worfy's own sources. A rule of a Project
+ * is of that Project already, the morning summary has no items, and the items of a check of an outside source (Slack,
+ * Jira) belong to no Project — a choice of Projects would hide them all.
+ */
+export function dutyScopedByProject(duty: Pick<DutyStatus, 'projectId' | 'trigger'>): boolean {
+  if (duty.projectId !== null || duty.trigger.kind !== 'items') return false
+  return duty.trigger.match.every((each) => !OUTSIDE_SOURCES.has(each.source))
+}
+
+/**
+ * Checks a choice of Projects of a duty before Duties.configure (ticket 25): only a duty scoped by Project takes one, and
+ * only Projects of this Machine — a Linked machine's items are only read here (ticket 18). Throws, with the reason.
+ */
+export function checkDutyProjects(dutyId: string, choice: DutyChoice, deps: { duties: Pick<Duties, 'look'>; projects(): readonly { id: string }[] }): void {
+  if (choice.projects === undefined) return
+  const duty = deps.duties.look([], { countShown: false }).duties.find((each) => each.id === dutyId)
+  if (duty === undefined) throw new Error(`There is no duty ${dutyId}`)
+  if (!dutyScopedByProject(duty)) throw new Error(`The duty «${duty.title}» does not cover Projects`)
+  if (choice.projects === 'all') return
+  if (choice.projects.length === 0) throw new Error('Choose at least one Project, or All Projects')
+  const known = new Set(deps.projects().map((project) => project.id))
+  const foreign = choice.projects.filter((id) => !known.has(id))
+  if (foreign.length > 0) throw new Error(`Not a Project of this Machine: ${foreign.join(', ')}`)
+}
+
 /** Percent with one decimal, so a share under one percent still shows. */
 const percent = (share: number): number => Math.round(share * 1000) / 10
 
 /** What the section shows now. */
 export function assistantSettingsView(deps: SettingsPanelDeps): AssistantSettingsView {
-  const names = new Map(deps.projects().map((project) => [project.id, project.name]))
+  const projects = deps.projects()
+  const names = new Map(projects.map((project) => [project.id, project.name]))
   const usage = deps.usage()
   return {
     running: deps.running(),
+    projects: projects.map((project) => ({ id: project.id, name: project.name })),
     duties: deps.duties.look([], { countShown: false }).duties.map((duty) => ({
       id: duty.id,
       title: duty.title,
       projectId: duty.projectId,
       projectName: duty.projectId === null ? null : (names.get(duty.projectId) ?? null),
       sources: duty.scope.sources.map((source) => SOURCE_LABELS[source] ?? source),
+      projects: dutyScopedByProject(duty) ? (duty.scope.projects === 'all' ? 'all' : [...duty.scope.projects]) : null,
       enabled: duty.enabled,
       thresholdMinutes: duty.thresholdMinutes,
       actions: (Object.entries(duty.modes) as [DutyAction, DutyActionMode][]).map(([action, mode]) => ({ action, mode, allowed: [...DUTY_ACTION_ALLOWED_MODES[action]] })),
@@ -84,10 +116,10 @@ export interface ApplyDeps {
 }
 
 /**
- * Applies a change the user applied under its card: first checked whole — a duty there is not, an action it has not, a
- * mode its action may not have throw and change nothing — then the app settings, then each duty.
+ * Applies a change the user applied under its card, or its Undo (ticket 25): first checked whole — a duty there is not,
+ * an action it has not, a mode its action may not have throw and change nothing — then the app settings, then each duty.
  */
-export function applySettingsChange(change: SettingsChange, deps: ApplyDeps): void {
+export function applySettingsChange(change: SettingsChange | SettingsRestore, deps: ApplyDeps): void {
   const problems = dutyChangeProblems(change, deps.duties.look([], { countShown: false }).duties)
   if (problems.length > 0) throw new Error(`The change cannot apply: ${problems.join('; ')}`)
   const patch = settingsPatchOf(change)

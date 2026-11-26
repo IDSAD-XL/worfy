@@ -58,11 +58,14 @@ export interface DutiesOptions {
   projectRules?: (projectId: string) => readonly ProjectRule[]
 }
 
-/** What the user may change of a duty (ticket 15 shows it). `projects: 'all'` widens the scope back. */
+/**
+ * What the user may change of a duty (tickets 15 and 25 show it). `projects: 'all'` widens the scope back;
+ * `thresholdMinutes: null` drops the user's threshold, back to the duty's own (Undo of a card, ticket 25).
+ */
 export interface DutyChoice {
   modes?: Partial<Record<DutyAction, DutyActionMode>>
   projects?: 'all' | readonly string[]
-  thresholdMinutes?: number
+  thresholdMinutes?: number | null
   enabled?: boolean
 }
 
@@ -195,7 +198,8 @@ export class Duties {
       if (choice.modes !== undefined) state.modes = { ...state.modes, ...choice.modes }
       if (choice.projects === 'all') delete state.projects
       else if (choice.projects !== undefined) state.projects = [...choice.projects]
-      if (choice.thresholdMinutes !== undefined) state.thresholdMinutes = choice.thresholdMinutes
+      if (choice.thresholdMinutes === null) delete state.thresholdMinutes
+      else if (choice.thresholdMinutes !== undefined) state.thresholdMinutes = choice.thresholdMinutes
       if (choice.enabled !== undefined) state.enabled = choice.enabled
     })
   }

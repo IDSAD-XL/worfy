@@ -5,6 +5,9 @@
 //
 // One notification per item. An item seen while worfy is in front never comes later: the window showed it, as the card
 // next to the Assistant's icon. One that came outside work hours waits for them, as long as it waits for the user.
+//
+// The user may turn them off (Settings → Assistant → System notifications, ticket 25): off, none shows, urgent or not,
+// and an item that came while they were off is not told of once they are on again — it is in the window's list.
 import { ASSISTANT_NOTE_TITLE, type AssistantView } from '../../../shared/assistant/window'
 
 /** The longest text of a notification: the lock screen shows little more. */
@@ -16,6 +19,8 @@ export interface AssistantNoticeDeps {
   show(note: { title: string; body: string }, onClick: () => void): void
   /** Raises worfy's window, or opens one, and shows the Assistant's section. */
   reveal(): void
+  /** Whether the user lets them show (systemNoticesOf the app settings); they do while absent. */
+  allowed?(): boolean
 }
 
 export function assistantNoteBody(item: AssistantView['items'][number]): string {
@@ -35,6 +40,7 @@ export class AssistantNotices {
     const due = view.items.filter((item) => item.urgent && item.state === 'new' && !this.done.has(item.id))
     if (due.length === 0) return
     for (const item of due) this.done.add(item.id)
+    if (this.deps.allowed?.() === false) return
     const tell = (): void => {
       for (const item of due) this.deps.show({ title: ASSISTANT_NOTE_TITLE, body: assistantNoteBody(item) }, () => this.deps.reveal())
     }

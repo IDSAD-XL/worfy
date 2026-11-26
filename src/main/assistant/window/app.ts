@@ -9,6 +9,7 @@
 // The conversation reaches the Assistant's Session of ticket 10 (src/main/assistant/session/app.ts, appAssistant) while
 // it runs: the switch of Settings → Assistant (ticket 15) starts it; while it is off a message is refused with ASSISTANT_OFF.
 import { workHoursOf } from '../../../shared/assistant/schedule/settings'
+import { systemNoticesOf } from '../../../shared/assistant/settings'
 import { assistantReveal, assistantWaiting } from '../../../shared/ipc/assistant'
 import { appLimits } from '../../agent/limits'
 import { sharedNodeSessions } from '../../agent/app-node-sessions'
@@ -81,13 +82,15 @@ export function appAssistantWindow(): AssistantWindow {
     projects: () => projectStore().list(),
     proposals: appProposals(),
     journal: () => actionJournalFile(actionJournalPath(dataRoot()), appNow).lines(),
+    record: (line) => actionJournalFile(actionJournalPath(dataRoot()), appNow).append(line),
     usage: () => {
       const ledger = appAssistantUsage()
       const summary = ledger.summary()
       return { today: summary.day.total.tokens, week: summary.week.total.tokens, shares: ledger.limitsShare(appLimits().snapshot()) }
     },
     workHours: () => workHoursOf(appSettingsStore().get()),
-    // A card «before → after» reads the settings and the duties as they are, and its Apply changes them (ticket 15).
+    // A card «before → after» reads the settings and the duties as they are, and its Apply (ticket 15) and Undo (ticket
+    // 25) change them.
     settings: {
       now: () => ({ settings: appSettingsStore().get(), duties: appDuties().look([], { countShown: false }).duties, projects: projectStore().list() }),
       apply: (change) => applySettingsChange(change, { duties: appDuties(), setSettings: (patch) => void appSettingsStore().set(patch) }),
@@ -137,7 +140,7 @@ export function followAssistantRuns(window: AssistantWindow): () => void {
  */
 export function startAssistantWindow(): () => void {
   const window = appAssistantWindow()
-  const notices = new AssistantNotices({ focused: electronWindowNoteDeps.focused, show: electronWindowNoteDeps.show, reveal })
+  const notices = new AssistantNotices({ focused: electronWindowNoteDeps.focused, show: electronWindowNoteDeps.show, reveal, allowed: () => systemNoticesOf(appSettingsStore().get()) })
   const look = (): void => {
     try {
       notices.look(window.view())

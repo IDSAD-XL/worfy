@@ -91,16 +91,33 @@ export const assistantWaiting = invokeChannel('assistant.waiting', z.void(), lin
 export const assistantApply = invokeChannel('assistant.apply', z.object({ proposalId: id }), z.object({}), 'local')
 
 /**
+ * Undo under an applied card «before → after» (ticket 25): the settings the change named go back to what they were before
+ * its Apply. Refused, with the reason, for a change not applied, and — naming them — when any of those settings changed
+ * since the Apply.
+ */
+export const assistantUndo = invokeChannel('assistant.undo', z.object({ proposalId: id }), z.object({}), 'local')
+
+/**
  * Settings → Assistant (ticket 15): the duties, the rules, the checks with their failures in a row, the wakes of today
  * and the usage. The app settings of the Assistant go through `appSettings`; the window asks this again on each
  * `assistant.changed`.
  */
 export const assistantSettings = invokeChannel('assistant.settings', z.void(), assistantSettingsViewSchema, 'local')
 
-/** Changes what the user chose of a duty: whether it is on, its threshold, the mode of an action. Refused, with the reason, for a mode the action may not have. */
+/**
+ * Changes what the user chose of a duty: whether it is on, its threshold, the mode of an action, the Projects of this
+ * Machine it covers (`all` or their ids, ticket 25). Refused, with the reason, for a mode the action may not have, a
+ * Project not of this Machine, or Projects for a duty whose scope is not by Project.
+ */
 export const assistantConfigureDuty = invokeChannel(
   'assistant.configureDuty',
-  z.object({ dutyId: id, enabled: z.boolean().optional(), thresholdMinutes: dutyThresholdSchema.optional(), modes: z.partialRecord(z.enum(DUTY_ACTIONS), dutyActionModeSchema).optional() }),
+  z.object({
+    dutyId: id,
+    enabled: z.boolean().optional(),
+    thresholdMinutes: dutyThresholdSchema.optional(),
+    modes: z.partialRecord(z.enum(DUTY_ACTIONS), dutyActionModeSchema).optional(),
+    projects: z.union([z.literal('all'), z.array(id).max(500)]).optional(),
+  }),
   z.object({}),
   'local',
 )
@@ -141,6 +158,7 @@ declare module './channels' {
     'assistant.shown': typeof assistantShown
     'assistant.waiting': typeof assistantWaiting
     'assistant.apply': typeof assistantApply
+    'assistant.undo': typeof assistantUndo
     'assistant.settings': typeof assistantSettings
     'assistant.configureDuty': typeof assistantConfigureDuty
     'assistant.resumeDuty': typeof assistantResumeDuty

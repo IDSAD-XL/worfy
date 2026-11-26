@@ -4,7 +4,9 @@
 // icon (speech.ts). The section's rail badge is set here, as the card and the count go together. The card follows the
 // rail button; with the sidebar hidden it stands at the left edge under the toolbar.
 import { useEffect, useLayoutEffect, useState, type ReactElement } from 'react'
+import { inWindowOf } from '../../shared/assistant/settings'
 import { windowMachine } from '../ipc'
+import { useAppSettings } from '../settings/useAppSettings'
 import { setRailBadge, useSidebarScope } from '../shell/sidebar-scope'
 import { Icon, Spark } from './icons'
 import { ItemActions, ItemHead, ItemMeta, ItemSource } from './parts'
@@ -40,13 +42,15 @@ export function AssistantSpeech({ sidebarVisible }: { sidebarVisible: boolean })
   const closed = useAssistant((state) => state.closed)
   const tab = useAssistant((state) => state.tab)
   const saved = useSidebarScope((state) => state.section)
+  // Urgent and batched, urgent only, or none (Settings → Assistant → In the window, ticket 25).
+  const inWindow = useAppSettings(inWindowOf)
   const anchor = useAnchor()
   useEffect(() => followAssistant(), [])
   // The section is in front while the sidebar is shown and its panel holds the section: a window starts on another one
   // (`railDefault`), so it holds this one only once chosen.
   const sectionShown = sidebarVisible && saved === ASSISTANT_SECTION
   // A window of a Linked machine shows that Machine's Projects; the Assistant is this Machine's.
-  const queue = windowMachine() === null ? speechQueue(view, new Set(closed), sectionShown) : []
+  const queue = windowMachine() === null ? speechQueue(view, new Set(closed), sectionShown, inWindow) : []
   const badge = windowMachine() === null ? assistantBadge(view, queue) : undefined
   useEffect(() => setRailBadge(ASSISTANT_SECTION, badge), [badge?.count, badge?.label]) // eslint-disable-line react-hooks/exhaustive-deps -- the badge is a fresh object each render
   useEffect(() => () => setRailBadge(ASSISTANT_SECTION, undefined), [])

@@ -7,7 +7,13 @@
 // What a change may name is what Settings → Assistant shows, except the switch of the Assistant itself, which only the
 // user turns: the work hours, each check (on, interval, sleep outside work hours), the daily limit of automatic wakes,
 // and of each duty whether it is on, its threshold and the mode of its actions. The rows of the card say each setting in
-// words, as it is now and as it would be (changeRows); the window shows them as main writes them.
+// words, as it is now and as it would be (changeRows); the window shows them as main writes them. A card does not change
+// the Projects a duty covers (ticket 25, decided without the owner): the user picks them in Settings → Assistant → Duties.
+//
+// Undo under an applied card (ticket 25; prototype `undoapply`): Apply keeps the value each named setting had before it
+// (changeBefore — a SettingsRestore, a change whose duty threshold may also go back to none), and Undo applies that the
+// same way. Undo is refused whole, naming them, when any of those settings no longer holds the value Apply gave it
+// (changedSince): the user or another card changed it since, and Undo would overwrite that choice.
 import { z } from 'zod'
 import { DUTY_ACTION_ALLOWED_MODES, DUTY_ACTIONS, dutyActionModeAllowed, dutyActionModeSchema, type DutyAction, type DutyActionMode, type DutyStatus } from './duties'
 import { CHECK_KINDS, checkChoicesSchema, checkSettingsOf, workHoursOf, type AssistantScheduleSettings, type CheckKind } from './schedule/settings'
@@ -42,6 +48,26 @@ export const settingsChangeSchema = z
   .strict()
   .refine(nonEmpty, 'a change of the settings names at least one setting')
 export type SettingsChange = z.output<typeof settingsChangeSchema>
+
+const restoreDutySchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    /** Null: back to the duty's own threshold, none for a duty that has none (Duties.configure). */
+    thresholdMinutes: dutyThresholdSchema.nullable().optional(),
+    modes: z.partialRecord(z.enum(DUTY_ACTIONS), dutyActionModeSchema).optional(),
+  })
+  .strict()
+
+/** What Undo applies (ticket 25): the settings a change named, as they were before its Apply. */
+export const settingsRestoreSchema = z
+  .object({
+    workHours: workHoursSchema.optional(),
+    checks: checkChoicesSchema.optional(),
+    dailyWakeLimit: dailyWakeLimitSchema.optional(),
+    duties: z.record(z.string().min(1).max(300), restoreDutySchema).optional(),
+  })
+  .strict()
+export type SettingsRestore = z.output<typeof settingsRestoreSchema>
 
 /** One row of the card: the setting, as it is now and as the change would make it. */
 export const changeRowSchema = z.object({ label: z.string(), before: z.string(), after: z.string() })
@@ -114,6 +140,13 @@ const onOff = (on: boolean): string => (on ? 'On' : 'Off')
 const sleepText = (sleeps: boolean): string => (sleeps ? 'Sleeps' : 'Keeps checking')
 const minutesText = (minutes: number | null): string => (minutes === null ? 'None' : `${minutes} min`)
 
+/** A duty in words: «Duty «Waits for you»»; two Projects may hold rules of one title, so a rule of a Project names it. */
+function dutyLabel(id: string, now: SettingsNow): string {
+  const current = now.duties.find((each) => each.id === id)
+  const project = current?.projectId == null ? undefined : (now.projects?.find((each) => each.id === current.projectId)?.name ?? current.projectId)
+  return `Duty «${current?.title ?? id}»${project === undefined ? '' : ` of ${project}`}`
+}
+
 /** The rows of the card: each setting the change names, as it is now and as it would be. */
 export function changeRows(change: SettingsChange, now: SettingsNow): ChangeRow[] {
   const rows: ChangeRow[] = []
@@ -130,9 +163,7 @@ export function changeRows(change: SettingsChange, now: SettingsNow): ChangeRow[
   if (change.dailyWakeLimit !== undefined) rows.push({ label: 'Daily limit of automatic wakes', before: String(dailyWakeLimitOf(now.settings)), after: String(change.dailyWakeLimit) })
   for (const [id, duty] of Object.entries(change.duties ?? {})) {
     const current = now.duties.find((each) => each.id === id)
-    const project = current?.projectId == null ? undefined : (now.projects?.find((each) => each.id === current.projectId)?.name ?? current.projectId)
-    // Two Projects may hold rules of one title: the row of a rule of a Project names it.
-    const name = `Duty «${current?.title ?? id}»${project === undefined ? '' : ` of ${project}`}`
+    const name = dutyLabel(id, now)
     if (duty.enabled !== undefined) rows.push({ label: name, before: current === undefined ? '—' : onOff(current.enabled), after: onOff(duty.enabled) })
     if (duty.thresholdMinutes !== undefined) rows.push({ label: `${name}: threshold`, before: minutesText(current?.thresholdMinutes ?? null), after: minutesText(duty.thresholdMinutes) })
     for (const [action, mode] of Object.entries(duty.modes ?? {}) as [DutyAction, DutyActionMode][]) {
@@ -143,8 +174,92 @@ export function changeRows(change: SettingsChange, now: SettingsNow): ChangeRow[
   return rows
 }
 
+/** One setting a change names: its label, the value the change gives it and the value it has now. */
+interface NamedSetting {
+  label: string
+  after: unknown
+  now: unknown
+}
+
+/** Each setting the change names, one by one, with the value it has now (undefined for a duty there is not). */
+function namedSettings(change: SettingsChange, now: SettingsNow): NamedSetting[] {
+  const named: NamedSetting[] = []
+  if (change.workHours !== undefined) named.push({ label: 'Work hours', after: change.workHours, now: workHoursOf(now.settings) })
+  for (const kind of CHECK_KINDS) {
+    const check = change.checks?.[kind]
+    if (check === undefined) continue
+    const current = checkSettingsOf(now.settings, kind)
+    const name = CHECK_LABELS[kind]
+    if (check.enabled !== undefined) named.push({ label: `${name} check`, after: check.enabled, now: current.enabled })
+    if (check.intervalMinutes !== undefined) named.push({ label: `${name} interval`, after: check.intervalMinutes, now: current.intervalMinutes })
+    if (check.sleepOutsideWorkHours !== undefined) named.push({ label: `${name} outside work hours`, after: check.sleepOutsideWorkHours, now: current.sleepOutsideWorkHours })
+  }
+  if (change.dailyWakeLimit !== undefined) named.push({ label: 'Daily limit of automatic wakes', after: change.dailyWakeLimit, now: dailyWakeLimitOf(now.settings) })
+  for (const [id, duty] of Object.entries(change.duties ?? {})) {
+    const current = now.duties.find((each) => each.id === id)
+    const name = dutyLabel(id, now)
+    if (duty.enabled !== undefined) named.push({ label: name, after: duty.enabled, now: current?.enabled })
+    if (duty.thresholdMinutes !== undefined) named.push({ label: `${name}: threshold`, after: duty.thresholdMinutes, now: current?.thresholdMinutes })
+    for (const [action, mode] of Object.entries(duty.modes ?? {}) as [DutyAction, DutyActionMode][]) named.push({ label: `${name}: ${ACTION_LABELS[action]}`, after: mode, now: current?.modes[action] })
+  }
+  return named
+}
+
+/** A value with its object keys sorted, so two equal settings compare equal whatever order their fields were written in. */
+function canonical(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonical)
+  if (value !== null && typeof value === 'object') return Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, each]) => [key, canonical(each)]))
+  return value
+}
+
+const sameSetting = (a: unknown, b: unknown): boolean => JSON.stringify(canonical(a)) === JSON.stringify(canonical(b))
+
+/**
+ * The settings a change named as they are now, for its Undo (ticket 25): each one the value in force — a default the user
+ * never chose is kept as that value — and the threshold of a duty that has none as null.
+ */
+export function changeBefore(change: SettingsChange, now: SettingsNow): SettingsRestore {
+  const restore: SettingsRestore = {}
+  if (change.workHours !== undefined) restore.workHours = workHoursOf(now.settings)
+  for (const kind of CHECK_KINDS) {
+    const check = change.checks?.[kind]
+    if (check === undefined) continue
+    const current = checkSettingsOf(now.settings, kind)
+    restore.checks = {
+      ...restore.checks,
+      [kind]: {
+        ...(check.enabled === undefined ? {} : { enabled: current.enabled }),
+        ...(check.intervalMinutes === undefined ? {} : { intervalMinutes: current.intervalMinutes }),
+        ...(check.sleepOutsideWorkHours === undefined ? {} : { sleepOutsideWorkHours: current.sleepOutsideWorkHours }),
+      },
+    }
+  }
+  if (change.dailyWakeLimit !== undefined) restore.dailyWakeLimit = dailyWakeLimitOf(now.settings)
+  for (const [id, duty] of Object.entries(change.duties ?? {})) {
+    const current = now.duties.find((each) => each.id === id)
+    if (current === undefined) continue
+    const modes = Object.fromEntries(Object.keys(duty.modes ?? {}).flatMap((action) => (current.modes[action as DutyAction] === undefined ? [] : [[action, current.modes[action as DutyAction]]])))
+    restore.duties = {
+      ...restore.duties,
+      [id]: {
+        ...(duty.enabled === undefined ? {} : { enabled: current.enabled }),
+        ...(duty.thresholdMinutes === undefined ? {} : { thresholdMinutes: current.thresholdMinutes }),
+        ...(Object.keys(modes).length === 0 ? {} : { modes }),
+      },
+    }
+  }
+  return settingsRestoreSchema.parse(restore)
+}
+
+/** The labels of the settings the change named that no longer hold the value it gave them: changed since its Apply. */
+export function changedSince(change: SettingsChange, now: SettingsNow): string[] {
+  return namedSettings(change, now)
+    .filter((setting) => !sameSetting(setting.after, setting.now))
+    .map((setting) => setting.label)
+}
+
 /** Why the change cannot apply to these duties: a duty there is not, an action it has not, a mode its action may not have. */
-export function dutyChangeProblems(change: SettingsChange, duties: readonly Pick<DutyStatus, 'id' | 'modes'>[]): string[] {
+export function dutyChangeProblems(change: SettingsChange | SettingsRestore, duties: readonly Pick<DutyStatus, 'id' | 'modes'>[]): string[] {
   const problems: string[] = []
   for (const [id, duty] of Object.entries(change.duties ?? {})) {
     const current = duties.find((each) => each.id === id)
@@ -161,7 +276,7 @@ export function dutyChangeProblems(change: SettingsChange, duties: readonly Pick
 }
 
 /** The part of the change that goes to the app settings (`appSettings.set`); null when it names none. */
-export function settingsPatchOf(change: SettingsChange): { assistantSchedule?: { workHours?: WorkHours; checks?: SettingsChange['checks'] }; assistant?: { dailyWakeLimit: number } } | null {
+export function settingsPatchOf(change: SettingsChange | SettingsRestore): { assistantSchedule?: { workHours?: WorkHours; checks?: SettingsChange['checks'] }; assistant?: { dailyWakeLimit: number } } | null {
   const schedule = change.workHours !== undefined || change.checks !== undefined ? { ...(change.workHours === undefined ? {} : { workHours: change.workHours }), ...(change.checks === undefined ? {} : { checks: change.checks }) } : undefined
   const assistant = change.dailyWakeLimit === undefined ? undefined : { dailyWakeLimit: change.dailyWakeLimit }
   if (schedule === undefined && assistant === undefined) return null
