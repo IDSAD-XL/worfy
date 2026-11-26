@@ -421,8 +421,8 @@ own: the Orchestrator, Session Nodes, Autopilot's Sessions, Product Sessions and
 profile draft and Code stories. Each turn is noted once, at what it cost: a resumed conversation goes on from the cost
 Claude Code restores for it, after a crash, a relaunch or a restart of worfy alike. The estimate errs high by Claude
 used outside worfy, and by a Linked machine on the same Claude account: each Machine counts only its own turns. It errs
-low when worfy counts a conversation's past again: when a resumed conversation reports less than worfy last saw (Claude
-Code restored nothing for it), or when it is resumed after more than 8 days without a turn.
+low when worfy counts a conversation's past again: when it is resumed after more than 8 days without a turn, or when
+Claude Code restored only part of its total.
 
 ### Implementation
 

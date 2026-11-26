@@ -112,20 +112,34 @@ export function orchestratorPlace(nodes: readonly LayoutNode[]): { x: number; y:
 export class CostCounter {
   private totalValue: number
   private last: number | undefined
+  /** The Node's data has a cost but no last report (saved before reportedUsd): the first result is the restored total. */
+  private adopt: boolean
 
-  /** `saved`: the cost kept in the Node's data, the last total its conversation reported. */
-  constructor(saved: number) {
+  /**
+   * `saved`: the cost kept in the Node's data; `reported`: the last total its conversation reported, kept apart
+   * (reportedUsd), since the two part as soon as a process restores nothing or a Node was saved by an older build.
+   */
+  constructor(saved: number, reported?: number) {
     this.totalValue = saved
-    this.last = saved > 0 ? saved : undefined
+    this.last = reported
+    this.adopt = reported === undefined && saved > 0
   }
 
   get total(): number {
     return this.totalValue
   }
 
+  /** The last total the conversation reported, for the Node's data; undefined before the first result of a new one. */
+  get reported(): number | undefined {
+    return this.last
+  }
+
   /** A turn's `result`; answers the new total. */
   result(costUsd: number): number {
-    this.totalValue += costSinceLast(this.last, costUsd)
+    // shortcut: without a saved report, the first result's own turn is not added (its share of the restored total is
+    // unknown); a Node saved by this build always has the report.
+    if (!this.adopt) this.totalValue += costSinceLast(this.last, costUsd)
+    this.adopt = false
     this.last = costUsd
     return this.totalValue
   }
@@ -633,7 +647,7 @@ export class Orchestrators {
       cancelled: false,
       ready: Promise.resolve(),
       run: null,
-      cost: new CostCounter(saved.costUsd ?? 0),
+      cost: new CostCounter(saved.costUsd ?? 0, saved.reportedUsd),
       savedSessionId: saved.sessionId ?? null,
       savedVendor: saved.vendor ?? UNNAMED_VENDOR,
       vendor: UNNAMED_VENDOR,
@@ -786,7 +800,7 @@ export class Orchestrators {
           entry.savedVendor = entry.vendor
           entry.cost = new CostCounter(0)
           next.costUsd = 0
-          this.patch(entry, { sessionId: event.sdkSessionId, costUsd: 0, ...vendor })
+          this.patch(entry, { sessionId: event.sdkSessionId, costUsd: 0, reportedUsd: 0, ...vendor })
           break
         }
         run.initSeen = true
@@ -827,7 +841,7 @@ export class Orchestrators {
         next.costUsd = entry.cost.result(event.costUsd)
         // A result follows its Session's init on both Vendors (Claude Code's system init, Codex's
         // turn/started), so the Node already names the new Vendor's session here (leaveSession).
-        this.patch(entry, { costUsd: next.costUsd })
+        this.patch(entry, { costUsd: next.costUsd, ...(entry.cost.reported === undefined ? {} : { reportedUsd: entry.cost.reported }) })
         break
       case 'text': {
         // Only the Orchestrator's own answers: not a subagent's, and not text Claude Code wrote.
@@ -956,7 +970,7 @@ export class Orchestrators {
     entry.cost = new CostCounter(0)
     const vendor = entry.vendor === entry.savedVendor ? {} : { vendor: entry.vendor }
     entry.savedVendor = entry.vendor
-    this.patch(entry, { sessionId: null, costUsd: 0, ...vendor })
+    this.patch(entry, { sessionId: null, costUsd: 0, reportedUsd: 0, ...vendor })
   }
 
   /** The Epic of the run that holds the Project's Orchestrator (deps.waveEpic); null without one, or when the ask fails. */

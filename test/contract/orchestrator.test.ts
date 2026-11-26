@@ -219,7 +219,7 @@ describe('Orchestrator Node', () => {
 })
 
 describe('Orchestrator Session', () => {
-  it('shows state, model, cost and the last status block; keeps only the session id and the cost in the Node data', async () => {
+  it('shows state, model, cost and the last status block; keeps only the session id, the cost and the last reported total in the Node data', async () => {
     const h = harness()
     const tempId = (await h.orchestrators.open(PROJECT)).sessionId ?? ''
     await vi.waitFor(() => expect(h.view().state).toBe('idle'))
@@ -250,7 +250,7 @@ describe('Orchestrator Session', () => {
     expect(h.view()).toMatchObject({ state: 'idle', error: null, sessionId: sdkId, model: 'claude-opus-5-5', costUsd: 0.03, statusBlock: BLOCK_3 })
     expect(h.states()).toEqual(['starting', 'idle', 'busy', 'idle', 'busy', 'idle', 'busy', 'idle'])
     // The Layout keeps nothing that the transcript or the live Session already has.
-    expect(h.data()).toStrictEqual({ sessionId: sdkId, costUsd: 0.03 })
+    expect(h.data()).toStrictEqual({ sessionId: sdkId, costUsd: 0.03, reportedUsd: 0.03 })
 
     // Views only grow in version; every event also went out under the Session's id.
     const versions = h.published.map((each) => each.version)
@@ -271,7 +271,7 @@ describe('Orchestrator Session', () => {
     first.registry.closeAll()
     first.layout.flushAll()
     const onDisk = JSON.parse(readFileSync(join(scratch, 'data', PROJECT, 'layout.json'), 'utf8')) as { nodes: LayoutNode[] }
-    expect(onDisk.nodes[0]?.data).toStrictEqual({ sessionId: sdkId, costUsd: 0.0125 })
+    expect(onDisk.nodes[0]?.data).toStrictEqual({ sessionId: sdkId, costUsd: 0.0125, reportedUsd: 0.0125 })
 
     // Meanwhile the session went on in a terminal: its transcript has a newer block.
     const second = harness({ transcript: () => ({ model: 'claude-sonnet-5', statusBlock: BLOCK_TERMINAL }) })
@@ -285,7 +285,7 @@ describe('Orchestrator Session', () => {
     // interrupted turn reports the restored 0.0125, which is the Node's cost still, not 0.0125 counted twice.
     await vi.waitFor(() => expect(second.view().state).toBe('idle'))
     expect(second.view().costUsd).toBe(0.0125)
-    expect(second.data()).toStrictEqual({ sessionId: sdkId, costUsd: 0.0125 })
+    expect(second.data()).toStrictEqual({ sessionId: sdkId, costUsd: 0.0125, reportedUsd: 0.0125 })
   })
 
   it('reads the Vendor of the saved session; a Vendor this build does not run is dropped, the session id and the cost stay (worfy-multi-vendor ticket 37)', () => {
@@ -293,8 +293,12 @@ describe('Orchestrator Session', () => {
     expect(readOrchestratorData({ sessionId: 'sdk-1', costUsd: 1, vendor: 'gemini' })).toStrictEqual({ sessionId: 'sdk-1', costUsd: 1 })
   })
 
-  it('the Node data declares only the session id, its Vendor and the cost (ADR-0010; the Vendor: worfy-multi-vendor ticket 37); other keys are not read back', () => {
-    expect(Object.keys(orchestratorDataSchema.shape).sort()).toEqual(['costUsd', 'sessionId', 'vendor'])
+  it('the Node data declares only the session id, its Vendor, the cost and the last reported total (ADR-0010; the Vendor: worfy-multi-vendor ticket 37; reportedUsd: worfy-assistant ticket 27); other keys are not read back', () => {
+    expect(Object.keys(orchestratorDataSchema.shape).sort()).toEqual(['costUsd', 'reportedUsd', 'sessionId', 'vendor'])
+    // Data written before reportedUsd reads as before; a damaged reportedUsd is dropped, not the rest.
+    expect(readOrchestratorData({ sessionId: 'sdk-1', costUsd: 1 })).toStrictEqual({ sessionId: 'sdk-1', costUsd: 1 })
+    expect(readOrchestratorData({ sessionId: 'sdk-1', costUsd: 1, reportedUsd: -1 })).toStrictEqual({ sessionId: 'sdk-1', costUsd: 1 })
+    expect(readOrchestratorData({ sessionId: 'sdk-1', costUsd: 1, reportedUsd: 0.5 })).toStrictEqual({ sessionId: 'sdk-1', costUsd: 1, reportedUsd: 0.5 })
     expect(readOrchestratorData({ sessionId: 'sdk-1', costUsd: 1, settings: { model: 'sonnet', effort: 'low', permissionMode: 'plan' }, extra: true })).toStrictEqual({
       sessionId: 'sdk-1',
       costUsd: 1,
@@ -323,7 +327,7 @@ describe('Orchestrator Session', () => {
     first.registry.closeAll()
     first.layout.flushAll()
     const onDisk = JSON.parse(readFileSync(join(scratch, 'data', PROJECT, 'layout.json'), 'utf8')) as { nodes: LayoutNode[] }
-    expect(onDisk.nodes[0]?.data).toStrictEqual({ sessionId: sdkId, costUsd: 0.0125 })
+    expect(onDisk.nodes[0]?.data).toStrictEqual({ sessionId: sdkId, costUsd: 0.0125, reportedUsd: 0.0125 })
 
     // A new run of the app: new stores over the same data folder.
     const second = harness()
@@ -605,7 +609,7 @@ describe('a saved session that cannot be resumed', () => {
     const opened = await h.orchestrators.open(PROJECT)
     expect(h.requests.map((request) => request.resume)).toEqual([undefined])
     expect(opened).toMatchObject({ costUsd: 0, statusBlock: null })
-    expect(h.data()).toStrictEqual({ sessionId: null, costUsd: 0 })
+    expect(h.data()).toStrictEqual({ sessionId: null, costUsd: 0, reportedUsd: 0 })
     h.registry.get(h.sessionId()).send('one')
     await vi.waitFor(() => expect(h.data().sessionId).toMatch(/^[0-9a-f-]{36}$/))
   })
@@ -633,7 +637,7 @@ describe('a saved session that cannot be resumed', () => {
     expect(h.sessionId()).not.toBe(refused)
     await vi.waitFor(() => expect(h.view().state).toBe('idle'))
     expect(h.view()).toMatchObject({ costUsd: 0, error: null })
-    expect(h.data()).toStrictEqual({ sessionId: null, costUsd: 0 })
+    expect(h.data()).toStrictEqual({ sessionId: null, costUsd: 0, reportedUsd: 0 })
     expect(h.states()).not.toContain('error')
 
     h.registry.get(h.sessionId()).send('one')
@@ -712,7 +716,7 @@ describe('CostCounter', () => {
   // worfy-assistant ticket 27: Claude Code restores a conversation's cost when it resumes it, so a new process goes on
   // from the last figure; only a smaller figure (a process that restored nothing) starts again from zero.
   it('follows the conversation\'s total across processes; a smaller figure starts again from zero', () => {
-    const cost = new CostCounter(1)
+    const cost = new CostCounter(1, 1)
     // The resumed process restored the saved 1, and its turn cost 0.5.
     expect(cost.result(1.5)).toBe(1.5)
     expect(cost.result(1.75)).toBe(1.75)
@@ -721,6 +725,33 @@ describe('CostCounter', () => {
     // The figure went down: a process that restored nothing.
     expect(cost.result(0.25)).toBe(2)
     expect(cost.result(0.5)).toBe(2.25)
+  })
+
+  // Round 2 of the review of PR #2284: the Node's saved cost is not the conversation's last reported total once anything
+  // went wrong, so the last report is kept in the Node's data on its own (`reportedUsd`), and each restart builds the
+  // counter from both.
+  it('a Node saved before reportedUsd takes its first result as the restored total, and is not inflated again after a restart', () => {
+    // The old code saved 0.025 for a conversation whose real total is 0.0125. Its resumed turn costs 0.0075.
+    const first = new CostCounter(0.025)
+    expect(first.result(0.02)).toBe(0.025)
+    expect(first.reported).toBe(0.02)
+    // worfy starts again: the counter is built from the Node's data, the next turn costs 0.01.
+    const second = new CostCounter(first.total, first.reported)
+    expect(second.result(0.03)).toBeCloseTo(0.035, 10)
+  })
+
+  it('a resume that restored nothing counts from zero once; a restart after it goes on from that report', () => {
+    const first = new CostCounter(1, 1)
+    // The resumed process restored nothing: its first turn reports 0.2.
+    expect(first.result(0.2)).toBeCloseTo(1.2, 10)
+    const second = new CostCounter(first.total, first.reported)
+    expect(second.result(0.3)).toBeCloseTo(1.3, 10)
+  })
+
+  it('a new conversation counts its first result in full', () => {
+    const cost = new CostCounter(0)
+    expect(cost.result(0.4)).toBe(0.4)
+    expect(cost.reported).toBe(0.4)
   })
 })
 

@@ -70,41 +70,59 @@ export function turnCostObserver(): (sessionId: string, event: AgentEvent) => vo
 - Требование: [Где в коде](../issues/27-доля-limits-assistant-а-от-всего-расхода-окна.md#где-в-коде)
 - Риски и пробелы test-ов: `result` до первого init (ошибка входа) придёт под временным id; его цена обычно 0.
 
-## 4. Цена Node-а Orchestrator-а — по тому же правилу
+## 4. Цена Node-а Orchestrator-а — по тому же правилу, с последним итогом в данных Node-а
 
-Code: `src/main/agent/orchestrator.ts:112-132` · key lines: 118, 119, 128
+Code: `src/main/agent/orchestrator.ts:112-146` · key lines: 124, 125, 141
 
 ```ts
 export class CostCounter {
   private totalValue: number
   private last: number | undefined
+  /** The Node's data has a cost but no last report (saved before reportedUsd): the first result is the restored total. */
+  private adopt: boolean
 
-  /** `saved`: the cost kept in the Node's data, the last total its conversation reported. */
-  constructor(saved: number) {
+  /**
+   * `saved`: the cost kept in the Node's data; `reported`: the last total its conversation reported, kept apart
+   * (reportedUsd), since the two part as soon as a process restores nothing or a Node was saved by an older build.
+   */
+  constructor(saved: number, reported?: number) {
     this.totalValue = saved
-    this.last = saved > 0 ? saved : undefined
+    this.last = reported
+    this.adopt = reported === undefined && saved > 0
   }
 
   get total(): number {
     return this.totalValue
   }
 
+  /** The last total the conversation reported, for the Node's data; undefined before the first result of a new one. */
+  get reported(): number | undefined {
+    return this.last
+  }
+
   /** A turn's `result`; answers the new total. */
   result(costUsd: number): number {
-    this.totalValue += costSinceLast(this.last, costUsd)
+    // shortcut: without a saved report, the first result's own turn is not added (its share of the restored total is
+    // unknown); a Node saved by this build always has the report.
+    if (!this.adopt) this.totalValue += costSinceLast(this.last, costUsd)
+    this.adopt = false
     this.last = costUsd
     return this.totalValue
   }
 }
 ```
 
-- Что делает: сохранённая цена Node-а — последний итог беседы; результат возобновлённого процесса прибавляет только
-  прирост. `processEnded` и его вызовы при crash и relaunch убраны.
-- Почему здесь: review PR #2284 нашёл тот же изъян в `CostCounter` и попросил исправить его в этом PR тем же правилом.
-- Без него: цена Node-а после relaunch, crash или перезапуска worfy прибавляла бы всё прошлое беседы ещё раз.
+- Что делает: новый процесс продолжает от последнего итога беседы, который данные Node-а хранят отдельным полем
+  `reportedUsd` (`src/shared/ipc/orchestrator.ts`); прибавляется только прирост. Node без поля (сохранён старым кодом)
+  берёт первый `result` после старта как восстановленный итог. `processEnded` и его вызовы при crash и relaunch убраны.
+- Почему здесь: review PR #2284 нашёл тот же изъян в `CostCounter` и попросил исправить его в этом PR тем же правилом;
+  второй раунд review показал, что сохранённая цена Node-а не равна итогу беседы после сбоя, — решение 3б «Решено без
+  владельца».
+- Без него: цена Node-а после relaunch, crash, перезапуска worfy или открытия Orchestrator-а прибавляла бы прошлое
+  беседы снова, и после каждого перезапуска — ещё раз.
 - Требование: [Что строить](../issues/27-доля-limits-assistant-а-от-всего-расхода-окна.md#что-строить)
-- Риски и пробелы test-ов: сохранённая цена, в которой уже были процессы без восстановленного итога, больше итога
-  беседы; следующий итог тогда считается с нуля (решение 3б «Решено без владельца»).
+- Риски и пробелы test-ов: у Node-а старого кода ход первого `result` после старта в цену не входит; Roll back на
+  прежнюю сборку оставляет `reportedUsd` старым — решение 3б.
 
 ## 5. Запросы вне реестра: один процесс — один ход
 
@@ -151,7 +169,7 @@ Session Assistant-а (`src/main/assistant/session/runner.ts`) и проверк�
 
 ## 8. Как проверено
 
-Test-ы подключения сначала красные на коде до подключения (5 упали). После review test-ы resume сначала красные на первой версии (`CostCounter` и цена Node-а — 3 упали, журнал — нет метода). После правки — зелёные; `pnpm lint`,
+Test-ы подключения сначала красные на коде до подключения (5 упали). После review test-ы resume сначала красные на первой версии (`CostCounter` и цена Node-а — 3 упали, журнал — нет метода). Второй раунд review: test-ы `CostCounter` через перезапуск (Node старого кода, resume без восстановленного итога) и схема данных Node-а сначала красные (4 упали). После правки — зелёные; `pnpm lint`,
 `pnpm typecheck`, `pnpm test`, gate fast — exit 0.
 
 ## Проверить себя
@@ -163,6 +181,7 @@ Test-ы подключения сначала красные на коде до 
 2. Почему one-shot, narrator и Terminal AI передают `total_cost_usd` без разницы?
    - Ответ: у каждого из них процесс Claude Code делает один ход новой беседы, так что итог и есть цена хода.
    - Lines: `src/main/vendors/claude/one-shot.ts:177-179`
-3. Что считает журнал, если итог беседы после resume меньше прошлого?
-   - Ответ: весь новый итог, с нуля: процесс ничего не восстановил, и прошлый итог к нему не относится.
-   - Lines: `src/main/agent/orchestrator.ts:112-132`
+3. Почему Node хранит последний итог беседы отдельно от своей цены?
+   - Ответ: цена Node-а равна итогу беседы, только пока ничего не сломалось; после процесса без восстановленного итога
+     или у Node-а старого кода она больше, и следующий итог считался бы с нуля при каждом перезапуске.
+   - Lines: `src/main/agent/orchestrator.ts:112-146`
