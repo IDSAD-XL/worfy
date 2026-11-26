@@ -88,14 +88,18 @@ Ticket 05 завёл журнал расхода Assistant-а (`<WORFY_DATA_DIR>
 - [ ] Цена `result` каждой другой Session и запроса worfy доходит до `noteOtherTurn` ровно один раз (разница с прошлым
       `result` процесса), а ходы Assistant-а — Session и проверки источников — не доходят.
   - evidence: test-run pass · `pnpm test test/unit/other-turn-costs.test.ts test/unit/vendor-driver-types.test.ts test/contract/terminal-ai-assist.test.ts test/unit/assistant-session.test.ts test/unit/assistant-source-check.test.ts` exit 0 · mac - · c5a3c6200
+  - evidence: test-run pass · `pnpm test test/unit/other-turn-costs.test.ts test/contract/orchestrator.test.ts test/unit/assistant-usage-ledger.test.ts test/unit/vendor-driver-types.test.ts test/contract/terminal-ai-assist.test.ts test/unit/assistant-session.test.ts test/unit/assistant-source-check.test.ts` exit 0 · mac - · 6e5436d09
 - [ ] Unit test `limitsShare` с ценой других ходов: доля Assistant-а меньше процента окна.
   - evidence: test-run pass · `pnpm test test/unit/other-turn-costs.test.ts` exit 0 · mac - · c5a3c6200
+  - evidence: test-run pass · `pnpm test test/unit/other-turn-costs.test.ts test/contract/orchestrator.test.ts test/unit/assistant-usage-ledger.test.ts test/unit/vendor-driver-types.test.ts test/contract/terminal-ai-assist.test.ts test/unit/assistant-session.test.ts test/unit/assistant-source-check.test.ts` exit 0 · mac - · 6e5436d09
 - [ ] Test, что подключение зовёт `noteOtherTurn`: Session реестра, one-shot, narrator, Terminal AI — да; Session
       Assistant-а и проверка источника — нет.
   - evidence: test-run pass · `pnpm test test/unit/other-turn-costs.test.ts test/unit/vendor-driver-types.test.ts test/contract/terminal-ai-assist.test.ts test/unit/assistant-session.test.ts test/unit/assistant-source-check.test.ts` exit 0 · mac - · c5a3c6200
+  - evidence: test-run pass · `pnpm test test/unit/other-turn-costs.test.ts test/contract/orchestrator.test.ts test/unit/assistant-usage-ledger.test.ts test/unit/vendor-driver-types.test.ts test/contract/terminal-ai-assist.test.ts test/unit/assistant-session.test.ts test/unit/assistant-source-check.test.ts` exit 0 · mac - · 6e5436d09
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · c5a3c6200
   - evidence: gate pass · `gate fast` exit 0 · mac - · c5a3c6200
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 6e5436d09
 
 ## Итог
 
