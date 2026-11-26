@@ -1,6 +1,6 @@
 # worfy-layout: View button-ы в header, на rail и в footer — расстановка перетаскиванием, footer с chip-ом версии
 
-Status: черновик 2026-11-24. Решения владельца Q1–Q14 (grilling 2026-11-24 вечером) приняты и здесь не пересматриваются.
+Status: принят владельцем 2026-11-26 (черновик 2026-11-24). Решения владельца Q1–Q14 (grilling 2026-11-24 вечером) приняты и здесь не пересматриваются.
 Дальше по Q8: critic → приёмка spec-а владельцем → Wave-ы; приёмка `worfy-acceptance` 10 этот Epic не держит.
 Critic: [docs/product/critic/worfy-layout-2026-11-24.md](../../docs/product/critic/worfy-layout-2026-11-24.md) — Keep;
 возражения 1 (`inert` в focus mode — Ticket 04) и 2 (бейджи Pull requests и Pipeline — Ticket 04) приняты, альтернатива
