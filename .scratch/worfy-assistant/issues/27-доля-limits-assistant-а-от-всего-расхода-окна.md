@@ -87,7 +87,58 @@ Ticket 05 завёл журнал расхода Assistant-а (`<WORFY_DATA_DIR>
 
 - [ ] Цена `result` каждой другой Session и запроса worfy доходит до `noteOtherTurn` ровно один раз (разница с прошлым
       `result` процесса), а ходы Assistant-а — Session и проверки источников — не доходят.
+  - evidence: test-run pass · `pnpm test test/unit/other-turn-costs.test.ts test/unit/vendor-driver-types.test.ts test/contract/terminal-ai-assist.test.ts test/unit/assistant-session.test.ts test/unit/assistant-source-check.test.ts` exit 0 · mac - · c5a3c6200
 - [ ] Unit test `limitsShare` с ценой других ходов: доля Assistant-а меньше процента окна.
+  - evidence: test-run pass · `pnpm test test/unit/other-turn-costs.test.ts` exit 0 · mac - · c5a3c6200
 - [ ] Test, что подключение зовёт `noteOtherTurn`: Session реестра, one-shot, narrator, Terminal AI — да; Session
       Assistant-а и проверка источника — нет.
+  - evidence: test-run pass · `pnpm test test/unit/other-turn-costs.test.ts test/unit/vendor-driver-types.test.ts test/contract/terminal-ai-assist.test.ts test/unit/assistant-session.test.ts test/unit/assistant-source-check.test.ts` exit 0 · mac - · c5a3c6200
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · c5a3c6200
+  - evidence: gate pass · `gate fast` exit 0 · mac - · c5a3c6200
+
+## Итог
+
+- Новый модуль `src/main/agent/turn-cost.ts`: один sink цены «чужих» ходов. Приложение при старте направляет его в
+  `appAssistantUsage().noteOtherTurn` (`src/main/index.ts`, до первой Session). Без sink-а (test-ы, до старта) цена
+  никуда не пишется.
+- **Session-ы реестра** — Orchestrator, Session Node-ы, Session-ы Autopilot-а, Product Session: один observer
+  `turnCostObserver`, его подключает `sharedRegistry()` (`src/main/agent/app-registry.ts`) при создании реестра. В
+  `noteOtherTurn` идёт разница с прошлым `result` того же процесса Session. С нуля считается после `state: starting`
+  (Session запускает новый процесс, в том числе Restart с той же беседой), после `state: error` (процесс умер), после
+  `closed` и когда цифра меньше прошлой (правило `CostCounter`). `renamed` (pending-id → id Vendor-а) переносит цифру на
+  новый id: процесс тот же.
+- **Запросы вне реестра** — один процесс Claude Code на один ход, поэтому их `total_cost_usd` и есть цена хода
+  (`noteOneTurnResult`): `readOneShot` (черновик профиля, Code story и вопрос по её строкам), narrator Product
+  Session-а (`narratorAskOver`), Terminal AI (`AssistService.attempt`; spare-процесс закрывается после каждого
+  запроса, ADR-0058).
+- **Не считаются**: Session Assistant-а (`runner.ts`) и проверка источника (`connector-check.ts`) идут мимо реестра и
+  мимо `noteOneTurnResult`, их пишет только `noteCall`. Codex-Session-ы приходят с `costUsd: 0` — ничего не пишется.
+- `docs/features/assistant.md` (английская): вместо «upper bound» — какие ходы считаются и что оценка завышена только
+  на расход вне worfy и на расход Linked machine того же аккаунта. Русский перевод не трогался (ADR-0088).
+- Test-ы: `test/unit/other-turn-costs.test.ts` (реестр на fake agent: два хода процесса, crash, новый процесс дороже
+  старого → 0.01, 0.02, 0.05; доля в `limitsShare` через подключение меньше процента окна; `starting`, `renamed`,
+  Codex; one-shot на `result` из `test/fixtures/sdk-messages/controls.jsonl`; narrator), `test/unit/vendor-driver-types.test.ts`
+  (реестр приложения отдаёт observer-у события с первого), `test/contract/terminal-ai-assist.test.ts` (два запроса —
+  две цены), `test/unit/assistant-session.test.ts` и `test/unit/assistant-source-check.test.ts` (ходы Assistant-а в
+  sink не попадают). Новые test-ы подключения сначала красные (5 упали), после правки зелёные.
+
+### Решено без владельца
+
+1. **Подключение — один sink и четыре места, а не одно общее место.** Общего места, через которое идут все `result`
+   SDK, нет: каждый путь сам зовёт `query()` (`vendors/claude/query.ts`, `one-shot.ts`, `narrator.ts`,
+   `terminal-ai.ts`, `assistant-session.ts`, `connector-check.ts`), а обёртка Limits `appLimits().observe` оборачивает
+   только фабрику Session-ов. Обёртка вокруг всех `query()` потребовала бы правки тех же мест и исключения для
+   Assistant-а. Выбрано: observer реестра для Session-ов и вызов `noteOneTurnResult` в трёх читателях вне реестра;
+   все — в один sink.
+2. **Sink ставит `src/main/index.ts`, а не модуль `agent` сам.** Модуль `src/main/agent/turn-cost.ts` не импортирует
+   Assistant, а test-ы без sink-а никогда не пишут в настоящий `usage.json`. Цена — одна строка в `index.ts`, файл вне
+   раздела «Где в коде».
+3. **Новый процесс Session-а узнаётся по `state: starting` и `state: error`**, а не только по меньшей цифре: новый
+   процесс, первый ход которого дороже всего старого, иначе посчитался бы как разница. `system/init` для этого не
+   годится — Claude Code шлёт его в начале каждого хода (`controls.jsonl`).
+4. **Ход без ответа тоже считается**: one-shot с `error_max_turns`, прерванный ход — цена уже потрачена. Прерванный ход
+   Claude Code повторяет прежнюю цифру (`controls.jsonl`), и разница 0 ничего не пишет.
+5. **Цена пишется и при выключенном Assistant-е.** Окно Limits начинается раньше включения, и доля после включения
+   должна видеть ходы с начала окна. Файл `assistant/usage.json` уже есть в описи состояния (ADR-0005, PR #2282).
+6. Не ходы и не считаются: запрос Limits (`usage`) и опрос MCP (inventory) — модель не вызывается.
