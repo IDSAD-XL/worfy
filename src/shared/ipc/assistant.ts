@@ -79,9 +79,16 @@ export const assistantShown = invokeChannel('assistant.shown', z.object({ itemId
 
 /**
  * The user closed the speech card (worfy-polish 161): these items, the ones it would tell of now, count as told by the
- * card until something new comes on each. The items themselves stay as they are: in the list, in their state.
+ * card until something new comes on each. Each comes with the count of events the card showed of it, so an event that
+ * came after the card was drawn is not marked unseen as told. The items themselves stay as they are: in the list, in
+ * their state.
  */
-export const assistantCardClosed = invokeChannel('assistant.cardClosed', z.object({ itemIds: z.array(id).max(5_000) }), z.object({}), 'local')
+export const assistantCardClosed = invokeChannel(
+  'assistant.cardClosed',
+  z.object({ items: z.array(z.object({ id, events: z.number().int().nonnegative().optional() })).max(5_000) }),
+  z.object({}),
+  'local',
+)
 
 /**
  * What waits in the Projects of this Machine, for a Linked machine (worfy-assistant ticket 18; ADR-0066): the Projects and

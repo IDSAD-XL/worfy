@@ -18,7 +18,7 @@ export function RateButtons({ target, rating, item, from }: { target: RatingTarg
     void rate(target, rating === next ? null : next, item)
     // On the card, like or dislike is the answer to it: main keeps the item as told by the card, and the card goes on to
     // what is new since its last Close (worfy-polish 161).
-    if (from === 'say' && item !== undefined) closeCard([item.id], true)
+    if (from === 'say' && item !== undefined) closeCard([item])
   }
   return (
     <span className="w-asst-rate">
@@ -42,7 +42,8 @@ function SnoozeButton({ item, from }: { item: WindowItem; from?: 'say' }): React
   const [open, setOpen] = useState(false)
   const pick = (choice: SnoozeChoice) => {
     void snoozeItem(item.id, choice)
-    if (from === 'say') closeCard([item.id], false)
+    // Snooze on the card counts as seeing the item (review round 2): told by the card, so waking it tells no more.
+    if (from === 'say') closeCard([item])
   }
   return (
     <Menu
@@ -76,9 +77,9 @@ function SnoozeButton({ item, from }: { item: WindowItem; from?: 'say' }): React
 
 /** The buttons of an item: in the list, or on the speech card (`say`), which has no Dismiss and closes once used. */
 export function ItemActions({ item, from }: { item: WindowItem; from?: 'say' }): ReactElement {
-  // Open takes the item off the card itself (it is seen); Prepare leaves it waiting, so main keeps it as told by the card.
-  const used = (told: boolean) => {
-    if (from === 'say') closeCard([item.id], told)
+  // Open and Prepare on the card count as seeing the item: main keeps it as told by the card (worfy-polish 161).
+  const used = () => {
+    if (from === 'say') closeCard([item])
   }
   return (
     <div className="w-asst-actions">
@@ -94,7 +95,7 @@ export function ItemActions({ item, from }: { item: WindowItem; from?: 'say' }):
           className="w-asst-button"
           data-action="open"
           onClick={() => {
-            used(false)
+            used()
             void openItem(item)
           }}
         >
@@ -109,7 +110,7 @@ export function ItemActions({ item, from }: { item: WindowItem; from?: 'say' }):
           data-action="prepare"
           title="See the exact text of the Session before it starts"
           onClick={() => {
-            used(true)
+            used()
             prepareItem(item)
           }}
         >

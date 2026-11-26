@@ -450,16 +450,20 @@ notifications ([Notifications](notifications.md)). Both kinds come only while th
 
 - **In the window**, a speech card next to the Assistant's rail icon, at the left edge, in its colour: an item with
   Open, Prepare, Snooze, like and dislike. One card at a time; the icon shows how many more wait ("+2"), or without a
-  card how many items wait. No card while the section is in front. Open, Prepare, Snooze, like and dislike act on the
-  item shown, and the card goes on to the next item that is new since its last Close, or closes.
-- **Close** (×) or Escape closes the card as a whole. Every item it would tell of then counts as told by the card; the
-  items stay in the list in their state, and the icon still counts them — Close is not Dismiss. The card shows again
-  only for what comes after: a new item, a new event on an item, or an item that turns urgent. What the card told of is
-  kept in the section's own file, so a restart or an update does not bring the backlog back. A click outside the card
-  leaves it as it is. Until the card is closed for the first time, a backlog of several items is one line, "N waiting
-  in Assistant", with the link to the section, not its oldest item; one Close clears it. Settings →
-  Assistant → General → Notifications → "In the window": "Urgent and batched" (by default), "Urgent only" or "None: the
-  list only". The number on the icon and the list stay with any choice.
+  card how many items wait. No card while the section is in front. Settings → Assistant → General → Notifications →
+  "In the window": "Urgent and batched" (by default), "Urgent only" or "None: the list only". The number on the icon
+  and the list stay with any choice. Open, Prepare, Snooze, like and dislike act on the item shown and count as seeing
+  it: the card goes on to the next item that is new since its last Close, or closes.
+- **Close** (×) closes the card as a whole. Every item it would tell of then counts as told by the card, as the card
+  showed it; the items stay in the list in their state, and the icon still counts them — Close is not Dismiss. The
+  card shows again only for what comes after: a new item, a new event on an item (one that came while the card was on
+  screen too), or an item that turns urgent. What the card told of is kept in the section's own file, so a restart or
+  an update does not bring the backlog back. Escape closes the card the same way, but only with the keyboard focus in
+  the card or on the Assistant's rail button; anywhere else Escape stays with the Canvas, Focus mode or the field. A
+  click outside the card leaves it as it is.
+- **The backlog line.** Until the card is closed for the first time, a backlog of several items is one line, "N
+  waiting in Assistant", with the link to the section, not its oldest item; one Close clears it. An urgent item is
+  never folded into the line: the card tells of the first urgent one, with "N more in Assistant" under it.
 - **System notifications**, while worfy is not in front: only of an urgent item, only in work hours, titled "worfy
   Assistant", the text "<Project>: <item>". A click raises worfy's window and opens the section. One notification per
   item; an item seen while worfy was in front never comes later, and one that came outside the work hours waits for

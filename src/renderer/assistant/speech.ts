@@ -4,7 +4,8 @@
 //
 // Close closes the card as a whole (worfy-polish 161, the owner's report: closing one item showed the next of 56): the
 // items it would tell of then count as told by the card (main keeps it, `cardSeen`), and the card speaks again only of
-// what comes after. Until the first Close the card sums the backlog up in one line instead of telling of its oldest item.
+// what comes after. Until the first Close the card sums the backlog up in one line instead of telling of its oldest item,
+// unless an urgent item waits: that one is told of.
 import type { InWindowNotices } from '../../shared/assistant/settings'
 import type { AssistantView, WindowItem } from '../../shared/assistant/window'
 import type { RailBadge } from '../shell/sidebar-scope'
@@ -26,7 +27,11 @@ export type SpeechCard = { kind: 'item'; item: WindowItem; more: number } | { ki
 export function speechCard(view: AssistantView | null, queue: readonly WindowItem[]): SpeechCard | null {
   const first = queue[0]
   if (first === undefined) return null
-  if (view?.cardBacklog === true && queue.length > 1) return { kind: 'backlog', count: queue.length }
+  if (view?.cardBacklog === true && queue.length > 1) {
+    // An urgent item is never folded into the line (review round 2): the card tells of the first urgent one.
+    const urgent = queue.find((each) => each.urgent)
+    return urgent === undefined ? { kind: 'backlog', count: queue.length } : { kind: 'item', item: urgent, more: queue.length - 1 }
+  }
   return { kind: 'item', item: first, more: queue.length - 1 }
 }
 

@@ -323,16 +323,18 @@ export class AssistantWindow {
   }
 
   /**
-   * The user closed the speech card over these items (`assistant.cardClosed`): each counts as told by the card as it is
-   * now. Nothing else of the item changes — its state, its duty's counts, the list. Marks of items no longer there go.
+   * The user closed the speech card over these items (`assistant.cardClosed`): each counts as told by the card with the
+   * count of events the card showed of it — an event that came after the card was drawn keeps the item untold; without a
+   * count, as the item is now. Nothing else of the item changes — its state, its duty's counts, the list. Marks of items
+   * no longer there go.
    */
-  cardClosed(itemIds: readonly string[]): void {
-    const ids = new Set(itemIds)
+  cardClosed(closed: readonly { id: string; events?: number | undefined }[]): void {
+    const shown = new Map(closed.map((each) => [each.id, each.events]))
     const items = this.allItems()
     const before = this.load().card?.told ?? {}
     const told: Record<string, { events: number; urgent: boolean }> = {}
     for (const item of items) {
-      if (ids.has(item.id)) told[item.id] = { events: item.events, urgent: isUrgentItem(item) }
+      if (shown.has(item.id)) told[item.id] = { events: shown.get(item.id) ?? item.events, urgent: isUrgentItem(item) }
       else if (before[item.id] !== undefined) told[item.id] = before[item.id]!
     }
     this.save((state) => void (state.card = { told }))
@@ -380,6 +382,7 @@ export class AssistantWindow {
         state: item.state,
         startedAt: item.startedAt,
         lastAt: item.lastAt ?? item.startedAt,
+        events: item.events,
         outside: item.message === undefined ? null : { author: item.message.author, at: item.message.at, url: item.message.url },
         proposalId: proposal?.id ?? null,
         prepare,

@@ -11,7 +11,7 @@ import { defaultAppSettings } from '../../src/shared/settings/app-settings'
 
 const main = vi.hoisted(() => ({
   items: [] as WindowItem[],
-  /** What the card told of: the item's lastAt when the card was closed over it. */
+  /** What the card told of: the item's count of events the card showed when it was closed over it. */
   told: new Map<string, number>(),
   closedOnce: false,
   listeners: new Set<(view: unknown) => void>(),
@@ -21,7 +21,7 @@ const main = vi.hoisted(() => ({
 const mainView = (): AssistantView => ({
   on: true,
   projects: 1,
-  items: main.items.map((each) => (main.told.get(each.id) === each.lastAt ? { ...each, cardSeen: true } : each)),
+  items: main.items.map((each) => (main.told.get(each.id) === each.events ? { ...each, cardSeen: true } : each)),
   snoozed: [],
   hidden: [],
   proposals: [],
@@ -48,9 +48,10 @@ vi.mock('../../src/renderer/ipc', async (importOriginal) => ({
     if (channel === 'assistant.open') return Promise.resolve({ ok: true, value: { view: mainView(), reveal: false } })
     if (channel === 'appSettings.get') return Promise.resolve({ ok: true, value: defaultAppSettings() })
     if (channel === 'assistant.cardClosed') {
-      for (const id of (input as { itemIds: string[] }).itemIds) {
+      // As main does: each item is marked with the count of events the card showed of it.
+      for (const { id, events } of (input as { items: { id: string; events?: number }[] }).items) {
         const found = main.items.find((each) => each.id === id)
-        if (found !== undefined) main.told.set(id, found.lastAt)
+        if (found !== undefined) main.told.set(id, events ?? found.events ?? 0)
       }
       main.closedOnce = true
       queueMicrotask(changed)
@@ -85,6 +86,7 @@ const item = (id: string, lastAt = 1): WindowItem => ({
   state: 'new',
   startedAt: lastAt,
   lastAt,
+  events: 1,
   outside: null,
   proposalId: null,
   prepare: null,
@@ -143,7 +145,7 @@ describe('the speech card closes as a whole', () => {
     expect(card()?.textContent).toContain('55 more')
     close()
     expect(card()).toBeNull()
-    expect(main.calls.filter(([channel]) => channel === 'assistant.cardClosed')).toEqual([['assistant.cardClosed', { itemIds: main.items.map((each) => each.id) }]])
+    expect(main.calls.filter(([channel]) => channel === 'assistant.cardClosed')).toEqual([['assistant.cardClosed', { items: main.items.map((each) => ({ id: each.id, events: each.events })) }]])
     await settle()
     expect(card()).toBeNull()
     expect(badge()).toBe('56')
@@ -171,7 +173,7 @@ describe('the speech card closes as a whole', () => {
     await launch()
     close()
     await settle()
-    main.items = main.items.map((each) => (each.id === 'i7' ? { ...each, lastAt: 5 } : each))
+    main.items = main.items.map((each) => (each.id === 'i7' ? { ...each, events: 2, lastAt: 5 } : each))
     await act(async () => changed())
     expect(card()?.dataset['itemId']).toBe('i7')
   })
@@ -191,18 +193,76 @@ describe('the speech card closes as a whole', () => {
     expect(card()).toBeNull()
   })
 
-  it('Escape closes the card as Close does; an Escape typed into a field does not', async () => {
+  it('Escape closes the card only with the keyboard focus in it or on the rail button: Escape of the Canvas, Focus mode or a field stays theirs (review round 2)', async () => {
     main.closedOnce = true
     main.items = fiftySix()
     await launch()
+    const closes = () => main.calls.filter(([channel]) => channel === 'assistant.cardClosed').length
+    const canvas = document.createElement('div')
+    canvas.className = 'react-flow__pane'
+    canvas.tabIndex = 0
+    const focusMode = document.createElement('div')
+    focusMode.setAttribute('role', 'region')
+    focusMode.setAttribute('aria-label', 'Focus mode')
     const field = document.createElement('input')
-    document.body.append(field)
-    fireEvent.keyDown(field, { key: 'Escape' })
-    expect(card()).not.toBeNull()
-    fireEvent.keyDown(document.body, { key: 'Escape' })
+    focusMode.append(field)
+    document.body.append(canvas, focusMode)
+    for (const target of [document.body, canvas, focusMode, field]) {
+      fireEvent.keyDown(target, { key: 'Escape' })
+      expect(card(), target.nodeName).not.toBeNull()
+    }
+    expect(closes()).toBe(0)
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Close' }), { key: 'Escape' })
     expect(card()).toBeNull()
-    expect(main.calls.some(([channel]) => channel === 'assistant.cardClosed')).toBe(true)
-    field.remove()
+    expect(closes()).toBe(1)
+    canvas.remove()
+    focusMode.remove()
+  })
+
+  it('Escape on the Assistant button of the rail closes the card too', async () => {
+    main.closedOnce = true
+    main.items = fiftySix()
+    const rail = document.createElement('button')
+    rail.dataset['sectionTab'] = 'AssistantSection'
+    document.body.append(rail)
+    await launch()
+    fireEvent.keyDown(rail, { key: 'Escape' })
+    expect(card()).toBeNull()
+    rail.remove()
+  })
+
+  it('an urgent item is never folded into the backlog line: the card tells of the first urgent one, the rest is «N more» (review round 2)', async () => {
+    main.items = [{ ...item('stop'), urgent: true }, item('b')]
+    await launch()
+    expect(card()?.dataset['itemId']).toBe('stop')
+    expect(card()?.textContent).toContain('Urgent')
+    expect(card()?.textContent).toContain('1 more')
+    expect(card()?.textContent).not.toContain('waiting in Assistant')
+  })
+
+  it('Open on the card counts as seeing the item: main keeps it as told, and the card goes on (review round 2)', async () => {
+    main.closedOnce = true
+    main.items = [{ ...item('a'), open: { kind: 'url', url: 'https://example.com/a' } }, item('b')]
+    await launch()
+    fireEvent.click(screen.getByRole('button', { name: 'Open' }))
+    expect(card()?.dataset['itemId']).toBe('b')
+    await settle()
+    expect(main.calls).toContainEqual(['assistant.cardClosed', { items: [{ id: 'a', events: 1 }] }])
+  })
+
+  it('Snooze on the card counts as seeing the item too (review round 2)', async () => {
+    main.closedOnce = true
+    main.items = [item('a'), item('b')]
+    await launch()
+    const snooze = screen.getByRole('button', { name: /Snooze/u })
+    snooze.focus()
+    fireEvent.keyDown(snooze, { key: 'ArrowDown' })
+    await act(() => new Promise<void>((resolve) => setTimeout(resolve, 20)))
+    fireEvent.click(screen.getByTestId('assistant-snooze-hour'))
+    await settle()
+    expect(main.calls).toContainEqual(['assistant.snooze', { itemId: 'a', choice: 'hour' }])
+    expect(main.calls).toContainEqual(['assistant.cardClosed', { items: [{ id: 'a', events: 1 }] }])
+    expect(card()?.dataset['itemId']).toBe('b')
   })
 
   it('a like acts on the item shown, and the card goes on to the next item new since the last Close', async () => {

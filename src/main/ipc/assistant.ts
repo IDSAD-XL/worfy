@@ -84,8 +84,8 @@ export function assistantHandlers(
       section().shown(itemIds)
       return {}
     }),
-    defineHandler(assistantCardClosed, ({ itemIds }) => {
-      section().cardClosed(itemIds)
+    defineHandler(assistantCardClosed, ({ items }) => {
+      section().cardClosed(items)
       return {}
     }),
     defineHandler(assistantSend, ({ text }) => {

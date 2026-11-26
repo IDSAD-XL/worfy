@@ -124,6 +124,15 @@ describe('the card closes as a whole (worfy-polish 161)', () => {
     expect(speechCard(backlog([item('one')]), [item('one')])).toMatchObject({ kind: 'item', item: { id: 'one' } })
   })
 
+  it('never folds an urgent item into the backlog line: the first urgent one is the card, the rest «N more» (review round 2)', () => {
+    const v = backlog([...many, item('stop', { urgent: true })])
+    const queue = speechQueue(v, new Set(), false)
+    expect(speechCard(v, queue)).toMatchObject({ kind: 'item', item: { id: 'stop' }, more: 56 })
+    expect(shownItemIds(v, false, 'waits', queue)).toEqual(['stop'])
+    const urgentOnly = speechQueue(v, new Set(), false, 'urgent')
+    expect(speechCard(v, urgentOnly)).toMatchObject({ kind: 'item', item: { id: 'stop' }, more: 0 })
+  })
+
   it("keeps an item off the card after a click only until main's view does the same", () => {
     const v = view([item('a'), item('b', { cardSeen: true }), item('c', { state: 'snoozed' })])
     expect(stillClosed(['a', 'b', 'c', 'gone'], v)).toEqual(['a'])

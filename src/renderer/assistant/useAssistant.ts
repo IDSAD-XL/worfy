@@ -209,15 +209,16 @@ export function reportShown(itemIds: readonly string[]): void {
 }
 
 /**
- * The speech card stops telling of these items; they stay in the list as they are. `told`: main keeps them as told by the
- * card (`assistant.cardClosed`, worfy-polish 161), so the card is not shown for them again, after a restart too, until
- * something new comes on one. Without it the click itself takes the item off the card (Open, Snooze): a snoozed item that wakes tells again.
+ * The speech card stops telling of these items, as it showed them; they stay in the list as they are. Main keeps them as
+ * told by the card (`assistant.cardClosed`, worfy-polish 161) with the count of events the card showed, so the card is
+ * not shown for them again, after a restart too, until something new comes on one. This window keeps them off the card
+ * at once, until main's view does the same.
  */
-export function closeCard(itemIds: readonly string[], told: boolean): void {
-  if (itemIds.length === 0) return
-  useAssistant.setState((state) => ({ closed: [...new Set([...state.closed, ...itemIds])] }))
-  if (!told) return
-  void invoke('assistant.cardClosed', { itemIds: [...itemIds] }).then((result) => {
+export function closeCard(items: readonly Pick<WindowItem, 'id' | 'events'>[]): void {
+  if (items.length === 0) return
+  useAssistant.setState((state) => ({ closed: [...new Set([...state.closed, ...items.map((each) => each.id)])] }))
+  const told = items.map((each) => (each.events === undefined ? { id: each.id } : { id: each.id, events: each.events }))
+  void invoke('assistant.cardClosed', { items: told }).then((result) => {
     if (!result.ok) refused('Close', result.error)
   })
 }

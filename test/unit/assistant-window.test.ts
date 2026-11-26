@@ -223,7 +223,7 @@ describe('the speech card closes as a whole (worfy-polish 161)', () => {
     expect(before.cardBacklog).toBe(true)
     expect(before.items).toHaveLength(56)
     expect(told(before)).toEqual([])
-    w.window.cardClosed(before.items.map((item) => item.id))
+    w.window.cardClosed(before.items)
     const after = await settled(w)
     expect(after.cardBacklog).toBeUndefined()
     expect(told(after)).toHaveLength(56)
@@ -235,10 +235,12 @@ describe('the speech card closes as a whole (worfy-polish 161)', () => {
   it('an item that comes after the Close is not told; nor is a told item a new event comes on', () => {
     const w = world()
     for (let i = 1; i <= 3; i++) w.core.ingest(asks(i))
-    w.window.cardClosed(w.window.view().items.map((item) => item.id))
+    w.window.cardClosed(w.window.view().items)
     w.core.ingest(asks(4))
     expect(told(w.window.view()).sort()).toEqual(['Asks 1', 'Asks 2', 'Asks 3'])
-    w.core.ingest({ ...asks(2, T0 - MIN), revision: '2', text: 'Asks 2 again' })
+    w.core.ingest({ ...asks(2), revision: '2', text: 'Asks 2 again' })
+    // The item waits on, with its new event, and is not told any more.
+    expect(w.window.view().items.map((item) => item.title).sort()).toEqual(['Asks 1', 'Asks 2 again', 'Asks 3', 'Asks 4'])
     expect(told(w.window.view()).sort()).toEqual(['Asks 1', 'Asks 3'])
   })
 
@@ -246,7 +248,7 @@ describe('the speech card closes as a whole (worfy-polish 161)', () => {
     const w = world()
     w.core.ingest(slack())
     const [item] = w.window.view().items
-    w.window.cardClosed([item!.id])
+    w.window.cardClosed([item!])
     expect(told(w.window.view())).toHaveLength(1)
     const urgent = slack('2')
     w.core.ingest({ ...urgent, message: { ...urgent.message!, urgent: true } })
@@ -259,16 +261,27 @@ describe('the speech card closes as a whole (worfy-polish 161)', () => {
     const w = world()
     for (let i = 1; i <= 3; i++) w.core.ingest(asks(i))
     const [a, b] = w.window.view().items
-    w.window.cardClosed([a!.id])
-    w.window.cardClosed([b!.id])
+    w.window.cardClosed([a!])
+    w.window.cardClosed([b!])
     expect(told(w.window.view()).sort()).toEqual([a!.title, b!.title].sort())
+  })
+
+  it('marks an item with the count of events the card showed: one that came between the render and the Close is not told (review round 2)', () => {
+    const w = world()
+    w.core.ingest(asks(1))
+    const [shown] = w.window.view().items
+    expect(shown?.events).toBe(1)
+    w.core.ingest({ ...asks(1), revision: '2', text: 'Asks 1 again' })
+    w.window.cardClosed([{ id: shown!.id, events: shown!.events }])
+    expect(w.window.view().items[0]?.events).toBe(2)
+    expect(told(w.window.view())).toEqual([])
   })
 
   it("what the card told of is in the section's own file: after a restart it stays told, and there is no backlog", () => {
     const file = windowStatePath(join(temp, `restart-${++n}`))
     const w = world({}, { store: windowStateFile(file) })
     for (let i = 1; i <= 56; i++) w.core.ingest(asks(i))
-    w.window.cardClosed(w.window.view().items.map((item) => item.id))
+    w.window.cardClosed(w.window.view().items)
     const again = world({}, { store: windowStateFile(file), core: () => w.core })
     const view = again.window.view()
     expect(view.cardBacklog).toBeUndefined()

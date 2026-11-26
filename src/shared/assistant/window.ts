@@ -77,6 +77,8 @@ export const windowItemSchema = z.object({
    * nothing came on the item since. The card tells only of what is not; the item stays in the list as it is.
    */
   cardSeen: z.boolean().optional(),
+  /** How many events are glued into the item: what the card showed of it, which its Close marks as told (worfy-polish 161). */
+  events: z.number().int().positive().optional(),
 })
 export type WindowItem = z.output<typeof windowItemSchema>
 

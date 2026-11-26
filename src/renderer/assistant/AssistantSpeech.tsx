@@ -2,15 +2,14 @@
 // next to its icon on the rail, at the left edge of the window, in its colour — apart from worfy's toasts at the right
 // edge. It carries the item, like and dislike, Open, Prepare and Snooze; one card at a time, the rest is the number on the
 // icon (speech.ts). The section's rail badge is set here, as the card and the count go together. The card follows the
-// rail button; with the sidebar hidden it stands at the left edge under the toolbar. Close and Escape close the card as a
-// whole (worfy-polish 161); a click outside it leaves it as it is.
-import { useCallback, useEffect, useLayoutEffect, useState, type ReactElement } from 'react'
+// rail button; with the sidebar hidden it stands at the left edge under the toolbar. Close closes the card as a whole
+// (worfy-polish 161), and so does Escape with the keyboard focus in the card or on the rail button; a click outside it
+// leaves it as it is.
+import { useEffect, useLayoutEffect, useState, type ReactElement } from 'react'
 import { inWindowOf } from '../../shared/assistant/settings'
 import { windowMachine } from '../ipc'
 import { useAppSettings } from '../settings/useAppSettings'
 import { setRailBadge, useSidebarScope } from '../shell/sidebar-scope'
-import { isInTerminalNode, isTextTarget } from '../shortcuts/match'
-import { layerOf } from '../theme/open-layers'
 import { Icon, Spark } from './icons'
 import { ItemActions, ItemHead, ItemMeta, ItemSource } from './parts'
 import { PrepareDialog } from './PrepareDialog'
@@ -39,10 +38,13 @@ function useAnchor(): { left: number; top: number } {
   return anchor
 }
 
-/** Whether an Escape belongs to the card: not to a place to type, a Terminal, an open menu or dialog, nor to a handler that took it. */
+/**
+ * Whether an Escape belongs to the card: only with the keyboard focus inside the card or on the Assistant's rail button
+ * (review round 2). Anywhere else Escape is the Canvas's, Focus mode's or a field's, and Close stays the way to close.
+ */
 function escapeForCard(event: KeyboardEvent): boolean {
-  if (event.key !== 'Escape' || event.defaultPrevented) return false
-  if (isTextTarget(event.target) || isInTerminalNode(event.target) || layerOf(event.target) !== null) return false
+  if (event.key !== 'Escape' || event.defaultPrevented || !(event.target instanceof Element)) return false
+  if (event.target.closest(`.w-asst-say, [data-section-tab="${ASSISTANT_SECTION}"]`) === null) return false
   return useAssistant.getState().prepare === null
 }
 
@@ -69,9 +71,9 @@ export function AssistantSpeech({ sidebarVisible }: { sidebarVisible: boolean })
   const shown = windowMachine() === null ? shownItemIds(view, sectionShown, tab, queue).join('\n') : ''
   useEffect(() => reportShown(shown === '' ? [] : shown.split('\n')), [shown])
   // Close (and Escape) closes the card as a whole: every item it would tell of now counts as told by it (worfy-polish
-  // 161). The items stay in the list, in their state; the card speaks again only of what comes after.
-  const ids = queue.map((each) => each.id).join('\n')
-  const close = useCallback(() => closeCard(ids === '' ? [] : ids.split('\n'), true), [ids])
+  // 161), with the count of events the card showed of it. The items stay in the list, in their state; the card speaks
+  // again only of what comes after.
+  const close = () => closeCard(queue)
   useEffect(() => {
     if (card === null) return
     const onKey = (event: KeyboardEvent) => {
@@ -81,7 +83,7 @@ export function AssistantSpeech({ sidebarVisible }: { sidebarVisible: boolean })
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [card === null, close]) // eslint-disable-line react-hooks/exhaustive-deps -- the card is a fresh object each render
+  })
   return (
     <>
       <PrepareDialog />
