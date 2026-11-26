@@ -28,7 +28,7 @@ Ticket 15 построил Settings → Assistant по принятому про
    (`app.js:626`). Ticket 15 решил без Undo (решение 4): карточка говорит «Change it back in Settings → Assistant».
 3. **Выбор Project-ов, которые охватывает обязанность.** В прототипе у каждой обязанности на вкладке Duties — область
    («All Projects», `app.js:132-144`, `:495`). main её уже знает: `DutyChoice.projects` — `'all'` или список id
-   Project-ов (`src/main/assistant/duties/duties.ts:61-64`, запись `:196-197`, фильтр пунктов `:358`, область в
+   Project-ов (`src/main/assistant/duties/duties.ts:61-66`, запись `:196-197`, фильтр пунктов `:358`, область в
    `look` `:399`), но экран её не показывает и не меняет.
 4. **«On since …» у переключателя.** В прототипе рядом с «Assistant on this Mac» стоит «On since Monday» (`app.js:476`).
    Время включения нигде не хранится: поле `assistant` настроек машины — только `on` и `dailyWakeLimit`
@@ -66,7 +66,7 @@ Ticket 15 построил Settings → Assistant по принятому про
   `src/main/assistant/session/switch.ts` (включение), `src/main/assistant/window/view.ts` (`AssistantWindow.apply`).
 - Уведомления Ticket-а 14: `src/renderer/assistant/AssistantSpeech.tsx`, `src/renderer/assistant/speech.ts`,
   `src/main/assistant/window/notices.ts`, `ASSISTANT_NOTE_TITLE` (`src/shared/assistant/window.ts:208`).
-- Область обязанности: `src/main/assistant/duties/duties.ts:61-64` (`DutyChoice`), `:196-197`, `:358`, `:399`.
+- Область обязанности: `src/main/assistant/duties/duties.ts:61-66` (`DutyChoice`), `:196-197`, `:358`, `:399`.
 - Настройки машины: `src/shared/settings/app-settings.ts`, `src/main/settings/store.ts`; каналы IPC `local` —
   `src/shared/ipc/app-settings.ts`.
 - Прототип: Card `card-2f66a896` на Canvas Project-а worfy, `app.js` (строки выше), `index.html`, `style.css`

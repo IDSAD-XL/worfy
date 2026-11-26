@@ -19,7 +19,7 @@ Ticket 24 запретил для него `self`, но оставил `pre-appr
 
 - список разрешённых режимов — `'pr-follow': ['pre-approved', 'ask', 'hand-over']`
   (`src/shared/assistant/duties.ts:43`); комментарий над ним говорит «`pre-approved` stays, for choosing it is the
-  user's «yes» given in advance» (`duties.ts:33-34`);
+  user's «yes» given in advance» (`duties.ts:33`);
 - `action_run` сервера `worfy-app` запускает действие при `self` и `pre-approved` одинаково (решение 2 Ticket-а 09):
   `src/main/mcp/app-server.ts:452-453` отказывает только при `ask` и `hand-over`.
 
