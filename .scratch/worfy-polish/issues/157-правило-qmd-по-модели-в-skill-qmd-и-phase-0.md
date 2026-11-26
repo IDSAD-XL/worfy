@@ -1,7 +1,7 @@
 # 157 — Правило qmd по модели в skill `worfy:qmd` и Phase 0: Opus и Sonnet сначала `grep`, Haiku сначала `qmd`
 
 Type: task
-Status: claimed 2026-11-26T07:43Z
+Status: done 2026-11-26T08:09Z
 PR: #2269
 Branch: worfy-polish/157
 Blocked by: —
@@ -82,16 +82,22 @@ worfy). Тексты Harness велят начинать с него всегд�
 - [ ] Skill `worfy:qmd` называет правило по модели: Opus и Sonnet — сначала `grep`, `qmd` — когда `grep` ничего не
       нашёл или вопрос «был ли урок / почему так решили»; Haiku — сначала `qmd`; с цифрами замера и пересмотром.
   - evidence: commit pass · worfy-polish/157: search order by model in skill qmd and Phase 0 · - - · ed16e594aeabf39bc2c870cb0193006311c3c715
+  - evidence: review pass · PR #2269 · - - · a7899c4f0f0ec1e3eb2ff912a536453ac14b3dc9
 - [ ] Phase 0 правил Orchestrator-а согласована с правилом; решение — в «Итог».
   - evidence: commit pass · worfy-polish/157: search order by model in skill qmd and Phase 0 · - - · ed16e594aeabf39bc2c870cb0193006311c3c715
+  - evidence: review pass · PR #2269 · - - · a7899c4f0f0ec1e3eb2ff912a536453ac14b3dc9
 - [ ] `scout.md`, `implementer.md`, `ship-ticket`, `epic-wave` не противоречат правилу.
   - evidence: commit pass · worfy-polish/157: search order by model in skill qmd and Phase 0 · - - · ed16e594aeabf39bc2c870cb0193006311c3c715
+  - evidence: review pass · PR #2269 · - - · a7899c4f0f0ec1e3eb2ff912a536453ac14b3dc9
 - [ ] «Итог»: предложение Ticket-а на повторный замер через месяц на настоящих вопросах.
   - evidence: commit pass · worfy-polish/157: search order by model in skill qmd and Phase 0 · - - · ed16e594aeabf39bc2c870cb0193006311c3c715
+  - evidence: review pass · PR #2269 · - - · a7899c4f0f0ec1e3eb2ff912a536453ac14b3dc9
 - [ ] `bash harness/hooks/tests/rules-hooks.test.sh` — exit 0.
   - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0 · mac - · ed16e594aeabf39bc2c870cb0193006311c3c715
+  - evidence: review pass · PR #2269 · - - · a7899c4f0f0ec1e3eb2ff912a536453ac14b3dc9
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · ed16e594aeabf39bc2c870cb0193006311c3c715
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45778650141/job/139773909905 · ci - · a7899c4f0f0ec1e3eb2ff912a536453ac14b3dc9
 
 ## Итог
 

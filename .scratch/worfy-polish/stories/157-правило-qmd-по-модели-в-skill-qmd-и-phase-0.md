@@ -97,3 +97,11 @@ Code: `harness/agents/scout.md:41-43` · key lines: 42, 43
 2. Когда Sonnet-scout идёт к `qmd` при поиске, где лежит код?
    - Ответ: только когда `grep`, `rg` или `find` ничего не нашли.
    - Строки: `harness/agents/scout.md:42-43`
+
+## 7. Что нашёл review и что осталось
+
+> VERIFIED — worfy-polish 157 (a search rule by model in skill worfy:qmd: Opus and Sonnet start with grep and go to qmd when grep finds nothing or for «was there a lesson / why decided»; Haiku starts with qmd; Phase 0 keeps one qmd search on any model, since «is there a decision or lesson already» is that case; scout searches the same way), head a7899c4f0f0ec1e3eb2ff912a536453ac14b3dc9
+>
+> Gate (depth low: Harness text only, 3 files, no code): diff read by the orchestrator against the owner's decision of 2026-11-26 (Q3) — matches. Phase 0 stays qmd on any model (decision taken alone, recorded in the ticket; it is the «was there a lesson» case of the rule).
+> Evidence: rules-hooks.test.sh exit 0 (382 passed; orchestrator rules 9992 of 10000 chars), skill-blocks.test.sh and harness-home.test.sh exit 0, harness contract tests exit 0, lint, typecheck exit 0, gate fast green, story-check exit 0. Windows scope: runner.
+> Not verified: whether models follow the rule (no eval case for skill qmd; no paid eval run).
