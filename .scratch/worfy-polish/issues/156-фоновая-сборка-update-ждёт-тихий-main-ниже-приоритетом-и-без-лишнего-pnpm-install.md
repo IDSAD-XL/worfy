@@ -53,10 +53,11 @@ electron-builder). Сборка держит CPU около 2 минут, и р�
 - `src/main/ipc/update.ts` — таймер повторной проверки в `UpdateService`.
 - `src/main/update/build.ts` — приоритет шагов, пропуск `pnpm install`, hash.
 - `src/shared/ipc/update.ts` — новые необязательные поля state.
-- Test-ы: `test/contract/update-build.test.ts`, `test/unit/update-check.test.ts`, `test/contract/update-github.test.ts`,
-  `test/contract/update-state.test.ts`, fake-клиенты GitHub в `test/unit/update-restart-not-taken.test.ts`,
-  `test/unit/version-number.test.ts`, `test/unit/version-number-main.test.ts`.
-- `docs/features/updates.md`.
+- Test-ы: `test/contract/update-build.test.ts`, `test/unit/update-build-light.test.ts` (новый),
+  `test/unit/update-check.test.ts`, `test/contract/update-github.test.ts`, `test/contract/update-state.test.ts`,
+  stub GitHub `test/update-stub.ts` (время commit-а головы), fake-клиенты GitHub в
+  `test/unit/update-restart-not-taken.test.ts`, `test/unit/version-number.test.ts`, `test/unit/version-number-main.test.ts`.
+- `docs/features/updates.md`, перевод `docs/features/ru/updates.md`.
 
 ## Решено без владельца
 
@@ -92,7 +93,12 @@ electron-builder). Сборка держит CPU около 2 минут, и р�
 ## Готово, когда
 
 - [ ] «Update automatically» собирает голову `main` только когда её commit не моложе 20 минут (или `WORFY_UPDATE_QUIET_MINUTES`); новый commit сдвигает ожидание; «Update worfy» собирает сразу.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/update-build-light.test.ts test/unit/update-check.test.ts test/contract/update-github.test.ts test/contract/update-state.test.ts test/contract/update-build.test.ts` exit 0 · mac - · ca912ea55
 - [ ] Шаги сборки идут с приоритетом ниже обычного на macOS, Linux и Windows; test через seam.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/update-build-light.test.ts test/contract/update-build.test.ts` exit 0 · mac - · ca912ea55
 - [ ] `pnpm install` пропускается, когда hash зависимостей тот же и `node_modules` на месте; `git clean` остаётся.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/update-build-light.test.ts test/contract/update-build.test.ts test/contract/update-state.test.ts` exit 0 · mac - · ca912ea55
 - [ ] `docs/features/updates.md` описывает ожидание, приоритет и пропуск `pnpm install`.
+  - evidence: commit pass · worfy-polish/156: a lighter background build of Update · - - · ca912ea55
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast зелёный; `ci-ok` на head PR.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · ca912ea55
