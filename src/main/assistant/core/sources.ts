@@ -224,7 +224,8 @@ export function autopilotAttention(core: Core, line: JournalEvent): void {
     line.kind === 'run-stopped'
       ? stopReason === null
         ? line.reason
-        : AUTOPILOT_STOP_WORDS[stopReason]
+        : // The id stays next to the words: a Project's rule matches the item's text (duties/rules.ts, `when.item.text`).
+          `${AUTOPILOT_STOP_WORDS[stopReason]} (${stopReason})`
       : line.kind === 'ticket-set-aside'
         ? `Ticket ${line.ticket} set aside`
         : line.kind === 'session-error'

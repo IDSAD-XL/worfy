@@ -13,7 +13,7 @@ Kind: pr · Epic: worfy-assistant · Ticket: 23 · PR: - · Language: ru
 
 ## 2. Источник кладёт причину в своё поле и называет её словами
 
-Code: `src/main/assistant/core/sources.ts:212-246` · key lines: 212, 222, 227, 244
+Code: `src/main/assistant/core/sources.ts:212-247` · key lines: 212, 222, 228, 245
 
 ```ts
 const stopReasonOf = (reason: string): AutopilotStopReason | null => ((AUTOPILOT_STOP_REASONS as readonly string[]).includes(reason) ? (reason as AutopilotStopReason) : null)
@@ -31,7 +31,8 @@ export function autopilotAttention(core: Core, line: JournalEvent): void {
     line.kind === 'run-stopped'
       ? stopReason === null
         ? line.reason
-        : AUTOPILOT_STOP_WORDS[stopReason]
+        : // The id stays next to the words: a Project's rule matches the item's text (duties/rules.ts, `when.item.text`).
+          `${AUTOPILOT_STOP_WORDS[stopReason]} (${stopReason})`
       : line.kind === 'ticket-set-aside'
         ? `Ticket ${line.ticket} set aside`
         : line.kind === 'session-error'
@@ -54,7 +55,8 @@ export function autopilotAttention(core: Core, line: JournalEvent): void {
 ```
 
 - Что делает: для строки `run-stopped` берёт причину из журнала; если она есть в `AUTOPILOT_STOP_REASONS`, событие
-  получает поле `stopReason`, а текст — слова из `AUTOPILOT_STOP_WORDS` (`worfy-x: stopped by the user`). Причина,
+  получает поле `stopReason`, а текст — слова из `AUTOPILOT_STOP_WORDS` и id причины в скобках
+  (`worfy-x: stopped by the user (user-stop)`): правило Project-а сравнивает текст пункта (`when.item.text`). Причина,
   которой эта сборка не знает, остаётся только в тексте, как её записал журнал. `tickets-done` по-прежнему даёт вид
   `run-finished`, теперь тоже с полем.
 - Почему здесь: Ticket называет `autopilotAttention` в «Где в коде»; форму поля (необязательное поле, а не свой вид
@@ -107,8 +109,8 @@ Code: `src/main/assistant/core/attention-core.ts:209-212` · key lines: 211, 212
 - Без него: пункт `ticket-set-aside`, в который склеилась остановка пользователем, остался бы без причины и будил бы
   сразу.
 - Требование: [Где в коде](../issues/23-run-остановленный-пользователем-не-срочный.md#где-в-коде)
-- Риски и пробелы test-ов: ветку `delete` (строка Run-а после остановки) test не проверяет: после `run-stopped`
-  журнал Run-а строк-пунктов обычно не пишет.
+- Риски и пробелы test-ов: ветку `delete` проверяет test «a line of the Run glued in after its stop takes the reason
+  away»; без неё он красный.
 
 ## 5. Решение о пробуждении: остановка пользователем не срочная
 
@@ -134,15 +136,16 @@ const urgentItem = (item: AttentionItem): boolean => URGENT_ITEM_KINDS.has(item.
   пункт 1).
 - Без него: Stop ночью будит Assistant-а и тратит пробуждение из дневного предела на то, что пользователь знает.
 - Требование: [Что строить, пункты 2 и 3](../issues/23-run-остановленный-пользователем-не-срочный.md#что-строить)
-- Риски и пробелы test-ов: `limits-timeout` после Cancel ожидания Limits — тоже действие пользователя, но по строке
-  журнала его не отличить от истечения 24 часов, и он остаётся срочным.
+- Риски и пробелы test-ов: `limits-timeout` (Cancel ожидания Limits), `turn-error` (Cancel ожидания повтора) и
+  `interrupted` (Interrupt из чата Orchestrator-а) тоже бывают действием пользователя, но по строке журнала их не
+  отличить, и они остаются срочными.
 
 ## 6. Как проверено
 
 - `pnpm test test/unit/assistant-attention-sources.test.ts test/unit/assistant-wake-planner.test.ts` — exit 1 до
   правки (6 новых test-ов красные), exit 0 после.
 - `pnpm test test/unit/assistant-*.test.ts test/contract/assistant-*.test.ts test/unit/autopilot-journal*.test.ts` —
-  exit 0 (381 test).
+  exit 0 (383 test-а).
 - `pnpm lint && pnpm typecheck && pnpm test` — exit 0; `gate fast` — exit 0, `[gate] green (fast)`.
 
 ## Проверить себя

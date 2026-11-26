@@ -334,7 +334,7 @@ describe('the stop of an Autopilot Run (ticket 23)', () => {
     const h = harness({})
     const { core, stop } = installAttentionCore(h.sources)
     h.journalLine(runStopped('2026-11-13T11:00:00.000Z', 'user-stop'))
-    expect(core.items(ALPHA.id).map((item) => [item.kind, item.stopReason, item.text])).toEqual([['run-stopped', 'user-stop', 'worfy-x: stopped by the user']])
+    expect(core.items(ALPHA.id).map((item) => [item.kind, item.stopReason, item.text])).toEqual([['run-stopped', 'user-stop', 'worfy-x: stopped by the user (user-stop)']])
     stop()
   })
 
@@ -344,8 +344,8 @@ describe('the stop of an Autopilot Run (ticket 23)', () => {
     h.journalLine(runStopped('2026-11-13T11:00:00.000Z', 'main-red'))
     h.journalLine({ ...runStopped('2026-11-13T11:30:00.000Z', 'tickets-done'), run: 'run-2' } as JournalEvent)
     expect(core.items(ALPHA.id).map((item) => [item.subject.id, item.kind, item.stopReason, item.text])).toEqual([
-      [RUN, 'run-stopped', 'main-red', 'worfy-x: main was red, so the stuck Ticket was not continued'],
-      ['run-2', 'run-finished', 'tickets-done', 'worfy-x: every Ticket of the Run is done'],
+      [RUN, 'run-stopped', 'main-red', 'worfy-x: main was red, so the stuck Ticket was not continued (main-red)'],
+      ['run-2', 'run-finished', 'tickets-done', 'worfy-x: every Ticket of the Run is done (tickets-done)'],
     ])
     stop()
   })
@@ -356,11 +356,30 @@ describe('the stop of an Autopilot Run (ticket 23)', () => {
     h.journalLine({ kind: 'ticket-set-aside', at: '2026-11-13T10:00:00.000Z', run: RUN, project: ALPHA.id, epic: 'worfy-x', ticket: '03', cause: 'no-progress', attempts: 2 } as unknown as JournalEvent)
     expect(core.items(ALPHA.id)[0]?.stopReason).toBeUndefined()
     h.journalLine(runStopped('2026-11-13T11:00:00.000Z', 'user-force-stop'))
-    expect(core.items(ALPHA.id).map((item) => [item.kind, item.events, item.stopReason, item.text])).toEqual([['run-stopped', 2, 'user-force-stop', 'worfy-x: force-stopped by the user']])
+    expect(core.items(ALPHA.id).map((item) => [item.kind, item.events, item.stopReason, item.text])).toEqual([['run-stopped', 2, 'user-force-stop', 'worfy-x: force-stopped by the user (user-force-stop)']])
     h.journalLine({ ...runStopped('2026-11-13T11:30:00.000Z', 'some-later-reason'), run: 'run-3' } as JournalEvent)
     const later = core.items(ALPHA.id).find((item) => item.subject.id === 'run-3')
     expect(later).toMatchObject({ kind: 'run-stopped', text: 'worfy-x: some-later-reason' })
     expect(later).not.toHaveProperty('stopReason')
+    stop()
+  })
+
+  it('a line of the Run glued in after its stop takes the reason away: the item is no longer a stop', async () => {
+    const h = harness({})
+    const { core, stop } = installAttentionCore(h.sources)
+    h.journalLine(runStopped('2026-11-13T11:00:00.000Z', 'user-stop'))
+    h.journalLine({ kind: 'session-error', at: '2026-11-13T11:05:00.000Z', run: RUN, project: ALPHA.id, epic: 'worfy-x', message: 'the Session failed' } as unknown as JournalEvent)
+    const [item] = core.items(ALPHA.id)
+    expect([item?.kind, item?.events, item?.text]).toEqual(['session-error', 2, 'worfy-x: the Session failed'])
+    expect(item).not.toHaveProperty('stopReason')
+    stop()
+  })
+
+  it('a project rule that matches the reason id in the text still matches', async () => {
+    const h = harness({})
+    const { core, stop } = installAttentionCore(h.sources)
+    h.journalLine(runStopped('2026-11-13T11:00:00.000Z', 'blocked-tickets'))
+    expect(core.items(ALPHA.id)[0]?.text).toContain('blocked-tickets')
     stop()
   })
 

@@ -86,21 +86,25 @@ Source: решение владельца 2026-11-26 (раунд Q1–Q12 веч
 - Текст пункта называет причину словами: `AUTOPILOT_STOP_WORDS` в `sources.ts`, по одной короткой английской фразе на
   каждую причину `AUTOPILOT_STOP_REASONS` (`Record` по всему списку: новая причина без слов не пройдёт typecheck). Для
   `start-cancelled`, `start-refused`, `waits-owner`, `main-red`, `turn-hung` — те же слова, что в Run history
-  (`src/renderer/flight-recorder/span-words.ts`; у `turn-hung` без числа минут).
+  (`src/renderer/flight-recorder/span-words.ts`; у `turn-hung` без числа минут). За словами в скобках остаётся id причины
+  (`worfy-x: stopped by the user (user-stop)`): правило Project-а сравнивает текст пункта (`when.item.text`,
+  `src/main/assistant/duties/rules.ts`), и правило с текстом `main-red` продолжает срабатывать.
 - Решение о пробуждении (`src/main/assistant/wake/planner.ts`): `USER_STOP_REASONS`; пункт `run-stopped` с такой причиной
   не срочный и идёт с пачкой или утренней сводкой. Остальные остановки, пункт без поля (файл до этого Ticket-а) и причина,
   которую сборка не знает, — срочные, как раньше.
 - Test-ы: `test/unit/assistant-attention-sources.test.ts` (блок «the stop of an Autopilot Run (ticket 23)»),
   `test/unit/assistant-wake-planner.test.ts` (два test-а про остановку пользователем); оба файла сначала красные на
-  нынешнем коде.
+  нынешнем коде. Test склейки строки Run-а после остановки красный без `delete glued.stopReason`.
 
 ### Решено без владельца
 
 1. **Остановка пользователем** — `user-stop` (Stop), `user-force-stop` (Force stop), `start-cancelled` (Cancel, Stop или
    Force stop, пока Run ждал Orchestrator) и `discarded` (человек отбросил Run, оборванный перезапуском): обо всех
-   четырёх пользователь знает сам, по рекомендации Ticket-а. `app-quit` (только старые журналы) и `limits-timeout`
-   остаются срочными: `limits-timeout` пишет и отмена ожидания Limits кнопкой Cancel, и истечение 24 часов, а по строке
-   журнала их не различить.
+   четырёх пользователь знает сам, по рекомендации Ticket-а. `app-quit` (только старые журналы), `limits-timeout`,
+   `turn-error` и `interrupted` остаются срочными, хотя каждую из них может вызвать и действие пользователя:
+   `limits-timeout` пишет и отмена ожидания Limits кнопкой Cancel, и истечение 24 часов; `turn-error` — и ошибка хода, и
+   Cancel ожидания повтора в чате Orchestrator-а; `interrupted` — и прерванный ход Wave, и Interrupt из чата
+   Orchestrator-а. По строке журнала их не различить.
 2. **Форма поля** — необязательное поле `stopReason`, не свой вид пункта: вид `run-stopped` остаётся, обязанность «Work
    stands» и всё, что смотрит на вид, работают как раньше. В файле поле — любая строка (`z.string()`), не перечисление:
    `cycle.ts` через шаблоны действий и обязанности импортирует `attention.ts`, и импорт списка причин в схему дал бы
