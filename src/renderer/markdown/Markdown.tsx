@@ -6,7 +6,7 @@ import { useFileElsewhere } from '../machines/useFileElsewhere'
 import { revealedNote } from '../toast/revealed'
 import { remarkAutolinkEdges } from './autolink-edges'
 import { remarkGithub, textOf, type GithubOptions } from './github'
-import { classifyLink, isWindowsPathLink } from './links'
+import { classifyLink, isWindowsPathLink, linkHost } from './links'
 import { remarkSoftBreaks } from '../../shared/markdown/soft-breaks'
 import './markdown.css'
 
@@ -55,34 +55,10 @@ export interface MarkdownProps {
   storyAside?: ((line: number) => ReactNode) | undefined
   /**
    * Show the host of an http(s):// link beside it, muted, when the link's text is not its own address — «Approve
-   * (evil.example)» — so text quoted from outside cannot name one address and open another (linkHost below). Off by
+   * (evil.example)» — so text quoted from outside cannot name one address and open another (links.ts linkHost). Off by
    * default; the Assistant's messages turn it on (worfy-polish ticket 162).
    */
   showLinkHost?: boolean
-}
-
-/** The host to show beside a link to `url` whose text is `text`; null when the text already names that address or host. */
-export function linkHost(text: string, url: string): string | null {
-  let target: URL
-  try {
-    target = new URL(url)
-  } catch {
-    return null
-  }
-  const shown = text.trim()
-  if (shown === url || shown === target.href) return null
-  // A text that reads as an address of the same host — with its scheme or without, as an autolinked `www.…` — names it.
-  if (/^\S+$/u.test(shown)) {
-    for (const candidate of [shown, `https://${shown}`]) {
-      try {
-        const named = new URL(candidate)
-        if ((named.protocol === 'http:' || named.protocol === 'https:') && named.host === target.host) return null
-      } catch {
-        // not an address in this reading
-      }
-    }
-  }
-  return target.host
 }
 
 /** remark plugins: autolink-edges runs last, on the links remark-gfm made. */

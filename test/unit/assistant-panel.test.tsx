@@ -430,7 +430,7 @@ describe('the Assistant’s messages as Markdown (worfy-polish ticket 162)', () 
   })
 
   it('shows a file link of a message, which names no Project, as inert text, not a link', () => {
-    const said = within(chat(message('m1', 'Read [rel](foo.md), [disk](/etc/passwd) and [win](C:\\Users\\x\\f.md).'))).getByTestId('assistant-message')
+    const said = within(chat(message('m1', 'Read [rel](foo.md), [disk](/etc/passwd) and [win](C:\\work\\f.md).'))).getByTestId('assistant-message')
     expect(within(said).queryByRole('link')).toBeNull()
     expect([...said.querySelectorAll('.w-md__inert-link')].map((each) => each.textContent)).toEqual(['rel', 'disk', 'win'])
     fireEvent.click(within(said).getByText('rel'))
