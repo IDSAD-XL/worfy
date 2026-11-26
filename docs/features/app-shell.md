@@ -39,7 +39,11 @@ its messages; the journal of its actions, each row with the item that caused it;
 usage line, whose share of Limits is marked as an estimate. Prepare shows the exact text of the Session before it starts;
 nothing starts until Start. While the Assistant is on, its own notification is a card next to its rail icon, in its
 colour, one at a time, the rest a number on the icon; when worfy is not in front, a system notification titled
-"worfy Assistant" comes only for an urgent item and only in work hours, and a click opens the section.
+"worfy Assistant" comes only for an urgent item and only in work hours, and a click opens the section. Settings →
+Assistant → Notifications narrows them (worfy-assistant ticket 25): the card in the window tells of urgent and batched
+items, of urgent ones only, or of none (the number on the icon and the list stay), and the system notification can be
+turned off. Under an applied «before → after» card of the Assistant, Undo puts its settings back, unless one of them
+changed since Apply.
 
 The Assistant is off until the user turns it on (worfy-assistant ticket 16). worfy offers it once: on the page "Meet
 Assistant" of [First run](onboarding.md#first-run) for a new user, in one notice in the corner for an existing one, and at
