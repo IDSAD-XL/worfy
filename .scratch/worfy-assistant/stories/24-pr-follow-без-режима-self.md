@@ -137,3 +137,15 @@ Session Assistant-а не менялись: `self` у `pr-follow` больше �
 3. Что увидит журнал, если `self` у `pr-follow` всё же дойдёт до `action_run`?
    - Ответ: строку `refused` с режимом `self` и причиной; main ничего не запустит.
    - Lines: `src/main/mcp/app-server.ts:302-307`
+
+## 8. Что нашёл review и что осталось
+
+> VERIFIED — worfy-assistant 24 (the action pr-follow may not be self: refused in the mode list, in Duties.configure, on reading the memory file, and in act() of the worfy-app server; autopilot-start keeps its four modes), head 0d492b439a457a86e430464ba7674172f966bd07
+>
+> Gate (depth medium, one round): reviewer (lens: correctness, security weight) — MERGE.
+>
+> - What the user sees: pr-follow offers pre-approved, ask and hand-over. A pr-follow: self already saved in the memory file reads as ask, with a warning in the log, and leaves the file on its next write; the rest of the file reads as written.
+> - Evidence: each layer is caught by its own test (5 of 5 mutants red); 94 tests of duties, session and worfy-app tools EXIT=0 on the head. Implementer: pnpm lint, typecheck, test EXIT=0 (21 129 tests); gate fast green on 7f1c88660 (before a docs-only rebase); story-check ok.
+> - No other path found where pr-follow runs without the user: auto actions take only the closed list; closed-list.ts refuses the rest; the Session reaches pr-follow only through action_run; Project rules have only open: hand-over.
+> - Question for the owner (med): for pr-follow, pre-approved acts exactly like self, as decided for ticket 09 (decision 2: «pre-approved works as self»). Path: app-server.ts:451-452 refuses only ask and hand-over → act() :303 → prFollow :624 → launch.ts:388 starts or wakes a Session without a question. So the decision «not above ask/pre-approved» does not stop a Session that fixes the PR without a question. A real ceiling needs a separate ticket: drop pre-approved for pr-follow, or make pre-approved mean «yes for this one PR».
+> - Decided without the owner: the description of action_run and agent-instructions-app.md are unchanged, because the model sees modes only in items_list, where self no longer shows.

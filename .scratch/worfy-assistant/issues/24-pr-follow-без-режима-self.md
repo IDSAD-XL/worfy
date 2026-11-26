@@ -1,7 +1,8 @@
 # 24 — Действие `pr-follow` не выше `ask`/`pre-approved`: режим `self` для него запрещён
 
 Type: task
-Status: claimed 2026-11-26T03:53Z
+Status: done 2026-11-26T05:46Z
+PR: #2260
 Blocked by: —
 Source: решение владельца 2026-11-26 (раунд Q1–Q12 вечернего отчёта 2026-11-25), Q2; поправка к решениям 1 и 2
 [Ticket-а 09](09-mcp-сервер-worfy-app.md) («Решено без владельца»); ADR-0114, пункт 4 (сам Assistant делает только
@@ -74,14 +75,19 @@ Ticket 09 добавил обязанностям два действия main: 
 
 - [ ] Unit test: `self` для `pr-follow` нельзя выбрать; остальные режимы и `autopilot-start` — как сейчас.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant- test/contract/assistant- test/contract/worfy-app test/unit/worfy-app` exit 0 · mac - · 7f1c88660686b8069baf638b5ee86961c9b90aa9
+  - evidence: review pass · PR #2260 · - - · 0d492b439a457a86e430464ba7674172f966bd07
 - [ ] Unit test: `self` для `pr-follow` из файла памяти читается как `ask`.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant- test/contract/assistant- test/contract/worfy-app test/unit/worfy-app` exit 0 · mac - · 7f1c88660686b8069baf638b5ee86961c9b90aa9
+  - evidence: review pass · PR #2260 · - - · 0d492b439a457a86e430464ba7674172f966bd07
 - [ ] Contract test: `action_run` отказывает `pr-follow` в режиме `self`.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant- test/contract/assistant- test/contract/worfy-app test/unit/worfy-app` exit 0 · mac - · 7f1c88660686b8069baf638b5ee86961c9b90aa9
+  - evidence: review pass · PR #2260 · - - · 0d492b439a457a86e430464ba7674172f966bd07
 - [ ] «Итог»: все места, где режим `self` для `pr-follow` теперь отклоняется, с `file:line`.
   - evidence: commit pass · worfy-assistant/24: pr-follow is never self — refused when chosen, when read from the memory file and in action_run · - - · 7f1c88660686b8069baf638b5ee86961c9b90aa9
+  - evidence: review pass · PR #2260 · - - · 0d492b439a457a86e430464ba7674172f966bd07
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 7f1c88660686b8069baf638b5ee86961c9b90aa9
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45754641695/job/139718943925 · ci - · 0d492b439a457a86e430464ba7674172f966bd07
 
 ## Итог
 
