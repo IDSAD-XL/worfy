@@ -20,15 +20,21 @@
 // While it builds, the state names the step it runs (ticket 16): main writes it before each spawn
 // and sends the change (`onChange`), so a window shows "Installing dependencies" without reading
 // the log.
+//
+// A lighter build (worfy-polish ticket 156, issue #2252): every step runs below normal priority
+// (spawnBelowNormal), and `pnpm install` is skipped when the files it depends on are those of the
+// last build that was ready and node_modules is there (dependencyHash, the state's `dependencies`).
 import { spawn, type ChildProcess } from 'node:child_process'
-import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, statSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { constants, getPriority, setPriority } from 'node:os'
 import { join, resolve } from 'node:path'
 import type { AvailableUpdate, UpdateBuildStep, UpdateState } from '../../shared/ipc/update'
 import { getVar, type CapturedEnv } from '../agent/env'
 import { killTool, toolStart } from '../first-run/checks'
 import { removeTree } from '../storage/remove'
 import { electronBinary, ELECTRON_INSTALL_SCRIPT } from './electron-binary'
-import { changeUpdateState } from './state'
+import { changeUpdateState, readUpdateState } from './state'
 
 type Env = Readonly<Record<string, string | undefined>>
 type UpdateBuild = UpdateState['build']
@@ -112,6 +118,79 @@ export function builtApp(dist: string, platform: NodeJS.Platform = process.platf
   return found.length === 1 ? join(dist, found[0] as string, 'worfy.app') : null
 }
 
+/**
+ * The files of the clone whose bytes decide what `pnpm install` leaves in node_modules: the manifest
+ * and the lockfile, the settings pnpm reads, and the postinstall that rebuilds node-pty.
+ */
+export const DEPENDENCY_FILES = ['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', '.npmrc', 'scripts/postinstall.mjs'] as const
+
+/** The sha256 of DEPENDENCY_FILES in `clone`; a missing file counts too, and differs from an empty one. */
+export function dependencyHash(clone: string): string {
+  const hash = createHash('sha256')
+  for (const name of DEPENDENCY_FILES) {
+    const file = join(clone, name)
+    const bytes = existsSync(file) ? readFileSync(file) : null
+    hash.update(`${name}\0${bytes === null ? 'missing' : bytes.length}\0`)
+    if (bytes !== null) hash.update(bytes)
+  }
+  return hash.digest('hex')
+}
+
+/** The priority of a build step: what `nice -n 10` gives on macOS and Linux, BELOW_NORMAL_PRIORITY_CLASS on Windows. */
+export const BUILD_PRIORITY = constants.priority.PRIORITY_BELOW_NORMAL
+
+/** The priority calls of node:os (pid 0 is worfy itself); tests pass fakes. */
+export interface BuildPriority {
+  get(): number
+  set(pid: number, priority: number): void
+}
+
+const OS_PRIORITY: BuildPriority = { get: () => getPriority(), set: (pid, priority) => setPriority(pid, priority) }
+
+const why = (error: unknown): string => (error instanceof Error ? error.message : String(error))
+
+/**
+ * Starts a build step (`start`, the spawn) below normal priority, so a build of several minutes
+ * leaves the machine to the user (issue #2252). `problem` says why the priority could not be
+ * lowered; the step runs all the same.
+ *
+ * - macOS, Linux: the step is lowered right after its spawn returns, which is once its program was
+ *   exec'd: node (pnpm) takes tens of milliseconds to start before it can spawn a process of its own,
+ *   and that process inherits the nice value.
+ * - Windows: worfy lowers its own priority class for the spawn and gives the one it had back right
+ *   after, so the step is born BELOW_NORMAL: a `.cmd` (pnpm) runs under cmd.exe, which could start
+ *   node before a call on its pid came. A process of a BELOW_NORMAL class gives that class to the
+ *   processes it starts.
+ */
+export function spawnBelowNormal(start: () => ChildProcess, priority: BuildPriority, platform: NodeJS.Platform): { child: ChildProcess; problem: string | null } {
+  if (platform === 'win32') {
+    let before: number
+    try {
+      before = priority.get()
+      priority.set(0, BUILD_PRIORITY)
+    } catch (error) {
+      return { child: start(), problem: why(error) }
+    }
+    try {
+      return { child: start(), problem: null }
+    } finally {
+      try {
+        priority.set(0, before)
+      } catch (error) {
+        console.error('[update] the priority of worfy could not be given back after the spawn of a build step', error)
+      }
+    }
+  }
+  const child = start()
+  if (child.pid === undefined) return { child, problem: null }
+  try {
+    priority.set(child.pid, BUILD_PRIORITY)
+    return { child, problem: null }
+  } catch (error) {
+    return { child, problem: why(error) }
+  }
+}
+
 export interface UpdateBuilderOptions {
   /** `<dataRoot>/update`: the clone is `repo` in it, the log `build.log`. */
   dir: string
@@ -135,6 +214,8 @@ export interface UpdateBuilderOptions {
   platform?: NodeJS.Platform
   /** The clock of the build's times (`startedAt`, `stepStartedAt`); tests give their own. */
   now?: () => Date
+  /** The priority calls of the steps (spawnBelowNormal); those of node:os without it. */
+  priority?: BuildPriority
 }
 
 /** What the service of src/main/ipc/update.ts needs of a builder; tests pass a fake. */
@@ -328,7 +409,15 @@ export class UpdateBuilder implements UpdateBuilds {
       if (this.stopped || !(await step(tool, args))) return failed()
     }
     this.stepTo('install')
-    if (this.stopped || !(await step('pnpm', ['install', '--frozen-lockfile']))) return failed()
+    const dependencies = dependencyHash(clone)
+    if (readUpdateState(this.options.stateFile()).dependencies?.hash === dependencies && existsSync(join(clone, 'node_modules'))) {
+      note('\npnpm install skipped: package.json, pnpm-lock.yaml and the pnpm settings are those of the last build that was ready.')
+    } else {
+      // node_modules is no longer the one the hash names once the install begins: one that stops
+      // half way is installed again by the next build.
+      this.keepDependencies(null)
+      if (this.stopped || !(await step('pnpm', ['install', '--frozen-lockfile']))) return failed()
+    }
     if (this.stopped || !(await this.electronReady(clone, step, note))) return failed()
     this.stepTo('package')
     if (this.stopped || !(await (build === undefined ? step('pnpm', ['package']) : step('node', [build])))) return failed()
@@ -337,8 +426,18 @@ export class UpdateBuilder implements UpdateBuilds {
       note(this.platform === 'win32' ? 'Expected dist\\win-unpacked after the build, and it is not there.' : 'Expected exactly one dist/mac*/worfy.app after the build.')
       return failed()
     }
+    this.keepDependencies(dependencies)
     note('Ready.')
     return { phase: 'ready', sha: update.sha, version: update.version, appPath, log }
+  }
+
+  /** Writes the hash of the dependencies the clone's node_modules holds, or drops it (null). */
+  private keepDependencies(hash: string | null): void {
+    changeUpdateState((state) => {
+      const next = { ...state }
+      delete next.dependencies
+      return hash === null ? next : { ...next, dependencies: { hash } }
+    }, this.options.stateFile())
   }
 
   /**
@@ -381,7 +480,13 @@ export class UpdateBuilder implements UpdateBuilds {
       try {
         // detached off Windows: a process group of its own, for kill(). The step is awaited to its
         // end, so it is not unref'd; at quit stop() ends it.
-        child = spawn(start.file, start.args, { cwd, env: env as NodeJS.ProcessEnv, stdio: ['ignore', fd, fd], windowsHide: true, shell: start.shell, detached: this.platform !== 'win32' })
+        const started = spawnBelowNormal(
+          () => spawn(start.file, start.args, { cwd, env: env as NodeJS.ProcessEnv, stdio: ['ignore', fd, fd], windowsHide: true, shell: start.shell, detached: this.platform !== 'win32' }),
+          this.options.priority ?? OS_PRIORITY,
+          this.platform,
+        )
+        child = started.child
+        if (started.problem !== null) appendFileSync(log, `could not lower the priority of ${tool}: ${started.problem}\n`)
       } catch (error) {
         closeSync(fd)
         appendFileSync(log, `could not start ${tool}: ${error instanceof Error ? error.message : String(error)}\n`)

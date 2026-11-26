@@ -64,6 +64,21 @@ describe('the GitHub client of Update', () => {
     }
   })
 
+  it('reads the commit time of the head from the same answer about main; an answer without it is a head without a time (worfy-polish ticket 156)', async () => {
+    stub = await startUpdateStub({ head: HEAD, headCommittedAt: '2026-11-26T03:41:20Z' })
+    expect(await clientWithTokens(stub.url).headOfMain()).toEqual({ ok: true, value: { sha: HEAD, committedAt: '2026-11-26T03:41:20.000Z' } })
+    expect(stub.requests).toHaveLength(1)
+    await stub.close()
+
+    stub = await startUpdateStub({ head: HEAD })
+    expect(await clientWithTokens(stub.url).headOfMain()).toEqual({ ok: true, value: { sha: HEAD } })
+    await stub.close()
+
+    // A time that is not one does not cost the head.
+    stub = await startUpdateStub({ head: HEAD, headCommittedAt: 'yesterday' })
+    expect(await clientWithTokens(stub.url).headOfMain()).toEqual({ ok: true, value: { sha: HEAD } })
+  })
+
   it('skips the check without an exception when nothing listens on the address', async () => {
     const client = clientWithTokens(`http://127.0.0.1:${await closedPort()}`)
     const outcome = await checkForUpdate({ client, running: RUNNING, rolledBackFrom: null, manual: false })

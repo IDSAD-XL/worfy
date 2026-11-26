@@ -52,21 +52,22 @@ export async function checkForUpdate({ client, running, runningNumber, rolledBac
 
   const head = await client.headOfMain()
   if (!head.ok) return skipped(head.reason)
-  if (head.value.startsWith(commit)) return none()
+  const { sha, committedAt } = head.value
+  if (sha.startsWith(commit)) return none()
 
   // Spec R3: only a head whose ci-ok is green; pending, red or no check waits for the next check.
-  const ciOk = await client.ciOk(head.value)
+  const ciOk = await client.ciOk(sha)
   if (!ciOk.ok) return skipped(ciOk.reason)
   if (ciOk.value !== 'success') return none()
 
   // behind, diverged, identical or unknown to GitHub (a copy built from a branch it does not have): no Update.
-  const comparison = await client.compare(commit, head.value)
+  const comparison = await client.compare(commit, sha)
   if (!comparison.ok) return skipped(comparison.reason)
   if (comparison.value === null || comparison.value.status !== 'ahead') return none()
   if (!changesApp(comparison.value.files)) return none()
 
   // Spec R4: the version as a build version shows it.
-  const version = await client.packageVersion(head.value)
+  const version = await client.packageVersion(sha)
   if (!version.ok) return skipped(version.reason)
   // Ticket 14: the head's build number is the running one plus the commits it is ahead by, as
   // `git rev-list --count` would count it on the head; unknown when either is.
@@ -75,10 +76,12 @@ export async function checkForUpdate({ client, running, runningNumber, rolledBac
   return {
     lastCheck: { at: now().toISOString(), result: 'ok' },
     available: {
-      sha: head.value,
-      version: `${version.value}+${head.value.slice(0, 7)}`,
-      quiet: !manual && rolledBackFrom === head.value,
+      sha,
+      version: `${version.value}+${sha.slice(0, 7)}`,
+      quiet: !manual && rolledBackFrom === sha,
       ...(number === undefined ? {} : { number }),
+      // worfy-polish ticket 156: "Update automatically" waits until main has been quiet (auto.ts).
+      ...(committedAt === undefined ? {} : { committedAt }),
     },
   }
 }

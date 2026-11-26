@@ -14,7 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AvailableUpdate, UpdateSnapshot } from '../../src/shared/ipc/update'
 import { UpdateService } from '../../src/main/ipc/update'
 import { autoBuildFor, installTarget } from '../../src/main/update/auto'
-import { UpdateBuilder, updateRepo, UPDATE_REPO } from '../../src/main/update/build'
+import { BUILD_PRIORITY, dependencyHash, UpdateBuilder, updateRepo, UPDATE_REPO, type BuildPriority } from '../../src/main/update/build'
 import type { UpdateGitHub } from '../../src/main/update/check'
 import { changeUpdateState, emptyUpdateState, readUpdateState } from '../../src/main/update/state'
 import { removeTestTree } from '../remove'
@@ -106,6 +106,8 @@ interface BuilderOptions {
   onChange?: () => void
   /** The clock of the build's times (ticket 16). */
   now?: () => Date
+  /** The priority calls of the steps (worfy-polish ticket 156); the real ones of node:os without it. */
+  priority?: BuildPriority
 }
 
 function builder(options: BuilderOptions = {}): UpdateBuilder {
@@ -123,6 +125,7 @@ function builder(options: BuilderOptions = {}): UpdateBuilder {
     ...(options.gitTimeoutMs === undefined ? {} : { gitTimeoutMs: options.gitTimeoutMs }),
     ...(options.onChange === undefined ? {} : { onChange: options.onChange }),
     ...(options.now === undefined ? {} : { now: options.now }),
+    ...(options.priority === undefined ? {} : { priority: options.priority }),
   })
 }
 
@@ -228,9 +231,91 @@ describe('UpdateBuilder', () => {
     expect(buildLog()).not.toContain('git clone')
     expect(buildLog()).toContain('$ git fetch origin')
     expect(git(join(dir, 'repo'), 'rev-parse', 'HEAD')).toBe(second)
-    // node_modules outlived the clean: the clone was not made again.
-    expect(readFileSync(join(dir, 'repo', 'node_modules', '.installs'), 'utf8')).toBe('install\ninstall\n')
-    expect(traceLines()).toEqual(['install A', 'build A', 'install B', 'build B'])
+    // node_modules outlived the clean: the clone was not made again. package.json and the lockfile
+    // are those of the first build, so the second one did not install again (worfy-polish ticket 156).
+    expect(readFileSync(join(dir, 'repo', 'node_modules', '.installs'), 'utf8')).toBe('install\n')
+    expect(traceLines()).toEqual(['install A', 'build A', 'build B'])
+    expect(buildLog()).toContain('pnpm install skipped')
+  })
+
+  it('installs again when the lockfile or package.json changed, or node_modules is gone; the hash is kept only after a build that is ready (worfy-polish ticket 156)', async () => {
+    const recorded = (): string | undefined => readUpdateState(stateFile()).dependencies?.hash
+    const builds = builder()
+    builds.install(available(commit('A')))
+    await builds.settled()
+    const first = recorded()
+    expect(first).toBe(dependencyHash(join(dir, 'repo')))
+
+    writeFileSync(join(work, 'pnpm-lock.yaml'), 'lockfileVersion: 2\n')
+    builds.install(available(commit('B')))
+    await builds.settled()
+    expect(readUpdateState(stateFile()).build.phase).toBe('ready')
+    expect(recorded()).not.toBe(first)
+
+    writeFileSync(join(work, 'package.json'), '{ "name": "fixture", "version": "0.9.1" }\n')
+    builds.install(available(commit('C')))
+    await builds.settled()
+
+    removeTestTree(join(dir, 'repo', 'node_modules'))
+    builds.install(available(commit('D')))
+    await builds.settled()
+    expect(traceLines()).toEqual(['install A', 'build A', 'install B', 'build B', 'install C', 'build C', 'install D', 'build D'])
+    expect(readUpdateState(stateFile()).build).toMatchObject({ phase: 'ready', sha: git(work, 'rev-parse', 'HEAD') })
+  })
+
+  it('a build that fails after pnpm install keeps no hash: the next build installs again, though nothing changed (worfy-polish ticket 156)', async () => {
+    const ok = builder()
+    ok.install(available(commit('A')))
+    await ok.settled()
+    expect(readUpdateState(stateFile()).dependencies).toBeDefined()
+
+    writeFileSync(join(work, 'pnpm-lock.yaml'), 'lockfileVersion: 2\n')
+    const failing = builder({ build: join(FIXTURES, 'build-fail.mjs') })
+    failing.install(available(commit('B')))
+    await failing.settled()
+    expect(readUpdateState(stateFile()).build.phase).toBe('failed')
+    // Dropped before the install began: node_modules is the lockfile's of B, or half of it.
+    expect(readUpdateState(stateFile()).dependencies).toBeUndefined()
+
+    const again = builder()
+    again.install(available(commit('C')))
+    await again.settled()
+    expect(traceLines()).toEqual(['install A', 'build A', 'install B', 'build B', 'install C', 'build C'])
+  })
+
+  it('runs every step below normal priority through the priority seam: the pid of each step it spawned (worfy-polish ticket 156)', async () => {
+    const calls: { pid: number; value: number }[] = []
+    const builds = builder({ priority: { get: () => 0, set: (pid, value) => void calls.push({ pid, value }) } })
+    builds.install(available(commit('A')))
+    await builds.settled()
+    expect(readUpdateState(stateFile()).build.phase).toBe('ready')
+    const steps = buildLog().split('\n').filter((line) => line.startsWith('$ ')).length
+    expect(steps).toBeGreaterThan(3)
+    if (WINDOWS) {
+      // worfy itself, for the spawn of each step, and back.
+      expect(calls).toHaveLength(steps * 2)
+      expect(calls.every((call) => call.pid === 0)).toBe(true)
+      expect(calls.filter((call) => call.value === BUILD_PRIORITY)).toHaveLength(steps)
+    } else {
+      expect(calls).toHaveLength(steps)
+      expect(calls.every((call) => call.value === BUILD_PRIORITY && call.pid > 0)).toBe(true)
+      expect(new Set(calls.map((call) => call.pid)).size).toBe(steps)
+    }
+  })
+
+  it('a priority that cannot be lowered is noted in build.log, and the build goes on (worfy-polish ticket 156)', async () => {
+    const builds = builder({
+      priority: {
+        get: () => 0,
+        set: () => {
+          throw new Error('EPERM: operation not permitted')
+        },
+      },
+    })
+    builds.install(available(commit('A')))
+    await builds.settled()
+    expect(readUpdateState(stateFile()).build.phase).toBe('ready')
+    expect(buildLog()).toContain('could not lower the priority of git: EPERM: operation not permitted')
   })
 
   it('a failing build is `failed` with its output in build.log; the Stable copy of the test is left as it was', async () => {
@@ -349,7 +434,7 @@ describe('UpdateBuilder', () => {
     expect(builds.building).toBe(true)
     await builds.settled()
     expect(builds.building).toBe(false)
-    expect(traceLines()).toEqual(['install A', 'build A', 'install C', 'build C'])
+    expect(traceLines()).toEqual(['install A', 'build A', 'build C'])
     expect(readUpdateState(stateFile()).build).toMatchObject({ phase: 'ready', sha: c })
     // Each step of a build sends a change of its own too (ticket 16): the phases, one per run of them.
     expect(changes.filter((phase, at) => phase !== changes[at - 1])).toEqual(['building', 'ready', 'building', 'ready'])
@@ -366,12 +451,14 @@ describe('UpdateBuilder', () => {
     expect(buildLog()).not.toContain('electron/install.js')
 
     // pnpm install leaves the package as it is ("Already up to date"), and git clean skips node_modules.
+    // With the lockfile of the first build pnpm install does not even run (worfy-polish ticket 156):
+    // the check of Electron still does.
     breakElectron()
     const second = commit('B')
     builds.install(available(second))
     await builds.settled()
     expect(readUpdateState(stateFile()).build).toMatchObject({ phase: 'ready', sha: second, appPath: expectedApp() })
-    expect(traceLines()).toEqual(['install A', 'build A', 'install B', 'electron-install B', 'build B'])
+    expect(traceLines()).toEqual(['install A', 'build A', 'electron-install B', 'build B'])
     expect(buildLog()).toContain('download after pnpm install did not finish')
     expect(buildLog()).toContain('$ node node_modules/electron/install.js')
     expect(buildLog()).toContain('fake electron downloaded')
@@ -382,7 +469,7 @@ describe('UpdateBuilder', () => {
     builds.install(available(third))
     await builds.settled()
     expect(readUpdateState(stateFile()).build).toMatchObject({ phase: 'ready', sha: third })
-    expect(traceLines().slice(5)).toEqual(['install C', 'build C'])
+    expect(traceLines().slice(4)).toEqual(['build C'])
     expect(buildLog()).not.toContain('electron/install.js')
   })
 
@@ -473,7 +560,7 @@ describe('UpdateBuilder', () => {
     builds.install(available(second))
     await builds.settled()
     expect(readUpdateState(stateFile()).build).toEqual({ phase: 'failed', sha: second, version: `0.9.0+${second.slice(0, 7)}`, log: join(dir, 'build.log') })
-    expect(traceLines()).toEqual(['install A', 'build A', 'install B', 'electron-install B'])
+    expect(traceLines()).toEqual(['install A', 'build A', 'electron-install B'])
     expect(buildLog()).toContain(reason)
   })
 
@@ -638,10 +725,17 @@ describe('which Update is built', () => {
   })
 })
 
-/** A GitHub whose `main` is at `head`, green and ahead of RUNNING with a change of the app. */
-function github(head: () => string): UpdateGitHub {
+/**
+ * A GitHub whose `main` is at `head`, green and ahead of RUNNING with a change of the app; the head's
+ * commit time is `committedAt`, unknown without it. `reads` counts the reads of the head.
+ */
+function github(head: () => string, committedAt: () => string | undefined = () => undefined, reads: { head: number } = { head: 0 }): UpdateGitHub {
   return {
-    headOfMain: () => Promise.resolve({ ok: true, value: head() }),
+    headOfMain: () => {
+      reads.head += 1
+      const at = committedAt()
+      return Promise.resolve({ ok: true, value: { sha: head(), ...(at === undefined ? {} : { committedAt: at }) } })
+    },
     ciOk: () => Promise.resolve({ ok: true, value: 'success' }),
     compare: () => Promise.resolve({ ok: true, value: { status: 'ahead', files: ['src/main/index.ts'], commits: [] } }),
     packageVersion: () => Promise.resolve({ ok: true, value: '0.9.0' }),
@@ -654,6 +748,11 @@ describe('UpdateService and "Update automatically"', () => {
   let asked: string[] = []
   let snapshots: UpdateSnapshot[] = []
   let opened: string[] = []
+  /** The commit time of the head; unknown (no wait) unless a test sets it. */
+  let committedAt: string | undefined
+  let reads = { head: 0 }
+  /** The service's clock, moved with the fake timers. */
+  let clock = Date.parse('2026-11-26T04:00:00.000Z')
 
   beforeEach(() => {
     head = A
@@ -661,13 +760,22 @@ describe('UpdateService and "Update automatically"', () => {
     asked = []
     snapshots = []
     opened = []
+    committedAt = undefined
+    reads = { head: 0 }
+    clock = Date.parse('2026-11-26T04:00:00.000Z')
   })
 
-  function service(options: { enabled?: boolean } = {}): UpdateService {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  function service(options: { enabled?: boolean; quietMs?: number } = {}): UpdateService {
     return new UpdateService({
       enabled: options.enabled ?? true,
       running: () => ({ commit: RUNNING, version: `0.8.0+${RUNNING.slice(0, 7)}` }),
-      client: github(() => head),
+      client: github(() => head, () => committedAt, reads),
+      now: () => new Date(clock),
+      ...(options.quietMs === undefined ? {} : { quietMs: options.quietMs }),
       stateFile,
       broadcast: (snapshot) => snapshots.push(snapshot),
       builder: { install: (update) => asked.push(update.sha), building: false, recover: () => undefined, stop: () => undefined, logFile: join(dir, 'build.log') },
@@ -682,6 +790,100 @@ describe('UpdateService and "Update automatically"', () => {
   it('with "Update automatically" on, the check that finds an Available update starts its build', async () => {
     await service().check()
     expect(asked).toEqual([A])
+  })
+
+  /** Moves the clock and the fake timers by `ms`, then lets a check they started end. */
+  async function advance(ms: number): Promise<void> {
+    clock += ms
+    await vi.advanceTimersByTimeAsync(ms)
+    for (let round = 0; round < 20; round += 1) await new Promise((resolve) => setImmediate(resolve))
+  }
+
+  const ago = (minutes: number): string => new Date(clock - minutes * 60_000).toISOString()
+
+  describe('waits for a quiet main (worfy-polish ticket 156)', () => {
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] })
+    })
+
+    it('a head committed 5 minutes ago is not built by the check; a check of its own 15 minutes later builds it', async () => {
+      committedAt = ago(5)
+      const updates = service()
+      await updates.check()
+      expect(asked).toEqual([])
+      expect(reads.head).toBe(1)
+      await advance(15 * 60_000 - 1000)
+      expect(reads.head).toBe(1)
+      expect(asked).toEqual([])
+      await advance(1000)
+      expect(reads.head).toBe(2)
+      expect(asked).toEqual([A])
+    })
+
+    it('a newer commit during the wait starts the wait again; only the newest head is built, once', async () => {
+      committedAt = ago(5)
+      const updates = service()
+      await updates.check()
+      await advance(10 * 60_000)
+      head = B
+      committedAt = ago(1)
+      await advance(5 * 60_000)
+      expect(reads.head).toBe(2)
+      expect(asked).toEqual([])
+      // B is 6 minutes old now: 14 more.
+      await advance(14 * 60_000 - 1000)
+      expect(asked).toEqual([])
+      await advance(1000)
+      expect(asked).toEqual([B])
+      await advance(60 * 60_000)
+      expect(asked).toEqual([B])
+    })
+
+    it('a head older than the wait, or one whose commit time is not known, is built by the check at once', async () => {
+      committedAt = ago(25)
+      await service().check()
+      expect(asked).toEqual([A])
+      head = B
+      committedAt = undefined
+      await service().check()
+      expect(asked).toEqual([A, B])
+    })
+
+    it('the wait is the service\'s `quietMs`: 0 builds at once', async () => {
+      committedAt = ago(1)
+      await service({ quietMs: 0 }).check()
+      expect(asked).toEqual([A])
+    })
+
+    it('"Update worfy" builds the waiting head at once', async () => {
+      committedAt = ago(1)
+      const updates = service()
+      await updates.check()
+      expect(asked).toEqual([])
+      await updates.install()
+      expect(asked).toEqual([A])
+    })
+
+    it('with "Update automatically" off nothing waits: no check of its own comes', async () => {
+      auto = false
+      committedAt = ago(1)
+      await service().check()
+      await advance(60 * 60_000 - 20_000)
+      expect(reads.head).toBe(1)
+      expect(asked).toEqual([])
+    })
+
+    it('the stop of the schedule ends the wait too: no check after it', async () => {
+      committedAt = ago(1)
+      const updates = service()
+      const stop = updates.start()
+      await advance(10_000)
+      expect(reads.head).toBe(1)
+      stop()
+      await advance(2 * 60 * 60_000)
+      expect(reads.head).toBe(1)
+      expect(asked).toEqual([])
+    })
   })
 
   it('off, the check starts nothing', async () => {

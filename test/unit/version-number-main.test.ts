@@ -33,7 +33,7 @@ const RUNNING = 'a'.repeat(40)
 const HEAD = 'b'.repeat(40)
 
 const client: UpdateGitHub = {
-  headOfMain: () => Promise.resolve({ ok: true, value: HEAD }),
+  headOfMain: () => Promise.resolve({ ok: true, value: { sha: HEAD } }),
   ciOk: () => Promise.resolve({ ok: true, value: 'success' }),
   compare: () => Promise.resolve({ ok: true, value: { status: 'ahead', files: ['src/main/x.ts'], commits: [], aheadBy: 4 } }),
   packageVersion: () => Promise.resolve({ ok: true, value: '0.3.0' }),

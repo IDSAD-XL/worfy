@@ -11,6 +11,8 @@ const AT = new Date('2026-10-31T10:00:00.000Z')
 
 interface FakeAnswers {
   head?: string
+  /** The commit time of the head; unknown without it. */
+  committedAt?: string
   ciOk?: 'success' | 'pending' | 'failure' | 'missing'
   status?: 'ahead' | 'behind' | 'diverged' | 'identical' | 'missing'
   files?: string[]
@@ -28,7 +30,7 @@ function fakeClient(answers: FakeAnswers): UpdateGitHub & { reads: string[] } {
   }
   return {
     reads,
-    headOfMain: () => answer('headOfMain', answers.head ?? HEAD),
+    headOfMain: () => answer('headOfMain', { sha: answers.head ?? HEAD, ...(answers.committedAt === undefined ? {} : { committedAt: answers.committedAt }) }),
     ciOk: () => answer('ciOk', answers.ciOk ?? 'success'),
     compare: () =>
       answer(
@@ -92,6 +94,11 @@ describe('the Update check', () => {
   it.each(['headOfMain', 'ciOk', 'compare', 'packageVersion'] as const)('is skipped with the reason when %s is not answered', async (skip) => {
     const outcome = await check({ skip })
     expect(outcome).toEqual({ lastCheck: { at: AT.toISOString(), result: 'skipped', reason: `${skip}: HTTP 403` } })
+  })
+
+  it('gives the Available update the commit time of the head when GitHub told it, for the wait for a quiet main (worfy-polish ticket 156)', async () => {
+    expect((await check({ committedAt: '2026-10-31T09:55:00.000Z' })).available).toEqual({ sha: HEAD, version: '0.4.0+b1c2d3e', quiet: false, committedAt: '2026-10-31T09:55:00.000Z' })
+    expect((await check({})).available).not.toHaveProperty('committedAt')
   })
 
   it('is skipped when the running commit is not known', async () => {
