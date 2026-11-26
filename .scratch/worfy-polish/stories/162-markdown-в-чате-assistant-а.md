@@ -150,7 +150,8 @@ Speech card у rail (`AssistantSpeech.tsx`) показывает только ш
 
 Пять новых test-ов в `test/unit/assistant-panel.test.tsx` были красными до правки; два (сырой HTML и сообщение
 пользователя) — защитные, зелёные и до правки, потому что сырой текст и так ничего не исполнял. Test-ы renderer-а
-Assistant-а и общего Markdown (12 файлов, 208 test-ов, unit и contract) — exit 0; `pnpm lint`, `pnpm typecheck` — exit 0.
+Assistant-а и общего Markdown (12 файлов, 208 test-ов, unit и contract) — exit 0; `pnpm lint && pnpm typecheck && pnpm
+test` — exit 0 (955 файлов, 21456 test-ов); gate fast — exit 0, green.
 e2e локально не запускали (правило владельца); `test/e2e/assistant.spec.ts` сверяет текст сообщений через
 `toContainText`, который Markdown не ломает: в словах introduction нет разметки.
 

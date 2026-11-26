@@ -2,6 +2,7 @@
 
 Type: bug
 Status: claimed 2026-11-26T21:14Z
+PR: #2293
 Branch: worfy-polish/162
 Blocked by: —
 Source: замечание владельца 2026-11-26 («В чате не хватает парсинга маркдауна», снимок экрана раздела Assistant, вкладка
@@ -61,9 +62,14 @@ Summary (`<p className="w-asst-text">`) — так же. Session view рисуе
 
 - [ ] Сообщения Assistant-а в чате и утренняя сводка на Summary нарисованы как Markdown общим renderer-ом; ссылки
       открываются в браузере; сырой HTML и чужой текст без действия; сообщения пользователя — обычный текст.
+  - evidence: commit pass · worfy-polish/162: render the Assistant's messages as Markdown · - - · 2dafea8531b5a460626445e6d579795f87bada50
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-panel.test.tsx` exit 0 · mac - · 12d8a0e0ed908985899da2c9627df2cec57aa368
 - [ ] Unit test-ы в `test/unit/assistant-panel.test.tsx` проверяют разметку, безопасность сырого HTML и чужого текста и
       правила стилей; красные до правки.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-panel.test.tsx` exit 0 · mac - · 12d8a0e0ed908985899da2c9627df2cec57aa368
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast зелёный; `ci-ok` на head PR.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 12d8a0e0ed908985899da2c9627df2cec57aa368
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 12d8a0e0ed908985899da2c9627df2cec57aa368
 - [ ] (вручную) Владелец смотрит вкладку Chat раздела Assistant в Stable copy: утреннее сообщение с жирным, кодом и
       списком нарисовано как Markdown, блок кода не выходит за панель.
   - needs: mac stable
