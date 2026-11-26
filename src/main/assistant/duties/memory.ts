@@ -11,14 +11,28 @@
 // read and write the file synchronously, so no write falls between another's read and write.
 import { join } from 'node:path'
 import { z } from 'zod'
-import { dutyActionModeSchema, dutyCountersSchema, memoryRuleSchema, DUTY_ACTIONS } from '../../../shared/assistant/duties'
+import { dutyActionModeAllowed, dutyActionModeSchema, dutyCountersSchema, memoryRuleSchema, DUTY_ACTIONS, type DutyAction, type DutyActionMode } from '../../../shared/assistant/duties'
 import { commitmentSchema, userAnswerSchema } from '../../../shared/assistant/memory'
 import { assistantProposalSchema } from '../../../shared/assistant/proposals'
 import { readJsonFile, writeJsonFile } from '../../storage/json-file'
 
+/**
+ * The modes the user chose, by action. A mode its action may not have (DUTY_ACTION_ALLOWED_MODES: `self` of
+ * `pr-follow`, written by hand or by an older build) reads as not chosen — the duty's default holds — with a line in
+ * the log; the rest of the file reads as written, and the next write of the duties leaves that mode out (ticket 24).
+ */
+const dutyModesSchema = z.partialRecord(z.enum(DUTY_ACTIONS), dutyActionModeSchema).transform((modes) => {
+  const kept: Partial<Record<DutyAction, DutyActionMode>> = {}
+  for (const [action, mode] of Object.entries(modes) as [DutyAction, DutyActionMode][]) {
+    if (dutyActionModeAllowed(action, mode)) kept[action] = mode
+    else console.warn(`[assistant] the memory file holds ${action}: ${mode}, a mode ${action} may not have; the duty's default holds`)
+  }
+  return kept
+})
+
 export const dutyStateSchema = z.object({
   /** The modes the user chose, by action; an action not chosen keeps the duty's default. */
-  modes: z.partialRecord(z.enum(DUTY_ACTIONS), dutyActionModeSchema).optional(),
+  modes: dutyModesSchema.optional(),
   /** The Projects the duty covers; absent — all. */
   projects: z.array(z.string()).optional(),
   thresholdMinutes: z.number().int().min(1).max(7 * 24 * 60).optional(),

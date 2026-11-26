@@ -27,6 +27,26 @@ export type DutyActionMode = z.infer<typeof dutyActionModeSchema>
 export const DUTY_ACTIONS = ['open', 'wake-orchestrator', 'continue-session', 'fix-session', 'summary', 'pr-follow', 'autopilot-start'] as const
 export type DutyAction = (typeof DUTY_ACTIONS)[number]
 
+/**
+ * The modes each action may have (worfy-assistant ticket 24, the owner's decision of 2026-11-26; ADR-0114, point 4:
+ * the Assistant does by itself only the actions of the closed list). `pr-follow` starts a Session that works on a PR,
+ * outside the closed list: never `self`; `pre-approved` stays, for choosing it is the user's «yes» given in advance.
+ * `autopilot-start` keeps all four: it only opens the Start Autopilot dialog, and the dialog is the user's confirmation.
+ * main refuses any other mode (Duties.configure, the memory file, `action_run`); the settings offer only these.
+ */
+export const DUTY_ACTION_ALLOWED_MODES: Readonly<Record<DutyAction, readonly DutyActionMode[]>> = Object.freeze({
+  open: DUTY_ACTION_MODES,
+  'wake-orchestrator': DUTY_ACTION_MODES,
+  'continue-session': DUTY_ACTION_MODES,
+  'fix-session': DUTY_ACTION_MODES,
+  summary: DUTY_ACTION_MODES,
+  'pr-follow': ['pre-approved', 'ask', 'hand-over'],
+  'autopilot-start': DUTY_ACTION_MODES,
+})
+
+/** Whether `action` may have `mode` (DUTY_ACTION_ALLOWED_MODES). */
+export const dutyActionModeAllowed = (action: DutyAction, mode: DutyActionMode): boolean => DUTY_ACTION_ALLOWED_MODES[action].includes(mode)
+
 /** The counters of a duty (story 19). */
 export const DUTY_COUNTERS = ['shown', 'accepted', 'declined', 'ignored', 'liked', 'disliked'] as const
 export type DutyCounter = (typeof DUTY_COUNTERS)[number]
