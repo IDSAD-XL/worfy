@@ -84,8 +84,9 @@ Source: решение владельца 2026-10-17, grilling о Pipeline, пу
 - [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0. gate full — шаг Orchestrator-а перед merge.
 - [ ] Платформенный PR (ADR-0056, пункт 2): вердикт Windows — gate full на ПК, код 0 и
       `[gate] зелено (full)`. Не проверено: шаг Orchestrator-а (запрос на ПК) перед merge.
-- [ ] (вручную, Orchestrator со словом владельца, до установки Harness с этим PR) rules.md:46: `rmdir "$L"` →
+- [x] (вручную, Orchestrator со словом владельца, до установки Harness с этим PR) rules.md:46: `rmdir "$L"` →
       `rm -f "$L/holder.json"; rmdir "$L"`. Не проверено: шаг Orchestrator-а.
+  - evidence: owner-check pass · 2026-11-26: все да (decisions list 2026-11-25, item 23) · mac stable · eba77845a211c80d99160cc69be975917d3d29f9
 - [x] (вручную, Orchestrator после мержа и `pnpm install:stable`) первый PR следующей Wave показывает
       `review` в списке check-ов GitHub; `profile.json` worfy получает `workflow.pipeline` (Check
       «windows», Deploy); diff — в «Итог». Не проверено: шаг Orchestrator-а после merge.
@@ -168,3 +169,7 @@ Source: решение владельца 2026-10-17, grilling о Pipeline, пу
 `pnpm typecheck`, `pnpm test`, gate fast — exit 0. gate full и вердикт Windows — шаги Orchestrator-а.
 
 Влит на gate full Mac 2026-10-17 (решение владельца: batch CI, ADR-0068).
+
+**Слово владельца 2026-11-26** (список решений 2026-11-25, пункт 23, «все да»): Orchestrator поправил
+замок e2e в Profile-е worfy. Правило теперь в `rules-local-e2e.md:15` Profile-а (а не в `rules.md:46`, как писал пункт):
+брошенный замок снимается `{ rm -f "$L/holder.json"; rmdir "$L"; }`. Ручной пункт отмечен.

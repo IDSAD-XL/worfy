@@ -70,12 +70,13 @@ Source: [spec.md](../spec.md), «Что видит пользователь», �
   - needs: mac stable
 - [ ] Orchestrator: после `done` заполнит раздел «Настоящий Ticket» в [evidence](../evidence/08-fixture.md): только
       роли (библиотека, потребитель) и номера PR, без имён репозиториев, хостов и людей. Снимки — с затёртыми именами.
-- [ ] (вручную) Сделай: подтверди решение без владельца — Ticket 05 (стадия `release`;
+- [x] (вручную) Сделай: подтверди решение без владельца — Ticket 05 (стадия `release`;
       [Ticket](../issues/05-стадия-release.md), «Итог»): «ошибка `npm view` с E404 (пакета ещё нет вовсе) — тоже `not
       checked`, а не `waiting`: частная registry без доступа отвечает так же». Пакет, который ни разу не публиковали,
       карточка покажет как `release <версия> not checked`, а не `waits for release` → Должно быть: Pass —
       «подтверждаю», Fail — «в Ticket».
   - needs: mac
+  - evidence: owner-check pass · 2026-11-26: все да (decisions list 2026-11-25, item 14) · mac stable · eba77845a211c80d99160cc69be975917d3d29f9
 
 ## Тесты
 

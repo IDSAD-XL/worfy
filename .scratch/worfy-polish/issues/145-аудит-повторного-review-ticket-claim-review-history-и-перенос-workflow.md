@@ -110,3 +110,14 @@ PR (ADR-0056): вердикт Windows — job-ы Windows в CI.
 
 - Остальные находки `triage.md`.
 - Поле владельца (id Session) в строке Status: branch служит меткой claim-а.
+
+## Решено без владельца — подтверждено владельцем 2026-11-26
+
+Записано в PR #2223 и в [Code story](../stories/145-аудит-повторного-review-ticket-claim-review-history-и-перенос-workflow.md)
+(«Decided without the owner (to confirm)»); владелец подтвердил 2026-11-26 (раунд Q1–Q12 вечернего отчёта 2026-11-25, Q6):
+
+1. `--force` — только у `claim`; отказ — exit 1; Ticket-ы `open`, `blocked` и `done` берутся без `--force`.
+2. Первый claim в Silent mode идёт без `--branch`.
+3. Без входа gh под `github.account` проверка открытых PR при переносе спрашивает под аккаунтом вызывающего.
+4. Workflow path, в котором уже лежит `docs/product`, переносит её как есть.
+5. Связь claim-а с веткой снимает только отказ «уже занят другой веткой».

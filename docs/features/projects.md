@@ -170,6 +170,11 @@ the variable, never its value, says why, and shows the command that removes it, 
 on macOS, `[Environment]::SetEnvironmentVariable('GH_TOKEN', $null, 'User')` on Windows, `unset GH_TOKEN` elsewhere. The
 variable is to go from the shell startup files (on Windows, the user variables) too; then worfy is restarted.
 
+**GitHub Enterprise.** For a Project whose repository is on a GitHub Enterprise Server host, only this account step uses
+that host. PR and CI badges, the Work track and the PR inbox read github.com only: the badges ask gh for the account's
+github.com token, the Work track asks github.com's API by the `origin`'s owner and name, and the PR inbox lists only
+repositories on github.com.
+
 **`github.account` and Health check.** After the Project is connected, Settings → Health has a `GitHub access` row for it when
 an `origin` of its repositories is on github.com ([Gate and GitHub](gate-and-github.md#github-access)). The row says whether
 `github.account` is set, whether gh has a login for it, whose token gh takes — the account's, `GH_TOKEN` of the environment or

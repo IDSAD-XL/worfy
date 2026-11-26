@@ -105,3 +105,13 @@ sidebar-а. Каждое проверено на main b0e073620: все пять
 
 - Остальные находки `triage.md`.
 - Прочие tool-строки в чате Product Session: их по-прежнему нет (решение «Thinking, tool calls … are left out»).
+
+## Решено без владельца — подтверждено владельцем 2026-11-26
+
+Записано в PR #2224 и в [Code story](../stories/147-аудит-повторного-review-product-chat-запросы-session-и-projects.md)
+(«Decided without the owner (to confirm)»); владелец подтвердил 2026-11-26 (раунд Q1–Q12 вечернего отчёта 2026-11-25, Q6):
+
+1. Тексты toast: «The Mind map has no topic "<name>"» и «Could not read the Mind map topic "<name>": <error>».
+2. Вопрос из файла Session, на который отказали или не ответили, не рисуется.
+3. Вложенный Project, чей Profile нельзя определить, считается общим с внешним.
+4. Закрытую Session при монтировании окна о запросах не спрашивают.
