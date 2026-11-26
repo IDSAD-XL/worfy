@@ -9,15 +9,21 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Assistant, AssistantRun } from '../../src/main/assistant/session/runner'
 import type { AssistantWake } from '../../src/main/assistant/wake/planner'
 
-const app = vi.hoisted(() => ({ assistant: null as Assistant | null }))
+const app = vi.hoisted(() => ({ assistant: null as Assistant | null, runs: new Set<(run: AssistantRun) => void>() }))
 
 const temp = mkdtempSync(join(tmpdir(), 'worfy-assistant-window-app-'))
 vi.stubEnv('WORFY_DATA_DIR', temp)
 
-vi.mock('../../src/main/assistant/session/app', () => ({ appAssistant: () => app.assistant }))
+vi.mock('../../src/main/assistant/session/app', () => ({
+  appAssistant: () => app.assistant,
+  onAssistantRun: (listener: (run: AssistantRun) => void) => {
+    app.runs.add(listener)
+    return () => void app.runs.delete(listener)
+  },
+}))
 
 const { composeAssistant } = await import('../../src/main/assistant/session/runner')
-const { appAssistantWindow } = await import('../../src/main/assistant/window/app')
+const { appAssistantWindow, followAssistantRuns } = await import('../../src/main/assistant/window/app')
 const { ASSISTANT_OFF } = await import('../../src/main/assistant/window/view')
 const { removeTree } = await import('../../src/main/storage/remove')
 
@@ -75,5 +81,16 @@ describe('the conversation of the section in the app', () => {
       ['you', 'What waits for me?', 'done'],
       ['assistant', 'Two Sessions wait for you.', 'done'],
     ])
+  })
+})
+
+describe("the texts of the Assistant's wakes in the app", () => {
+  it("a morning wake's text shows in the section's conversation while the section follows the runs", () => {
+    const stop = followAssistantRuns(appAssistantWindow())
+    for (const listener of app.runs) listener({ sessionId: 's-2', wakeId: 'wake-2', reason: 'morning', outcome: 'answered', text: 'Good morning. Nothing stopped.' })
+    stop()
+    expect(app.runs.size).toBe(0)
+    const saved = JSON.parse(readFileSync(join(temp, 'assistant', 'window.json'), 'utf8')) as { conversation: { reason: string; text: string }[] }
+    expect(saved.conversation.at(-1)).toMatchObject({ reason: 'morning', text: 'Good morning. Nothing stopped.' })
   })
 })

@@ -22,7 +22,7 @@ import { appAssistantUsage } from '../budget/ledger'
 import { appAttentionCore } from '../core/app'
 import { appDuties } from '../duties/app'
 import { appProposals } from '../proposals/book'
-import { appAssistant } from '../session/app'
+import { appAssistant, onAssistantRun } from '../session/app'
 import { AssistantNotices } from './notices'
 import { AssistantReveal } from './reveal'
 import { windowStateFile, windowStatePath } from './store'
@@ -85,6 +85,17 @@ function reveal(): void {
   appAssistantReveal().request((client) => emit(client, assistantReveal, {}))
 }
 
+/** Puts the text of each finished wake of the Assistant into the section's conversation; answers the stop. */
+export function followAssistantRuns(window: AssistantWindow): () => void {
+  return onAssistantRun((run) => {
+    try {
+      window.noteWakeRun(run)
+    } catch (error) {
+      console.warn('[assistant] the text of a wake was not kept', error)
+    }
+  })
+}
+
 /**
  * Starts the section's watch of the core, the duties and the proposals, a look every WINDOW_LOOK_MS, and the
  * Assistant's system notifications. Answers the function that stops them.
@@ -100,6 +111,7 @@ export function startAssistantWindow(): () => void {
     }
   }
   const stopWatch = window.watch()
+  const stopRuns = followAssistantRuns(window)
   const stopLook = window.subscribe(look)
   const timer = setInterval(() => {
     try {
@@ -115,5 +127,6 @@ export function startAssistantWindow(): () => void {
     clearInterval(timer)
     stopLook()
     stopWatch()
+    stopRuns()
   }
 }

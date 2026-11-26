@@ -595,6 +595,16 @@ export class AssistantWindow {
     })
   }
 
+  /**
+   * A finished run of the Assistant (ticket 10, onAssistantRun): the text of a wake that answered joins the conversation.
+   * The run of the user's message is not posted again — send() shows its answer — and a run without an answer posts
+   * nothing.
+   */
+  noteWakeRun(run: { reason: 'urgent' | 'batch' | 'morning' | 'user'; outcome: AssistantRunLike['outcome']; text: string | null }): void {
+    if (run.reason === 'user' || run.outcome !== 'answered' || run.text === null) return
+    this.noteAssistantMessage(run.reason, run.text)
+  }
+
   /** A message of the Assistant from one of its wakes (ticket 10): the morning one is the summary's. */
   noteAssistantMessage(reason: 'urgent' | 'batch' | 'morning', text: string): void {
     if (text.trim() === '') return

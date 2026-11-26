@@ -531,6 +531,34 @@ describe('the conversation', () => {
   })
 })
 
+describe("the texts of the Assistant's wakes (worfy-assistant ticket 14)", () => {
+  it('the text of a morning or a batch wake joins the conversation; the morning one is the summary', () => {
+    const w = world()
+    w.window.noteWakeRun({ reason: 'morning', outcome: 'answered', text: 'Good morning. One Run stopped overnight.' })
+    w.window.noteWakeRun({ reason: 'batch', outcome: 'answered', text: 'Two things wait in shop-api.' })
+    const view = w.window.view()
+    expect(view.conversation.map((message) => [message.reason, message.text])).toEqual([
+      ['morning', 'Good morning. One Run stopped overnight.'],
+      ['batch', 'Two things wait in shop-api.'],
+    ])
+    expect(view.summary.morning?.text).toBe('Good morning. One Run stopped overnight.')
+  })
+
+  it('a run that did not answer posts no message, nor one with no text', () => {
+    const w = world()
+    w.window.noteWakeRun({ reason: 'urgent', outcome: 'failed', text: null })
+    w.window.noteWakeRun({ reason: 'batch', outcome: 'timed-out', text: 'half a thought' })
+    w.window.noteWakeRun({ reason: 'batch', outcome: 'answered', text: '  ' })
+    expect(w.window.view().conversation).toEqual([])
+  })
+
+  it("the run of the user's message is not posted again: the conversation shows its answer already", () => {
+    const w = world()
+    w.window.noteWakeRun({ reason: 'user', outcome: 'answered', text: 'Two Sessions wait for you.' })
+    expect(w.window.view().conversation).toEqual([])
+  })
+})
+
 describe('changes', () => {
   it('tells its listeners once after each change of its own, of the core and of the proposals', async () => {
     const w = world()

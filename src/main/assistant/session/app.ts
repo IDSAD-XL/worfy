@@ -19,10 +19,17 @@ import { assistantMemoryPath, sessionMemoryStore } from '../duties/memory'
 import type { PowerEvents } from '../schedule/scheduler'
 import { startAssistantWake } from '../wake/app'
 import { readMemoryView, SessionMemory } from './memory'
-import { AssistantSessions, composeAssistant, type Assistant } from './runner'
+import { AssistantSessions, composeAssistant, type Assistant, type AssistantRun } from './runner'
 
 let running: Assistant | null = null
 let memory: SessionMemory | undefined
+const runListeners = new Set<(run: AssistantRun) => void>()
+
+/** Follows the finished runs of the Assistant, a wake's or the user's message's (ticket 14); answers the unsubscribe. */
+export function onAssistantRun(listener: (run: AssistantRun) => void): () => void {
+  runListeners.add(listener)
+  return () => void runListeners.delete(listener)
+}
 
 /** The Assistant once started; null while it is off. */
 export function appAssistant(): Assistant | null {
@@ -59,6 +66,9 @@ export function startAssistant(power: PowerEvents): (() => void) | null {
     sessions,
     startWake: (onWake) => startAssistantWake(onWake, power),
     startClosedList: (escalate) => startClosedList({ escalate, power }),
+    onRun: (run) => {
+      for (const listener of [...runListeners]) listener(run)
+    },
   })
   if (assistant === null) return null
   running = assistant
