@@ -15,7 +15,7 @@ Runs оставлял окно владельца пустым, с тёмным 
 
 ## 2. Boundary: что показывает и что делает Reload
 
-Code: `src/renderer/shell/ErrorBoundary.tsx:36-68` · key lines: 39, 40, 44, 45, 48, 53, 57
+Code: `src/renderer/shell/ErrorBoundary.tsx:38-73` · key lines: 41, 42, 46, 47, 50, 55, 59, 63
 
 ```tsx
 export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
@@ -40,14 +40,17 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
   override render(): ReactNode {
     if (!this.state.failed) return this.props.children
-    const { scope, name } = this.props
+    const { scope, name, above } = this.props
     return (
-      <div role="alert" className={`w-error-boundary w-error-boundary--${scope}`} data-testid="error-boundary" data-boundary={name}>
-        <div className="w-error-boundary__title">{TITLES[scope]}</div>
-        <div className="w-error-boundary__message">{errorText(this.state.error)}</div>
-        {this.state.where === null ? null : <div className="w-error-boundary__where">in {this.state.where}</div>}
-        <Button onClick={this.reload}>{scope === 'window' ? 'Reload window' : 'Reload'}</Button>
-      </div>
+      <>
+        {above}
+        <div role="alert" className={`w-error-boundary w-error-boundary--${scope}`} data-testid="error-boundary" data-boundary={name}>
+          <div className="w-error-boundary__title">{TITLES[scope]}</div>
+          <div className="w-error-boundary__message">{errorText(this.state.error)}</div>
+          {this.state.where === null ? null : <div className="w-error-boundary__where">in {this.state.where}</div>}
+          <Button onClick={this.reload}>{scope === 'window' ? 'Reload window' : 'Reload'}</Button>
+        </div>
+      </>
     )
   }
 }
@@ -128,7 +131,37 @@ Code: `src/renderer/shell/AppShell.tsx:143-148` · key lines: 145
 - Требование: [Что строить, п. 2](../issues/163-journal-и-work-роняют-окно.md#что-строить)
 - Риски и пробелы test-ов: test бросает в виде Runs; остальные семь видов обёрнуты так же, отдельно не проверены.
 
-## 6. Boundary всего окна
+## 6. Work track и Run history падают каждый под своим переключателем
+
+Code: `src/renderer/flight-recorder/RunsView.tsx:55-66` · key lines: 58, 63
+
+```tsx
+      {/* Each half fails on its own, under the switch (worfy-polish 163): Work track draws the switch in its own bar,
+          so its fallback keeps the switch above it, and Run history stays one click away. */}
+      <div className="w-runs__body" hidden={tab !== 'history'}>
+        <ErrorBoundary scope="view" name="run-history">
+          <RunHistoryView activeProjectId={activeProjectId} />
+        </ErrorBoundary>
+      </div>
+      {tab === 'track' && activeProjectId !== undefined ? (
+        <ErrorBoundary key={activeProjectId} scope="view" name="work-track" above={<div className="w-runs__bar">{switcher}</div>}>
+          <WorkTrackView projectId={activeProjectId} active={active} switcher={switcher} />
+        </ErrorBoundary>
+      ) : null}
+```
+
+- Что делает: у каждой половины вида Runs свой boundary под переключателем «Run history | Work track». Work track
+  рисует переключатель сам, в своей полосе, поэтому его запасной вид рисует переключатель над собой (проп `above`
+  из шага 2): упавший Work track можно покинуть щелчком по «Run history». `key` — Project: у другого Project-а
+  boundary новый.
+- Почему здесь: находка ревью PR #2294 — boundary вида `history` заменял весь вид Runs вместе с переключателем, а
+  выбор вкладки живёт в памяти (`work-track/store.ts`), так что Reload снова монтировал упавший Work track.
+- Без него: из упавшего Work track не выйти без перезапуска окна.
+- Требование: [Что строить, п. 2](../issues/163-journal-и-work-роняют-окно.md#что-строить)
+- Риски и пробелы test-ов: в test-е Work track подменён компонентом, который бросает или рисует переданный
+  переключатель; настоящий `WorkTrackView` здесь не бросает.
+
+## 7. Boundary всего окна
 
 Code: `src/renderer/main.tsx:141-149` · key lines: 145
 
@@ -152,16 +185,17 @@ Code: `src/renderer/main.tsx:141-149` · key lines: 145
 - Риски и пробелы test-ов: boundary окна проверен на отдельном компоненте, а не на настоящем `createRoot` из
   `main.tsx`.
 
-## 7. Что сознательно не меняли
+## 8. Что сознательно не меняли
 
 Вкладку Journal не переписывали: main проверяет каждый ответ и событие IPC схемой (`journalRowSchema`), поэтому
 строка незнакомой формы в renderer не доходит, а от остального закрывает boundary вкладки. Причина броска в окне
 владельца не найдена: следующий сбой покажет свой текст и компонент прямо на экране.
 
-## 8. Как проверено
+## 9. Как проверено
 
-`node scripts/vitest-electron.mjs test/unit/error-boundary.test.tsx` — exit 0 (9 test-ов). Test-ы раздела, вкладки и
-вида красные без boundary: без них React снимает дерево, и `within(...)` не находит запасной вид. `pnpm lint`,
+`node scripts/vitest-electron.mjs test/unit/error-boundary.test.tsx` — exit 0 (10 test-ов). Test-ы раздела (и
+синтетического, и настоящего файла раздела в `AppShell`), вкладки, вида и Work track красные без boundary: без них
+React снимает дерево, и `within(...)` не находит запасной вид. `pnpm lint`,
 `pnpm typecheck`, `pnpm test` — exit 0; gate fast — green. e2e и Electron локально не запускали (правило владельца).
 
 ## Проверить себя
