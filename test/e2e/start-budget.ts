@@ -11,25 +11,26 @@ export const START_MS = 3_000
  * test (the median of three starts). Measured on the runner 2026-10-28, an Auberge-sized start
  * against a one-Ticket one: 3897 against 1274 ms (3.1×) and 3911 against 909 ms (4.3×) from single
  * starts; 2739 against a median of 721 ms (3.8×) and 1736 against 565 ms (3.07×) from three. 6 is
- * the highest 4.3 with a margin of 1.4. The first attempts of 84 macos-e2e jobs, 2026-11-22..25
- * (worfy-polish 150), measured 1.83 to 5.19 times, median 3.56: every one of them, the four red
- * against the former 7300 ms ceiling too, is inside 6.
- *
- * There is no ceiling in ms any more (worfy-polish 151): in 58 of those 84 jobs 6 × the reference
- * was above the former 7300 ms, so the runner's speed, not the Project against its base, set the
- * budget, and a slow runner turned the test red. The cost: a delay added to every start alike
- * raises the reference with it and is caught only by START_MS, off GitHub Actions.
+ * the highest 4.3 with a margin of 1.4.
  */
 export const START_RATIO = 6
 
 /**
+ * The ceiling of the runner's budget: a one-Ticket start that got slower must not raise the budget
+ * with it. The slowest Auberge-sized start the runner measured is 4853 ms (3717–4853 ms over the
+ * runs of 2026-10-28); 4853 × 1.5 = 7280, rounded up to 7.3 s. The margin of 1.5 holds the runner's
+ * spread between runs: its Auberge-sized start ranged from 1736 to 4853 ms.
+ */
+export const RUNNER_START_CAP_MS = 7_300
+
+/**
  * The budget for an Auberge-sized start, given the median one-Ticket start `referenceMs` on the
  * same machine: START_MS, except on GitHub Actions (GITHUB_ACTIONS=true), where it is START_RATIO
- * times the reference, no less than START_MS.
+ * times the reference, no less than START_MS and no more than RUNNER_START_CAP_MS.
  */
 export function startBudget(referenceMs: number, env: Readonly<Record<string, string | undefined>>): number {
   if (env.GITHUB_ACTIONS !== 'true') return START_MS
-  return Math.max(START_MS, START_RATIO * referenceMs)
+  return Math.min(RUNNER_START_CAP_MS, Math.max(START_MS, START_RATIO * referenceMs))
 }
 
 /** Whether the start test measures the one-Ticket reference: only where the budget depends on it. */

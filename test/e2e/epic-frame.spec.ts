@@ -15,8 +15,9 @@ import { evidenceItems } from '../../src/shared/workflow/evidence'
 import { epicStatusSchema, type Ticket } from '../../src/shared/workflow/types'
 import { readyWave, ticketLevels } from '../../src/shared/workflow/waves'
 import { canvasReady, expectSettledWithoutOverlaps, flowPositionsInOnePass, launchApp, oneBoxEachInOnePass, parkPointer, repoRoot, settledBoxes, settledRead, showSidebarSection, ticketCardCuts, type LaunchedApp } from './helpers'
+import { quarantined } from './quarantine'
 import { snapshotThemes } from './snapshots'
-import { measuresReference, START_RATIO, startBudget } from './start-budget'
+import { measuresReference, RUNNER_START_CAP_MS, START_RATIO, startBudget } from './start-budget'
 import { settled } from './wait'
 import { catScript } from '../harness-node'
 import { ms } from '../time-scale'
@@ -1110,7 +1111,9 @@ async function interactiveAfter(window: Page, epic: string): Promise<number> {
 /** One-Ticket starts behind the reference on GitHub Actions: a single start on the runner varied from 909 to 1274 ms. */
 const REFERENCE_STARTS = 3
 
-test('an Auberge-sized Project is interactive within 3 s and pans and zooms smoothly over its biggest Epic', async () => {
+// Quarantined (test/quarantine/epic-frame-auberge-start-macos-ci.json): flaky on the macOS runner, where the
+// 7300 ms cap, not the one-Ticket reference, sets the budget in most jobs; worfy-polish 151 fixes it.
+quarantined('epic-frame-auberge-start-macos-ci')('an Auberge-sized Project is interactive within 3 s and pans and zooms smoothly over its biggest Epic', async () => {
   const answer = join(scratch, 'epic-status.json')
   makeClaudeHome(answer)
   // On GitHub Actions the budget is measured against the same start of a one-Ticket Project on the
@@ -1203,14 +1206,13 @@ test('an Auberge-sized Project is interactive within 3 s and pans and zooms smoo
     if (enforce) expect(hoverMs).toBeLessThanOrEqual(100)
 
     const budget = startBudget(referenceMs, process.env)
-    // N / R, the start against its base on the same machine, is what the budget on GitHub Actions holds (worfy-polish 151).
-    const reference = starts.length > 0 ? `a one-Ticket Project ${starts.join(', ')} ms, median ${referenceMs} ms, N / R ${(interactiveMs / referenceMs).toFixed(2)}` : 'no one-Ticket reference off GitHub Actions'
+    const reference = starts.length > 0 ? `a one-Ticket Project ${starts.join(', ')} ms, median ${referenceMs} ms` : 'no one-Ticket reference off GitHub Actions'
     console.log(
       `auberge-size: interactive ${interactiveMs} ms after the window's page started loading (${reference}; budget ${budget} ms); ` +
         `pan/zoom 5 s: ${frames.length} frames, median ${fps} fps, longest frame ${longest} ms; ${ticketsDrawn} Ticket Nodes in the DOM`,
     )
     test.info().annotations.push({ type: 'perf', description: `interactive=${interactiveMs}ms reference=${referenceMs}ms medianFps=${fps} longestFrame=${longest}ms frames=${frames.length}` })
-    expect(interactiveMs, `interactive within ${budget} ms: 3 s, or on GitHub Actions ${START_RATIO} × the ${referenceMs} ms of a one-Ticket Project`).toBeLessThanOrEqual(budget)
+    expect(interactiveMs, `interactive within ${budget} ms: 3 s, or on GitHub Actions ${START_RATIO} × the ${referenceMs} ms of a one-Ticket Project, at most ${RUNNER_START_CAP_MS} ms`).toBeLessThanOrEqual(budget)
     // Frame rates depend on the machine: CI only prints them, WORFY_PERF=1 on the developer's Mac checks them.
     if (enforce) {
       expect(fps).toBeGreaterThanOrEqual(55)
