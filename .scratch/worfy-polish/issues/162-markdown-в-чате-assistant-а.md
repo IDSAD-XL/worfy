@@ -26,7 +26,10 @@ Summary (`<p className="w-asst-text">`) — так же. Session view рисуе
    view (`src/renderer/session/Transcript.tsx`): жирный и курсив, код в строке и блоком, списки, заголовки, ссылки,
    таблицы (remark-gfm их умеет). Второй библиотеки Markdown нет.
 2. Ссылки — как в Session view: http(s):// открывается в браузере через `shell.openExternal`, окно приложения никуда не
-   переходит; `javascript:`, `file:`, `data:` — текст без действия.
+   переходит; `javascript:`, `file:`, `data:` — текст без действия. Ссылка на файл без Project-а — тоже текст без
+   действия (review раунда 1). Ссылка http(s):// цитаты открывается, но если её текст — не её адрес, рядом приглушённо
+   стоит host цели: «Approve (evil.example)» (опция `showLinkHost` общего renderer-а, только в чате Assistant-а;
+   решение review раунда 1).
 3. Сырой HTML остаётся текстом, картинки Markdown не загружаются (правила `Markdown.tsx`). Это важно: Assistant цитирует
    чужой текст из Slack и Jira (блок outside-text JSON, worfy-assistant 09), и такая цитата попадает в текст его
    сообщения.
@@ -43,7 +46,9 @@ Summary (`<p className="w-asst-text">`) — так же. Session view рисуе
 - `src/renderer/assistant/AssistantPanel.tsx` — `Chat` и `Summary`.
 - `src/renderer/assistant/parts.tsx` — общий кусок «текст сообщения Assistant-а».
 - `src/renderer/assistant/assistant.css` — стили текста сообщения.
-- Test: `test/unit/assistant-panel.test.tsx`.
+- `src/renderer/markdown/Markdown.tsx`, `links.ts`, `markdown.css` — опция `showLinkHost` и ссылка на файл без Project-а
+  (review раунда 1).
+- Test: `test/unit/assistant-panel.test.tsx`, `test/unit/markdown.test.tsx`.
 - `docs/features/assistant.md` — строка о Markdown в чате (только английская страница).
 
 ## Test-ы
@@ -61,15 +66,19 @@ Summary (`<p className="w-asst-text">`) — так же. Session view рисуе
 ## Готово, когда
 
 - [ ] Сообщения Assistant-а в чате и утренняя сводка на Summary нарисованы как Markdown общим renderer-ом; ссылки
-      открываются в браузере; сырой HTML и чужой текст без действия; сообщения пользователя — обычный текст.
+      открываются в браузере, у ссылки с чужим текстом виден host; сырой HTML и картинки цитаты без действия;
+      сообщения пользователя — обычный текст.
   - evidence: commit pass · worfy-polish/162: render the Assistant's messages as Markdown · - - · 2dafea8531b5a460626445e6d579795f87bada50
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-panel.test.tsx` exit 0 · mac - · 12d8a0e0ed908985899da2c9627df2cec57aa368
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-panel.test.tsx test/unit/markdown.test.tsx` exit 0 · mac - · 28b9e05954dbd38169a0ed72e8f33b837a191522
 - [ ] Unit test-ы в `test/unit/assistant-panel.test.tsx` проверяют разметку, безопасность сырого HTML и чужого текста и
       правила стилей; красные до правки.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-panel.test.tsx` exit 0 · mac - · 12d8a0e0ed908985899da2c9627df2cec57aa368
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-panel.test.tsx test/unit/markdown.test.tsx` exit 0 · mac - · 28b9e05954dbd38169a0ed72e8f33b837a191522
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast зелёный; `ci-ok` на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 12d8a0e0ed908985899da2c9627df2cec57aa368
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 12d8a0e0ed908985899da2c9627df2cec57aa368
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 28b9e05954dbd38169a0ed72e8f33b837a191522
 - [ ] (вручную) Владелец смотрит вкладку Chat раздела Assistant в Stable copy: утреннее сообщение с жирным, кодом и
       списком нарисовано как Markdown, блок кода не выходит за панель.
   - needs: mac stable
