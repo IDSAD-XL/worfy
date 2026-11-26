@@ -87,13 +87,21 @@ its own epic and appends no block per wave; details go into the tickets' result 
 
 ## 5. Test: ссылки ведут к разделам, темы на месте
 
-Code: `harness/hooks/tests/rules-hooks.test.sh:641-660` · key lines: 643, 649, 651, 658
+Code: `harness/hooks/tests/rules-hooks.test.sh:647-674` · key lines: 650, 652, 654, 663, 666, 672
 
 ```bash
 ORCH_SKILL="$HARNESS/skills/orchestrator-rules/SKILL.md"
-cat "$all" "$ORCH_SKILL" >"$T/orch-all.md" 2>/dev/null
-check_topics "$T/orch-all.md" "${ORCH_TOPICS[@]}"
+check_topics "$all" "${ORCH_TOPICS[@]}"
 check_topics "$RULES/common.md" "${COMMON_TOPICS[@]}"
+for line in "${SKILL_TOPICS[@]}"; do
+    head="${line%%|*}"
+    awk -v h="## $head" '$0 == h { on = 1; next } on && /^## / { exit } on' "$ORCH_SKILL" >"$T/skill-section.md" 2>/dev/null
+    if [ -s "$T/skill-section.md" ]; then
+        check_topics "$T/skill-section.md" "orchestrator-rules, $line"
+    else
+        bad "skill orchestrator-rules: no section '## $head'"
+    fi
+done
 
 # Every pointer of orchestrator.md names a section the skill has, and every section of the skill is
 # named by a pointer: a moved rule that nothing points at is lost.
@@ -112,14 +120,17 @@ for h in '## Quota' '## Long output: filter first, delegate second' '## Phase 3 
 done
 ```
 
-- Что делает: темы правил «No rule lost» ищутся в частях правил и в skill-е вместе; множество разделов, на которые
-  ссылается `orchestrator.md`, должно совпасть с разделами skill-а; три заголовка остаются в `orchestrator.md`.
-  Проверка журнала решений Wave теперь читает раздел «State file» skill-а.
-- Почему здесь: Ticket требует test, что ссылки ведут к существующим разделам.
-- Без него: опечатка в имени раздела или новый раздел skill-а без ссылки остались бы незамеченными.
+- Что делает: оставшиеся темы правил «No rule lost» ищутся в частях правил, как раньше. Темы перенесённых разделов
+  (`SKILL_TOPICS`) ищутся только в своём разделе skill-а: минимум одна фраза на абзац, и ни одной из строк-ссылок
+  `orchestrator.md`. Множество разделов, на которые ссылается `orchestrator.md`, должно совпасть с разделами
+  skill-а; три заголовка остаются в `orchestrator.md`. Проверка журнала решений Wave читает раздел «State file»
+  skill-а.
+- Почему здесь: Ticket требует test, что ссылки ведут к существующим разделам. Ревью (второй раунд) нашло, что при
+  поиске по файлу правил и skill-у вместе фразы Quota находились в строке-ссылке и без текста правила.
+- Без него: удалённый абзац skill-а, опечатка в имени раздела или новый раздел без ссылки остались бы незамеченными.
 - Требование: [Готово, когда](../issues/160-правила-orchestrator-md-у-предела-10000-знаков.md#готово-когда)
-- Риски и пробелы test-ов: проверка mutant-ом — переименованная ссылка и заголовок `## Quota` дают exit 1 с двумя
-  FAIL; смысл перенесённого текста test проверяет только по фразам.
+- Риски и пробелы test-ов: 11 mutant-ов, каждый удаляет один абзац перенесённого раздела в копии, — все дают exit 1;
+  переименованная ссылка и заголовок `## Quota` — тоже exit 1. Смысл текста test проверяет только по фразам.
 
 ## 6. Как проверено
 
@@ -134,7 +145,11 @@ done
 1. Почему заголовки «Quota» и «Long output» остались в `orchestrator.md`, хотя текст ушёл в skill?
    - Ответ: перенос старого Harness ищет заголовки разделов старого `CLAUDE.md` среди заголовков правил плагина; без
      них он счёл бы эти правила не перенесёнными.
-   - Строки: `harness/hooks/tests/rules-hooks.test.sh:656-660`
+   - Строки: `harness/hooks/tests/rules-hooks.test.sh:670-674`
 2. Что поймает test, если в skill добавят раздел, на который `orchestrator.md` не ссылается?
    - Ответ: множество ссылок и множество заголовков skill-а не совпадут — FAIL «pointers and sections differ».
-   - Строки: `harness/hooks/tests/rules-hooks.test.sh:649-653`
+   - Строки: `harness/hooks/tests/rules-hooks.test.sh:663-667`
+3. Почему фразы перенесённых разделов ищутся только в разделе skill-а, а не в файле правил и skill-е вместе?
+   - Ответ: строки-ссылки повторяют слова правил («Before a phase», «fifth»), и поиск по обоим файлам находил их
+     даже после удаления абзаца из skill-а.
+   - Строки: `harness/hooks/tests/rules-hooks.test.sh:650-654`
