@@ -635,19 +635,40 @@ check_topics() {
         [ -z "$missing" ] && ok "topic kept: $topic" || bad "topic $topic: missing$missing"
     done
 }
-check_topics "$all" "${ORCH_TOPICS[@]}"
+# The sections a main session needs only at one moment live in skill orchestrator-rules (they moved
+# there when orchestrator.md reached the 10,000-character limit); orchestrator.md names each by one line.
+# The topics of the orchestrator rules are kept in the parts and that skill together.
+ORCH_SKILL="$HARNESS/skills/orchestrator-rules/SKILL.md"
+cat "$all" "$ORCH_SKILL" >"$T/orch-all.md" 2>/dev/null
+check_topics "$T/orch-all.md" "${ORCH_TOPICS[@]}"
 check_topics "$RULES/common.md" "${COMMON_TOPICS[@]}"
+
+# Every pointer of orchestrator.md names a section the skill has, and every section of the skill is
+# named by a pointer: a moved rule that nothing points at is lost.
+oflat_all="$(tr '\n' ' ' <"$RULES/orchestrator.md" 2>/dev/null | tr -s ' ')"
+pointed="$(printf '%s' "$oflat_all" | grep -oE 'skill `worfy:orchestrator-rules`, section "[^"]+"' | sed -E 's/.*section "([^"]+)"/\1/' | sort -u)"
+skill_heads="$(grep '^## ' "$ORCH_SKILL" 2>/dev/null | sed 's/^## //' | sort -u)"
+[ -n "$pointed" ] && [ "$pointed" = "$skill_heads" ] \
+    && ok "orchestrator.md: every pointer names a section of skill orchestrator-rules, and every section is named ($(printf '%s' "$pointed" | tr '\n' ',' ))" \
+    || bad "orchestrator.md pointers and skill orchestrator-rules sections differ: pointers [$(printf '%s' "$pointed" | tr '\n' ',')] sections [$(printf '%s' "$skill_heads" | tr '\n' ',')]"
+[ "$(sed -n 2p "$ORCH_SKILL" 2>/dev/null)" = 'name: orchestrator-rules' ] && grep -q '^description: ' "$ORCH_SKILL" \
+    && ok "skill orchestrator-rules: name and description" || bad "skill orchestrator-rules: no name or description in its front matter"
+# The moved sections keep their headings in orchestrator.md: the app's move from the old Harness takes
+# a heading of the plugin's rules as a section of the old CLAUDE.md that the plugin carries.
+for h in '## Quota' '## Long output: filter first, delegate second' '## Phase 3 — state, then report'; do
+    grep -qxF -- "$h" "$RULES/orchestrator.md" 2>/dev/null && ok "orchestrator.md keeps the heading '$h'" || bad "orchestrator.md lost the heading '$h'"
+done
 
 # The decision log of a wave that runs without a human is not a second
 # state file, and the rule against a second state file says so itself: the caveat is the paragraph
 # right after it. Whole sentences, one after another, with line breaks folded into spaces.
-flat="$(tr '\n' ' ' <"$RULES/orchestrator.md" 2>/dev/null | tr -s ' ')"
+flat="$(awk '/^## State file$/ { on = 1; next } on && /^## / { exit } on' "$ORCH_SKILL" 2>/dev/null | tr '\n' ' ' | tr -s ' ')"
 [[ "$flat" == *'Two files describing where we are means one of them is lying. The decision log of a wave that runs without a human (`decisions.tsv`, skill `worfy:epic-wave`) is not a state file.'* ]] \
-    && ok "orchestrator.md: the decision log is not a state file — said right after the rule against a second state file" \
-    || bad "orchestrator.md: no caveat about the decision log right after the rule against a second state file"
+    && ok "orchestrator-rules, State file: the decision log is not a state file — said right after the rule against a second state file" \
+    || bad "orchestrator-rules, State file: no caveat about the decision log right after the rule against a second state file"
 [[ "$flat" == *'is not a state file. The state file says where the work stands; the log says why one run decided what it did. The log is not committed and is not read when work resumes.'* ]] \
-    && ok "orchestrator.md: the log says why, is not committed and is not read on resume" \
-    || bad "orchestrator.md: the caveat does not say what the log is for, that it is not committed or that it is not read on resume"
+    && ok "orchestrator-rules, State file: the log says why, is not committed and is not read on resume" \
+    || bad "orchestrator-rules, State file: the caveat does not say what the log is for, that it is not committed or that it is not read on resume"
 
 # "Phase 3": the Stage line comes from epic-status — the lines hooks/stage-lines.mjs hands in with the
 # prompt, or a run of its own after a status change — and the rule stands before the status block, once.
