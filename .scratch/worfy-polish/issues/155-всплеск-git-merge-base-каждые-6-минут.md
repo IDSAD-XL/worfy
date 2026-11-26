@@ -97,13 +97,16 @@ Source: баг-репорт владельца #2252 (2026-11-26), часть 1.
 
 - [ ] Пары 0/1 хранятся на процесс по (ancestor, descendant); 128 и null — нет; test-ы на каждое — сначала красные.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/git-ancestry.test.ts test/unit/acceptance-stable-line.test.ts test/contract/workflow-stages.test.ts test/contract/flight-recorder-gate-logs.test.ts` exit 0 · mac - · 5b44df34a
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/git-ancestry.test.ts` exit 0 · mac - · ff598002d
 - [ ] Один процесс на пару в пути; не больше 3 процессов git одновременно на этих путях.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/git-ancestry.test.ts test/unit/acceptance-stable-line.test.ts` exit 0 · mac - · 5b44df34a
 - [ ] Число процессов git за цикл до и после — в «Итог».
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/acceptance-stable-line.test.ts` exit 0 · mac - · 5b44df34a
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/acceptance-stable-line.test.ts` exit 0 · mac - · ff598002d
 - [ ] `pnpm lint`, `pnpm typecheck`, unit и contract test-ы затронутых модулей, gate fast — exit 0; `ci-ok` на head PR.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 5b44df34a
   - evidence: gate pass · `gate fast` exit 0 · mac - · 5b44df34a
+  - evidence: gate pass · `gate fast` exit 0 · mac - · ff598002d
 
 ## Итог
 
