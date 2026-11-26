@@ -72,7 +72,9 @@ describe('the feature pages in the packaged build', () => {
     const files = await readFeaturePages(join(REPO, 'docs', 'features'))
     const canvas = files.filter((file) => file.name === 'canvas')
     expect(canvas.map((file) => file.language).sort()).toEqual(['en', 'ru'])
+    // Whatever line ends the checkout has (CRLF on Windows), the pages are read with \n only.
     expect(canvas.find((file) => file.language === 'ru')!.text).toMatch(/^# Canvas\n/u)
+    expect(files.filter((file) => file.text.includes('\r')).map((file) => file.name)).toEqual([])
   })
 
   it('a search over the real pages finds the page of a feature, and nothing for what worfy does not do', async () => {

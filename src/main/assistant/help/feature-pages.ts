@@ -42,11 +42,15 @@ export interface FeaturePageFile {
   text: string
 }
 
-/** Every page of `dir` (English) and of `dir/ru` (Russian). A build without the English pages is an error; ru/ may lag. */
+/**
+ * Every page of `dir` (English) and of `dir/ru` (Russian). A build without the English pages is an error; ru/ may lag.
+ * A Windows checkout, and the build made from it, holds the pages with CRLF: every line end is made \n here, once, so the
+ * headings, the sections and the text answered are the same on every system.
+ */
 export async function readFeaturePages(dir: string): Promise<FeaturePageFile[]> {
   const read = async (folder: string, language: GuideLanguage): Promise<FeaturePageFile[]> => {
     const names = (await readdir(folder)).filter((name) => name.endsWith('.md')).sort()
-    return Promise.all(names.map(async (name) => ({ name: name.slice(0, -'.md'.length), language, text: await readFile(join(folder, name), 'utf8') })))
+    return Promise.all(names.map(async (name) => ({ name: name.slice(0, -'.md'.length), language, text: (await readFile(join(folder, name), 'utf8')).replace(/\r\n?/gu, '\n') })))
   }
   return [...(await read(dir, 'en')), ...(await read(join(dir, 'ru'), 'ru').catch(() => []))]
 }
