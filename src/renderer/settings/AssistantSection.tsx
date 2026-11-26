@@ -1,22 +1,24 @@
-// Settings → Assistant (worfy-assistant ticket 15; owner's decisions 5, 7, 10 and 20; stories 12–15, 17–20, 34 and 35),
-// after the prototype Card the owner accepted: four tabs.
+// Settings → Assistant (worfy-assistant tickets 15 and 25; owner's decisions 5, 7, 10, 17 and 20; stories 12–15, 17–20,
+// 34 and 35), after the prototype Card the owner accepted: four tabs.
 // - General: the switch of the Assistant on this Mac (off until turned on; on, only worfy's own duties work and each
-//   outside source is turned on by itself), the work hours (days, one window, the time zone), and each check of a source
-//   — on, interval, sleep outside work hours — with its failures in a row and Check now (ticket 22).
-// - Duties: each duty on or off, its threshold, the mode of each action (only the modes the action may have), its
-//   counters and its pause with Resume; how many ignored or disliked items in a row pause a duty.
+//   outside source is turned on by itself) with «On since …», the work hours (days, one window, the time zone), each
+//   check of a source — on, interval, sleep outside work hours — with its failures in a row and Check now (ticket 22),
+//   and the notifications: the speech card in the window (urgent and batched, urgent only, none) and the system one.
+// - Duties: each duty on or off, its threshold, the Projects of this Machine it covers, the mode of each action (only
+//   the modes the action may have), its counters and its pause with Resume; how many ignored or disliked items in a row
+//   pause a duty.
 // - Usage and limits: the tokens of the day or the week by source, by wake and for the conversation, the share of each
 //   Limits window marked as an estimate, and the daily limit of automatic wakes.
 // - Memory: the rules the user's dislikes wrote, each with Delete.
-// The switch, the work hours, the checks and the daily limit are app settings of this Machine (`assistant` and
-// `assistantSchedule`); the rest is main's (useAssistantSettings.ts). The texts are English (docs/design/BRIEF.md).
+// The switch, the work hours, the checks, the notifications and the daily limit are app settings of this Machine
+// (`assistant` and `assistantSchedule`); the rest is main's (useAssistantSettings.ts). The texts are English (docs/design/BRIEF.md).
 import { useState, type ReactElement } from 'react'
 import { DUTY_ACTION_MODES, type DutyActionMode } from '../../shared/assistant/duties'
 import { CHECK_KINDS, checkSettingsOf, workHoursOf, type CheckKind, type CheckSettings } from '../../shared/assistant/schedule/settings'
 import { DEFAULT_WORK_HOURS, machineTimeZone, WEEKDAYS, type WorkHours } from '../../shared/assistant/schedule/work-hours'
 import { ACTION_LABELS, CHECK_LABELS, intervalText, MODE_LABELS, minuteText } from '../../shared/assistant/settings-change'
 import type { AssistantSettingsView, SettingsCheck, SettingsDuty, UsagePeriodView } from '../../shared/assistant/settings-view'
-import { assistantOn, DAILY_WAKE_LIMIT_BOUNDS, dailyWakeLimitOf } from '../../shared/assistant/settings'
+import { assistantOn, assistantOnSince, DAILY_WAKE_LIMIT_BOUNDS, dailyWakeLimitOf, inWindowOf, systemNoticesOf, type InWindowNotices } from '../../shared/assistant/settings'
 import type { AppSettingsPatch } from '../../shared/settings/app-settings'
 import { forgetRule } from '../assistant/useAssistant'
 import { Tab, TabList, TabPanel, Tabs } from '../theme/kit/Tabs'
@@ -25,7 +27,7 @@ import { Select, type SelectOption } from '../theme/Select'
 import './assistant-settings.css'
 import { SettingRow, SettingSwitch } from './controls'
 import { setAppSettings, useAppSettings } from './useAppSettings'
-import { failureLine, timeText, tokensText } from './assistant-settings-format'
+import { failureLine, onSinceText, timeText, tokensText } from './assistant-settings-format'
 import { checkNow, configureDuty, resumeDuty, setPauseAfter, useAssistantSettings } from './useAssistantSettings'
 
 export const order = 55
@@ -63,6 +65,12 @@ const INTERVALS = [5, 10, 15, 20, 30, 60, 120, 240, 480, 1440] as const
 const withCurrent = (values: readonly number[], current: number): number[] => [...new Set<number>([...values, current])].sort((a, b) => a - b)
 
 const WINDOW_LABELS: Readonly<Record<string, string>> = { five_hour: '5-hour window', seven_day: 'weekly window' }
+
+const IN_WINDOW_OPTIONS: readonly SelectOption<InWindowNotices>[] = [
+  { value: 'batched', label: 'Urgent and batched' },
+  { value: 'urgent', label: 'Urgent only' },
+  { value: 'none', label: 'None: the list only' },
+]
 
 function useChoose(): [string | undefined, (patch: AppSettingsPatch) => void] {
   const [problem, setProblem] = useState<string>()
@@ -152,13 +160,26 @@ function CheckRow({ kind, check, choose }: { kind: CheckKind; check: SettingsChe
 
 function General({ view }: { view: AssistantSettingsView | null }): ReactElement {
   const on = useAppSettings(assistantOn)
+  const onSince = useAppSettings(assistantOnSince)
+  const inWindow = useAppSettings(inWindowOf)
+  const systemNotices = useAppSettings(systemNoticesOf)
   const hours = useAppSettings(workHoursOf)
+  // «today» or «yesterday» of «On since …» is read against the moment the section opened.
+  const [openedAt] = useState(() => Date.now())
   const [problem, choose] = useChoose()
   const status = !on ? 'Off. worfy runs no part of it: no wake, no check of a source.' : view?.running === false ? 'On, but it has not started: worfy could not read the events of the Projects.' : 'On. Only worfy’s own duties work until you turn a source on below.'
   return (
     <>
       <SettingRow label={SWITCH_LABEL} description={status} testId="settings-assistant-switch-row">
-        <SettingSwitch label={SWITCH_LABEL} checked={on} onChange={(next) => choose({ assistant: { on: next } })} testId="settings-assistant-switch" />
+        <span className="w-asst-set__inline">
+          {/* Turned on before ticket 25 kept the time: no line then. */}
+          {onSince === null ? null : (
+            <span className="w-asst-set__muted" data-testid="settings-assistant-on-since">
+              {onSinceText(onSince, Math.max(openedAt, onSince))}
+            </span>
+          )}
+          <SettingSwitch label={SWITCH_LABEL} checked={on} onChange={(next) => choose({ assistant: { on: next } })} testId="settings-assistant-switch" />
+        </span>
       </SettingRow>
       <WorkHoursRows hours={hours} choose={(next) => choose({ assistantSchedule: { workHours: next } })} />
       <div className="w-asst-set__group">Checks</div>
@@ -168,6 +189,16 @@ function General({ view }: { view: AssistantSettingsView | null }): ReactElement
           <CheckRow key={kind} kind={kind} check={view?.checks.find((each) => each.kind === kind)} choose={choose} />
         ))}
       </div>
+      <div className="w-asst-set__group">Notifications</div>
+      <SettingRow label="In the window" description="A speech card next to the Assistant icon, one at a time." testId="settings-assistant-in-window">
+        <Select aria-label="In the window" value={inWindow} options={IN_WINDOW_OPTIONS} onChange={(value) => choose({ assistant: { inWindow: value } })} />
+      </SettingRow>
+      <SettingRow label="System notifications" description="Titled “worfy Assistant”, when worfy is not in front." testId="settings-assistant-system-notices">
+        <span className="w-asst-set__inline">
+          <span className="w-asst-set__muted">Urgent only, in work hours</span>
+          <SettingSwitch label="System notifications" checked={systemNotices} onChange={(next) => choose({ assistant: { systemNotices: next } })} testId="settings-assistant-system-notices-switch" />
+        </span>
+      </SettingRow>
       {problem !== undefined ? (
         <p role="alert" className="w-setting-row__description">
           Not saved: {problem}
@@ -188,7 +219,39 @@ const COUNTER_LABELS = [
 
 const THRESHOLDS = [5, 10, 15, 30, 60, 120, 240] as const
 
-function DutyCard({ duty }: { duty: SettingsDuty }): ReactElement {
+/**
+ * The Projects a duty covers (ticket 25): All Projects, or the Projects of this Machine picked one by one — a Linked
+ * machine's are not here (ticket 18). Unpicking the last one goes back to All Projects. None for a duty whose scope is not
+ * by Project (`projects: null`).
+ */
+function DutyProjects({ duty, projects }: { duty: SettingsDuty; projects: AssistantSettingsView['projects'] }): ReactElement | null {
+  if (duty.projects === null || projects.length === 0) return null
+  const all = duty.projects === 'all'
+  const known = new Set(projects.map((project) => project.id))
+  // A Project removed since it was picked is not offered again.
+  const picked = all ? [] : (duty.projects as readonly string[]).filter((id) => known.has(id))
+  const toggle = (id: string): void => {
+    const next = picked.includes(id) ? picked.filter((each) => each !== id) : [...picked, id]
+    void configureDuty(duty.id, { projects: next.length === 0 ? 'all' : next })
+  }
+  return (
+    <div className="w-asst-set__action" data-testid={`settings-assistant-duty-projects-${duty.id}`}>
+      <span>Projects</span>
+      <span className="w-asst-set__days" role="group" aria-label={`${duty.title}: Projects`}>
+        <button type="button" className="w-asst-set__day" aria-pressed={all} onClick={() => (all ? undefined : void configureDuty(duty.id, { projects: 'all' }))}>
+          All Projects
+        </button>
+        {projects.map((project) => (
+          <button key={project.id} type="button" className="w-asst-set__day" aria-pressed={picked.includes(project.id)} onClick={() => toggle(project.id)}>
+            {project.name}
+          </button>
+        ))}
+      </span>
+    </div>
+  )
+}
+
+function DutyCard({ duty, projects }: { duty: SettingsDuty; projects: AssistantSettingsView['projects'] }): ReactElement {
   return (
     <article className="w-asst-set__duty" data-paused={duty.paused === null ? undefined : ''} data-testid={`settings-assistant-duty-${duty.id}`}>
       <div className="w-asst-set__duty-head">
@@ -207,6 +270,7 @@ function DutyCard({ duty }: { duty: SettingsDuty }): ReactElement {
           />
         ) : null}
       </div>
+      <DutyProjects duty={duty} projects={projects} />
       <div className="w-asst-set__counters">
         {COUNTER_LABELS.map(([counter, label]) => (
           <span key={counter}>
@@ -255,7 +319,7 @@ function Duties({ view }: { view: AssistantSettingsView }): ReactElement {
         <Select aria-label="Pause a duty after" value={String(view.pauseAfter)} options={withCurrent([3, 5, 10, 20], view.pauseAfter).map((count) => ({ value: String(count), label: `${count} in a row` }))} onChange={(value) => void setPauseAfter(Number(value))} />
       </SettingRow>
       {view.duties.map((duty) => (
-        <DutyCard key={duty.id} duty={duty} />
+        <DutyCard key={duty.id} duty={duty} projects={view.projects} />
       ))}
     </>
   )

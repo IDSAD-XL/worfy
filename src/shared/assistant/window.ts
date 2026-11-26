@@ -86,9 +86,10 @@ export const windowProposalSchema = z.object({
   prepare: prepareViewSchema.nullable(),
   /**
    * The card «before → after» of a change of the settings (ticket 15): each setting as it is now and as it would be;
-   * once the user applied it, the rows as they were then and when. Null for a proposal that changes no setting.
+   * once the user applied it, the rows as they were then and when, and whether Undo may take it back (ticket 25: absent
+   * or false for one applied before Undo existed). Null for a proposal that changes no setting.
    */
-  change: z.object({ rows: z.array(changeRowSchema), applied: z.number().nullable() }).nullable(),
+  change: z.object({ rows: z.array(changeRowSchema), applied: z.number().nullable(), undoable: z.boolean().optional() }).nullable(),
   createdAt: z.number(),
   rating: ratingSchema.nullable(),
 })

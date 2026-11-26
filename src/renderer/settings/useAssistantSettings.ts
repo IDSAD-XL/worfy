@@ -36,7 +36,8 @@ function refused(what: string, error: string): void {
   showToast({ kind: 'error', key: `assistant-settings:${what}`, text: `${what}: ${readableReason(error)}` })
 }
 
-export async function configureDuty(dutyId: string, choice: { enabled?: boolean; thresholdMinutes?: number; modes?: Partial<Record<DutyAction, DutyActionMode>> }): Promise<void> {
+/** A choice of a duty; `projects`: `all`, or ids of Projects of this Machine (ticket 25). */
+export async function configureDuty(dutyId: string, choice: { enabled?: boolean; thresholdMinutes?: number; modes?: Partial<Record<DutyAction, DutyActionMode>>; projects?: 'all' | string[] }): Promise<void> {
   const result = await invoke('assistant.configureDuty', { dutyId, ...choice })
   if (!result.ok) refused('Change of the duty', result.error)
 }

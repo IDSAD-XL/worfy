@@ -334,8 +334,8 @@ function windowAfter(current: AppSettings, role: AutoCompactRole, patched: numbe
   return { window: clampAutoCompactWindow(patched), chosen: true }
 }
 
-/** The settings after `patch`, with the revision unchanged. */
-function merge(current: AppSettings, patch: AppSettingsPatch): AppSettings {
+/** The settings after `patch`, with the revision unchanged; `now` stamps the Assistant's «On since …» when it turns on. */
+function merge(current: AppSettings, patch: AppSettingsPatch, now: number): AppSettings {
   return {
     interfaceScale: patch.interfaceScale === undefined ? current.interfaceScale : clampScale(patch.interfaceScale),
     sidebar: {
@@ -358,7 +358,7 @@ function merge(current: AppSettings, patch: AppSettingsPatch): AppSettings {
     // Nor Auto-continue: setAutoContinue() is the one way to change it.
     ...continuesChoice(current.autoContinue),
     ...assistantScheduleField(assistantScheduleAfter(current.assistantSchedule, patch.assistantSchedule)),
-    ...assistantField(assistantAfter(current.assistant, patch.assistant)),
+    ...assistantField(assistantAfter(current.assistant, patch.assistant, now)),
     revision: current.revision,
   }
 }
@@ -416,7 +416,7 @@ export class AppSettingsStore extends EventEmitter<{ changed: [AppSettings] }> {
 
   /**
    * Over `file`, read on first use: creating the store does no I/O. `options.now` names the
-   * set-aside copy of an unreadable file in tests.
+   * set-aside copy of an unreadable file in tests, and is the time the Assistant's switch turns on.
    */
   constructor(
     private readonly file: string,
@@ -455,7 +455,7 @@ export class AppSettingsStore extends EventEmitter<{ changed: [AppSettings] }> {
    */
   set(patch: AppSettingsPatch): AppSettings {
     const current = this.current()
-    const merged = merge(current, patch)
+    const merged = merge(current, patch, (this.options.now?.() ?? new Date()).getTime())
     if (!startWindowValid(merged.autopilotRun)) throw new Error(START_WINDOW_SAME_HOURS)
     return this.write(current, merged)
   }

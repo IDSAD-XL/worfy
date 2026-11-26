@@ -19,10 +19,11 @@ import { attentionFileStore, attentionPaths } from '../../src/main/assistant/cor
 import { Duties } from '../../src/main/assistant/duties/duties'
 import { assistantMemoryPath, memoryFileStore } from '../../src/main/assistant/duties/memory'
 import { ProposalBook } from '../../src/main/assistant/proposals/book'
+import { applySettingsChange } from '../../src/main/assistant/settings/panel'
 import { AssistantNotices } from '../../src/main/assistant/window/notices'
 import { AssistantReveal, type RevealClient } from '../../src/main/assistant/window/reveal'
 import { memoryWindowState } from '../../src/main/assistant/window/store'
-import { ASSISTANT_OFF, AssistantWindow, ITEM_GONE, nextWorkHoursAfter, type AssistantRunLike, type AssistantWindowDeps } from '../../src/main/assistant/window/view'
+import { ASSISTANT_OFF, AssistantWindow, ITEM_GONE, nextWorkHoursAfter, SETTINGS_UNDO_ACTION, type AssistantRunLike, type AssistantWindowDeps } from '../../src/main/assistant/window/view'
 import { removeTree } from '../../src/main/storage/remove'
 
 const temp = mkdtempSync(join(tmpdir(), 'worfy-assistant-window-'))
@@ -81,6 +82,7 @@ function world(options: { demo?: boolean } = {}, extra: Partial<AssistantWindowD
     projects: () => projects,
     proposals: book,
     journal: () => journal,
+    record: (line) => void journal.push(line),
     usage: () => ({ today: 25_800, week: 244_600, shares: [{ window: 'five_hour', share: 0.011 }, { window: 'seven_day', share: 0.002 }] }),
     workHours: () => ({ ...WORK, days: [...WORK.days] }),
     store: memoryWindowState(),
@@ -664,6 +666,19 @@ describe('the system notifications of the Assistant', () => {
     expect(opened).toEqual(['assistant'])
   })
 
+  it('turned off in Settings → Assistant, none shows, urgent or not; an item that came while off is not told of once on again (ticket 25)', () => {
+    let allowed = false
+    const shown: unknown[] = []
+    const notes = new AssistantNotices({ focused: () => false, show: (note) => void shown.push(note), reveal: () => undefined, allowed: () => allowed })
+    notes.look(view([{}]))
+    expect(shown).toEqual([])
+    allowed = true
+    notes.look(view([{}]))
+    expect(shown).toEqual([])
+    notes.look(view([{ id: 'later' }]))
+    expect(shown).toEqual([{ title: ASSISTANT_NOTE_TITLE, body: 'shop-api: Item 0' }])
+  })
+
   it('stays silent while worfy is in front, outside work hours, and while the Assistant is off', () => {
     for (const [focused, on, hours] of [
       [true, true, true],
@@ -886,7 +901,7 @@ describe('a card «before → after» with Apply (worfy-assistant ticket 15; sto
     w.window.apply(proposal.id)
     expect(applied).toEqual([{ checks: { slack: { intervalMinutes: 20 } } }])
     expect(settings()).toEqual({ assistantSchedule: { checks: { slack: { intervalMinutes: 20 } } } })
-    expect(w.window.view().proposals[0]?.change).toEqual({ rows: [{ label: 'Slack interval', before: 'Every 10 min', after: 'Every 20 min' }], applied: T0 + MIN })
+    expect(w.window.view().proposals[0]?.change).toEqual({ rows: [{ label: 'Slack interval', before: 'Every 10 min', after: 'Every 20 min' }], applied: T0 + MIN, undoable: true })
     expect(() => w.window.apply(proposal.id)).toThrow('This change is applied already')
     expect(applied).toHaveLength(1)
   })
@@ -899,6 +914,73 @@ describe('a card «before → after» with Apply (worfy-assistant ticket 15; sto
     const bare = world()
     const change = bare.book.create({ title: 'Check Slack less often', why: 'You asked', item: null, prepare: null, change: { dailyWakeLimit: 5 } })
     expect(() => bare.window.apply(change.id)).toThrow('Settings cannot be changed here')
+  })
+
+  it('Undo puts each setting back as it was before Apply, writes a line of the journal, and the card shows Apply again (ticket 25)', () => {
+    const { w, applied, settings } = settingsWorld()
+    const proposal = w.book.create({ title: 'Check Slack less often', why: 'You asked', item: null, prepare: null, change: { checks: { slack: { intervalMinutes: 20 } }, dailyWakeLimit: 10 } })
+    w.window.apply(proposal.id)
+    w.clock.now += MIN
+    w.window.undo(proposal.id)
+    // The same path as Apply, with the values in force before it: the default 10 min and the default limit of 20.
+    expect(applied).toEqual([{ checks: { slack: { intervalMinutes: 20 } }, dailyWakeLimit: 10 }, { checks: { slack: { intervalMinutes: 10 } }, dailyWakeLimit: 20 }])
+    expect(settings()).toEqual({ assistantSchedule: { checks: { slack: { intervalMinutes: 10 } } }, assistant: { dailyWakeLimit: 20 } })
+    expect(w.window.view().proposals[0]?.change?.applied).toBeNull()
+    expect(w.journal).toEqual([
+      expect.objectContaining({ at: T0 + MIN, action: SETTINGS_UNDO_ACTION, by: 'user', outcome: 'done', itemText: 'Before → after card: Check Slack less often', detail: 'Slack interval: Every 20 min → Every 10 min; Daily limit of automatic wakes: 10 → 20' }),
+    ])
+    expect(w.window.view().journal[0]).toMatchObject({ by: 'you', text: 'Undid the settings change', cause: { text: 'Before → after card: Check Slack less often', open: false } })
+    expect(() => w.window.undo(proposal.id)).toThrow('This change is not applied')
+    w.window.apply(proposal.id)
+    expect(settings()).toEqual({ assistantSchedule: { checks: { slack: { intervalMinutes: 20 } } }, assistant: { dailyWakeLimit: 10 } })
+  })
+
+  it('Undo is refused whole, naming it, when a setting of the card changed since Apply: a later choice is never overwritten (ticket 25)', () => {
+    const { w, applied, settings } = settingsWorld()
+    const first = w.book.create({ title: 'Check Slack less often', why: 'You asked', item: null, prepare: null, change: { checks: { slack: { intervalMinutes: 20 } }, dailyWakeLimit: 10 } })
+    const second = w.book.create({ title: 'Check Slack even less often', why: 'You asked again', item: null, prepare: null, change: { checks: { slack: { intervalMinutes: 30 } } } })
+    w.window.apply(first.id)
+    w.window.apply(second.id)
+    expect(() => w.window.undo(first.id)).toThrow('Changed since Apply, so Undo would overwrite it: Slack interval. Change it in Settings → Assistant')
+    expect(applied).toHaveLength(2)
+    expect(settings()).toEqual({ assistantSchedule: { checks: { slack: { intervalMinutes: 30 } } }, assistant: { dailyWakeLimit: 10 } })
+    expect(w.journal).toEqual([])
+    expect(w.window.view().proposals.find((each) => each.id === first.id)?.change?.applied).toBe(T0)
+    // The later card's Undo goes back to what the first one gave; then the first one's Undo may go.
+    w.window.undo(second.id)
+    w.window.undo(first.id)
+    expect(settings()).toEqual({ assistantSchedule: { checks: { slack: { intervalMinutes: 10 } } }, assistant: { dailyWakeLimit: 20 } })
+  })
+
+  it('Undo of a duty: on, the modes and a threshold back to none, through Duties.configure as Apply (ticket 25)', () => {
+    const w: World = world({}, {
+      settings: {
+        now: () => ({ settings: {}, duties: w.duties.look([], { countShown: false }).duties }),
+        apply: (change) => applySettingsChange(change, { duties: w.duties, setSettings: () => undefined }),
+      },
+    })
+    const duty = (id: string) => w.duties.look([], { countShown: false }).duties.find((each) => each.id === id)!
+    const proposal = w.book.create({
+      title: 'Quieter',
+      why: 'You asked',
+      item: null,
+      prepare: null,
+      change: { duties: { 'waits-for-user': { enabled: false, modes: { open: 'ask' } }, 'source:slack': { thresholdMinutes: 45 } } },
+    })
+    w.window.apply(proposal.id)
+    expect(duty('waits-for-user')).toMatchObject({ enabled: false, modes: { open: 'ask', 'pr-follow': 'ask' } })
+    expect(duty('source:slack').thresholdMinutes).toBe(45)
+    w.window.undo(proposal.id)
+    expect(duty('waits-for-user')).toMatchObject({ enabled: true, modes: { open: 'hand-over', 'pr-follow': 'ask' } })
+    expect(duty('source:slack').thresholdMinutes).toBeNull()
+  })
+
+  it('a card applied before Undo existed keeps no Undo: it is refused, and the card says to change it in Settings', () => {
+    const { w } = settingsWorld()
+    const proposal = w.book.create({ title: 'Check Slack less often', why: 'You asked', item: null, prepare: null, change: { dailyWakeLimit: 10 } })
+    w.book.update(proposal.id, { applied: { at: T0, rows: [{ label: 'Daily limit of automatic wakes', before: '20', after: '10' }] } })
+    expect(w.window.view().proposals[0]?.change).toMatchObject({ applied: T0, undoable: false })
+    expect(() => w.window.undo(proposal.id)).toThrow('applied before Undo existed')
   })
 
   it('a change the settings refuse leaves the card as it was, to Apply again or dismiss', () => {

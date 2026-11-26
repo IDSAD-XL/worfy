@@ -1,12 +1,13 @@
 // What Settings → Assistant reads and changes in main (worfy-assistant ticket 15; src/main/assistant/settings/panel.ts):
 // the duties with their modes, counters and pause, the rules from dislikes, each check with its failures in a row and its
 // next time, the wakes of today and the usage of the day and the week; and a change the user applied under a card
-// «before → after». The duties are real, over an in-memory memory file; the scheduler is real, over marks in memory.
+// «before → after»; the Projects a duty covers (ticket 25). The duties are real, over an in-memory memory file; the
+// scheduler is real, over marks in memory.
 import { describe, expect, it } from 'vitest'
 import { Duties } from '../../src/main/assistant/duties/duties'
 import type { AssistantMemory, MemoryStore } from '../../src/main/assistant/duties/memory'
 import { CheckScheduler, memoryCheckMarks } from '../../src/main/assistant/schedule/scheduler'
-import { applySettingsChange, assistantSettingsView } from '../../src/main/assistant/settings/panel'
+import { applySettingsChange, assistantSettingsView, checkDutyProjects } from '../../src/main/assistant/settings/panel'
 import { emptyUsageLedger, usageSummary, type UsageLedger } from '../../src/shared/assistant/budget'
 import type { AssistantScheduleSettings } from '../../src/shared/assistant/schedule/settings'
 import { changeRows, settingsChangeSchema } from '../../src/shared/assistant/settings-change'
@@ -31,9 +32,12 @@ const call = (over: Partial<UsageLedger['calls'][number]>): UsageLedger['calls']
   ...over,
 })
 
-function world({ settings = { assistant: { on: true }, assistantSchedule: { checks: { slack: { enabled: true, sleepOutsideWorkHours: false } } } } as AssistantScheduleSettings & AssistantSettings } = {}) {
+function world({
+  settings = { assistant: { on: true }, assistantSchedule: { checks: { slack: { enabled: true, sleepOutsideWorkHours: false } } } } as AssistantScheduleSettings & AssistantSettings,
+  projects = [] as { id: string; name: string }[],
+} = {}) {
   const store = memory()
-  const duties = new Duties({ now: () => NOW, store })
+  const duties = new Duties({ now: () => NOW, store, projects: () => projects.map((project) => project.id) })
   const marks = memoryCheckMarks({ slack: { startedAt: NOW - 2 * MINUTE, failures: 3 }, jira: { startedAt: NOW - 2 * MINUTE, succeededAt: NOW - 2 * MINUTE } })
   const checks = new CheckScheduler({ now: () => NOW, settings: () => settings, marks, random: () => 0.5, setTimer: () => 0, clearTimer: () => undefined })
   checks.register('slack', () => Promise.resolve())
@@ -47,7 +51,7 @@ function world({ settings = { assistant: { on: true }, assistantSchedule: { chec
     assistantSettingsView({
       running: () => true,
       duties,
-      projects: () => [],
+      projects: () => projects,
       checks,
       usage: () => usageSummary(ledger, NOW),
       shares: () => [{ window: 'five_hour', estimate: true, method: 'cost-share', utilization: 0.34, share: 0.05, since: NOW - 60 * MINUTE }],
@@ -100,6 +104,43 @@ describe('the view of Settings → Assistant', () => {
     expect(slack?.paused).toEqual({ at: NOW, by: 'disliked' })
     expect(view().rules).toEqual([expect.objectContaining({ duty: 'source:slack', text: expect.any(String) })])
     expect(view().pauseAfter).toBe(1)
+  })
+})
+
+describe('the Projects a duty covers (ticket 25)', () => {
+  const projects = [
+    { id: 'p-shop', name: 'shop' },
+    { id: 'p-api', name: 'api' },
+  ]
+
+  it('the view lists the Projects of this Machine, and each duty scoped by Project with its choice; the others none', () => {
+    const { view, duties } = world({ projects })
+    duties.configure('main-ci-red', { projects: ['p-api'] })
+    expect(view().projects).toEqual(projects)
+    const scope = Object.fromEntries(view().duties.map((duty) => [duty.id, duty.projects]))
+    expect(scope).toEqual({ 'work-stalled': 'all', 'main-ci-red': ['p-api'], 'waits-for-user': 'all', 'morning-summary': null, 'source:slack': null, 'source:jira': null })
+  })
+
+  it('a duty whose picked Projects were all removed shows All Projects, as its items show (review)', () => {
+    const { view, duties } = world({ projects })
+    duties.configure('waits-for-user', { projects: ['p-removed'] })
+    expect(view().duties.find((duty) => duty.id === 'waits-for-user')?.projects).toBe('all')
+    duties.configure('waits-for-user', { projects: ['p-removed', 'p-api'] })
+    expect(view().duties.find((duty) => duty.id === 'waits-for-user')?.projects).toEqual(['p-api'])
+  })
+
+  it('a choice reaches Duties.configure only for a duty scoped by Project, and only with Projects of this Machine', () => {
+    const { duties } = world({ projects })
+    const deps = { duties, projects: () => projects }
+    expect(() => checkDutyProjects('waits-for-user', { projects: ['p-shop', 'p-api'] }, deps)).not.toThrow()
+    expect(() => checkDutyProjects('waits-for-user', { projects: 'all' }, deps)).not.toThrow()
+    expect(() => checkDutyProjects('waits-for-user', { enabled: false }, deps)).not.toThrow()
+    // A Linked machine's Project is not this Machine's: its items are only read here (ticket 18).
+    expect(() => checkDutyProjects('waits-for-user', { projects: ['docs-site-9'] }, deps)).toThrow('Not a Project of this Machine: docs-site-9')
+    expect(() => checkDutyProjects('waits-for-user', { projects: [] }, deps)).toThrow('Choose at least one Project, or All Projects')
+    expect(() => checkDutyProjects('source:slack', { projects: ['p-shop'] }, deps)).toThrow('does not cover Projects')
+    expect(() => checkDutyProjects('morning-summary', { projects: 'all' }, deps)).toThrow('does not cover Projects')
+    expect(() => checkDutyProjects('nope', { projects: 'all' }, deps)).toThrow('There is no duty nope')
   })
 })
 

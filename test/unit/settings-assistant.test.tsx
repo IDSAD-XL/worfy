@@ -1,7 +1,8 @@
-// Settings → Assistant (src/renderer/settings/AssistantSection.tsx; worfy-assistant ticket 15; stories 12–15, 17–20, 34
-// and 35): the switch of the Assistant, the work hours, each check with its failures in a row and Check now, each duty
-// with the mode of each action, its counters and its pause, the daily limit of wakes, the usage of the day and the week
-// marked as an estimate, and the rules from dislikes. Over the real renderer IPC client and a fake preload of this
+// Settings → Assistant (src/renderer/settings/AssistantSection.tsx; worfy-assistant tickets 15 and 25; stories 12–15,
+// 17–20, 34 and 35): the switch of the Assistant with «On since …», the work hours, each check with its failures in a row
+// and Check now, the notifications in the window and of the system, each duty with its Projects, the mode of each action,
+// its counters and its pause, the daily limit of wakes, the usage of the day and the week marked as an estimate, and the
+// rules from dislikes. Over the real renderer IPC client and a fake preload of this
 // Machine: a choice goes to main as its channel and its fields; what main keeps is checked in
 // test/contract/assistant-settings.test.ts and test/unit/assistant-settings-panel.test.ts.
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
@@ -36,6 +37,7 @@ const panel = (over: Partial<AssistantSettingsView> = {}): AssistantSettingsView
       projectId: null,
       projectName: null,
       sources: ['Session', 'Pull requests'],
+      projects: ['p-shop'],
       enabled: true,
       thresholdMinutes: 15,
       actions: [
@@ -45,7 +47,11 @@ const panel = (over: Partial<AssistantSettingsView> = {}): AssistantSettingsView
       counters,
       paused: null,
     },
-    { id: 'source:slack', title: 'Slack', projectId: null, projectName: null, sources: ['Slack'], enabled: true, thresholdMinutes: null, actions: [{ action: 'open', mode: 'hand-over', allowed: ['self', 'pre-approved', 'ask', 'hand-over'] }], counters, paused: { at: NOW - 5 * MIN, by: 'ignored' } },
+    { id: 'source:slack', title: 'Slack', projectId: null, projectName: null, sources: ['Slack'], projects: null, enabled: true, thresholdMinutes: null, actions: [{ action: 'open', mode: 'hand-over', allowed: ['self', 'pre-approved', 'ask', 'hand-over'] }], counters, paused: { at: NOW - 5 * MIN, by: 'ignored' } },
+  ],
+  projects: [
+    { id: 'p-shop', name: 'shop' },
+    { id: 'p-api', name: 'api' },
   ],
   pauseAfter: 5,
   rules: [{ id: 'rule-1', text: 'Do not show Slack mention items in shop', duty: 'source:slack', createdAt: NOW - MIN }],
@@ -150,6 +156,36 @@ describe('Settings → Assistant: General', () => {
     await waitFor(() => expect(toasts.getState().toasts.map((toast) => toast.text)).toEqual(['The Slack check did not start: it does not run on this Mac.']))
   })
 
+  it('«On since …» next to the switch says when it was turned on', async () => {
+    await mount(appSettings({ assistant: { on: true, onSince: NOW } }))
+    expect(screen.getByTestId('settings-assistant-on-since').textContent).toMatch(/^On since today, \d\d:\d\d$/)
+  })
+
+  it('an Assistant turned on before the time was kept reads, with no «On since …» line', async () => {
+    await mount(appSettings({ assistant: { on: true } }))
+    expect(screen.getByRole('switch', { name: 'Assistant on this Mac' }).getAttribute('aria-checked')).toBe('true')
+    expect(screen.queryByTestId('settings-assistant-on-since')).toBeNull()
+  })
+
+  it('Notifications: both are shown with their defaults, change and go to main as app settings of this Machine', async () => {
+    const { sent } = await mount()
+    const inWindow = within(screen.getByTestId('settings-assistant-in-window')).getByRole('combobox', { name: 'In the window' })
+    expect(inWindow.textContent).toContain('Urgent and batched')
+    const system = within(screen.getByTestId('settings-assistant-system-notices')).getByRole('switch', { name: 'System notifications' })
+    expect(system.getAttribute('aria-checked')).toBe('true')
+    expect(screen.getByTestId('settings-assistant-system-notices').textContent).toContain('Urgent only, in work hours')
+    fireEvent.click(inWindow)
+    fireEvent.click(screen.getByRole('option', { name: 'None: the list only' }))
+    fireEvent.click(system)
+    await waitFor(() => expect(sent('appSettings.set')).toEqual([{ assistant: { inWindow: 'none' } }, { assistant: { systemNotices: false } }]))
+  })
+
+  it('Notifications read what is kept: urgent only, and the system ones off', async () => {
+    await mount(appSettings({ assistant: { inWindow: 'urgent', systemNotices: false } }))
+    expect(within(screen.getByTestId('settings-assistant-in-window')).getByRole('combobox', { name: 'In the window' }).textContent).toContain('Urgent only')
+    expect(within(screen.getByTestId('settings-assistant-system-notices')).getByRole('switch', { name: 'System notifications' }).getAttribute('aria-checked')).toBe('false')
+  })
+
   it('work hours: a day turned off sends the work hours whole, the other days kept', async () => {
     const { sent } = await mount()
     fireEvent.click(screen.getByRole('button', { name: 'Fri' }))
@@ -171,6 +207,35 @@ describe('Settings → Assistant: Duties', () => {
     fireEvent.click(within(prFollow).getByRole('button', { name: 'Leave to me' }))
     fireEvent.click(within(duty).getByRole('switch', { name: 'Waits for you' }))
     await waitFor(() => expect(sent('assistant.configureDuty')).toEqual([{ dutyId: 'waits-for-user', modes: { 'pr-follow': 'hand-over' } }, { dutyId: 'waits-for-user', enabled: false }]))
+  })
+
+  it('the Projects of a duty: picked ones of this Machine, All Projects back; none offered for a duty not scoped by Project', async () => {
+    const { sent } = await mount()
+    tab('Duties')
+    const projects = within(screen.getByTestId('settings-assistant-duty-waits-for-user')).getByRole('group', { name: 'Waits for you: Projects' })
+    expect(within(projects).getByRole('button', { name: 'shop' }).getAttribute('aria-pressed')).toBe('true')
+    expect(within(projects).getByRole('button', { name: 'All Projects' }).getAttribute('aria-pressed')).toBe('false')
+    fireEvent.click(within(projects).getByRole('button', { name: 'api' }))
+    fireEvent.click(within(projects).getByRole('button', { name: 'shop' }))
+    fireEvent.click(within(projects).getByRole('button', { name: 'All Projects' }))
+    await waitFor(() =>
+      expect(sent('assistant.configureDuty')).toEqual([
+        { dutyId: 'waits-for-user', projects: ['p-shop', 'p-api'] },
+        // The last one unpicked: back to every Project.
+        { dutyId: 'waits-for-user', projects: 'all' },
+        { dutyId: 'waits-for-user', projects: 'all' },
+      ]),
+    )
+    expect(screen.queryByTestId('settings-assistant-duty-projects-source:slack')).toBeNull()
+  })
+
+  it('a duty main reads as All Projects has «All Projects» pressed and no Project (review)', async () => {
+    const base = panel()
+    await mount(appSettings(), { ...base, duties: base.duties.map((duty) => (duty.id === 'waits-for-user' ? { ...duty, projects: 'all' as const } : duty)) })
+    tab('Duties')
+    const projects = within(screen.getByTestId('settings-assistant-duty-waits-for-user')).getByRole('group', { name: 'Waits for you: Projects' })
+    expect(within(projects).getByRole('button', { name: 'All Projects' }).getAttribute('aria-pressed')).toBe('true')
+    expect(within(projects).getByRole('button', { name: 'shop' }).getAttribute('aria-pressed')).toBe('false')
   })
 
   it('a paused duty says so, with Resume', async () => {

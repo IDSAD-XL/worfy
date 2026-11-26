@@ -35,7 +35,7 @@ function world(start = '2026-11-25T10:00:00Z') {
   const now = (): number => at
   const root = join(temp, `root-${roots++}`)
   const projectDir = (id: string): string => join(root, 'projects', id)
-  const duties = new Duties({ now, store: memoryFileStore(assistantMemoryPath(root)), projects: () => [PROJECT], projectRules: (id) => readProjectAssistantRules(projectDir(id), 'plugin') })
+  const duties = new Duties({ now, store: memoryFileStore(assistantMemoryPath(root)), projects: () => [PROJECT, 'p-beta'], projectRules: (id) => readProjectAssistantRules(projectDir(id), 'plugin') })
   const core = new AttentionCore({ now, store: attentionFileStore(attentionPaths(projectDir, root)), settings: () => ({ timeZone: 'UTC' }), projects: () => [PROJECT], dutyOf: (event) => duties.dutyOf(event) })
   const projectOf = (cwd: string): string | null => (cwd.startsWith(PROJECT_PATH) ? PROJECT : null)
   const session = sessionAttention(core, projectOf, now, () => false, () => duties.thresholdMs('work-stalled'))
@@ -94,6 +94,41 @@ describe('a duty', () => {
     // A mode no duty knows is refused, and nothing changes.
     expect(() => w.duties.configure('main-ci-red', { modes: { 'fix-session': 'always' as never } })).toThrow()
     expect(w.status('main-ci-red').modes['fix-session']).toBe('hand-over')
+  })
+
+  it('All Projects widens a narrowed scope back: the item outside it shows again (ticket 25)', () => {
+    const w = world()
+    w.duties.configure('waits-for-user', { projects: ['p-beta'] })
+    w.core.ingest(waits(1))
+    expect(w.shownOf('waits-for-user')).toEqual([])
+    w.duties.configure('waits-for-user', { projects: 'all' })
+    expect(w.status('waits-for-user').scope.projects).toBe('all')
+    expect(w.shownOf('waits-for-user')).toHaveLength(1)
+    w.duties.configure('waits-for-user', { projects: [PROJECT] })
+    expect(w.shownOf('waits-for-user')).toHaveLength(1)
+  })
+
+  it('a scope whose every Project was removed from worfy reads as All Projects: the duty does not go silent (ticket 25, review)', () => {
+    const w = world()
+    w.duties.configure('waits-for-user', { projects: ['p-gone'] })
+    expect(w.status('waits-for-user').scope.projects).toBe('all')
+    w.core.ingest(waits(1))
+    expect(w.shownOf('waits-for-user')).toHaveLength(1)
+    // A removed Project among kept ones only drops out of the scope.
+    w.duties.configure('waits-for-user', { projects: ['p-gone', PROJECT] })
+    expect(w.status('waits-for-user').scope.projects).toEqual([PROJECT])
+    expect(w.shownOf('waits-for-user')).toHaveLength(1)
+  })
+
+  it('a threshold of null drops the user\'s one: back to the duty\'s own, none for a duty that has none (Undo, ticket 25)', () => {
+    const w = world()
+    w.duties.configure('waits-for-user', { thresholdMinutes: 60 })
+    w.duties.configure('source:slack', { thresholdMinutes: 45 })
+    expect(w.status('source:slack').thresholdMinutes).toBe(45)
+    w.duties.configure('waits-for-user', { thresholdMinutes: null })
+    w.duties.configure('source:slack', { thresholdMinutes: null })
+    expect(w.status('waits-for-user').thresholdMinutes).toBe(15)
+    expect(w.status('source:slack').thresholdMinutes).toBeNull()
   })
 })
 
