@@ -7,6 +7,7 @@
 // the same data); the window — the boundary at the root, around the whole App — reloads the page.
 import { Component, type ErrorInfo, type ReactNode } from 'react'
 import { Button } from '../theme/Button'
+import { errorText, topComponent } from './error-text'
 import './error-boundary.css'
 
 export type BoundaryScope = 'section' | 'tab' | 'view' | 'window'
@@ -32,25 +33,6 @@ const TITLES: Record<BoundaryScope, string> = {
   window: 'worfy failed to render this window',
 }
 
-/** The message of whatever was thrown: an Error's message, else the value as text. */
-export function errorText(error: unknown): string {
-  if (error instanceof Error) return error.message === '' ? error.name : error.message
-  try {
-    return typeof error === 'string' ? error : (JSON.stringify(error) ?? String(error))
-  } catch {
-    return String(error)
-  }
-}
-
-/** The innermost component of a React component stack (`    at Journal (…)` in Chromium, `    in Journal` elsewhere). */
-export function topComponent(stack: string | null | undefined): string | null {
-  const line = stack
-    ?.split('\n')
-    .map((each) => each.trim())
-    .find((each) => each !== '')
-  const name = line?.match(/^(?:at|in)\s+([^\s(]+)/)?.[1]
-  return name ?? null
-}
 
 export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   override state: ErrorBoundaryState = { failed: false, error: undefined, where: null }

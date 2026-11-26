@@ -15,7 +15,8 @@ vi.mock('../../src/renderer/ipc', async (importOriginal) => ({
   subscribe: () => () => undefined,
 }))
 
-const { ErrorBoundary, errorText, topComponent } = await import('../../src/renderer/shell/ErrorBoundary')
+const { ErrorBoundary } = await import('../../src/renderer/shell/ErrorBoundary')
+const { errorText, topComponent } = await import('../../src/renderer/shell/error-text')
 const { AppShell } = await import('../../src/renderer/shell/AppShell')
 const { SidebarView } = await import('../../src/renderer/shell/Sidebar')
 const { collectExtensions } = await import('../../src/renderer/shell/registry')

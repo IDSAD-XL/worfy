@@ -10,6 +10,10 @@ requests** (see [Pull requests](pr-inbox.md)). In a narrow window the tabs show 
 tooltip. Runs and Pull requests are inactive without a Project. Every view stays mounted while another one is shown,
 so switching back finds it as it was.
 
+A part that fails to render stays a part: a sidebar section, a tab of the Assistant or a view shows "This section failed
+to render" (or "This tab…", "This view…") with the error's message and **Reload**, and the rest of the window keeps
+working. An error outside all of them shows the message and **Reload window** instead of a blank window.
+
 ## Sidebar
 
 ### Behaviour
@@ -167,9 +171,10 @@ watcher. Only the open Project's documents are watched.
 | Live state of every Project | `src/shared/ipc/project-pulse.ts`, `src/main/claude-home/pulse.ts`, `src/main/ipc/project-pulse.ts`, `src/renderer/projects/useProjectPulse.ts` |
 | A Session of another Project, opened after its Project | `src/renderer/shell/session-request.ts` |
 | Sections | `src/renderer/shell/sidebar/` |
+| What a part that fails to render shows | `src/renderer/shell/ErrorBoundary.tsx`, `src/renderer/shell/error-boundary.css`; placed in `Sidebar.tsx`, `AppShell.tsx`, `src/renderer/assistant/AssistantPanel.tsx` and `src/renderer/main.tsx` |
 | Rail entries of the sections | `src/renderer/shell/registry.ts` |
 
-Main tests: `test/unit/sidebar-scope.test.tsx`, `test/unit/sidebar-resize.test.tsx`, `test/e2e/sidebar-resize.spec.ts`, `test/unit/assistant-window.test.ts`, `test/unit/assistant-panel.test.tsx`, `test/unit/assistant-speech.test.tsx`, `test/unit/assistant-intro.test.ts`, `test/unit/assistant-offer.test.tsx`, `test/e2e/assistant.spec.ts`, `test/unit/sidebar-section.test.tsx`, `test/unit/health-rail-button.test.tsx`, `test/unit/acceptance-section.test.tsx`, `test/e2e/sidebar-rail.spec.ts`,
+Main tests: `test/unit/sidebar-scope.test.tsx`, `test/unit/error-boundary.test.tsx`, `test/unit/sidebar-resize.test.tsx`, `test/e2e/sidebar-resize.spec.ts`, `test/unit/assistant-window.test.ts`, `test/unit/assistant-panel.test.tsx`, `test/unit/assistant-speech.test.tsx`, `test/unit/assistant-intro.test.ts`, `test/unit/assistant-offer.test.tsx`, `test/e2e/assistant.spec.ts`, `test/unit/sidebar-section.test.tsx`, `test/unit/health-rail-button.test.tsx`, `test/unit/acceptance-section.test.tsx`, `test/e2e/sidebar-rail.spec.ts`,
 `test/e2e/sidebar-sections.spec.ts`.
 
 ## Command palette
