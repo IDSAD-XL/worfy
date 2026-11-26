@@ -37,7 +37,7 @@ function world({
   projects = [] as { id: string; name: string }[],
 } = {}) {
   const store = memory()
-  const duties = new Duties({ now: () => NOW, store })
+  const duties = new Duties({ now: () => NOW, store, projects: () => projects.map((project) => project.id) })
   const marks = memoryCheckMarks({ slack: { startedAt: NOW - 2 * MINUTE, failures: 3 }, jira: { startedAt: NOW - 2 * MINUTE, succeededAt: NOW - 2 * MINUTE } })
   const checks = new CheckScheduler({ now: () => NOW, settings: () => settings, marks, random: () => 0.5, setTimer: () => 0, clearTimer: () => undefined })
   checks.register('slack', () => Promise.resolve())
@@ -119,6 +119,14 @@ describe('the Projects a duty covers (ticket 25)', () => {
     expect(view().projects).toEqual(projects)
     const scope = Object.fromEntries(view().duties.map((duty) => [duty.id, duty.projects]))
     expect(scope).toEqual({ 'work-stalled': 'all', 'main-ci-red': ['p-api'], 'waits-for-user': 'all', 'morning-summary': null, 'source:slack': null, 'source:jira': null })
+  })
+
+  it('a duty whose picked Projects were all removed shows All Projects, as its items show (review)', () => {
+    const { view, duties } = world({ projects })
+    duties.configure('waits-for-user', { projects: ['p-removed'] })
+    expect(view().duties.find((duty) => duty.id === 'waits-for-user')?.projects).toBe('all')
+    duties.configure('waits-for-user', { projects: ['p-removed', 'p-api'] })
+    expect(view().duties.find((duty) => duty.id === 'waits-for-user')?.projects).toEqual(['p-api'])
   })
 
   it('a choice reaches Duties.configure only for a duty scoped by Project, and only with Projects of this Machine', () => {

@@ -188,7 +188,9 @@ export function checkDutyProjects(dutyId: string, choice: DutyChoice, deps: { du
   скрыла бы все свои пункты.
 - Требование: [Что строить, пункт 3](../issues/25-части-прототипа-не-вошедшие-в-ticket-15.md#что-строить)
 - Риски и пробелы test-ов: список Project-ов берётся в момент щелчка; Project, удалённый между показом и щелчком,
-  main отклонит, и toast скажет почему.
+  main отклонит, и toast скажет почему. Если все выбранные Project-ы удалены из worfy, `Duties.scopeOf` читает область
+  как All Projects — и в фильтре, и в Settings (решение 8а; test-ы `a scope whose every Project was removed` и
+  `a duty whose picked Projects were all removed`).
 
 ## 8. «On since …»: время ставит main, патч его не несёт
 

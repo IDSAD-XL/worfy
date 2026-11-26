@@ -52,7 +52,10 @@ const WAITED_KINDS: ReadonlySet<string> = new Set(['quiet', 'question', 'permiss
 export interface DutiesOptions {
   now: () => number
   store: MemoryStore
-  /** The Projects whose rules are duties too. */
+  /**
+   * The Projects of this Machine: their rules are duties too, and a duty's scope counts only those of them (a scope whose
+   * every Project was removed reads as All Projects, ticket 25). Absent: a scope is taken as stored.
+   */
   projects?: () => readonly string[]
   /** The rules of a Project's settings (readProjectAssistantRules). */
   projectRules?: (projectId: string) => readonly ProjectRule[]
@@ -364,7 +367,8 @@ export class Duties {
       }
       if (item.state !== 'new' && item.state !== 'seen') continue
       if (state?.enabled === false || state?.paused !== undefined) continue
-      if (state?.projects !== undefined && (item.projectId === null || !state.projects.includes(item.projectId))) continue
+      const scope = this.scopeOf(state)
+      if (scope !== 'all' && (item.projectId === null || !scope.includes(item.projectId))) continue
       // From the latest event glued into the item: a question at noon after a turn-end at ten waits from noon.
       if (item.source === 'session' && WAITED_KINDS.has(item.kind) && now - (item.lastAt ?? item.startedAt) < this.thresholdMs(id)) continue
       if (memory.rules.some((rule) => rule.duty === id && rule.projectId === item.projectId && rule.source === item.source && rule.kind === item.kind)) continue
@@ -398,6 +402,19 @@ export class Duties {
     return proposals
   }
 
+  /**
+   * The Projects a duty covers now (ticket 25): the chosen ones that are still Projects of this Machine. When none of them
+   * is any more — every chosen Project was removed from worfy — All Projects, so the duty does not go silent; Settings
+   * shows the same. The memory file keeps the choice as made: a Project added back with the same id counts again.
+   */
+  private scopeOf(state: { projects?: readonly string[] } | undefined): 'all' | readonly string[] {
+    if (state?.projects === undefined) return 'all'
+    const known = this.options.projects?.()
+    if (known === undefined) return state.projects
+    const kept = state.projects.filter((id) => known.includes(id))
+    return kept.length === 0 ? 'all' : kept
+  }
+
   private status({ definition, projectId }: Known): DutyStatus {
     const state = this.load().duties[definition.id]
     return {
@@ -405,7 +422,7 @@ export class Duties {
       title: definition.title,
       projectId,
       trigger: definition.trigger,
-      scope: { projects: state?.projects ?? 'all', sources: triggerSources(definition.trigger) },
+      scope: { projects: this.scopeOf(state), sources: triggerSources(definition.trigger) },
       modes: { ...definition.actions, ...state?.modes },
       thresholdMinutes: state?.thresholdMinutes ?? definition.thresholdMinutes ?? null,
       enabled: state?.enabled ?? true,

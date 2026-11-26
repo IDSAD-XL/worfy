@@ -229,6 +229,15 @@ describe('Settings → Assistant: Duties', () => {
     expect(screen.queryByTestId('settings-assistant-duty-projects-source:slack')).toBeNull()
   })
 
+  it('a duty main reads as All Projects has «All Projects» pressed and no Project (review)', async () => {
+    const base = panel()
+    await mount(appSettings(), { ...base, duties: base.duties.map((duty) => (duty.id === 'waits-for-user' ? { ...duty, projects: 'all' as const } : duty)) })
+    tab('Duties')
+    const projects = within(screen.getByTestId('settings-assistant-duty-waits-for-user')).getByRole('group', { name: 'Waits for you: Projects' })
+    expect(within(projects).getByRole('button', { name: 'All Projects' }).getAttribute('aria-pressed')).toBe('true')
+    expect(within(projects).getByRole('button', { name: 'shop' }).getAttribute('aria-pressed')).toBe('false')
+  })
+
   it('a paused duty says so, with Resume', async () => {
     const { sent } = await mount()
     tab('Duties')
