@@ -18,6 +18,13 @@
 // that throws, or does not end within CHECK_RUN_TIMEOUT_MS, is written to the console and tried again after
 // its interval; `since` stays at the last success.
 //
+// Failures in a row (worfy-assistant ticket 22): a check of an outside source (BACKOFF_KINDS) that failed
+// BACKOFF_AFTER_FAILURES times in a row waits BACKOFF_FACTOR times longer with each further failure, up to
+// BACKOFF_CEILING_MS — a broken connector is not asked, and paid for, every few minutes without end. The
+// first success brings the usual interval back, and so does the person turning the check on again or changing its
+// interval (reschedule): they ask for the check, so it is no longer held back. The count is kept in the marks, so it
+// outlives a restart.
+//
 // The Mac's sleep: suspend() clears the timer and refuses every start until resume(), which plans again —
 // so no check goes while the Mac sleeps, and the missed one goes on waking. worfy closed: the starts and
 // successes are kept by a CheckMarksStore (a file in worfy's data folder, src/main/assistant/schedule/app.ts),
@@ -26,7 +33,7 @@
 // Time is the clock given (`now`); the timer waits at most MAX_TIMER_MS at once and plans again on waking,
 // so a change of the system clock or of the time zone is caught within that time.
 import { z } from 'zod'
-import { checkKindSchema, checkSettingsOf, workHoursOf, type AssistantScheduleSettings, type CheckKind } from '../../../shared/assistant/schedule/settings'
+import { CHECK_INTERVAL_BOUNDS, checkKindSchema, checkSettingsOf, SOURCE_CHECK_KINDS, workHoursOf, type AssistantScheduleSettings, type CheckKind } from '../../../shared/assistant/schedule/settings'
 import { inWorkHours, nextWorkHoursStart, workWindowStartOf } from '../../../shared/assistant/schedule/work-hours'
 
 /** The spread of a check's interval, as a share of it: ±10 %. */
@@ -43,6 +50,30 @@ export const MAX_TIMER_MS = 60 * 60_000
 export const CHECK_RUN_TIMEOUT_MS = 10 * 60_000
 
 const MINUTE_MS = 60_000
+
+/** How many failures in a row a check of BACKOFF_KINDS takes at its usual interval: the next one makes it wait longer. Decided without the owner (ticket 22). */
+export const BACKOFF_AFTER_FAILURES = 3
+
+/** How many times longer a backed-off check waits with each further failure in a row. Decided without the owner (ticket 22). */
+export const BACKOFF_FACTOR = 2
+
+/** The longest a backed-off check waits: the upper bound of a check's interval in the settings, a day. */
+export const BACKOFF_CEILING_MS = CHECK_INTERVAL_BOUNDS.max * MINUTE_MS
+
+/**
+ * The kinds that back off: the checks of outside sources, whose every call is paid and whose window `since…now` grows
+ * with each failure. The CI of the main branch (`main-ci`, ticket 21) keeps its interval: its read costs nothing, and
+ * a red main branch must be seen soon after the network comes back. Decided without the owner (ticket 22).
+ */
+export const BACKOFF_KINDS: readonly CheckKind[] = SOURCE_CHECK_KINDS
+
+/** The interval of a check of `kind` after `failures` failures in a row, in ms: the usual one until the backoff. */
+export function backedOffInterval(kind: CheckKind, interval: number, failures: number): number {
+  if (!BACKOFF_KINDS.includes(kind) || failures < BACKOFF_AFTER_FAILURES) return interval
+  // The exponent is bounded so a long count cannot overflow to Infinity: the ceiling is reached long before.
+  const steps = Math.min(failures - BACKOFF_AFTER_FAILURES + 1, 32)
+  return Math.max(interval, Math.min(BACKOFF_CEILING_MS, interval * BACKOFF_FACTOR ** steps))
+}
 
 /** What a run of a check is told. */
 export interface CheckRunContext {
@@ -63,8 +94,13 @@ export interface CheckRunResult {
 
 export type CheckRun = (context: CheckRunContext) => Promise<void | CheckRunResult>
 
-/** When a kind last started a run, and when the last run that succeeded started. */
-export const checkMarkSchema = z.object({ startedAt: z.number().optional(), succeededAt: z.number().optional() })
+/**
+ * When a kind last started a run, when the last run that succeeded started, and how many runs failed in a row since
+ * (ticket 22; absent — none). A count the schema refuses (a file edited by hand) reads as none, so the file is not set
+ * aside for it. A build before ticket 22 reads a mark with `failures` and drops the field: its object schema is not
+ * strict, so it does not set the file aside either.
+ */
+export const checkMarkSchema = z.object({ startedAt: z.number().optional(), succeededAt: z.number().optional(), failures: z.number().int().min(1).optional().catch(undefined) })
 export type CheckMark = z.output<typeof checkMarkSchema>
 
 export const checkMarksSchema = z.partialRecord(checkKindSchema, checkMarkSchema)
@@ -104,6 +140,8 @@ interface Entry {
   running: boolean
   /** The spread of the next run, as a share of the interval; drawn after each run. */
   spread: number
+  /** Whether the kind was on, and its interval, at the last reschedule: a change of either clears its failures in a row. */
+  seen: { enabled: boolean; intervalMinutes: number }
 }
 
 export class CheckScheduler {
@@ -118,7 +156,8 @@ export class CheckScheduler {
   /** Registers the check of `kind`; answers a function that removes it. One check per kind. */
   register(kind: CheckKind, run: CheckRun): () => void {
     if (this.entries.has(kind)) throw new Error(`a check of kind ${kind} is registered already`)
-    const entry: Entry = { run, running: false, spread: this.draw() }
+    const { enabled, intervalMinutes } = checkSettingsOf(this.options.settings(), kind)
+    const entry: Entry = { run, running: false, spread: this.draw(), seen: { enabled, intervalMinutes } }
     this.entries.set(kind, entry)
     this.plan()
     return () => {
@@ -152,8 +191,23 @@ export class CheckScheduler {
     this.plan()
   }
 
-  /** The settings changed: plans again by them. */
+  /**
+   * The settings changed: plans again by them. A kind turned on again, or given another interval, loses its failures
+   * in a row: the person asked for the check, so its next run is its plain interval (ticket 22).
+   */
   reschedule(): void {
+    const settings = this.options.settings()
+    for (const [kind, entry] of this.entries) {
+      const { enabled, intervalMinutes } = checkSettingsOf(settings, kind)
+      const turnedOn = enabled && !entry.seen.enabled
+      const newInterval = intervalMinutes !== entry.seen.intervalMinutes
+      entry.seen = { enabled, intervalMinutes }
+      const failures = this.readMarks()[kind]?.failures
+      if ((turnedOn || newInterval) && failures !== undefined) {
+        this.mark(kind, { failures: undefined })
+        if (failures >= BACKOFF_AFTER_FAILURES) console.info(`[assistant] the ${kind} check was ${turnedOn ? 'turned on again' : 'given another interval'}: back to its usual interval`)
+      }
+    }
     this.plan()
   }
 
@@ -205,10 +259,12 @@ export class CheckScheduler {
     const settings = this.options.settings()
     const check = checkSettingsOf(settings, kind)
     if (!check.enabled) return null
-    const startedAt = this.readMarks()[kind]?.startedAt
+    const mark = this.readMarks()[kind]
+    const startedAt = mark?.startedAt
     const interval = check.intervalMinutes * MINUTE_MS
+    const wait = backedOffInterval(kind, interval, mark?.failures ?? 0)
     // A start in the future (the clock was moved back) plan() has already brought to now.
-    const due = startedAt === undefined ? null : startedAt + Math.round(interval * (1 + entry.spread))
+    const due = startedAt === undefined ? null : startedAt + Math.round(wait * (1 + entry.spread))
     const moment = Math.max(due ?? now, now)
     if (!check.sleepOutsideWorkHours) return moment
     // A check that had to wait for work hours — it fell due outside them, or never ran — goes after their
@@ -235,10 +291,13 @@ export class CheckScheduler {
       if (ended) return
       ended = true
       this.clearTimer(limit)
+      const failures = this.readMarks()[kind]?.failures ?? 0
       // A run that covered only part of its time moves `since` that far, never past its own start.
-      if (succeeded) this.mark(kind, { succeededAt: coveredUntil === undefined ? now : Math.min(now, coveredUntil) })
+      if (succeeded) this.mark(kind, { succeededAt: coveredUntil === undefined ? now : Math.min(now, coveredUntil), failures: undefined })
+      else if (BACKOFF_KINDS.includes(kind)) this.mark(kind, { failures: failures + 1 })
       entry.running = false
       entry.spread = this.draw()
+      this.noteBackoff(kind, entry, succeeded ? 0 : failures + 1, failures)
       this.plan()
     }
     const limit = this.setTimer(() => {
@@ -258,6 +317,18 @@ export class CheckScheduler {
         end(false)
       },
     )
+  }
+
+  /** One line when the backoff of `kind` begins and one when a success lifts it; nothing for the failures between. */
+  private noteBackoff(kind: CheckKind, entry: Entry, failures: number, before: number): void {
+    if (!BACKOFF_KINDS.includes(kind)) return
+    if (failures === BACKOFF_AFTER_FAILURES) {
+      const next = this.dueOf(kind, entry, this.options.now())
+      const when = next === null ? 'none while it is off' : `the next run at ${new Date(next).toISOString()}`
+      console.warn(`[assistant] the ${kind} check failed ${failures} times in a row: it backs off, ${when}`)
+    } else if (failures === 0 && before >= BACKOFF_AFTER_FAILURES) {
+      console.info(`[assistant] the ${kind} check succeeded after ${before} failures in a row: back to its usual interval`)
+    }
   }
 
   private setTimer(callback: () => void, ms: number): unknown {

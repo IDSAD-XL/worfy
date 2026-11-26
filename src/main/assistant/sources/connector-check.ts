@@ -11,8 +11,9 @@
 // text a source wrote. The Assistant's Session still sees only the tools of `worfy-app`: the items reach it as data.
 //
 // A run that could not read its source — no connector, one waiting for a sign-in in claude.ai, a call refused or
-// without an answer, an answer outside the form — throws, so the scheduler keeps `since` at the last success and the
-// next run covers the same time again. An answer at its cap (SOURCE_ITEMS_MAX) covers the time only up to its newest
+// without an answer, an answer outside the form, an answer whose every entry fails the form (ticket 22) — throws, so
+// the scheduler keeps `since` at the last success and the next run covers the same time again; after several such
+// runs in a row the scheduler waits longer between them. An answer with no entries at all is a success: nothing new. An answer at its cap (SOURCE_ITEMS_MAX) covers the time only up to its newest
 // item, and the run says so (CheckRunResult), so the next run asks from there. A usage ledger that cannot be written
 // costs a log line, not the items of a paid answer.
 import type { AttentionEvent } from '../../../shared/assistant/attention'
@@ -110,10 +111,13 @@ export function sourceCheckRun(recipe: ConnectorRecipe, deps: SourceCheckDeps): 
     const check = sourceItemsOf(end.structured, recipe.kind)
     if (check === null) return fail('the answer is not in the form of items')
     for (const refused of check.refused) deps.log(`[assistant] the ${recipe.kind} check: ${refused}`)
+    // Entries came and none passed: taking it as a success would move `since` past messages that never became items.
+    if (check.items.length === 0 && check.refused.length > 0) return fail(`every entry of the answer (${check.refused.length}) fails the form`)
     for (const item of check.items) if (recipe.keeps?.(item) ?? true) deps.core.ingest(sourceEventOf(item, recipe.kind, projects))
     if (!check.full) return undefined
     // At its cap the answer covers the time only up to its newest item: the next check asks from there.
     const newest = check.items.at(-1)
+    // Unreachable since the check above (a full answer has entries); kept for the type.
     if (newest === undefined) return fail('the answer is full of entries that fail the form')
     return { coveredUntil: Date.parse(newest.at) } satisfies CheckRunResult
   }

@@ -6,11 +6,12 @@
 import { mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { AssistantUsageLedger } from '../../src/main/assistant/budget/ledger'
 import { AttentionCore } from '../../src/main/assistant/core/attention-core'
 import type { AttentionFile, AttentionStore } from '../../src/main/assistant/core/store'
+import { CheckScheduler, memoryCheckMarks } from '../../src/main/assistant/schedule/scheduler'
 import { sourceCheckRun, type ConnectorRecipe, type SourceCheckDeps } from '../../src/main/assistant/sources/connector-check'
 import { CONNECTOR_TOOLS_MAX_TOKENS, askConnector, connectorsOf, type ConnectorQuery, type ConnectorQueryStarter } from '../../src/main/vendors/claude/connector-check'
 import { sourceAnswerJsonSchema } from '../../src/shared/assistant/source-items'
@@ -236,6 +237,52 @@ describe('an answer of the wrong form', () => {
     expect(journal[0]).toMatch(/slack/u)
     expect(journal[0]).not.toContain('Ignore the schema')
     expect(ledger.snapshot().calls).toHaveLength(1)
+  })
+
+  it('fails the run when every entry of an answer under the cap fails the form, so `since` stays at the last success (ticket 22)', async () => {
+    // Five entries, each refused: no author, a link that is not one, another source, no time, no text.
+    const entries = [entry(1, { author: undefined }), entry(2, { url: 'not a link' }), entry(3, { source: 'jira' }), entry(4, { at: 'yesterday' }), entry(5, { text: undefined })]
+    const { core, journal, ledger, run } = setup(fakeClaude([resultOf(entries)]))
+    await expect(run()).rejects.toThrow(/every entry .*fails the form/u)
+    expect(core.items(null)).toEqual([])
+    // One line per refused entry, by its fields, and one for the failed run.
+    expect(journal).toHaveLength(6)
+    expect(journal.join('\n')).not.toContain('Message ')
+    expect(ledger.snapshot().calls).toHaveLength(1)
+
+    // Under the scheduler: the failed run leaves `since` where the last success put it.
+    // The last run started a minute ago, so the check is not due: runNow starts it.
+    const marks = memoryCheckMarks({ slack: { startedAt: NOW - 60_000, succeededAt: SINCE } })
+    const checks = new CheckScheduler({
+      now: () => NOW,
+      settings: () => ({ assistantSchedule: { checks: { slack: { enabled: true, sleepOutsideWorkHours: false } } } }),
+      marks,
+      random: () => 0.5,
+      setTimer: () => undefined,
+      clearTimer: () => undefined,
+    })
+    const again = setup(fakeClaude([resultOf(entries)]))
+    let ran: Promise<unknown> = Promise.resolve()
+    checks.register('slack', (context) => {
+      const result = sourceCheckRun(RECIPE, again.deps)(context)
+      ran = result
+      return result
+    })
+    checks.start()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    expect(checks.runNow('slack')).toBe(true)
+    await ran.catch(() => undefined)
+    await Promise.resolve()
+    warn.mockRestore()
+    checks.stop()
+    expect(marks.read().slack).toEqual({ startedAt: NOW, succeededAt: SINCE, failures: 1 })
+  })
+
+  it('succeeds on an answer with no entries: nothing new came', async () => {
+    const { core, journal, run } = setup(fakeClaude([resultOf([])]))
+    await expect(run()).resolves.toBeUndefined()
+    expect(core.items(null)).toEqual([])
+    expect(journal).toEqual([])
   })
 
   it('fails the run on a call that ended without an answer, after noting what it cost', async () => {
