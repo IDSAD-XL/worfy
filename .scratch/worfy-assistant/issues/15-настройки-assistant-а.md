@@ -1,7 +1,8 @@
 # 15 — Настройки Assistant-а и карточки «было → станет» с Apply
 
 Type: task
-Status: claimed 2026-11-26T05:59Z
+Status: done 2026-11-26T09:55Z
+PR: #2266
 Blocked by: 04, 05, 07, 14
 Source: [spec.md](../spec.md), «Ticket-ы», строка 15; «Решения владельца», 5, 7, 10 и 20; «Решения по реализации» →
 «Расписание проверок», «Обязанности», «Мониторинг расхода», «UI»; «Решения по test-ам», В; истории 12–15, 17–20, 26, 34
@@ -51,23 +52,31 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 15; «Решения 
 
 - [ ] В Settings Assistant выключается целиком, каждая обязанность и каждая проверка — по отдельности.
   - evidence: test-run pass · `pnpm test` exit 0 · mac - · 9d327e867
+  - evidence: review pass · PR #2266 · - - · f8ff49fb1c8ec4a52d0db07d9c22b4c591f6b2a0
 - [ ] В Settings задаются work hours (дни, окна, часовой пояс) и у каждого типа проверки — включение, интервал и сон вне
       work hours.
   - evidence: test-run pass · `pnpm test` exit 0 · mac - · 9d327e867
+  - evidence: review pass · PR #2266 · - - · f8ff49fb1c8ec4a52d0db07d9c22b4c591f6b2a0
 - [ ] У каждой обязанности видны режим каждого действия (и меняется), счётчики и пауза; правила из оценок видны и
       удаляются.
   - evidence: test-run pass · `pnpm test` exit 0 · mac - · 9d327e867
+  - evidence: review pass · PR #2266 · - - · f8ff49fb1c8ec4a52d0db07d9c22b4c591f6b2a0
 - [ ] В Settings задаются дневной предел пробуждений и видны подробности расхода — по источникам, по пробуждениям и по
       разговору, за день и за неделю; доля Limits помечена как оценка.
   - evidence: test-run pass · `pnpm test` exit 0 · mac - · 9d327e867
+  - evidence: review pass · PR #2266 · - - · f8ff49fb1c8ec4a52d0db07d9c22b4c591f6b2a0
 - [ ] Настройку, которую предлагает Assistant, меняет только щелчок Apply под карточкой «было → станет»; без щелчка
       настройка не меняется.
   - evidence: test-run pass · `pnpm test` exit 0 · mac - · 9d327e867
+  - evidence: review pass · PR #2266 · - - · f8ff49fb1c8ec4a52d0db07d9c22b4c591f6b2a0
 - [ ] У нового пользователя и у обновившегося Assistant выключен; после включения работают только внутренние
       обязанности, внешние источники выключены, пока их не включат по одному.
   - evidence: test-run pass · `pnpm test` exit 0 · mac - · 9d327e867
+  - evidence: review pass · PR #2266 · - - · f8ff49fb1c8ec4a52d0db07d9c22b4c591f6b2a0
 - [ ] e2e с `WORFY_AGENT=fake`: карточка Apply — зелёный.
+  - evidence: review pass · PR #2266 · - - · f8ff49fb1c8ec4a52d0db07d9c22b4c591f6b2a0
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45787300237/job/139826863753 · ci - · f8ff49fb1c8ec4a52d0db07d9c22b4c591f6b2a0
 
 ## Итог
 
