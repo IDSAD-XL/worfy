@@ -91,7 +91,7 @@ const HEAD = 'b1c2d3e4f5' + '0'.repeat(30)
 function client(aheadBy: number | undefined): UpdateGitHub {
   const ok = <T,>(value: T) => Promise.resolve({ ok: true as const, value })
   return {
-    headOfMain: () => ok(HEAD),
+    headOfMain: () => ok({ sha: HEAD }),
     ciOk: () => ok('success' as const),
     compare: () => ok({ status: 'ahead' as const, files: ['src/main/x.ts'], commits: [], ...(aheadBy === undefined ? {} : { aheadBy }) }),
     packageVersion: () => ok('0.3.0'),

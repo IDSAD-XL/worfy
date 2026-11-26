@@ -1,6 +1,6 @@
 // The GitHub API without sign-in, for the Update check (worfy-update ticket 01, ADR-0089 point 1).
-// Four reads of the public repository IDSAD-XL/worfy: the head of `main`, the `ci-ok` check on a
-// commit, the comparison of two commits, and the `version` of package.json on a commit.
+// Four reads of the public repository IDSAD-XL/worfy: the head of `main` (with its commit time), the
+// `ci-ok` check on a commit, the comparison of two commits, and the `version` of package.json on a commit.
 //
 // No request ever carries an Authorization header, and GH_TOKEN or GITHUB_TOKEN are never read: the
 // user's token is not worfy's to spend (ADR-0089 point 1). Without sign-in GitHub allows 60 requests
@@ -36,9 +36,17 @@ export interface Comparison {
   aheadBy?: number
 }
 
+/**
+ * The head of `main`: its SHA, and when it was committed (the committer date GitHub gives with the
+ * branch; worfy-polish ticket 156) when the answer has one.
+ */
+export interface MainHead {
+  sha: string
+  committedAt?: string
+}
+
 export interface UpdateGitHub {
-  /** The SHA of the head of `main`. */
-  headOfMain(): Promise<Read<string>>
+  headOfMain(): Promise<Read<MainHead>>
   ciOk(sha: string): Promise<Read<CiOkState>>
   /** `compare/<base>...<head>`; null when GitHub does not know one of them (404). */
   compare(base: string, head: string): Promise<Read<Comparison | null>>
@@ -48,7 +56,16 @@ export interface UpdateGitHub {
 
 type Env = Readonly<Record<string, string | undefined>>
 
-const branchSchema = z.object({ commit: z.object({ sha: z.string().regex(/^[0-9a-f]{40}$/u) }) })
+const branchSchema = z.object({
+  commit: z.object({
+    sha: z.string().regex(/^[0-9a-f]{40}$/u),
+    // Only for the wait for a quiet main: an odd or missing date drops the time, never the head.
+    commit: z
+      .object({ committer: z.object({ date: z.iso.datetime({ offset: true }) }) })
+      .optional()
+      .catch(undefined),
+  }),
+})
 const checkRunsSchema = z.object({
   check_runs: z.array(z.object({ name: z.string(), status: z.string(), conclusion: z.string().nullable() })),
 })
@@ -126,7 +143,11 @@ export function updateGitHub(options: GitHubClientOptions = {}): UpdateGitHub {
   const map = <T, U>(read: Read<T>, to: (value: T) => U): Read<U> => (read.ok ? { ok: true, value: to(read.value) } : read)
 
   return {
-    headOfMain: async () => map(await get(`${repo}/branches/main`, branchSchema), (branch) => branch.commit.sha),
+    headOfMain: async () =>
+      map(await get(`${repo}/branches/main`, branchSchema), (branch): MainHead => {
+        const date = branch.commit.commit?.committer.date
+        return { sha: branch.commit.sha, ...(date === undefined ? {} : { committedAt: new Date(date).toISOString() }) }
+      }),
     ciOk: async (sha) =>
       map(await get(`${repo}/commits/${sha}/check-runs?check_name=${CI_OK}`, checkRunsSchema), ({ check_runs }): CiOkState => {
         // GitHub lists the latest run of each check first.

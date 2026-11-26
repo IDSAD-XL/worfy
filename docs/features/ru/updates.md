@@ -76,7 +76,11 @@ automatically» переключатель, в «Roll back to previous version»
 блока нет.
 
 **Update automatically.** Переключатель по умолчанию включён: «Build new versions of worfy in the background. worfy
-restarts only when you say so.» Включён — worfy сам собирает Available update сразу после проверки, которая его нашла.
+restarts only when you say so.» Включён — worfy сам собирает Available update, когда `main` простоял тихо 20 минут:
+сразу после проверки, которая его нашла, если commit головы уже такой старый, иначе — в тот момент, когда станет. Тогда
+worfy проверяет ещё раз и собирает голову, которую найдёт; более новый commit ждёт свои 20 минут, так что серия merge-ей
+собирается один раз, после последнего. Время commit-а головы приходит в ответе GitHub о `main`; нет его в ответе —
+голова собирается сразу. «Update worfy» не ждёт никогда.
 Toast «available» тогда не приходит: chip показывает сборку, а toast «ready» приходит в её конце. Выключен — ничего не
 собирается, пока пользователь не нажмёт «Update worfy» в меню chip-а, в Settings или в Command palette, или «Update» в
 toast-е. В обоих случаях сборка никогда не перезапускает worfy: перезапуск — всегда отдельное нажатие.
@@ -87,7 +91,12 @@ toast-е. В обоих случаях сборка никогда не пере
 --frozen-lockfile`, потом `pnpm package`. Между ними worfy проверяет, что Electron, который пакует `pnpm package`, лежит
 в `node_modules/electron/dist`. Если его загрузка после прошлой установки не закончилась, `pnpm install` её заново не
 запускает, поэтому сборка запускает `node node_modules/electron/install.js` отдельным шагом и проверяет снова. Electron
-так и нет или нет вообще `node_modules/electron` — сборка падает до `pnpm package`. Checkout пользователя и папки
+так и нет или нет вообще `node_modules/electron` — сборка падает до `pnpm package`. `pnpm install` пропускается, если
+`package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `.npmrc` и `scripts/postinstall.mjs` commit-а байт в байт те
+же, что у последней сборки, закончившейся ready, и `node_modules` в clone есть; тогда `build.log` пишет «pnpm install
+skipped». `git clean -fdx -e node_modules` перед ним идёт по-прежнему. Каждый шаг сборки идёт с приоритетом ниже
+обычного: nice 10 на macOS и Linux, класс `BELOW_NORMAL` на Windows; процессы, которые шаг запускает, получают его тоже.
+Приоритет не удалось понизить — строка в `build.log`, сборка идёт дальше. Checkout пользователя и папки
 Project-ов не трогаются никогда. Вывод идёт в `build.log` рядом с clone, новый на каждую сборку. Сборка идёт одна за
 раз. При включённом «Update automatically» более новый commit, найденный во время сборки, собирается после неё; при
 выключенном более новый commit ждёт «Update worfy». Выход из worfy во время сборки её останавливает, и commit считается
@@ -280,7 +289,7 @@ Update принадлежит Machine, на которой запущен. Вс�
 перезапуск и из какой копии), `result.json` (что записал помощник) и `restart.log` (что помощник напечатал). Переменные
 окружения для test-ов: `WORFY_UPDATE=1` включает Update в неупакованной сборке, `WORFY_UPDATE_API` подменяет адрес GitHub
 API, `WORFY_UPDATE_REPO` — репозиторий clone-а, `WORFY_UPDATE_BUILD` — команду сборки, `WORFY_UPDATE_STABLE` — место
-Stable copy.
+Stable copy, `WORFY_UPDATE_QUIET_MINUTES` — 20 минут тишины `main` (целое число; `0` — собирать сразу, не больше суток).
 
 Test-ы: stub GitHub `test/update-stub.ts`; `test/unit/update-check.test.ts`, `test/contract/update-github.test.ts`,
 `test/contract/update-state.test.ts`, `test/contract/update-build.test.ts`, `test/unit/update-idle.test.ts`,

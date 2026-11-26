@@ -19,6 +19,8 @@ const REPO = '/repos/IDSAD-XL/worfy'
 export interface UpdateStubAnswers {
   /** The head of main. */
   head: string
+  /** The committer date of the head, as GitHub writes it (`2026-11-26T03:41:20Z`); without it the answer has no `commit.commit`. */
+  headCommittedAt?: string
   /** The ci-ok check run on any commit; null — the commit has none. */
   ciOk?: { status: 'queued' | 'in_progress' | 'completed'; conclusion: string | null } | null
   /** The comparison; 404 — GitHub does not know one of the commits. */
@@ -70,7 +72,10 @@ function answer(answers: UpdateStubAnswers, method: string, path: string): { sta
   if (answers.failWith !== undefined) return { status: answers.failWith, body: { message: `stub: HTTP ${answers.failWith}` } }
   const url = new URL(path, 'http://stub')
   if (method !== 'GET') return { status: 405, body: {} }
-  if (url.pathname === `${REPO}/branches/main`) return { status: 200, body: { name: 'main', commit: { sha: answers.head } } }
+  if (url.pathname === `${REPO}/branches/main`) {
+    const commit = answers.headCommittedAt === undefined ? {} : { commit: { committer: { name: 'GitHub', date: answers.headCommittedAt } } }
+    return { status: 200, body: { name: 'main', commit: { sha: answers.head, ...commit } } }
+  }
   if (/^\/repos\/IDSAD-XL\/worfy\/commits\/[0-9a-f]+\/check-runs$/u.test(url.pathname)) {
     const run = answers.ciOk === undefined ? { status: 'completed', conclusion: 'success' } : answers.ciOk
     const runs = run === null || url.searchParams.get('check_name') !== 'ci-ok' ? [] : [{ name: 'ci-ok', ...run }]

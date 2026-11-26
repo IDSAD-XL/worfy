@@ -28,9 +28,17 @@ export type UpdateLastCheck = z.infer<typeof updateLastCheckSchema>
  * `<package.json version on that commit>+<7 characters of the SHA>`. `quiet`: it is the commit the
  * user rolled back from, so the signals of tickets 03, 06 and 07 stay silent until the next commit.
  * `number`: its build number (ticket 14), the number of the copy that runs plus GitHub's `ahead_by`;
- * absent when either is not known, and the texts then name `version`.
+ * absent when either is not known, and the texts then name `version`. `committedAt`: when the head
+ * was committed, as GitHub said it (worfy-polish ticket 156); "Update automatically" builds it only
+ * once main has been quiet that long. Absent when not known; a value that is no time is dropped.
  */
-export const availableUpdateSchema = z.object({ sha, version: z.string().min(1), quiet: z.boolean(), number: buildNumberSchema.optional() })
+export const availableUpdateSchema = z.object({
+  sha,
+  version: z.string().min(1),
+  quiet: z.boolean(),
+  number: buildNumberSchema.optional(),
+  committedAt: z.iso.datetime().optional().catch(undefined),
+})
 export type AvailableUpdate = z.infer<typeof availableUpdateSchema>
 
 /**
@@ -100,6 +108,17 @@ export const updateStateSchema = z.object({
   discarded: z.object({ sha, version: z.string(), running: z.string(), reason: z.string(), at: z.iso.datetime() }).optional(),
   /** The Harness of the new copy was not installed after the restart (ticket 05). */
   harnessAfterUpdate: z.literal('failed').nullable().default(null),
+  /**
+   * The hash of the files `pnpm install` depends on in the clone, written after its last build that
+   * was ready (worfy-polish ticket 156; src/main/update/build.ts, dependencyHash): the same hash and a
+   * node_modules on its place skip `pnpm install`. Dropped before each `pnpm install`. A worfy
+   * before that ticket drops the field when it reads the file, so its own next write removes it and
+   * the build after that installs again. A value that is no hash is dropped, not the whole state.
+   */
+  dependencies: z
+    .object({ hash: z.string().regex(/^[0-9a-f]{64}$/u) })
+    .optional()
+    .catch(undefined),
 })
 export type UpdateState = z.output<typeof updateStateSchema>
 

@@ -6,8 +6,8 @@
 // src/main/update/stable-copy.ts). Off, the snapshot says `enabled: false`, no check or build runs
 // and the state file is neither read nor written.
 //
-// After each check "Update automatically" may start a build (src/main/update/auto.ts); the build
-// itself is src/main/update/build.ts.
+// After each check "Update automatically" may start a build (src/main/update/auto.ts), once main has
+// been quiet for a while (worfy-polish ticket 156); the build itself is src/main/update/build.ts.
 //
 // "Restart now", "Restart when idle" and the roll back (ticket 04) are src/main/update/restart.ts;
 // whether nothing works is src/main/update/idle.ts, followed while Update is on and kept in the
@@ -40,7 +40,7 @@ import { appBuildNumber } from '../build-number'
 import { bundledHarnessVersion } from '../harness/bundled'
 import { appQuitGrace } from '../quit-grace'
 import { appSettingsStore } from '../settings/store'
-import { autoBuildFor, installTarget } from '../update/auto'
+import { autoBuildFor, installTarget, quietWaitMs, UPDATE_QUIET_MS, updateQuietMs } from '../update/auto'
 import { UpdateBuilder, updateBuildOverride, updateRepo, type UpdateBuilds } from '../update/build'
 import { checkForUpdate, UpdateChecks } from '../update/check'
 import { updateGitHub, type UpdateGitHub } from '../update/github'
@@ -70,6 +70,11 @@ export interface UpdateServiceOptions {
   idle?: IdleWatch
   /** "Restart now", "Restart when idle" and the roll back (ticket 04); without them a restart is refused. */
   restarts?: Restarts
+  /**
+   * How long main must have been quiet before "Update automatically" builds its head (UPDATE_QUIET_MS
+   * without it; worfy-polish ticket 156).
+   */
+  quietMs?: number
   now?: () => Date
 }
 
@@ -81,6 +86,10 @@ export class UpdateService {
   private readonly whatsNewReader: WhatsNewReader
   /** A restart began (ticket 16): kept for the rest of this run, which ends with it. */
   private restarting = false
+  /** The check of its own that ends a wait for a quiet main (worfy-polish ticket 156); one at most. */
+  private quietCheck: ReturnType<typeof setTimeout> | undefined
+  /** The schedule was stopped (worfy quits): no wait begins after that. */
+  private stopped = false
 
   constructor(private readonly options: UpdateServiceOptions) {
     this.whatsNewReader = new WhatsNewReader(options.client)
@@ -190,6 +199,8 @@ export class UpdateService {
     const stopIdle = idle === undefined ? () => undefined : this.followIdle(idle)
     const stopChecks = this.checks.start()
     return () => {
+      this.stopped = true
+      clearTimeout(this.quietCheck)
       stopChecks()
       stopIdle()
       builder?.stop()
@@ -215,12 +226,31 @@ export class UpdateService {
     }
   }
 
-  /** After a check: the build "Update automatically" asks for, if any. */
+  /**
+   * After a check: the build "Update automatically" asks for, if any, once main has been quiet
+   * (worfy-polish ticket 156). A head committed less than `quietMs` ago is not built now: one check
+   * of its own comes when the commit is that old, and builds the head it finds then, or waits again
+   * for a newer one. Each check replaces the wait of the one before.
+   */
   private autoBuild(): void {
     const { builder, autoUpdate } = this.options
     if (builder === undefined || autoUpdate === undefined) return
+    clearTimeout(this.quietCheck)
+    this.quietCheck = undefined
     const target = autoBuildFor(readUpdateState(this.options.stateFile()), autoUpdate())
-    if (target !== null) builder.install(target)
+    if (target === null) return
+    const quietMs = this.options.quietMs ?? UPDATE_QUIET_MS
+    const wait = quietWaitMs(target, this.options.now?.() ?? new Date(), quietMs)
+    if (wait === 0) {
+      builder.install(target)
+      return
+    }
+    if (this.stopped) return
+    console.info(`[update] main moved less than ${quietMs / 60_000} min ago: ${target.version} is built in ${Math.ceil(wait / 1000)} s, unless main moves again`)
+    this.quietCheck = setTimeout(() => {
+      this.quietCheck = undefined
+      void this.checks.now()
+    }, wait)
   }
 
   private async run(manual: boolean): Promise<void> {
@@ -350,6 +380,7 @@ export function appUpdate(): UpdateService {
         onChange: () => broadcast(appUpdate().snapshot()),
       }),
       autoUpdate: () => autoUpdateOf(appSettingsStore().get()),
+      quietMs: updateQuietMs(process.env),
       openPath: (path) => shell.openPath(path),
       idle,
       restarts: new Restarts({

@@ -65,7 +65,7 @@ function startAs(running: { commit: string; version: string }): UpdateState {
 
 /** GitHub with B as the green head of main, ahead of A and changing the app. */
 const github: UpdateGitHub = {
-  headOfMain: () => Promise.resolve({ ok: true, value: B }),
+  headOfMain: () => Promise.resolve({ ok: true, value: { sha: B } }),
   ciOk: () => Promise.resolve({ ok: true, value: 'success' }),
   compare: () => Promise.resolve({ ok: true, value: { status: 'ahead', files: ['src/main/x.ts'], commits: [{ sha: B, message: 'feat: x (#1)' }] } }),
   packageVersion: () => Promise.resolve({ ok: true, value: '0.6.0' }),
@@ -136,7 +136,7 @@ describe('the start after an install of B, the helper said ok', () => {
     restartedInto()
     const state = startAs({ commit: B, version: B_VERSION })
     const C = 'c'.repeat(40)
-    const later: UpdateGitHub = { ...github, headOfMain: () => Promise.resolve({ ok: true, value: C }) }
+    const later: UpdateGitHub = { ...github, headOfMain: () => Promise.resolve({ ok: true, value: { sha: C } }) }
     const outcome = await checkForUpdate({ client: later, running: B, rolledBackFrom: state.rolledBackFrom, manual: false })
     expect(autoBuildFor({ ...state, available: outcome.available ?? null }, true)).toEqual({ sha: C, version: `0.6.0+${C.slice(0, 7)}`, quiet: false })
   })

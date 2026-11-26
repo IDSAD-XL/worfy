@@ -54,6 +54,16 @@ describe('the state file of Update', () => {
     expect(readUpdateState(file)).toEqual(emptyUpdateState())
   })
 
+  it('keeps the hash of the dependencies of the clone; a value that is not one is dropped, and the rest of the state still reads (worfy-polish ticket 156)', () => {
+    const file = fresh()
+    const hash = 'e'.repeat(64)
+    changeUpdateState((state) => ({ ...state, dependencies: { hash } }), file)
+    expect(readUpdateState(file).dependencies).toEqual({ hash })
+    writeFileSync(file, JSON.stringify({ rolledBackFrom: 'abc', dependencies: { hash: 'not a hash' } }))
+    expect(readUpdateState(file)).toEqual({ ...emptyUpdateState(), rolledBackFrom: 'abc' })
+    expect(readUpdateState(file).dependencies).toBeUndefined()
+  })
+
   it('reads a file without some fields with their empty values', () => {
     const file = fresh()
     mkdirSync(dirname(file), { recursive: true })

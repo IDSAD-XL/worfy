@@ -73,7 +73,11 @@ holds the switch, and "Roll back to previous version" the button "Roll back" (se
 is not there.
 
 **Update automatically.** The switch is on by default: "Build new versions of worfy in the background. worfy restarts
-only when you say so." On, worfy builds an Available update by itself right after the check that found it. The toast
+only when you say so." On, worfy builds an Available update by itself once `main` has been quiet for 20 minutes: right
+after the check that found it when the head's commit is that old, else at the moment it is. Then worfy checks once
+more and builds the head it finds; a newer commit found then waits its own 20 minutes, so a series of merges is built
+once, after the last of them. The head's commit time comes with GitHub's answer about `main`; when the answer has
+none, the head is built at once. "Update worfy" never waits. The toast
 "available" does not come then: the chip shows the build, and the toast "ready" comes at its end. Off, nothing is built
 until the user presses "Update worfy" in the chip menu, Settings or the Command palette, or "Update" in the toast. In
 both cases a build never restarts worfy: the restart is always a press of its own.
@@ -85,6 +89,12 @@ is the one of `pnpm install:stable`: `pnpm install --frozen-lockfile`, then `pnp
 that the Electron `pnpm package` packs is in `node_modules/electron/dist`. When its download after an earlier install did
 not finish, `pnpm install` does not run it again, so the build runs `node node_modules/electron/install.js` as a step of
 its own and checks again. Still no Electron, or no `node_modules/electron` at all, fails the build before `pnpm package`.
+`pnpm install` is skipped when `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `.npmrc` and
+`scripts/postinstall.mjs` of the commit are byte for byte those of the last build that ended ready, and
+`node_modules` is in the clone; `build.log` then says "pnpm install skipped". `git clean -fdx -e node_modules` still
+runs before it. Every step of the build runs below normal priority: nice 10 on macOS and Linux, the class
+`BELOW_NORMAL` on Windows; the processes a step starts get it too. A priority that cannot be lowered is a line in
+`build.log`, and the build goes on.
 The user's checkout and the folders of the Projects are never touched. The output goes to `build.log` next to the clone, a new one for each build.
 One build runs at a time. With "Update automatically" on, a newer commit found during a build is built after it; with it
 off, a newer commit waits for "Update worfy". Quitting worfy during a build stops it, and the commit counts as never
@@ -254,7 +264,7 @@ updates its own Stable copy.
 | Whether the head is an Available update; the schedule of the checks | `src/main/update/check.ts` |
 | Where the Stable copy lies, which commit it runs, whether Update is on | `src/main/update/stable-copy.ts` |
 | The state file `update/state.json` | `src/main/update/state.ts` |
-| "Update automatically": which Update gets built | `src/main/update/auto.ts` |
+| "Update automatically": which Update gets built, and the wait for a quiet `main` | `src/main/update/auto.ts` |
 | The clone, the build, `build.log`, the missing tools | `src/main/update/build.ts` |
 | Whether anything works | `src/main/update/idle.ts` |
 | "Restart now", "Restart when idle", the roll back, the result of the last restart | `src/main/update/restart.ts` |
@@ -277,11 +287,12 @@ updates its own Stable copy.
 The files of Update are in `<data folder>/update`: `state.json`, the clone `repo`, `build.log`, `restart.json` (what the
 restart does and from which copy), `result.json` (what the helper wrote) and `restart.log` (what the helper printed).
 Environment variables for tests: `WORFY_UPDATE=1` turns Update on in an unpacked build, `WORFY_UPDATE_API` replaces the
-GitHub API address, `WORFY_UPDATE_REPO` the repository of the clone, `WORFY_UPDATE_BUILD` the build command, and
-`WORFY_UPDATE_STABLE` the place of the Stable copy.
+GitHub API address, `WORFY_UPDATE_REPO` the repository of the clone, `WORFY_UPDATE_BUILD` the build command,
+`WORFY_UPDATE_STABLE` the place of the Stable copy, and `WORFY_UPDATE_QUIET_MINUTES` the 20 minutes `main` must be quiet
+(a whole number; `0` builds at once, a day at most).
 
 Tests: the GitHub stub `test/update-stub.ts`; `test/unit/update-check.test.ts`, `test/contract/update-github.test.ts`,
-`test/contract/update-state.test.ts`, `test/contract/update-build.test.ts`, `test/unit/update-idle.test.ts`,
+`test/contract/update-state.test.ts`, `test/contract/update-build.test.ts`, `test/unit/update-build-light.test.ts`, `test/unit/update-idle.test.ts`,
 `test/contract/update-restart.test.ts`, `test/contract/update-restart-continuity.test.ts`, `test/contract/update-harness.test.ts`, `test/unit/update-harness-lag.test.ts`,
 `test/unit/update-whats-new.test.ts`, `test/unit/install-stable-update.test.ts`; the interface in
 `test/unit/update-chip.test.tsx`, `test/unit/update-toasts.test.tsx`, `test/unit/updates-block.test.tsx`,
