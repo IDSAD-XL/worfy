@@ -18,6 +18,7 @@ import { readGateLogs, TIMINGS_KEPT_MS } from '../../src/main/flight-recorder/ga
 import { readLocalVerdicts } from '../../src/main/flight-recorder/local-verdicts'
 import { canonicalWorktree } from '../../src/main/flight-recorder/worktree-path'
 import { markFilePath } from '../../src/main/workflow/marks'
+import { gitRunner, type GitRunner } from '../../src/main/workflow/stages'
 import { GREEN_CACHE_NOTE } from '../../src/shared/flight-recorder/from-gate'
 import { buildTimeline, LOST_SOURCE_LABELS, type RunFacts, type Span, type StageEventFact, type WorkFact } from '../../src/shared/flight-recorder/spans'
 import { DEFAULT_PIPELINE, type PipelineStage } from '../../src/shared/workflow/pipeline'
@@ -430,6 +431,25 @@ describe('verdicts without a PR', () => {
     branchWithCommit('e/11', '14:40', '14:45')
     git(T('15:00'), 'merge', '-q', '--ff-only', 'e/11')
     expect([...(await merges('e/07')), ...(await merges('e/08')), ...(await merges('e/11'))].map((event) => event.at)).toEqual([T('13:40'), T('13:55'), T('15:00')])
+  })
+
+  it('asks git whether one commit holds another once: a second read of the same commits runs no such merge-base (worfy-polish 155)', async () => {
+    const head = branchWithCommit('e/12', '10:05', '10:30')
+    git(T('11:00'), 'merge', '-q', '--ff-only', 'e/12')
+    for (const at of ['12:00', '12:10', '12:20', '12:30']) commitOnMain(at)
+    const calls: string[][] = []
+    const counting: GitRunner = (cwd, args) => {
+      calls.push([...args])
+      return gitRunner(cwd, args)
+    }
+    // Between two commits; `refs/heads/main` moves, so that one is asked every time.
+    const betweenCommits = () => calls.filter((args) => args[0] === 'merge-base' && !args.some((arg) => arg.startsWith('refs/'))).length
+    const first = await readLocalVerdicts({ repo, tickets: one('e/12'), git: counting })
+    expect(first.ticketEvents.at(-1)).toEqual({ ticket: 'e/12', at: T('11:00'), source: 'git', event: 'merge', sha: head })
+    const asked = betweenCommits()
+    expect(asked).toBeGreaterThan(0)
+    expect(await readLocalVerdicts({ repo, tickets: one('e/12'), git: counting })).toEqual(first)
+    expect(betweenCommits()).toBe(asked)
   })
 
   it('reads the marks file of Silent mode as the verdicts of a Ticket without a PR', async () => {

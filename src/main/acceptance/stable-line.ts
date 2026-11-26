@@ -9,8 +9,11 @@
 //   done. gh runs as the Project's account (the PR tracker's `gh`), once per merged PR: a merged PR's merge commit never
 //   changes, so the answer is kept for the rest of the run.
 // - Whether the change is there: `git merge-base --is-ancestor <merge> <Stable copy commit>` in the Project's checkout,
-//   kept for good once git says yes or no. worfy never fetches (ADR-0005): a commit this checkout does not have, a
-//   refusal of GitHub and no Stable copy at all read "Stable copy not checked", and are asked again RETRY_MS later.
+//   kept for good once git says yes or no — for the whole process and every worktree of the repository, one question per
+//   pair at a time, at most ANCESTRY_GIT_LIMIT git processes at once (src/main/workflow/git-ancestry.ts, issue #2252);
+//   every git command of the line goes through the same limit. worfy never fetches (ADR-0005): a commit this checkout
+//   does not have, a refusal of GitHub and no Stable copy at all read "Stable copy not checked", and are asked again
+//   RETRY_MS later. A checkout without the Stable copy's commit is asked that alone (`cat-file -e`), not each merge.
 // - Versions: `git rev-list --count <commit>`, the build number (scripts/build-version.ts, buildNumber), with the
 //   major and minor of that commit's package.json, as numberedVersion writes them. As buildNumber, a shallow clone has
 //   no honest count: no number, and the line names the commit by its short SHA.
@@ -26,6 +29,7 @@ import type { Ticket } from '../../shared/workflow/types'
 import { doneOnlyInBranch } from '../../shared/workflow/waves'
 import { SEARCH_INTERVAL_MS } from '../github/prs'
 import { readStableMetadata, stableCopyPath } from '../update/stable-copy'
+import { ancestryFor, type GitAncestry } from '../workflow/git-ancestry'
 import { branchOfTicket, gitRunner, type GitRunner } from '../workflow/stages'
 
 /** How long an answer that may change (not merged yet, not in the checkout, a refusal) is kept before it is asked again. */
@@ -100,6 +104,8 @@ function refsOf(ticket: Ticket, tickets: readonly Ticket[]): MergeRef[] {
 
 type Merge = { kind: 'merged'; sha: string } | { kind: 'none' } | { kind: 'failed' }
 type Ancestry = 'in' | 'out' | 'missing-stable' | 'missing-merge' | 'failed'
+/** Whether a checkout has a commit (`cat-file -e`): yes, no, or git did not answer. */
+type Presence = 'yes' | 'no' | 'failed'
 /** A commit as a version: `0.4.<number>`, or its short SHA when the number or the version does not read. */
 interface Build {
   label: string
@@ -148,8 +154,11 @@ class Kept<T> {
 }
 
 export class StableLine {
+  private readonly ancestors: GitAncestry
+  /** The git of the line: behind the limit of the ancestry paths. */
   private readonly git: GitRunner
   private readonly merges: Kept<Merge>
+  private readonly presence: Kept<Presence>
   private readonly ancestry: Kept<Ancestry>
   private readonly builds: Kept<Build>
 
@@ -158,8 +167,10 @@ export class StableLine {
     onChange: () => void,
   ) {
     const now = sources.now ?? Date.now
-    this.git = sources.git ?? gitRunner
+    this.ancestors = ancestryFor(sources.git ?? gitRunner)
+    this.git = this.ancestors.git
     this.merges = new Kept(now, onChange)
+    this.presence = new Kept(now, onChange)
     this.ancestry = new Kept(now, onChange)
     this.builds = new Kept(now, onChange)
   }
@@ -186,6 +197,11 @@ export class StableLine {
     }
     if (pending) return null
     if (shas.length === 0) return notChecked('no merged PR found')
+    // A checkout without the Stable copy's commit can answer nothing about it: one look, not a question per merge.
+    const present = this.presence.get(`${root}\n${stable}`, () => this.askPresence(root, stable))
+    if (present === undefined) return null
+    if (present === 'no') return notChecked(`its commit ${short(stable)} is not in this checkout`)
+    if (present === 'failed') return notChecked('git did not answer')
     const facts = shas.map((sha) => ({
       sha,
       ancestry: this.ancestry.get(`${root}\n${sha}\n${stable}`, () => this.askAncestry(root, sha, stable)),
@@ -243,12 +259,19 @@ export class StableLine {
 
   private async askAncestry(root: string, merge: string, stable: string): Promise<{ value: Ancestry; final: boolean }> {
     if (merge === stable) return { value: 'in', final: true }
-    const { code } = await this.git(root, ['merge-base', '--is-ancestor', merge, stable])
+    const code = await this.ancestors.isAncestor(root, merge, stable)
     if (code === 0 || code === 1) return { value: code === 0 ? 'in' : 'out', final: true }
     const has = async (sha: string): Promise<boolean> => (await this.git(root, ['cat-file', '-e', `${sha}^{commit}`])).code === 0
     if (!(await has(stable))) return { value: 'missing-stable', final: false }
     if (!(await has(merge))) return { value: 'missing-merge', final: false }
     return { value: 'failed', final: false }
+  }
+
+  /** Whether `root` has the commit: kept for good once it has it, asked again RETRY_MS later otherwise. */
+  private async askPresence(root: string, sha: string): Promise<{ value: Presence; final: boolean }> {
+    const { code } = await this.git(root, ['cat-file', '-e', `${sha}^{commit}`])
+    if (code === 0) return { value: 'yes', final: true }
+    return { value: code === null ? 'failed' : 'no', final: false }
   }
 
   private async askBuild(root: string, sha: string): Promise<{ value: Build; final: boolean }> {
