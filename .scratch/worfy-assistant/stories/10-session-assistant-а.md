@@ -154,7 +154,7 @@ export function sessionMemoryStore(file: string): SessionMemoryStore {
 
 ## 6. pr-follow и autopilot-start — строки журнала Assistant-а, closed list — настоящий
 
-Code: `src/main/mcp/app-server.ts:130-148` · key lines: 133, 146
+Code: `src/main/mcp/app-server.ts:134-152` · key lines: 137, 150
 
 ```ts
 export function journalTo(journal: ActionJournal, log: (message: string, error: unknown) => void = (message, error) => console.warn(message, error)): (entry: AssistantActionEntry) => void {
