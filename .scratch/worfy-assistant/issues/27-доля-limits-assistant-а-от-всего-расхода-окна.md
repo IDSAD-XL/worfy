@@ -100,25 +100,37 @@ Ticket 05 завёл журнал расхода Assistant-а (`<WORFY_DATA_DIR>
 ## Итог
 
 - Новый модуль `src/main/agent/turn-cost.ts`: один sink цены «чужих» ходов. Приложение при старте направляет его в
-  `appAssistantUsage().noteOtherTurn` (`src/main/index.ts`, до первой Session). Без sink-а (test-ы, до старта) цена
-  никуда не пишется.
+  журнал Assistant-а (`ledgerTurnCostSink(appAssistantUsage)`, `src/main/index.ts`, до первой Session). Без sink-а
+  (test-ы, до старта) цена никуда не пишется.
+- **Цена хода Session-а — прирост итога её беседы.** `total_cost_usd` — итог беседы: Claude Code при resume
+  восстанавливает его из записей `cost-state` транскрипта, а не начинает с нуля (найдено review PR #2284, линза
+  correctness). Журнал хранит последний итог каждой беседы в своём файле (`otherTotals` в `assistant/usage.json`,
+  срок хранения тот же, 8 дней) и считает ход как разницу с ним (`noteOtherTotal`, общее правило `costSinceLast`).
+  Так ход считается один раз через crash, relaunch Autopilot-а, Restart, новую Session той же беседы и перезапуск
+  worfy. Итог меньше прошлого (процесс ничего не восстановил) считается с нуля.
 - **Session-ы реестра** — Orchestrator, Session Node-ы, Session-ы Autopilot-а, Product Session: один observer
-  `turnCostObserver`, его подключает `sharedRegistry()` (`src/main/agent/app-registry.ts`) при создании реестра. В
-  `noteOtherTurn` идёт разница с прошлым `result` того же процесса Session. С нуля считается после `state: starting`
-  (Session запускает новый процесс, в том числе Restart с той же беседой), после `state: error` (процесс умер), после
-  `closed` и когда цифра меньше прошлой (правило `CostCounter`). `renamed` (pending-id → id Vendor-а) переносит цифру на
-  новый id: процесс тот же.
+  `turnCostObserver`, его подключает `sharedRegistry()` (`src/main/agent/app-registry.ts`) при создании реестра. Он
+  отдаёт каждый `result` как итог беседы под id Session-а (с первого init это id беседы SDK), а `renamed` — как
+  продолжение беседы под новым id в том же процессе (журнал переносит последний итог, если у нового id его нет).
+- **`CostCounter` Node-а Orchestrator-а** (`src/main/agent/orchestrator.ts`) — то же правило: сохранённая цена Node-а —
+  последний итог беседы, новый процесс продолжает от него; `processEnded` и его вызовы (crash, relaunch) убраны.
+  Раньше после relaunch, crash или перезапуска worfy цена Node-а прибавляла всё прошлое беседы ещё раз.
 - **Запросы вне реестра** — один процесс Claude Code на один ход, поэтому их `total_cost_usd` и есть цена хода
   (`noteOneTurnResult`): `readOneShot` (черновик профиля, Code story и вопрос по её строкам), narrator Product
   Session-а (`narratorAskOver`), Terminal AI (`AssistService.attempt`; spare-процесс закрывается после каждого
   запроса, ADR-0058).
 - **Не считаются**: Session Assistant-а (`runner.ts`) и проверка источника (`connector-check.ts`) идут мимо реестра и
   мимо `noteOneTurnResult`, их пишет только `noteCall`. Codex-Session-ы приходят с `costUsd: 0` — ничего не пишется.
-- `docs/features/assistant.md` (английская): вместо «upper bound» — какие ходы считаются и что оценка завышена только
-  на расход вне worfy и на расход Linked machine того же аккаунта. Русский перевод не трогался (ADR-0088).
-- Test-ы: `test/unit/other-turn-costs.test.ts` (реестр на fake agent: два хода процесса, crash, новый процесс дороже
-  старого → 0.01, 0.02, 0.05; доля в `limitsShare` через подключение меньше процента окна; `starting`, `renamed`,
-  Codex; one-shot на `result` из `test/fixtures/sdk-messages/controls.jsonl`; narrator), `test/unit/vendor-driver-types.test.ts`
+- `docs/features/assistant.md` (английская): вместо «upper bound» — какие ходы считаются, что беседа после resume
+  продолжает восстановленный итог, и в какую сторону ошибается оценка: выше — на расход вне worfy и Linked machine
+  того же аккаунта; ниже — когда прошлое беседы считается снова (итог после resume меньше прошлого, resume после 8
+  дней без ходов). Русский перевод не трогался (ADR-0088).
+- Test-ы: `test/unit/other-turn-costs.test.ts` (реестр на fake agent, журнал — настоящий: два хода, crash и resume с
+  восстановленным итогом → всего 0.05; новая Session той же беседы после перезапуска worfy — новый журнал из того же
+  файла → прошлое не считается снова; новая беседа и итог меньше прошлого — с нуля; доля в `limitsShare` меньше
+  процента окна; `renamed`, прерванный ход, Codex; one-shot на `result` из `test/fixtures/sdk-messages/controls.jsonl`;
+  narrator), `test/contract/orchestrator.test.ts` (`CostCounter`; цена Node-а после перезапуска и после crash не
+  удваивается), `test/unit/assistant-usage-ledger.test.ts` (`otherTotals` старше недели удаляются), `test/unit/vendor-driver-types.test.ts`
   (реестр приложения отдаёт observer-у события с первого), `test/contract/terminal-ai-assist.test.ts` (два запроса —
   две цены), `test/unit/assistant-session.test.ts` и `test/unit/assistant-source-check.test.ts` (ходы Assistant-а в
   sink не попадают). Новые test-ы подключения сначала красные (5 упали), после правки зелёные.
@@ -134,9 +146,18 @@ Ticket 05 завёл журнал расхода Assistant-а (`<WORFY_DATA_DIR>
 2. **Sink ставит `src/main/index.ts`, а не модуль `agent` сам.** Модуль `src/main/agent/turn-cost.ts` не импортирует
    Assistant, а test-ы без sink-а никогда не пишут в настоящий `usage.json`. Цена — одна строка в `index.ts`, файл вне
    раздела «Где в коде».
-3. **Новый процесс Session-а узнаётся по `state: starting` и `state: error`**, а не только по меньшей цифре: новый
-   процесс, первый ход которого дороже всего старого, иначе посчитался бы как разница. `system/init` для этого не
-   годится — Claude Code шлёт его в начале каждого хода (`controls.jsonl`).
+3. **Последний итог беседы хранится в файле журнала, а не в памяти observer-а** (после review PR #2284, которое нашло
+   восстановление итога при resume). Иначе каждый перезапуск worfy считал бы всё прошлое каждой возобновлённой беседы
+   ещё раз. Ключ — id беседы SDK; хранится 8 дней, как остальной журнал. Цена — запись файла на каждый ход с ростом
+   итога (её и так делал `noteOtherTurn`) и поле `otherTotals` в `usage.json`; прежняя сборка (Roll back) его
+   пропускает. Беседа, возобновлённая после 8 дней без ходов, считается заново — ошибка в сторону заниженной доли
+   Assistant-а. Первая версия PR сбрасывала счёт на `starting` и `error` — это было неверно.
+3а. **Итог меньше прошлого считается с нуля** (беседа ответвилась без восстановленного итога или запись `cost-state`
+   потерялась). Перенос итога при `renamed` — только если у нового id итога нет.
+3б. **`CostCounter` Node-а** берёт сохранённую цену Node-а как последний итог беседы. Если в сохранённой цене уже были
+   процессы, которые ничего не восстановили, их сумма больше итога беседы, и следующий итог посчитается с нуля —
+   цена Node-а завысится на него. Отдельно `base` и `last` в данных Node-а не хранятся: схема данных Node-а не
+   менялась.
 4. **Ход без ответа тоже считается**: one-shot с `error_max_turns`, прерванный ход — цена уже потрачена. Прерванный ход
    Claude Code повторяет прежнюю цифру (`controls.jsonl`), и разница 0 ничего не пишет.
 5. **Цена пишется и при выключенном Assistant-е.** Окно Limits начинается раньше включения, и доля после включения

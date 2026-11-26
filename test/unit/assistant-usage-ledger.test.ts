@@ -114,6 +114,7 @@ describe('the token summary', () => {
     ledger.noteWake('old', false)
     ledger.noteCall(call({ kind: 'wake', wakeId: 'old' }, 100))
     ledger.noteOtherTurn(1)
+    ledger.noteOtherTotal('old-conversation', 2)
     clock = NOW
     ledger.noteCall(call({ kind: 'conversation' }, 100))
 
@@ -121,6 +122,7 @@ describe('the token summary', () => {
     expect(stored.wakes).toEqual([])
     expect(stored.calls).toHaveLength(1)
     expect(stored.otherCost).toEqual({})
+    expect(stored.otherTotals).toEqual({})
   })
 })
 

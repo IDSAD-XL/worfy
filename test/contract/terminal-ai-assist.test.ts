@@ -562,7 +562,7 @@ describe('Limits and refusals', () => {
   // that request, noted once for the Assistant's share of the Limits (src/main/agent/turn-cost.ts).
   it('notes the cost of each request once, for the Assistant\'s share of the Limits', async () => {
     const noted: number[] = []
-    setTurnCostSink((costUsd) => void noted.push(costUsd))
+    setTurnCostSink({ turn: (costUsd) => void noted.push(costUsd), conversationTotal: (_id, totalUsd) => void noted.push(totalUsd), renamed: () => undefined })
     try {
       const { service, sdk } = world()
       for (const [command, costUsd] of [['git push', 0.002], ['git pull', 0.003]] as const) {

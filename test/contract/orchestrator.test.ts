@@ -281,9 +281,11 @@ describe('Orchestrator Session', () => {
     second.registry.get(second.sessionId()).send('one')
     await vi.waitFor(() => expect(second.view().state).toBe('busy'))
     void second.registry.get(second.sessionId()).interrupt()
-    // A new Claude Code process counts from zero: 0.0125 before the restart + 0.0125 now.
-    await vi.waitFor(() => expect(second.view().costUsd).toBe(0.025))
-    expect(second.data()).toStrictEqual({ sessionId: sdkId, costUsd: 0.025 })
+    // Claude Code restores the conversation's cost when it resumes it (worfy-assistant ticket 27): the resumed process's
+    // interrupted turn reports the restored 0.0125, which is the Node's cost still, not 0.0125 counted twice.
+    await vi.waitFor(() => expect(second.view().state).toBe('idle'))
+    expect(second.view().costUsd).toBe(0.0125)
+    expect(second.data()).toStrictEqual({ sessionId: sdkId, costUsd: 0.0125 })
   })
 
   it('reads the Vendor of the saved session; a Vendor this build does not run is dropped, the session id and the cost stay (worfy-multi-vendor ticket 37)', () => {
@@ -406,12 +408,13 @@ describe('Orchestrator Session', () => {
     await vi.waitFor(() => expect(h.view().state).toBe('error'))
     expect(h.view().error).toMatch(/exited with code 1/)
 
-    // The next message starts a new Claude Code process, which reports 0.6 for itself.
+    // The next message starts a new Claude Code process, which resumes the conversation with its 0.5 restored
+    // (worfy-assistant ticket 27): its turn brings the conversation's total to 0.6.
     h.registry.get(h.sessionId()).send('three')
     await vi.waitFor(() => expect(h.view().state).toBe('idle'))
     expect(h.requests.map((request) => request.resume)).toEqual([undefined, h.view().sessionId])
-    expect(h.view().costUsd).toBeCloseTo(1.1, 10)
-    expect(h.data().costUsd).toBeCloseTo(1.1, 10)
+    expect(h.view().costUsd).toBeCloseTo(0.6, 10)
+    expect(h.data().costUsd).toBeCloseTo(0.6, 10)
   })
 
   it('a closed Orchestrator is started again by the next open, resuming its session', async () => {
@@ -706,14 +709,18 @@ describe('SessionSettingsStore', () => {
 })
 
 describe('CostCounter', () => {
-  it('adds the processes of a Session: a crash or a smaller figure starts a new process', () => {
+  // worfy-assistant ticket 27: Claude Code restores a conversation's cost when it resumes it, so a new process goes on
+  // from the last figure; only a smaller figure (a process that restored nothing) starts again from zero.
+  it('follows the conversation\'s total across processes; a smaller figure starts again from zero', () => {
     const cost = new CostCounter(1)
-    expect(cost.result(0.5)).toBe(1.5)
-    expect(cost.result(0.75)).toBe(1.75)
-    cost.processEnded()
+    // The resumed process restored the saved 1, and its turn cost 0.5.
+    expect(cost.result(1.5)).toBe(1.5)
+    expect(cost.result(1.75)).toBe(1.75)
+    // An interrupted turn repeats the figure.
+    expect(cost.result(1.75)).toBe(1.75)
+    // The figure went down: a process that restored nothing.
     expect(cost.result(0.25)).toBe(2)
-    // No crash reported, but the figure went down: a new process.
-    expect(cost.result(0.1)).toBe(2.1)
+    expect(cost.result(0.5)).toBe(2.25)
   })
 })
 

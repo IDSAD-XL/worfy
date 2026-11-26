@@ -207,7 +207,7 @@ describe('a check over a connector', () => {
   // worfy-assistant ticket 27: the check is the Assistant's own call, noted once by noteCall, never as another turn.
   it('notes the check nowhere but noteCall: never as a turn of another Session', async () => {
     const others: number[] = []
-    setTurnCostSink((costUsd) => void others.push(costUsd))
+    setTurnCostSink({ turn: (costUsd) => void others.push(costUsd), conversationTotal: (_id, totalUsd) => void others.push(totalUsd), renamed: () => undefined })
     try {
       const { ledger, run } = setup(fakeClaude('answer-good.jsonl'))
       await run()

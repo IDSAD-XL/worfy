@@ -11,7 +11,7 @@ import { madeRegistry, sharedRegistry } from './agent/app-registry'
 import { installLimitsRefresh } from './agent/limits-usage'
 import { setTurnCostSink } from './agent/turn-cost'
 import { appUserModelId } from './app-id'
-import { appAssistantUsage } from './assistant/budget/ledger'
+import { appAssistantUsage, ledgerTurnCostSink } from './assistant/budget/ledger'
 import { startAttentionCore } from './assistant/core/app'
 import { startAssistantWindow } from './assistant/window/app'
 import { startAssistantSwitch } from './assistant/session/switch'
@@ -201,7 +201,7 @@ function start(): void {
       inStep('installImageProtocol', () => installImageProtocol(appImageStore))
       // The cost of every turn worfy runs other than the Assistant's own goes to the Assistant's usage ledger, for its
       // share of the Limits windows (worfy-assistant ticket 27, src/main/agent/turn-cost.ts): before the first Session.
-      setTurnCostSink((costUsd) => appAssistantUsage().noteOtherTurn(costUsd))
+      setTurnCostSink(ledgerTurnCostSink(appAssistantUsage))
       // The calls the quit waits for, from the first Session on (quit-grace.ts).
       sharedRegistry().observe(openCalls.sink)
       // A shutdown of the system suspends the Runs without the grace (quit-grace.ts), on Windows through each

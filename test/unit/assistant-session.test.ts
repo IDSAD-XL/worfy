@@ -154,7 +154,7 @@ describe('the Session of the Assistant: each wake is a new Session', () => {
   // worfy-assistant ticket 27: the cost of the Assistant's own call is noted once, by noteCall, never as another turn.
   it('notes its calls nowhere but noteCall: never as a turn of another Session', async () => {
     const others: number[] = []
-    setTurnCostSink((costUsd) => void others.push(costUsd))
+    setTurnCostSink({ turn: (costUsd) => void others.push(costUsd), conversationTotal: (_id, totalUsd) => void others.push(totalUsd), renamed: () => undefined })
     try {
       const { runner, calls } = sessions()
       await runner.wake(wakeOf({ id: 'wake-9' }))

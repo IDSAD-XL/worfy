@@ -83,6 +83,7 @@ import type { TranscriptFacts } from './orchestrator-transcript'
 import { closeRefusal } from './resume'
 import { EXIT_WAIT_MS, HALT_TURN_MS, type EventSink, type Session, type SessionRegistry } from './session'
 import { ATTENDED, type SessionLaunch } from './session-settings'
+import { costSinceLast } from './turn-cost'
 import type { LaunchApproval } from './auto-approve/run-approval'
 
 /**
@@ -101,32 +102,32 @@ export function orchestratorPlace(nodes: readonly LayoutNode[]): { x: number; y:
 }
 
 /**
- * The cost of a Session across the Claude Code processes that ran it. Claude Code reports
- * `total_cost_usd` per process, growing with every turn (test/fixtures/sdk-messages/controls.jsonl);
- * a new process — after a crash, or after a restart of the app — counts from zero again.
+ * The cost of a Session's conversation across the Claude Code processes that ran it. Claude Code reports
+ * `total_cost_usd` as the conversation's running total, growing with every turn
+ * (test/fixtures/sdk-messages/controls.jsonl), and a process that resumes the conversation — after a crash, a
+ * relaunch or a restart of the app — restores it (worfy-assistant ticket 27): each result adds only the rise since the
+ * last one (costSinceLast, turn-cost.ts). A smaller figure comes from a process that restored nothing and counts from
+ * zero.
  */
 export class CostCounter {
-  private run = 0
+  private totalValue: number
+  private last: number | undefined
 
-  /** `base`: what the earlier processes cost, as kept in the Node's data. */
-  constructor(private base: number) {}
+  /** `saved`: the cost kept in the Node's data, the last total its conversation reported. */
+  constructor(saved: number) {
+    this.totalValue = saved
+    this.last = saved > 0 ? saved : undefined
+  }
 
   get total(): number {
-    return this.base + this.run
+    return this.totalValue
   }
 
   /** A turn's `result`; answers the new total. */
   result(costUsd: number): number {
-    // A smaller figure than the last one can only come from a new process.
-    if (costUsd < this.run) this.processEnded()
-    this.run = costUsd
-    return this.total
-  }
-
-  /** The process died; the next one starts from zero. */
-  processEnded(): void {
-    this.base += this.run
-    this.run = 0
+    this.totalValue += costSinceLast(this.last, costUsd)
+    this.last = costUsd
+    return this.totalValue
   }
 }
 
@@ -799,7 +800,6 @@ export class Orchestrators {
         next.error = event.error
         if (inTurn(event.state) && (run.session?.backgroundTasks().length ?? 0) === 0) run.turnSinceTasks = true
         if (event.state === 'error') {
-          entry.cost.processEnded()
           if (run.resume !== undefined && !run.initSeen && NO_CONVERSATION.test(event.error ?? '')) {
             this.startOver(entry, run)
             return
@@ -883,8 +883,8 @@ export class Orchestrators {
       old.session?.close()
       oldExit = old.session?.exited(this.deps.exitWaitMs ?? EXIT_WAIT_MS)
     }
-    // A new Claude Code process reports its cost from zero.
-    entry.cost.processEnded()
+    // The new process restores the conversation's cost when it resumes it (CostCounter); a fresh one is counted from
+    // zero at its init.
     const view = this.current(entry)
     if (fresh) this.launch(entry, undefined, { model: view.model, statusBlock: null }, oldExit, true)
     else this.launch(entry, entry.savedSessionId ?? undefined, { model: view.model, statusBlock: view.statusBlock }, oldExit)

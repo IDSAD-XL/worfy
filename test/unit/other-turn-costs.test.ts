@@ -1,13 +1,15 @@
 // The cost of every turn worfy runs other than the Assistant's own (worfy-assistant ticket 27, src/main/agent/turn-cost.ts):
-// it reaches the Assistant's usage ledger (noteOtherTurn) once per turn, so the Assistant's share of a Limits window is
-// a share, not the whole window. The Sessions of a registry run on the fake agent (src/main/agent/fake-query.ts); the
-// one-shot reads the `result` recorded from Claude Code (test/fixtures/sdk-messages/controls.jsonl). No test starts
-// Claude Code or asks a model.
+// it reaches the Assistant's usage ledger once per turn, so the Assistant's share of a Limits window is a share, not the
+// whole window. Claude Code restores a conversation's cost when it resumes it (the `cost-state` records of its
+// transcript), so a Session's turn is the rise of its conversation's total, kept by the ledger across processes, Sessions
+// and restarts of worfy. The Sessions of a registry run on the fake agent (src/main/agent/fake-query.ts), whose resumed
+// scripts report the restored total as Claude Code does; the one-shot reads the `result` recorded from Claude Code
+// (test/fixtures/sdk-messages/controls.jsonl). No test starts Claude Code or asks a model.
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { AssistantUsageLedger } from '../../src/main/assistant/budget/ledger'
+import { AssistantUsageLedger, ledgerTurnCostSink } from '../../src/main/assistant/budget/ledger'
 import { fakeQueryFactory } from '../../src/main/agent/fake-query'
 import { SessionRegistry, type Session } from '../../src/main/agent/session'
 import { noteOneTurnResult, setTurnCostSink, turnCostObserver } from '../../src/main/agent/turn-cost'
@@ -21,25 +23,32 @@ const NOW = Date.UTC(2026, 10, 26, 10, 0)
 const HOUR = 60 * 60_000
 
 let dir: string
-/** What reached the sink, in order. */
-let noted: number[]
-let registry: SessionRegistry | null
+/** What reached a recording sink, in order: a one-turn cost as is, a conversation's total as `<id>=<total>`. */
+let noted: (number | string)[]
+let registries: SessionRegistry[]
+
+/** A sink that only records what reached it. */
+const recording = () => ({
+  turn: (costUsd: number) => void noted.push(costUsd),
+  conversationTotal: (conversationId: string, totalUsd: number) => void noted.push(`${conversationId}=${totalUsd}`),
+  renamed: (from: string, to: string) => void noted.push(`${from}->${to}`),
+})
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'worfy-turn-cost-'))
   noted = []
-  registry = null
-  setTurnCostSink((costUsd) => void noted.push(costUsd))
+  registries = []
+  setTurnCostSink(recording())
 })
 
 afterEach(() => {
   setTurnCostSink(null)
-  registry?.closeAll()
+  for (const registry of registries) registry.closeAll()
   removeTestTree(dir)
 })
 
 const init = { type: 'system', subtype: 'init', cwd: '{{cwd}}', session_id: '{{session}}', tools: [], mcp_servers: [], model: 'm', permissionMode: 'default', slash_commands: [], apiKeySource: 'none', claude_code_version: '2.1.322' }
-/** A `result` whose total_cost_usd is `costUsd`: what Claude Code's process has cost so far. */
+/** A `result` whose total_cost_usd is `costUsd`: what the conversation has cost so far, as Claude Code reports it. */
 const result = (costUsd: number, text = 'done') => ({ type: 'result', subtype: 'success', is_error: false, result: text, total_cost_usd: costUsd, duration_ms: 1, duration_api_ms: 1, num_turns: 1, usage: { input_tokens: 1, output_tokens: 1 }, session_id: '{{session}}' })
 /** One turn of the fake agent: it waits for a message, then ends the turn at `costUsd` so far. */
 const turn = (costUsd: number): unknown[] => [{ fake: 'wait_message' }, init, result(costUsd)]
@@ -48,51 +57,110 @@ function script(name: string, lines: unknown[]): void {
   writeFileSync(join(dir, `${name}.jsonl`), lines.map((line) => JSON.stringify(line)).join('\n'))
 }
 
-const close = (a: number, b: number): boolean => Math.abs(a - b) < 1e-9
+/** The ledger of the Assistant over this test's data folder; a second one over the same folder is worfy started again. */
+const ledgerOf = (): AssistantUsageLedger => new AssistantUsageLedger({ dataDir: join(dir, 'data'), now: () => NOW })
+/** What every other turn cost in all, as the ledger kept it, to the micro-dollar. */
+const other = (ledger: AssistantUsageLedger): number => Number(Object.values(ledger.snapshot().otherCost).reduce((sum, cost) => sum + cost, 0).toFixed(6))
+/** The ledger as the sink, as the app sets it at its start. */
+const into = (ledger: AssistantUsageLedger): void => setTurnCostSink(ledgerTurnCostSink(() => ledger))
 
-/** The registry of the Sessions over the fake agent, with the observer of the costs: `first` for a new process, `resumed` after it. */
+/** A registry of the Sessions over the fake agent, with the observer of the costs: `first` for a new conversation, `resumed` for one resumed. */
 function sessions(): SessionRegistry {
-  registry = new SessionRegistry(fakeQueryFactory({ scriptsDir: dir, script: (request) => (request.resume === undefined ? 'first' : 'resumed') }))
+  const registry = new SessionRegistry(fakeQueryFactory({ scriptsDir: dir, script: (request) => (request.resume === undefined ? 'first' : 'resumed') }))
   registry.observe(turnCostObserver())
+  registries.push(registry)
   return registry
 }
 
 const settled = (session: Session, state: Session['state']) => vi.waitFor(() => expect(session.state).toBe(state))
 
+/** How many `result` events each Session started by `open` has sent. */
+const results = new WeakMap<Session, number>()
+
+/** Starts a Session of `registry`, a new conversation or `resume`, counting its results. */
+function open(registry: SessionRegistry, resume?: string): Session {
+  let count = 0
+  const session = registry.start(dir, resume, (_id, event) => {
+    if (event.type === 'result') results.set(session, ++count)
+  })
+  return session
+}
+
+/** Sends `text` and waits for the result of its turn. */
+async function ask(session: Session, text: string): Promise<void> {
+  await settled(session, 'idle')
+  const before = results.get(session) ?? 0
+  session.send(text)
+  await vi.waitFor(() => expect(results.get(session) ?? 0).toBe(before + 1))
+}
+
 describe('the Sessions of the registry', () => {
-  it('note each turn once: the difference from the last result of the process, and a new process from zero', async () => {
-    // Two turns of one process (0.01, then 0.03 in all), its crash, then a new process that resumes the conversation
-    // and whose first turn already costs more than the whole old process did.
+  it('note each turn once: the rise of the conversation\'s total, which a resumed process restores rather than restarts', async () => {
+    const ledger = ledgerOf()
+    into(ledger)
+    // Two turns of one process (0.01, then 0.03 in all), its crash, then a new process that resumes the conversation:
+    // Claude Code restores the 0.03, and its turn brings the total to 0.05.
     script('first', [...turn(0.01), ...turn(0.03), { fake: 'wait_message' }, { fake: 'crash', error: 'the agent died' }])
     script('resumed', turn(0.05))
-    const session = sessions().start(dir, undefined, () => undefined)
-    await settled(session, 'idle')
-    session.send('one')
-    await vi.waitFor(() => expect(noted).toHaveLength(1))
-    await settled(session, 'idle')
-    session.send('two')
-    await vi.waitFor(() => expect(noted).toHaveLength(2))
-    await settled(session, 'idle')
+    const session = open(sessions())
+    await ask(session, 'one')
+    expect(other(ledger)).toBe(0.01)
+    await ask(session, 'two')
+    expect(other(ledger)).toBe(0.03)
     session.send('three')
     await settled(session, 'error')
     session.send('four')
-    await vi.waitFor(() => expect(noted).toHaveLength(3))
+    await vi.waitFor(() => expect(other(ledger)).toBe(0.05))
+  })
 
-    expect(noted.map((cost) => Number(cost.toFixed(6)))).toEqual([0.01, 0.02, 0.05])
+  it('keep the conversation\'s total across a new Session that resumes it and across a restart of worfy', async () => {
+    script('first', turn(0.01))
+    script('resumed', turn(0.04))
+    const before = ledgerOf()
+    into(before)
+    const first = open(sessions())
+    await ask(first, 'one')
+    const sdk = first.sdkId as string
+    first.close()
+    await first.exited()
+
+    // worfy starts again: a new ledger read from the file, a new registry and observer, the Orchestrator resumed.
+    const after = ledgerOf()
+    into(after)
+    const resumed = open(sessions(), sdk)
+    await ask(resumed, 'two')
+    // 0.01 before the restart, and the resumed turn's 0.03 on top of the restored 0.01: never the 0.01 again.
+    expect(other(after)).toBe(0.04)
+  })
+
+  it('count a new conversation from zero, and a resumed one whose total went down (nothing restored) from zero too', async () => {
+    const ledger = ledgerOf()
+    into(ledger)
+    script('first', turn(0.03))
+    script('resumed', turn(0.005))
+    const one = open(sessions())
+    const two = open(sessions())
+    await ask(one, 'one')
+    await ask(two, 'one')
+    expect(one.sdkId).not.toBe(two.sdkId)
+    expect(other(ledger)).toBe(0.06)
+    const sdk = one.sdkId as string
+    one.close()
+    await one.exited()
+    const again = open(sessions(), sdk)
+    await ask(again, 'two')
+    expect(other(ledger)).toBe(0.065)
   })
 
   it('make the Assistant\'s share of a Limits window smaller than the window once other turns cost something', async () => {
-    const ledger = new AssistantUsageLedger({ dataDir: join(dir, 'data'), now: () => NOW })
-    setTurnCostSink((costUsd) => ledger.noteOtherTurn(costUsd))
+    const ledger = ledgerOf()
+    into(ledger)
     ledger.noteCall({ kind: 'conversation', source: null, wakeId: null, model: 'claude-opus-5-5', usage: { inputTokens: 10, outputTokens: 1, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 }, costUsd: 0.1 })
     script('first', [...turn(0.1), ...turn(0.3)])
-    const session = sessions().start(dir, undefined, () => undefined)
-    await settled(session, 'idle')
-    session.send('one')
-    await vi.waitFor(() => expect(Object.values(ledger.snapshot().otherCost)).toHaveLength(1))
-    await settled(session, 'idle')
-    session.send('two')
-    await vi.waitFor(() => expect(close(Object.values(ledger.snapshot().otherCost)[0] ?? 0, 0.3)).toBe(true))
+    const session = open(sessions())
+    await ask(session, 'one')
+    await ask(session, 'two')
+    expect(other(ledger)).toBe(0.3)
 
     const window: LimitWindowState = { utilization: 0.4, resetsAt: (NOW + 2 * HOUR) / 1000, status: 'allowed', receivedAt: NOW, source: 'sdk' }
     const [share] = ledger.limitsShare({ windows: { five_hour: window } })
@@ -103,38 +171,35 @@ describe('the Sessions of the registry', () => {
 })
 
 describe('the observer of the registry', () => {
+  const resultEvent = (costUsd: number): AgentEvent => ({ type: 'result', subtype: 'success', isError: false, text: '', costUsd, usage: { inputTokens: 1, outputTokens: 1, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 }, durationMs: 1, numTurns: 1, interrupted: false }) as unknown as AgentEvent
   const feed = (events: [string, AgentEvent][]): void => {
     const observe = turnCostObserver()
     for (const [sessionId, event] of events) observe(sessionId, event)
   }
-  const resultEvent = (costUsd: number): AgentEvent => ({ type: 'result', subtype: 'success', isError: false, text: '', costUsd, usage: { inputTokens: 1, outputTokens: 1, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 }, durationMs: 1, numTurns: 1, interrupted: false }) as unknown as AgentEvent
 
-  it('counts from zero after the Session starts a new process (`starting`, a restart with the same conversation)', () => {
+  it('passes each result as its conversation\'s total and each new id of a Session, and keeps nothing across a new process', () => {
     feed([
-      ['s1', resultEvent(0.03)],
-      ['s1', { type: 'state', state: 'starting', error: null } as AgentEvent],
-      ['s1', resultEvent(0.05)],
-    ])
-    expect(noted).toEqual([0.03, 0.05])
-  })
-
-  it('keeps the process\'s figure when the Session takes its Vendor session\'s id', () => {
-    feed([
-      ['pending-1', resultEvent(0.01)],
-      ['sdk-1', { type: 'renamed', from: 'pending-1' } as AgentEvent],
       ['sdk-1', resultEvent(0.03)],
+      ['sdk-1', { type: 'state', state: 'starting', error: null } as AgentEvent],
+      ['sdk-1', resultEvent(0.05)],
+      ['sdk-2', { type: 'renamed', from: 'sdk-1' } as AgentEvent],
     ])
-    expect(noted.map((cost) => Number(cost.toFixed(6)))).toEqual([0.01, 0.02])
+    expect(noted).toEqual(['sdk-1=0.03', 'sdk-1=0.05', 'sdk-1->sdk-2'])
   })
 
-  it('keeps each Session apart, and notes nothing for a turn that cost nothing (a Codex Session, an interrupted turn)', () => {
+  it('in the ledger: a new id in the same process goes on from the old one\'s total; a turn that cost nothing notes nothing', () => {
+    const ledger = ledgerOf()
+    into(ledger)
     feed([
-      ['a', resultEvent(0.02)],
-      ['b', resultEvent(0.04)],
-      ['a', resultEvent(0.02)],
+      ['sdk-1', resultEvent(0.01)],
+      ['sdk-2', { type: 'renamed', from: 'sdk-1' } as AgentEvent],
+      ['sdk-2', resultEvent(0.03)],
+      // An interrupted turn repeats the figure; a Codex Session reports 0.
+      ['sdk-2', resultEvent(0.03)],
       ['codex', resultEvent(0)],
     ])
-    expect(noted).toEqual([0.02, 0.04])
+    expect(other(ledger)).toBe(0.03)
+    expect(Object.keys(ledger.snapshot().otherTotals).sort()).toEqual(['sdk-1', 'sdk-2'])
   })
 })
 
@@ -183,10 +248,12 @@ describe('the requests outside the registry: one process, one turn', () => {
 
   it('a sink that throws never fails the request that reported', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    setTurnCostSink(() => {
+    const fail = (): never => {
       throw new Error('the ledger could not be written')
-    })
+    }
+    setTurnCostSink({ turn: fail, conversationTotal: fail, renamed: fail })
     expect(() => noteOneTurnResult(result(0.5))).not.toThrow()
+    expect(() => turnCostObserver()('sdk-1', { type: 'result', costUsd: 0.5 } as AgentEvent)).not.toThrow()
     expect(warn).toHaveBeenCalledWith('[agent] the cost of a turn was not noted', expect.any(Error))
     warn.mockRestore()
   })
