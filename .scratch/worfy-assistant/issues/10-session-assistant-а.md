@@ -1,7 +1,8 @@
 # 10 — Session Assistant-а: cwd вне Project-ов, третий вид Session в Harness, только tools `worfy-app`, файл памяти
 
 Type: task
-Status: claimed 2026-11-25T22:32Z
+Status: done 2026-11-26T03:26Z
+PR: #2247
 Branch: worfy-assistant/10
 Blocked by: 06, 09
 Source: [spec.md](../spec.md), «Ticket-ы», строка 10; «Решение», слой 2; «Решения владельца», 2 и 11; «Решения по
@@ -44,28 +45,36 @@ Source: [spec.md](../spec.md), «Ticket-ы», строка 10; «Решение�
 - [ ] Session Assistant-а стартует с cwd в папке данных worfy вне всех Project-ов; `CLAUDE.md` и hooks Project-ов не
       грузятся; на Canvas Project-ов её нет.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-session-options.test.ts` exit 0 · mac - · cc37261043a60dadb508a0aa4014999a025a1073
+  - evidence: review pass · PR #2247 · - - · 81b96cb0fead7b614c0dea90ec3b3db55b60290b
 - [ ] `WORFY_SESSION_KIND` получает новое значение; Harness для него печатает свой файл правил.
   - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0; `node scripts/vitest-electron.mjs test/contract/harness-plugin.test.ts` exit 0 · mac - · cc37261043a60dadb508a0aa4014999a025a1073
   - evidence: test-run pass · `bash harness/hooks/tests/rules-hooks.test.sh` exit 0 (assistant gets no common part) · mac - · 269b2a6a3f7a003114e78f29b121a99f0436a6c2
+  - evidence: review pass · PR #2247 · - - · 81b96cb0fead7b614c0dea90ec3b3db55b60290b
 - [ ] Unit test: у Session Assistant-а нет Bash, записи файлов и сети; есть только tools `worfy-app`.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-session-options.test.ts` exit 0 · mac - · cc37261043a60dadb508a0aa4014999a025a1073
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/assistant-session-claude.test.ts test/unit/assistant-session-options.test.ts` exit 0 (real Claude Code: worfy-app call runs its handler, Bash refused) · mac - · 269b2a6a3f7a003114e78f29b121a99f0436a6c2
+  - evidence: review pass · PR #2247 · - - · 81b96cb0fead7b614c0dea90ec3b3db55b60290b
 - [ ] Unit test: каждое пробуждение — новая Session.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-session.test.ts` exit 0 · mac - · cc37261043a60dadb508a0aa4014999a025a1073
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-session.test.ts` exit 0 (stop, time limit) · mac - · 269b2a6a3f7a003114e78f29b121a99f0436a6c2
+  - evidence: review pass · PR #2247 · - - · 81b96cb0fead7b614c0dea90ec3b3db55b60290b
 - [ ] Файл памяти хранит обязанности, открытые предложения, обязательства, правила из оценок и ответы пользователя; новая
       Session его читает.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-session.test.ts` exit 0 · mac - · cc37261043a60dadb508a0aa4014999a025a1073
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-session.test.ts` exit 0 (memory as data, size cap) · mac - · 269b2a6a3f7a003114e78f29b121a99f0436a6c2
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45741581364/job/139670734653 · ci - · 81b96cb0fead7b614c0dea90ec3b3db55b60290b
 - [ ] Session Assistant-а идёт не на Haiku.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-session-options.test.ts` exit 0 · mac - · cc37261043a60dadb508a0aa4014999a025a1073
+  - evidence: review pass · PR #2247 · - - · 81b96cb0fead7b614c0dea90ec3b3db55b60290b
 - [ ] pr-follow и autopilot-start, которые запустил Assistant, пишутся в журнал Assistant-а (Ticket 08) вместе с
       пунктом, который их вызвал (ADR-0114, граница 6). Сейчас `journal` в `appWorfyAppDeps`
       (`src/main/mcp/app-server.ts`) пишет их только в log main (review PR #2240 Ticket-а 09).
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/worfy-app-tools.test.ts` exit 0 · mac - · cc37261043a60dadb508a0aa4014999a025a1073
+  - evidence: review pass · PR #2247 · - - · 81b96cb0fead7b614c0dea90ec3b3db55b60290b
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · cc37261043a60dadb508a0aa4014999a025a1073
   - evidence: gate pass · `gate fast` exit 0 · mac - · 269b2a6a3f7a003114e78f29b121a99f0436a6c2
+  - evidence: review pass · PR #2247 · - - · 81b96cb0fead7b614c0dea90ec3b3db55b60290b
 
 ## Итог
 
