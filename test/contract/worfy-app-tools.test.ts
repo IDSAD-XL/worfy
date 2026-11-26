@@ -413,6 +413,22 @@ describe('worfy-app: items_list in pages of short records, below the size Claude
     expect((whole.actions as Record<string, unknown>[])[0]).toHaveProperty('text')
   })
 
+  // Review of #2295: a title cut before its secrets are hidden splits a token, and the token's head no longer matches.
+  it('hides a secret before it cuts a title: a token across the cut leaves no fragment, in items_list, the first message and a Linked machine\'s item', async () => {
+    const [w, { linkedItemOf, LINKED_TITLE_MAX }] = await Promise.all([world(), import('../../src/shared/assistant/linked')])
+    const head = GH_TOKEN.slice(0, 16)
+    const text = `${'x'.repeat(w.app.ITEM_TITLE_MAX - 30)} ${GH_TOKEN} tail`
+    w.core.ingest({ source: 'session', id: 'sess-long:error', revision: 'r1', projectId: PROJECT, subject: { kind: 'session', id: 'sess-long', label: 'Implementer' }, kind: 'error', text })
+    const item = w.core.items(PROJECT).find((each) => each.subject.id === 'sess-long')!
+    const raw = textOf(await w.rpc.call('items_list', { ids: [w.app.publicItemId(item.id)] }))
+    expect(raw).toContain('[redacted]')
+    expect(raw).not.toContain(head)
+    expect(JSON.stringify(w.app.wakeItemRecord(item))).not.toContain(head)
+    const linked = linkedItemOf({ id: 'x', title: `${'y'.repeat(LINKED_TITLE_MAX - 30)} ${GH_TOKEN}`, source: 'session', sourceLabel: 'Session', subject: { kind: 'session', label: 'docs' }, kind: 'error', projectId: null, projectName: null, duty: null, urgent: false, startedAt: NOW, lastAt: NOW, outside: null } as never)
+    expect(linked.title).not.toContain(head)
+    expect(linked.title).toContain('[redacted]')
+  })
+
   it('puts the urgent first, then the newest', async () => {
     const { rpc } = await world()
     const { items } = json<Page>(await rpc.call('items_list'))
@@ -421,13 +437,20 @@ describe('worfy-app: items_list in pages of short records, below the size Claude
   })
 
   it('filters by project, kind and state', async () => {
-    const { rpc, core } = await world()
+    const { rpc, core, itemOf } = await world()
     expect(json<Page>(await rpc.call('items_list', { kind: 'failing' })).items.map((item) => item.source)).toEqual(['pr-inbox'])
     expect(json<Page>(await rpc.call('items_list', { project: 'beta-11223344' }))).toMatchObject({ total: 0, items: [] })
     expect(json<Page>(await rpc.call('items_list', { project: PROJECT })).total).toBe(5)
-    // The duties show the open items only: closed ones are none of them, whatever the filter.
-    expect(json<Page>(await rpc.call('items_list', { state: 'closed' })).total).toBe(0)
     expect(json<Page>(await rpc.call('items_list', { state: 'new' })).total).toBe(5)
+    // The duties show new and seen items only: another state without ids would always answer none, so it is refused.
+    for (const state of ['snoozed', 'dismissed', 'closed', 'stale']) {
+      const refused = await rpc.call('items_list', { state })
+      expect(refused.isError, state).toBe(true)
+      expect(textOf(refused), state).toMatch(new RegExp(`state ${state} reads only the items named by ids`, 'u'))
+    }
+    // With ids, any state filters the items named.
+    expect(json<Page>(await rpc.call('items_list', { ids: [itemOf('slack')], state: 'closed' })).total).toBe(0)
+    expect(json<Page>(await rpc.call('items_list', { ids: [itemOf('slack')], state: 'new' })).total).toBe(1)
     expect(core.items(PROJECT).length).toBe(5)
   })
 

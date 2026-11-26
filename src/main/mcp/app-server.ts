@@ -312,7 +312,14 @@ function itemView(item: AttentionItem, actions: DutyLook['shown'][number]['propo
 /** The most characters of an item's title in its short record: the whole text is read with full: true. */
 export const ITEM_TITLE_MAX = 300
 
-const cut = (value: string, max: number): string => (value.length <= max ? value : `${value.slice(0, max - 1)}…`)
+/**
+ * `value` with its secrets hidden, then cut to `max`: hidden first, since a token the cut splits no longer matches
+ * redactSecrets, and its head would leave in the answer.
+ */
+const cut = (value: string, max: number): string => {
+  const clean = redactSecrets(value)
+  return clean.length <= max ? clean : `${clean.slice(0, max - 1)}…`
+}
 
 /**
  * An item as items_list lists it and the first message of a Session names it (worfy-polish ticket 164): short, its
@@ -356,6 +363,9 @@ function compactLinkedItemView(machine: AppMachine, item: LinkedItem) {
     title: outsideText(cut(item.title, ITEM_TITLE_MAX), item.source, item.outside?.author ?? null),
   }
 }
+
+/** The states items_list takes without ids: the duties show new and seen items only. */
+const LISTED_STATES: ReadonlySet<string> = new Set(['open', 'all', 'new', 'seen'])
 
 /** One item of the listing of items_list: what its filters and its order read, and its two views. */
 interface ListedItem {
@@ -459,6 +469,10 @@ function handlers(deps: WorfyAppDeps): Handlers {
     // saves to a file (worfy-polish ticket 164, CLAUDE_CODE_RESULT_TO_FILE_CHARS).
     items_list: async (args) => {
       if (args.full === true && args.ids === undefined) throw new ToolError('full: true reads only the items named by ids: list them, then read the ones you need with ids and full: true.')
+      // Without ids the listing is what the duties show, new and seen items only: another state would always answer none.
+      if (args.ids === undefined && args.state !== undefined && !LISTED_STATES.has(args.state)) {
+        throw new ToolError(`state ${args.state} reads only the items named by ids: without ids the list holds what the duties show now, new and seen items. Use open, all, new or seen, or name the items by ids.`)
+      }
       const wanted = args.ids === undefined ? null : new Set(args.ids)
       const shown = deps.duties.look(deps.items(), { countShown: false }).shown
       const shownOf = new Map(shown.map((each) => [each.item.id, each]))

@@ -41,11 +41,15 @@ export const ITEMS_LIST_ANSWER_MAX_CHARS = 20_000
 
 ## 3. По `ids` — любой пункт ядра, не только показанный duty
 
-Code: `src/main/mcp/app-server.ts:460-467` · key lines: 461, 466
+Code: `src/main/mcp/app-server.ts:470-481` · key lines: 471, 473, 480
 
 ```ts
     items_list: async (args) => {
       if (args.full === true && args.ids === undefined) throw new ToolError('full: true reads only the items named by ids: list them, then read the ones you need with ids and full: true.')
+      // Without ids the listing is what the duties show, new and seen items only: another state would always answer none.
+      if (args.ids === undefined && args.state !== undefined && !LISTED_STATES.has(args.state)) {
+        throw new ToolError(`state ${args.state} reads only the items named by ids: without ids the list holds what the duties show now, new and seen items. Use open, all, new or seen, or name the items by ids.`)
+      }
       const wanted = args.ids === undefined ? null : new Set(args.ids)
       const shown = deps.duties.look(deps.items(), { countShown: false }).shown
       const shownOf = new Map(shown.map((each) => [each.item.id, each]))
@@ -56,7 +60,8 @@ Code: `src/main/mcp/app-server.ts:460-467` · key lines: 461, 466
 
 - Что делает: без `ids` список — пункты, которые duty показывают сейчас (как раньше); с `ids` — любой пункт ядра с
   таким id, так что пункт Session, закончившей ход, находится. `full: true` без `ids` — отказ: крупные поля читаются
-  только по названным пунктам.
+  только по названным пунктам. Без `ids` `state` — только open, all, new или seen: duty показывают лишь new и seen, и
+  другой state всегда давал бы пустой ответ (review PR, находка 2).
 - Почему здесь: Ticket, «Что строить», п. 1–3: `ids` для пунктов, ради которых разбудили. Что пункт `turn-end` не
   показывается ни одной duty — видно в `duties.ts` (`look` пропускает пункт без duty).
 - Без него: Assistant получал бы `missing` на свой же переданный пункт.
@@ -66,7 +71,7 @@ Code: `src/main/mcp/app-server.ts:460-467` · key lines: 461, 466
 
 ## 4. Страница кончается по `limit` или по размеру
 
-Code: `src/main/mcp/app-server.ts:518-530` · key lines: 522, 526, 530
+Code: `src/main/mcp/app-server.ts:532-544` · key lines: 536, 540, 544
 
 ```ts
       // A page ends at its limit, or before the answer would pass its size; it holds one item at least.
@@ -115,7 +120,7 @@ function handedOver(items: readonly AttentionItem[], itemRecord: (item: Attentio
 ```
 
 - Что делает: компактные записи первых 20 переданных пунктов идут JSON-блоком, их текст — объектами `outside-text`;
-  остальные пункты названы по id. Запись — та же, что в `items_list` (`wakeItemRecord`, секреты скрыты).
+  остальные пункты названы по id. Запись — та же, что в `items_list` (`wakeItemRecord`). Секреты скрываются до обрезки заголовка (`cut` в `app-server.ts` и `linked.ts`): токен на границе обрезки иначе терял бы хвост и не узнавался (review PR, находка 1).
 - Почему здесь: Ticket, п. 3. Прежнее правило Ticket-а `worfy-assistant` 10 «без их текста» заменено на «текст только
   объектом `outside-text`», как у памяти в том же сообщении (решение в Ticket-е).
 - Без него: чтобы узнать, зачем его разбудили, Assistant должен был звать список.
@@ -140,11 +145,11 @@ read-only Linked machine (`worfy-assistant` 09 и 18) не тронуты: пу�
 1. Почему с `ids` фильтр `state` по умолчанию — `all`, а без них — `open`?
    - Ответ: по `ids` Assistant читает пункты, ради которых его разбудили; к этому моменту такой пункт мог закрыться, и
      фильтр open спрятал бы его, а без `ids` нужен список того, что ждёт сейчас.
-   - Строки: `src/main/mcp/app-server.ts:499-504`
+   - Строки: `src/main/mcp/app-server.ts:513-518`
 2. Что не даёт ответу `full: true` по 50 большим пунктам уйти в файл?
    - Ответ: страница кончается, как только следующий пункт вывел бы JSON ответа за `ITEMS_LIST_ANSWER_MAX_CHARS`, и
      `nextCursor` называет остаток.
-   - Строки: `src/main/mcp/app-server.ts:518-530`
+   - Строки: `src/main/mcp/app-server.ts:532-544`
 3. Почему чужой текст в первом сообщении не нарушает границу 2 ADR-0114?
    - Ответ: он идёт только объектом `outside-text` внутри JSON-блока, и сообщение говорит, что это данные, — так же,
      как память.
