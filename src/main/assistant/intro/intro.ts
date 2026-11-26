@@ -10,8 +10,9 @@
 //   (ticket 15): nothing changes until Apply. The words are worfy's (words.ts), with no model. Which sources are
 //   connected main reads from the person's claude.ai connectors, without a model (ticket 11); a source not connected is
 //   named with where to connect it in claude.ai, and no token is asked for (decision 19).
-// - Once. The file records that the introduction is owed before the connectors are read and that it is done after, so a
-//   quit in between brings it at the next start, and nothing brings it twice. A Assistant found on at the start of worfy
+// - Once. The file records that the introduction is owed as soon as the person turns the Assistant on — before its start,
+//   which may not take — and that it is done after, so a start that failed or a quit in between brings it at the next
+//   start, and nothing brings it twice. A Assistant found on at the start of worfy
 //   with nothing recorded was turned on before the introduction existed — the owner's (decision 10): it is not
 //   introduced then.
 //
@@ -80,7 +81,7 @@ export interface AssistantIntroDeps {
   on(): boolean
   /** Turns it on, as its switch does. */
   turnOn(): void
-  /** Whether the message for an updated user may show by itself: not under WORFY_GETTING_STARTED_AUTO=0 (the e2e runs). */
+  /** Whether the message for an updated user may show by itself: not under WORFY_ASSISTANT_OFFER_AUTO=0 (the e2e runs). */
   noticeAllowed(): boolean
   language(): GuideLanguage
   machine(): 'Mac' | 'PC'
@@ -124,6 +125,15 @@ export class AssistantIntro {
     else this.edit((state) => void (state.offer = answer))
     if (answer === 'accepted') this.deps.turnOn()
     this.deps.changed()
+  }
+
+  /**
+   * The person turned the Assistant on (switch.ts), before its start: the introduction is owed from now on, so a start
+   * that does not take now, and one at a later start of worfy, still bring it. Once introduced, nothing changes.
+   */
+  owe(): void {
+    if (this.deps.store.read().introduction !== null) return
+    this.edit((state) => void (state.introduction = 'owed'))
   }
 
   /**

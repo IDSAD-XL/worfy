@@ -19,7 +19,9 @@ function harness(initial: boolean, { startFails = false, introduce = false } = {
       return startFails ? null : () => void calls.push('stop')
     },
     changed: () => void calls.push('changed'),
-    ...(introduce ? { started: (atStartup: boolean) => void calls.push(`started ${atStartup ? 'with worfy' : 'later'}`) } : {}),
+    ...(introduce
+      ? { started: (atStartup: boolean) => void calls.push(`started ${atStartup ? 'with worfy' : 'later'}`), turnedOn: () => void calls.push('turned on') }
+      : {}),
     log: (message) => void calls.push(`log: ${message}`),
   })
   const turn = (next: boolean): void => {
@@ -73,11 +75,23 @@ describe('the switch of the Assistant', () => {
     later.turn(true)
     later.turn(false)
     later.turn(true)
-    expect(later.calls).toEqual(['start', 'changed', 'started later', 'stop', 'changed', 'start', 'changed', 'started later'])
+    expect(later.calls).toEqual(['turned on', 'start', 'changed', 'started later', 'stop', 'changed', 'turned on', 'start', 'changed', 'started later'])
   })
 
   it('a start that does not take tells the introduction nothing', () => {
     const { calls } = harness(true, { startFails: true, introduce: true })
     expect(calls.some((call) => call.startsWith('started'))).toBe(false)
+  })
+
+  it('turned on by the person while the start does not take: the introduction is owed before the start, so a later start keeps it', () => {
+    const { calls, turn } = harness(false, { startFails: true, introduce: true })
+    turn(true)
+    expect(calls.slice(0, 2)).toEqual(['turned on', 'start'])
+    expect(calls.some((call) => call.startsWith('started'))).toBe(false)
+  })
+
+  it('on since worfy started: nothing is owed by a turn of the switch', () => {
+    const { calls } = harness(true, { introduce: true })
+    expect(calls).not.toContain('turned on')
   })
 })

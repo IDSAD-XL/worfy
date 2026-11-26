@@ -3,8 +3,8 @@
 // sends no message (ticket 11's listConnectors), the proposals of the Assistant and the conversation of its section.
 //
 // Under WORFY_AGENT=fake (the e2e runs) the connectors are listed by the fake agent's query of the inventory, never by a
-// real Claude Code. With WORFY_GETTING_STARTED_AUTO=0 (the e2e runs) the message for an updated user does not show by
-// itself, as the notice of Getting started does not.
+// real Claude Code. With WORFY_ASSISTANT_OFFER_AUTO=0 (the e2e runs, test/e2e/launch-env.ts) the message for an updated
+// user does not show by itself, as the notice of Getting started does not under its own flag.
 import { app } from 'electron'
 import { machineTimeZone } from '../../../shared/assistant/schedule/work-hours'
 import { assistantOn } from '../../../shared/assistant/settings'
@@ -25,7 +25,7 @@ export function appAssistantIntro(env: NodeJS.ProcessEnv = process.env): Assista
     store: introStateFile(introStatePath(dataRoot())),
     on: () => assistantOn(appSettingsStore().get()),
     turnOn: () => void appSettingsStore().set({ assistant: { on: true } }),
-    noticeAllowed: () => env.WORFY_GETTING_STARTED_AUTO !== '0',
+    noticeAllowed: () => env.WORFY_ASSISTANT_OFFER_AUTO !== '0',
     language: () => guideLanguage(appSettingsStore().get().guideLanguage, app.getPreferredSystemLanguages()),
     machine: () => (process.platform === 'win32' ? 'PC' : 'Mac'),
     connectors: () => {

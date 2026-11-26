@@ -328,6 +328,8 @@ does the work.
   the send button in `src/renderer/session/MessageInput.tsx`, which also names its Node. It looks again after each change of the
   state and of the page. `src/renderer/getting-started/highlight.css` draws the ring as an outline of the element itself.
 - `WORFY_GETTING_STARTED_AUTO=0` keeps the panel hidden for a new user and reads the notice as shown, for the e2e tests.
+- `WORFY_ASSISTANT_OFFER_AUTO=0` keeps the notice offering the Assistant to an existing user from showing by itself, for the
+  e2e tests.
 - Main tests: `test/contract/getting-started-state.test.ts`, `test/unit/getting-started-progress.test.ts`,
   `test/unit/getting-started-panel.test.tsx`, `test/unit/getting-started-hints.test.ts`, `test/unit/getting-started-notice.test.tsx`,
   `test/unit/getting-started-highlight.test.ts`, `test/e2e/getting-started.spec.ts`, `test/e2e/getting-started-entry.spec.ts`,

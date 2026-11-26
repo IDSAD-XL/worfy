@@ -98,7 +98,7 @@ describe('the one offer to turn the Assistant on', () => {
     expect(intro.offer()).toEqual({ owed: false, notice: false })
   })
 
-  it('under WORFY_GETTING_STARTED_AUTO=0 (the e2e runs) the message for an updated user does not show by itself', () => {
+  it('under WORFY_ASSISTANT_OFFER_AUTO=0 (the e2e runs) the message for an updated user does not show by itself', () => {
     const { intro } = harness({ noticeAllowed: false })
     expect(intro.offer()).toEqual({ owed: true, notice: false })
   })
@@ -189,6 +189,22 @@ describe('the introduction, the first time the Assistant is turned on', () => {
     const owed: IntroState = { offer: 'accepted', noticeShown: false, introduction: 'owed' }
     const { intro, said } = harness({ on: true, state: owed })
     await intro.started(true)
+    expect(said).toHaveLength(3)
+  })
+
+  it('turned on by the person while the Assistant could not start, then worfy restarted: the introduction still comes', async () => {
+    const { intro, store, said } = harness()
+    intro.owe()
+    const next = new AssistantIntro({ ...harnessDeps(), on: () => true, store, say: (text) => void said.push({ text, proposalId: null }) })
+    await next.started(true)
+    expect(said).toHaveLength(3)
+  })
+
+  it('owed once it was introduced changes nothing', async () => {
+    const { intro, said, store } = harness()
+    await intro.started(false)
+    intro.owe()
+    expect(store.read().introduction).toBe('done')
     expect(said).toHaveLength(3)
   })
 

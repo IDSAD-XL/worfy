@@ -25,6 +25,8 @@ export interface AssistantSwitchDeps {
   start(): (() => void) | null
   /** The section of the window: told after each start and stop. */
   changed(): void
+  /** The person turned the setting on (it was off since worfy started), told before the start, which may not take. */
+  turnedOn?(): void
   /** After each start that took; `atStartup`: the setting has been on since worfy started, not turned on since. */
   started?(atStartup: boolean): void
   log?(message: string): void
@@ -40,6 +42,7 @@ export function followAssistantSwitch(deps: AssistantSwitchDeps): () => void {
     const on = deps.on()
     if (!on) seenOff = true
     if (on && stop === null) {
+      if (seenOff) deps.turnedOn?.()
       stop = deps.start()
       if (stop === null) return log('the Assistant did not start: the attention core is not running')
       deps.changed()
@@ -72,6 +75,17 @@ export function startAssistantSwitch(power: PowerEvents): () => void {
     },
     start: () => startAssistant(power),
     changed: () => appAssistantWindow().changed(),
-    started: (atStartup) => void appAssistantIntro().started(atStartup),
+    turnedOn: () => {
+      try {
+        appAssistantIntro().owe()
+      } catch (error) {
+        console.warn('[assistant] the introduction could not be noted as owed', error)
+      }
+    },
+    started: (atStartup) => {
+      appAssistantIntro()
+        .started(atStartup)
+        .catch((error: unknown) => console.warn('[assistant] the introduction failed', error))
+    },
   })
 }

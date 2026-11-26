@@ -7,7 +7,7 @@
 //
 // Only for an existing user, as Getting started decided once (its `user`): a new one is offered the Assistant on the
 // welcome step of First run. Only while the view says the message is owed (`offer.notice`), which main never says under
-// WORFY_GETTING_STARTED_AUTO=0 (the e2e runs), and never in a window of a Linked machine: the Assistant is this Machine's.
+// WORFY_ASSISTANT_OFFER_AUTO=0 (the e2e runs), and never in a window of a Linked machine: the Assistant is this Machine's.
 import type { AssistantView } from '../../shared/assistant/window'
 import { invoke, windowMachine } from '../ipc'
 import { showToast, toasts } from '../toast/toasts'

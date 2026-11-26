@@ -101,6 +101,9 @@ function isolation(dataDir: string, claudeHome: string, profileDir: string, plat
     // first read of its state hides it. test/e2e/getting-started*.spec.ts turn it back on with
     // WORFY_GETTING_STARTED_AUTO=1.
     WORFY_GETTING_STARTED_AUTO: '0',
+    // The one message offering the Assistant to an updated user (worfy-assistant ticket 16) does not show by itself
+    // either: it would stand next to the toasts the specs look at. A spec that tests it sets WORFY_ASSISTANT_OFFER_AUTO=1.
+    WORFY_ASSISTANT_OFFER_AUTO: '0',
     // The link server (worfy-link) listens on loopback only, so the macOS firewall never asks about
     // incoming connections, and Bonjour is off, so macOS never asks for the Local Network
     // permission: either prompt would stop a run. Linked worfy in a test reach each other at
