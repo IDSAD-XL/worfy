@@ -185,3 +185,47 @@ Test-ы подключения сначала красные на коде до 
    - Ответ: цена Node-а равна итогу беседы, только пока ничего не сломалось; после процесса без восстановленного итога
      или у Node-а старого кода она больше, и следующий итог считался бы с нуля при каждом перезапуске.
    - Lines: `src/main/agent/orchestrator.ts:112-146`
+
+## 9. Что нашёл review и что осталось
+
+> VERIFIED — worfy-assistant 27 (the Assistant's share of Limits counts only its own spending, not the whole window: the usage ledger and the Orchestrator Node count only the rise of a conversation's reported total, so a resumed conversation's past is not counted again), head 8187c767dad4e99af72b3ba655d074d87a870d75
+>
+> Gate (depth medium, three rounds — the cap):
+> - Round 1, reviewer (lens: correctness) — FIX, one high, one med:
+>   - high: the observer reset a registry Session's last total on 'starting' and 'error', but Claude Code restores total_cost_usd on resume, so a relaunch, Restart, crash + resume or a worfy restart counted the whole past again;
+>   - med: docs/features/assistant.md wording.
+> - Fix 802279f12:
+>   - the ledger keeps the last total per conversation (usage.json otherTotals, pruned after 8 days); renames move it; a lower total counts from zero;
+>   - the same flaw in the Orchestrator's CostCounter, fixed with the shared costSinceLast.
+> - Round 2, narrow reviewer — FIX:
+>   - high: CostCounter took the Node's saved costUsd as the last reported total. For Nodes saved by the old code, or after a resume that restored nothing, the cost grew on every restart or reopen (throwaway test: 0.075 shown where about 0.03 is right);
+>   - low: the docs case «restored nothing» was wrong.
+>   Checked fine: the ledger fix, rename, no fork possible (no forkSession; the registry refuses a duplicate id), old usage.json and rollback, atomic writes, a new conversation counted in full. A mutation putting a reset back on 'starting' or 'error' turned other-turn-costs red.
+> - Fix 01db12c21:
+>   - reportedUsd: a separate field of the Node data (src/shared/ipc/orchestrator.ts:33-39);
+>   - CostCounter(saved, reported): a Node without the field takes its first result as the restored total and adds nothing for it (accepted cost: that one turn is left out of the Node's cost);
+>   - new conversations and resets write reportedUsd 0;
+>   - regression tests test/contract/orchestrator.test.ts:718-758, 4 red first;
+>   - docs names only the 8-day case and a total restored only in part.
+> - Round 3: diff read by the orchestrator (orchestrator.ts:112-146, :654, :807, :848, :977; the schema field is optional, so old data reads and an older build drops it) — closes the finding.
+> Evidence: 10 touched unit+contract files exit 0; pnpm typecheck exit 0; gate fast green on 9d8998b4b (next commit evidence only); story-check exit 0.
+> Not verified: e2e locally (owner rule); that the real Claude Code restores total_cost_usd on resume (no real Claude Code); the Windows part of the scope pc — the PC gate full after the Wave.
+> - After round 3, CI run 45837838276 red on macos-e2e (1/2) and windows-e2e (3/4): test/e2e/orchestrator.spec.ts:204 expected the Node data without reportedUsd. Fix 8187c767d: the expectation stays exact, reportedUsd 0.03 (the fake agent's results are running totals 0.0125, 0.02, 0.03 of one process); diff read by the orchestrator. contract orchestrator exit 0, lint exit 0.
+
+Code: `src/shared/ipc/orchestrator.ts:33-39` · key lines: 33
+
+```ts
+  costUsd: z.number().nonnegative().optional(),
+  /**
+   * The last running total the session's conversation reported (`total_cost_usd`, worfy-assistant ticket 27): Claude
+   * Code restores it when it resumes the conversation, so the next result adds only its rise (CostCounter,
+   * src/main/agent/orchestrator.ts). It equals costUsd only while nothing went wrong, so it is kept apart. Absent in a
+   * Node saved before it: the first result after the start is taken as the restored total.
+   */
+```
+
+Code: `test/e2e/orchestrator.spec.ts:204-204` · key lines: 204
+
+```ts
+    // conversation reported (worfy-assistant ticket 27). The fake agent's three results are running totals of one process
+```

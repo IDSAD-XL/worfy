@@ -1,7 +1,8 @@
 # 27 — Доля Limits Assistant-а считается от всего расхода окна
 
 Type: task
-Status: claimed 2026-11-26T13:15Z
+Status: done 2026-11-26T15:32Z
+PR: #2284
 Blocked by: —
 Source: найдено Ticket-ом 19 (PR #2281), раздел «Вне скоупа»; [spec.md](../spec.md), «Ticket-ы», строка 27.
 Пункт Ticket-а 20 «Владелец смотрит, сколько token-ов и какую долю Limits потратил Assistant» опирается на эту долю.
@@ -90,19 +91,23 @@ Ticket 05 завёл журнал расхода Assistant-а (`<WORFY_DATA_DIR>
   - evidence: test-run pass · `pnpm test test/unit/other-turn-costs.test.ts test/unit/vendor-driver-types.test.ts test/contract/terminal-ai-assist.test.ts test/unit/assistant-session.test.ts test/unit/assistant-source-check.test.ts` exit 0 · mac - · c5a3c6200
   - evidence: test-run pass · `pnpm test test/unit/other-turn-costs.test.ts test/contract/orchestrator.test.ts test/unit/assistant-usage-ledger.test.ts test/unit/vendor-driver-types.test.ts test/contract/terminal-ai-assist.test.ts test/unit/assistant-session.test.ts test/unit/assistant-source-check.test.ts` exit 0 · mac - · 6e5436d09
   - evidence: test-run pass · `pnpm test test/unit/other-turn-costs.test.ts test/contract/orchestrator.test.ts test/contract/codex-orchestrator.test.ts test/contract/node-sessions.test.ts test/unit/assistant-usage-ledger.test.ts test/contract/terminal-ai-assist.test.ts test/unit/assistant-session.test.ts test/unit/assistant-source-check.test.ts` exit 0 · mac - · 9d8998b4b
+  - evidence: review pass · PR #2284 · - - · 8187c767dad4e99af72b3ba655d074d87a870d75
 - [ ] Unit test `limitsShare` с ценой других ходов: доля Assistant-а меньше процента окна.
   - evidence: test-run pass · `pnpm test test/unit/other-turn-costs.test.ts` exit 0 · mac - · c5a3c6200
   - evidence: test-run pass · `pnpm test test/unit/other-turn-costs.test.ts test/contract/orchestrator.test.ts test/unit/assistant-usage-ledger.test.ts test/unit/vendor-driver-types.test.ts test/contract/terminal-ai-assist.test.ts test/unit/assistant-session.test.ts test/unit/assistant-source-check.test.ts` exit 0 · mac - · 6e5436d09
+  - evidence: review pass · PR #2284 · - - · 8187c767dad4e99af72b3ba655d074d87a870d75
 - [ ] Test, что подключение зовёт `noteOtherTurn`: Session реестра, one-shot, narrator, Terminal AI — да; Session
       Assistant-а и проверка источника — нет.
   - evidence: test-run pass · `pnpm test test/unit/other-turn-costs.test.ts test/unit/vendor-driver-types.test.ts test/contract/terminal-ai-assist.test.ts test/unit/assistant-session.test.ts test/unit/assistant-source-check.test.ts` exit 0 · mac - · c5a3c6200
   - evidence: test-run pass · `pnpm test test/unit/other-turn-costs.test.ts test/contract/orchestrator.test.ts test/unit/assistant-usage-ledger.test.ts test/unit/vendor-driver-types.test.ts test/contract/terminal-ai-assist.test.ts test/unit/assistant-session.test.ts test/unit/assistant-source-check.test.ts` exit 0 · mac - · 6e5436d09
   - evidence: test-run pass · `pnpm test test/unit/other-turn-costs.test.ts test/contract/orchestrator.test.ts test/contract/codex-orchestrator.test.ts test/contract/node-sessions.test.ts test/unit/assistant-usage-ledger.test.ts test/contract/terminal-ai-assist.test.ts test/unit/assistant-session.test.ts test/unit/assistant-source-check.test.ts` exit 0 · mac - · 9d8998b4b
+  - evidence: review pass · PR #2284 · - - · 8187c767dad4e99af72b3ba655d074d87a870d75
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · c5a3c6200
   - evidence: gate pass · `gate fast` exit 0 · mac - · c5a3c6200
   - evidence: gate pass · `gate fast` exit 0 · mac - · 6e5436d09
   - evidence: gate pass · `gate fast` exit 0 · mac - · 9d8998b4b
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45844307790/job/140012763536 · ci - · 8187c767dad4e99af72b3ba655d074d87a870d75
 
 ## Итог
 
