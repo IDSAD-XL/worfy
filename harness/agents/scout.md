@@ -39,7 +39,8 @@ Order of work:
 2. Then the repository instructions: `CLAUDE.md` / `AGENTS.md` of the repository you search in — the
    conventions, terms and commands are already written down there.
 3. Documents first, code second: for "why was this decided" and "have we hit this before" **start
-   with `qmd`**. It answers the question by meaning, and `grep` only by letters. The collections in
+   with `qmd`**: it answers by meaning. Any other search starts with `grep` (or `rg`, `find`) and
+   goes to `qmd` when they find nothing (the model rule of skill `worfy:qmd`). The collections in
    the profile's `qmd.collections` (what they hold — `qmd.covers`) are a hint where to expect the
    answer, not a filter: do not pass them to the `collections` parameter as an exclusive list, search
    the whole index. Nothing found — then `grep` over the paths in `qmd.fallback_grep`.

@@ -43,11 +43,10 @@ territory. Ask it for the entry points, the call chain, the conventions to follo
 files to touch: that makes the *next* delegation cheap to brief. It is not a licence to do the rest
 yourself.
 
-Before that agent goes out, run one search of the qmd index on the ticket's subject (the qmd MCP
-server, skill `worfy:qmd`: ADRs, state-file lessons, closed tickets, memory) — when the profile
-lists at least one `qmd.collections` entry. With no collections or no profile, skip the search and
-say so. A decision already taken or a lesson already paid for
-changes the brief.
+Before that agent goes out, run one `qmd` search on the ticket's subject, on any model: "is there
+a decision or a lesson already" is where `qmd` pays off (skill `worfy:qmd`: ADRs, state-file
+lessons, closed tickets, memory) — when the profile lists at least one `qmd.collections` entry.
+With no collections or no profile, skip it and say so. What it finds changes the brief.
 
 ## Delegate by default
 

@@ -1,7 +1,8 @@
 # 157 — Правило qmd по модели в skill `worfy:qmd` и Phase 0: Opus и Sonnet сначала `grep`, Haiku сначала `qmd`
 
 Type: task
-Status: open
+Status: claimed 2026-11-26T07:43Z
+Branch: worfy-polish/157
 Blocked by: —
 Source: решение владельца 2026-11-26, второй раунд (Q1–Q6, «все да»), Q3; замер qmd против `grep` 2026-11-26 (три
 прогона: 30 вопросов, затем 35 вопросов на Sonnet и на Haiku).
@@ -84,3 +85,25 @@ worfy). Тексты Harness велят начинать с него всегд�
 - [ ] «Итог»: предложение Ticket-а на повторный замер через месяц на настоящих вопросах.
 - [ ] `bash harness/hooks/tests/rules-hooks.test.sh` — exit 0.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+
+## Итог
+
+- Skill `worfy:qmd` (`harness/skills/qmd/SKILL.md`) открывается разделом «grep or qmd first — by model»: Opus и
+  Sonnet — сначала `grep` (`rg`, `find`), `qmd` — когда `grep` ничего не нашёл или вопрос «был ли урок / почему так
+  решили»; Haiku — сначала `qmd`; цифры замера 2026-11-26 и пересмотр. `description` говорит то же коротко. Прежний
+  текст об индексе получил заголовок «The index and its collections».
+- **Phase 0 — решение: поиск перед scout-ом остаётся `qmd` на любой модели.** Вопрос этого поиска — «есть ли уже
+  решение или урок по теме Ticket-а», ровно тот случай, где `qmd` окупается и по правилу п. 1. Абзац Phase 0
+  (`harness/hooks/rules/orchestrator.md`) говорит это прямо. Текст правил Orchestrator-а упирается в предел test-а
+  `rules-hooks.test.sh` (10 000 знаков с длинным корнем плагина): после правки 9 992, поэтому абзац переписан
+  короче, а не дополнен.
+- `harness/agents/scout.md`: вопросы «почему решили» и «был ли урок» — по-прежнему с `qmd`; любой другой поиск —
+  сначала `grep`, `qmd` — когда он ничего не нашёл. Убрана фраза «`grep` only by letters»: замер её не подтвердил.
+- `implementer.md`, `ship-ticket`, `epic-wave` правилу не противоречат и не правились: их единственный вызов `qmd`
+  перед планом — вопрос «есть ли уже решение или урок», то есть случай `qmd` для любой модели.
+- Eval-а, который проверяет порядок «сначала qmd», нет: `harness/evals/` упоминает `qmd` только в
+  `lib/coverage.json` (skill `qmd` без cases) и `lib/demo-project.sh`.
+- **Предложение Ticket-а (заводит Orchestrator), не раньше 2026-12-26:** повторить замер `grep` против `qmd` на
+  настоящих вопросах сессий за месяц (Phase 0, «почему так решили», «был ли урок», поиск документа), на Sonnet и
+  Haiku, с точностью, временем и token-ами; по итогу оставить или поправить раздел «grep or qmd first — by model»
+  skill-а `worfy:qmd`.
