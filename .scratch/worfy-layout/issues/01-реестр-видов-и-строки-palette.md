@@ -1,7 +1,8 @@
 # 01: Реестр видов и строки palette
 
 Type: task
-Status: open
+Status: claimed 2026-11-27T03:34Z
+Branch: worfy-layout/01
 Blocked by: None — can start immediately
 Source: [spec.md](../spec.md), «Ticket-ы», 01; «Решения по реализации» («Реестр видов», «Бейджи», «Command palette»); «Решения по test-ам», Seam 1; «Волны», Wave 1
 

@@ -78,7 +78,6 @@ import { archiveFinishedNow } from '../canvas/archive-now'
 import { hasChangesSubject, openChanges } from '../changes/open'
 import { requestRepack } from '../canvas/sources/epics'
 import { showNode } from '../canvas/show-node'
-import { openRunHistory } from '../flight-recorder/open'
 import { createCanvasNode, focusCanvasNode, openAdr, requestArrangeByEpic, requestTidyUp, setTagFilter, type TagFilter } from '../find/canvas-requests'
 import { kindLabel, nodeTitle, normalizeQuery, type Rankable } from '../find/search-index'
 import { openGettingStarted } from '../getting-started/store'
@@ -87,17 +86,16 @@ import { openGuide, useGuide } from '../guide/store'
 import { invoke, windowMachine } from '../ipc'
 import { askRemoveMachine } from '../machines/machine-dialogs'
 import { linkStateNow, reconnectMachine } from '../machines/useMachines'
-import { openPrInboxOf } from '../pr-inbox/open'
 import { openProject } from '../projects/useProjects'
 import { epicStoryPath, openStoryFile, ticketStoryPath } from '../stories/open'
 import { openOrchestrator, openSession, setView } from '../session/navigation'
 import { openHealthCheck, openSettings } from '../settings/settings-window'
 import { openFirstRun } from '../shell/first-run-store'
 import type { ShellView } from '../shell/Toolbar'
+import { openView, VIEW_BUTTONS } from '../shell/views'
 import { label } from '../shortcuts/match'
 import { openShortcuts } from '../shortcuts/shortcuts-window'
 import { checkForUpdateNow, installUpdateTelling, RESTART_LABEL, restartIntoUpdate, updateStep, updateVersionLabel, useUpdateStore } from '../update/store'
-import { setRunsTab } from '../work-track/store'
 
 export type CommandGroup = 'Action' | 'Go to' | 'View' | 'Project' | 'Manual check'
 
@@ -399,27 +397,20 @@ function workflowActionCommands({ project, model, readOnly, prInbox }: CommandCo
 }
 
 function viewCommands({ view, project, projects, layoutNodes, tagFilter }: CommandContext): PaletteCommand[] {
-  const commands: PaletteCommand[] = (['canvas', 'session'] as const).map((target) => ({
-    id: `view:${target}`,
-    group: 'View',
-    title: target === 'canvas' ? 'Switch to Canvas' : 'Switch to Session',
-    detail: view === target ? 'shown now' : undefined,
-    run: () => {
-      setView(target)
-      return undefined
-    },
-  }))
-  // The checks that wait for the owner in every Project (worfy-acceptance ticket 06): with or without a Project.
-  commands.push({
-    id: 'view:acceptance',
-    group: 'View',
-    title: 'Acceptance',
-    detail: view === 'acceptance' ? 'shown now' : 'Checks that wait for you',
-    keys: ['acceptance', 'owner checks', 'manual checks', 'checks that wait for you', 'pass', 'fail'],
-    run: () => {
-      openAcceptance()
-      return undefined
-    },
+  // A row per View button of the registry (shell/views.tsx, worfy-layout ticket 01), wherever the button stands; a view
+  // that shows the open Project has its row only with one. They only read, so a read-only screen keeps them active.
+  // Acceptance is over every Project (worfy-acceptance ticket 06); Open Run history shows Run history even when the
+  // Project last chose Work track in the Runs tab (worfy-work-track ticket 13).
+  const commands: PaletteCommand[] = VIEW_BUTTONS.filter(({ button }) => button.needsProject === undefined || project !== undefined).map((entry) => {
+    const { id, title, detail, keys, open } = entry.button.command
+    return {
+      id,
+      group: 'View',
+      title,
+      detail: view === entry.id ? 'shown now' : detail,
+      ...(keys === undefined ? {} : { keys: [...keys] }),
+      run: () => (open !== undefined ? open(project) : openView(entry, project)),
+    }
   })
   // The first-run screen (worfy-harness ticket 19): always here, with or without a Project.
   commands.push({
@@ -510,31 +501,6 @@ function viewCommands({ view, project, projects, layoutNodes, tagFilter }: Comma
   }
   if (project) {
     const projectId = project.id
-    // The Run history screen at the active Project's newest Run (worfy-flight-recorder ticket 20); it
-    // only reads, so a read-only screen has it too. It shows Run history even when the Project last chose
-    // Work track in the Runs tab (worfy-work-track ticket 13); the toolbar's Runs keeps that choice.
-    commands.push({
-      id: 'open-run-history',
-      group: 'View',
-      title: 'Open Run history',
-      detail: 'Autopilot Runs',
-      keys: ['run history', 'autopilot runs', 'flight recorder', 'timeline'],
-      run: () => {
-        setRunsTab(projectId, 'history')
-        void openRunHistory(projectId)
-        return undefined
-      },
-    })
-    // The Pull requests view of the active Project (worfy-pr-inbox ticket 03); it only reads GitHub, so a
-    // read-only screen has it too.
-    commands.push({
-      id: 'view:pull-requests',
-      group: 'View',
-      title: 'Pull requests',
-      detail: view === 'pull-requests' ? 'shown now' : 'Open PRs and review requests',
-      keys: ['pull requests', 'prs', 'pr inbox', 'review requests', 'reviews', 'github'],
-      run: () => openPrInboxOf(projectId, projectId),
-    })
     const tags = [...new Set(layoutNodes.flatMap((node) => node.tags))].sort((a, b) => a.localeCompare(b))
     for (const tag of tags) {
       commands.push({
