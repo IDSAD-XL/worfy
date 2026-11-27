@@ -1,7 +1,8 @@
 # 02: Модель расстановки в app settings
 
 Type: task
-Status: claimed 2026-11-27T02:06Z
+Status: done 2026-11-27T03:47Z
+PR: #2306
 Branch: worfy-layout/02
 Blocked by: None — can start immediately
 Source: [spec.md](../spec.md), «Ticket-ы», 02; «Решения по реализации» («Модель расстановки», «Хранение», «Окно Linked machine (Q13)»); «Решения по test-ам», Seam 1 и Seam 2; «Риски» («Сборка новее и сборка старее»); «Волны», Wave 1
@@ -70,11 +71,14 @@ spec.md, раздел «Решения по реализации», «Модел
 - [ ] Unit-test-ы модели и contract-test store из раздела test-ов зелёные; испорченное поле не сбрасывает остальные
       настройки.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/view-buttons.test.ts test/contract/app-settings.test.ts` exit 0 · mac - · 6d43f8889687d77ede457b59c7e856c5506bdb0c
+  - evidence: review pass · PR #2306 · - - · b3ada50e6468c2ef29cace7b43c6d44c65c43d77
 - [ ] Unit-проверка `routeOf('appSettings.get') === 'this-machine'` есть.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/view-buttons.test.ts` exit 0 · mac - · 6d43f8889687d77ede457b59c7e856c5506bdb0c
+  - evidence: review pass · PR #2306 · - - · b3ada50e6468c2ef29cace7b43c6d44c65c43d77
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 6d43f8889687d77ede457b59c7e856c5506bdb0c
   - evidence: gate pass · `gate fast` exit 0 · mac - · 6d43f8889687d77ede457b59c7e856c5506bdb0c
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45928325369/job/140298917082 · ci - · b3ada50e6468c2ef29cace7b43c6d44c65c43d77
 
 ## Итог
 

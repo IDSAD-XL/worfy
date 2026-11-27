@@ -166,3 +166,16 @@ ADR не нужен: расстановка — ещё одно поле app set
    - Ответ: `same` сравнивает поле через `sameViewButtonsField`; совпавшее состояние `write` не пишет. Отсутствие равно
      только отсутствию.
    - Строки: `src/main/settings/store.ts:220-222`
+
+## 8. Что нашёл review и что осталось
+
+> VERIFIED — worfy-layout 02 (the view-button layout — which of the six view buttons sits in header, rail or footer, and in what order — is an optional viewButtons field of this machine's app settings: a corrupt field is repaired on read without setting the file aside, duplicates and missing ids are repaired, an unknown id in a patch is refused, a missing zone gives the whole default layout, a null patch removes the field; the three appSettings channels stay local, so a Linked machine window reads this computer's layout), head b3ada50e6468c2ef29cace7b43c6d44c65c43d77
+>
+> Gate (depth medium, one round):
+> - Round 1, reviewer (lens: correctness and the implementer's report) — VERIFIED, one low finding:
+>   - low (Noted): store.ts:221 sameViewButtonsField — «field absent» vs «explicit default» is not covered by a test (mutation M6 survives); one expect in test/contract/app-settings.test.ts would cover it.
+>   - Checked fine: 3 contract tests red on the old store.ts; repair on read keeps other fields; null patch; unknown id refused by z.enum (view-buttons.ts:118-122); Linked machine bridge routes local channels to this computer (ipc.ts:145-146), so ipc.ts, useAppSettings.ts and shared/ipc/app-settings.ts need no change; newer/older builds behave as the spec's «Риски» say (a Stable without this ticket drops the field on its next write, like any new app-settings field).
+>   - Mutations: 11 caught (M1, M2, M3b, M4, M5, M7–M12); M3 and M13 equivalent; M6 is the low finding.
+> Evidence: view-buttons + app-settings tests exit 0 (98); 10 more contract files exit 0 (247); story-check exit 0; gate fast green; implementer: pnpm lint/typecheck/test exit 0 (21525 tests).
+> Not verified: e2e (owner rule, CI runs them); ci-ok was still running at review time.
+> CI: macos-e2e (1/2) on b3ada50e6 hit the 2400 s suite limit (216 passed, 56 not run, no failing test; run 45928325369); one `gh run rerun --failed` by the orchestrator — runner slowness, not a test failure (shard 1 takes 35-37 min on other PRs).
