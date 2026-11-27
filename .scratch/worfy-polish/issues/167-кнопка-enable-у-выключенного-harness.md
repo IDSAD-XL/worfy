@@ -1,7 +1,7 @@
 # 167 — Кнопка Enable у выключенного Harness-а в строке статуса
 
 Type: feature
-Status: claimed 2026-11-27T12:13Z
+Status: done 2026-11-27T13:21Z
 PR: #2326
 Branch: worfy-polish/167-redo
 Blocked by: worfy-layout 03 (footer и chip версии: строка Harness переезжает в popover chip-а и в `src/renderer/harness/HarnessStatus.tsx`)
@@ -45,14 +45,17 @@ mattpocock-skills». Plugin worfy был выключен в Claude Code, а с�
       «disabled»; ошибка включения видна в tooltip-е.
   - evidence: test-run pass · `pnpm test test/contract/harness-install.test.ts test/contract/harness-changed.test.ts test/unit/harness-status.test.tsx test/unit/version-dot.test.tsx` exit 0 · mac - · cc476fac0478366d40b7f75d6d9b8592ad8b6bd1
   - evidence: test-run pass · `pnpm test test/contract` exit 0, harness-install file 3 plain + 4 shuffled runs exit 0 · mac - · 083f742b2012e506e368ec6066e7506bf9e11d51
+  - evidence: review pass · PR #2326 · - - · 3a22c9450a18a23499b808c2117ed6a5b8a64a7f
 - [ ] Unit- и contract-test-ы на действие Enable и на строку; test-ы красные до правки.
   - evidence: test-run pass · `pnpm test` exit 0, 17 new tests red before the change · mac - · cc476fac0478366d40b7f75d6d9b8592ad8b6bd1
   - evidence: test-run pass · `pnpm test test/contract/harness-install.test.ts` exit 0; new install-waits-for-enable test red without the fix · mac - · 083f742b2012e506e368ec6066e7506bf9e11d51
+  - evidence: review pass · PR #2326 · - - · 3a22c9450a18a23499b808c2117ed6a5b8a64a7f
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast зелёный; `ci-ok` зелёный на head PR.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · cc476fac0478366d40b7f75d6d9b8592ad8b6bd1
   - evidence: gate pass · `gate fast` exit 0 · mac - · cc476fac0478366d40b7f75d6d9b8592ad8b6bd1
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 083f742b2012e506e368ec6066e7506bf9e11d51
   - evidence: gate pass · `gate fast` exit 0 · mac - · 083f742b2012e506e368ec6066e7506bf9e11d51
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45996863116/job/140529143997 · ci - · 3a22c9450a18a23499b808c2117ed6a5b8a64a7f
 - [ ] (вручную) Сделай: в Claude Code выключи plugin worfy (`/plugin`), в Stable worfy нажми Enable в строке
       Harness → Должно быть: строка без «disabled», в Claude Code plugin worfy снова включён.
   - needs: mac stable

@@ -267,3 +267,16 @@ Install. Перевод `docs/features/ru/` не правился (ADR-0088).
    - Ответ: stub пишет команду в журнал в начале своего запуска, раньше, чем установщик открыл диалог; ответ,
      данный по журналу, уходил в пустую функцию. Под нагрузкой это окно шире. Теперь сигнал — сам вызов диалога.
    - Строки: `test/contract/harness-install.test.ts:1426-1429`
+
+## 12. Что нашёл review и что осталось
+
+> VERIFIED — worfy-polish 167 redo (an Enable button in the Harness line of the version chip's popover when the Claude Code plugin is installed but disabled: main runs `claude plugin enable worfy@worfy-harness --scope user` through the sandboxed runner, refuses in a dev run, broadcasts harness.changed only on success; amber chip dot; install now waits for a running enable), head 3a22c9450a18a23499b808c2117ed6a5b8a64a7f
+>
+> Context: #2317 was reverted by #2324 — its contract test hung ~90 s in the full suite of main on macOS, Linux and Windows (runs 45970580081, 45972473732). This PR is the cherry-pick of #2317 (2da1d448f, reviewed then: 4/4 mutants red) plus the fix.
+> Gate (depth medium, one round on the new part `git diff 2da1d448f..3a22c9450`): worfy:reviewer, lenses correctness + test integrity — root cause confirmed: the old test answered the install dialog as soon as the stub logged `plugin marketplace list` (stub start), while the installer asks later (install.ts:618), so agree() hit an empty function; the old test with repeats: 20 hung >400 s locally. New test waits for the dialog call itself and asserts exactly [LIST, MARKETPLACES]; no other «answer before asked» in the file; install↔enable waits cannot deadlock (each checks the other's field synchronously before setting its own); mutant without install.ts:598 red. harness-install 93/93 EXIT=0 normally and under --sequence.shuffle (random seed and 4242), lint EXIT=0, typecheck EXIT=0, story-check EXIT=0; implementer: full pnpm test 21617 EXIT=0, gate fast green, the file 51× under all-core load EXIT=0.
+> Consider: none
+> Noted: none
+> Dismissed: none
+> Not verified: why the 15 s test timeout did not stop the old hung test (CI showed ~90 s); the real `claude plugin enable` (manual item 4 in Stable). After merge: watch main's push run (full suite).
+> Review depth: medium — owner rule
+> Review tokens: 69084
