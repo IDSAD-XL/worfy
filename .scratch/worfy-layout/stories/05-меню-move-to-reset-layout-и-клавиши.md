@@ -258,3 +258,28 @@ async function sizeWindow(launched: LaunchedApp, width: number): Promise<{ width
 3. Кнопка Session последняя в header. Что сделает ⌥→?
    - Ответ: ничего: событие съедено, patch не уходит, в footer или на rail кнопка клавишей не переходит.
    - Строки: `src/renderer/shell/ViewZone.tsx:145-153`
+
+## 10. Что нашёл review и что осталось
+
+> VERIFIED — worfy-layout 05 (a context menu on a view button: «Move to» header/sidebar/footer appends the button at the end of that zone and keeps focus on it, Reset layout; ⌥←/⌥→ in header and footer, ⌥↑/⌥↓ on the rail move a button inside its zone, no-op at the edge; Shift+F10 and right click open the menu; Settings → General «View buttons» row with Reset layout, disabled while the layout is the default by content), head e44ec5c2714fbc8832ba99a2e85257fdd64d995d
+>
+> Gate (depth medium, two rounds):
+> Round 1 (477481f8b) worfy:reviewer, lens correctness — VERIFIED on code (5 of 6 mutants red; 264 unit tests EXIT=0, lint, typecheck, story-check EXIT=0), but CI run 45977491721 red: test/e2e/view-buttons.spec.ts:142 failed on both attempts on macos-e2e (1/3) and windows-e2e (4/4) in sizeWindow (1600 wanted, 1280 got; 1280 wanted, 1264 got).
+> Round 2 (e44ec5c27) orchestrator read of the one-file test diff (+6/−1): sizeWindow resized BrowserWindow.getAllWindows()[0], which with the case's second window open is not reliably the first window; now the lowest id (as test/e2e/menu.ts picks it). Sizes, timeout, retries and assertions unchanged. CI run 45983045890 green on the head, every e2e shard and ci-ok.
+> Consider: none
+> Noted: [low] test/unit/settings-reset-layout.test.tsx:63 — no case with an explicit default array. [low] ViewZone.tsx:149-154 — two ⌥→ before main answers move one place. [low] GeneralSection.tsx:177,195 — «Not saved: …» stays after the layout returns to default from another window. «Move to» is a group heading, not the mockup's submenu — owner decision.
+> Dismissed: none
+> Review depth: medium — owner rule
+> Review tokens: 87116
+
+Code: `test/e2e/view-buttons.spec.ts:142-142` · key lines: 142
+
+```ts
+})
+```
+
+Code: `test/unit/settings-reset-layout.test.tsx:63-63` · key lines: 63
+
+```tsx
+    await mount(settings(1))
+```
