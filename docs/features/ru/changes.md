@@ -135,7 +135,7 @@ request: toolbar и sidebar остаются, Canvas скрыт под видо�
 **Open changes** в Command palette делает то же для Ticket-а с веткой или в работе, а щелчок по пути комментария к коду
 в чате открывает вид на этой строке ([Send](#send)).
 
-Вкладки в toolbar у вида нет: без Ticket-а ему нечего показать. **← Canvas** слева от заголовка возвращает на Canvas, и
+[View button](app-shell.md#view-buttons) у вида нет: без Ticket-а ему нечего показать. **← Canvas** слева от заголовка возвращает на Canvas, и
 Esc тоже, если не открыто меню или popover (Esc сначала закрывает его) и фокус не в текстовом поле. Открытая из
 сообщения в Session view, кнопка читается **← Session** и возвращает туда. Выбор другого Project-а в sidebar возвращает
 на Canvas.
@@ -399,7 +399,7 @@ Ticket-а диапазон перетаскиванием «+», подсказ�
 ### Behaviour
 
 Предметом Changes может быть pull request: его репозиторий `owner/name`, его номер, его head commit и его base
-commit. Его открывает [Review mode](pr-inbox.md#review-mode) вкладки Pull requests: то же дерево и тот же diff, что у
+commit. Его открывает [Review mode](pr-inbox.md#review-mode) вида Pull requests: то же дерево и тот же diff, что у
 вида Changes, который показывает Ticket. Строка PR inbox без head или base commit-а diff не открывает.
 
 - **Локально, когда можно.** Если репозиторий PR — `origin` одного из checkout-ов Project-а и оба его commit-а есть в

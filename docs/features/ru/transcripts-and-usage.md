@@ -146,9 +146,9 @@ worfy три вещи: live Session, прошлые Session и их transcript-�
 
 ### Behaviour
 
-Toolbar показывает, сколько памяти используют собственные процессы worfy: вторая строка колонки Harness, после версии приложения. Текст
-— `412 MB` ниже 1024 MB и `1.3 GB` выше, а до первого замера `…`. Tooltip называет Feature и раскладывает сумму:
-`Main … · Windows … · GPU … · Other …`. Terminal-сессии не считаются. «Memory in the toolbar» в Settings → General выключает показатель
+Popover chip-а версии в footer-е показывает, сколько памяти используют собственные процессы worfy, на своей последней строке.
+Текст — `412 MB` ниже 1024 MB и `1.3 GB` выше, а до первого замера `…`. Tooltip называет Feature и раскладывает сумму:
+`Main … · Windows … · GPU … · Other …`. Terminal-сессии не считаются. «Memory in the version popover» в Settings → General выключает показатель
 во всех окнах. По умолчанию он включён.
 
 #### On a Linked machine
@@ -167,7 +167,7 @@ Toolbar показывает, сколько памяти используют �
 | Sampler, каждые 5 секунд через `app.getAppMetrics()` | `src/main/diagnostics/memory.ts` |
 | Сумма и форматы | `src/shared/memory.ts` |
 | Handler-ы, каналы | `src/main/ipc/memory.ts`, `src/shared/ipc/memory.ts` |
-| Показатель | `src/renderer/memory/AppMemory.tsx`, `src/renderer/memory/useAppMemory.ts`, `src/renderer/shell/toolbar/HarnessStatus.tsx` |
+| Показатель | `src/renderer/memory/AppMemory.tsx`, `src/renderer/memory/useAppMemory.ts`, `src/renderer/shell/footer/VersionChip.tsx` |
 | Настройка | `src/renderer/settings/GeneralSection.tsx`, `src/shared/settings/app-settings.ts` |
 
 **Главные test-ы.** `test/unit/memory.test.ts`, `test/contract/memory.test.ts`, `test/contract/memory-app.test.ts`,

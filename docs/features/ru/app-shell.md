@@ -1,16 +1,20 @@
 # App shell
 
-> Перевод [английской версии](../app-shell.md), commit `11a23113`.
+> Перевод [английской версии](../app-shell.md), commit `same-pr`.
 
-То, что окружает Canvas в каждом окне и на каждом Project-е. Семь Feature: **Sidebar**, **Command palette**, **Shortcuts**,
-**Menu**, **Settings**, **worfy Guide** и **Theme**. У восьмой, [Notifications](notifications.md), своя страница. Термины
-объяснены в [Concepts](concepts.md).
+То, что окружает Canvas в каждом окне и на каждом Project-е. Девять Feature: **Sidebar**, **View buttons**, **Footer**,
+**Command palette**, **Shortcuts**, **Menu**, **Settings**, **worfy Guide** и **Theme**. У десятой,
+[Notifications](notifications.md), своя страница. Термины объяснены в [Concepts](concepts.md).
 
-Переключатель View в toolbar выбирает, что показывает основная область: **Canvas**, **Session**, **Pipeline** (см.
-[Workflow](workflow.md)), **Runs** (см. [Flight Recorder](flight-recorder.md) и [Work track](work-track.md)) и **Pull
-requests** (см. [Pull requests](pr-inbox.md)). В узком окне вкладки показывают только иконки, а название стоит в tooltip.
-Runs и Pull requests неактивны без Project-а. Каждый вид остаётся смонтированным, пока показан другой, поэтому при возврате
-он такой же, каким был.
+Окно — это sidebar слева, main area справа с toolbar над ней и footer внизу на всю ширину. В toolbar стоят заголовок
+Project-а, View button-ы его зоны, Limits (см. [Transcripts and usage](transcripts-and-usage.md)) и поле «Search or run…»
+Command palette. Шесть View button-ов выбирают, что показывает main area, и каждый стоит в одной из трёх зон: toolbar,
+rail sidebar или footer (см. [View buttons](#view-buttons)). Каждый вид остаётся смонтированным, пока показан другой,
+поэтому при возврате он такой же, каким был.
+
+Часть, которая не смогла отрисоваться, остаётся частью: секция sidebar, tab Assistant-а или вид показывают «This section
+failed to render» (или «This tab…», «This view…») с сообщением ошибки и **Reload**, а остальное окно продолжает работать.
+Ошибка вне всех них показывает сообщение и **Reload window** вместо пустого окна.
 
 ## Sidebar
 
@@ -24,7 +28,8 @@ Runs и Pull requests неактивны без Project-а. Каждый вид 
   её правом конце. Длинному имени Project-а отдана вся строка.
 - **Rail** — колонка иконок, по одной на секцию: первым Assistant, своим цветом и над чертой, затем Projects, Sessions,
   Pull requests, Acceptance, Pipeline, Epics, ADR, а внизу
-  Health check, Machines и Settings. У выбранной секции акцентная полоса. На иконке секции есть badge, который виден, пока
+  Health check, Machines и Settings. Под секциями верхней группы, после тонкой линии, стоят View button-ы зоны Sidebar, по
+  умолчанию Pull requests и Acceptance (см. [View buttons](#view-buttons)). У выбранной секции акцентная полоса. На иконке секции есть badge, который виден, пока
   открыта другая секция: число занятых Session-ов в Project-ах, которые показывает switcher, цветом работы; число pull
   request-ов, которым нужны вы (review, ответ или исправление); число проверок в Ready to check вида
   [Acceptance](acceptance.md), цветом работы; точка, пока Ticket в работе заблокирован или кого-то ждёт; и точка Linked machine-ов.
@@ -47,13 +52,27 @@ Rail — одна позиция в порядке Tab. ↑ и ↓ ходят п
 фокусом открывается сразу. Открытая секция запоминается для окна. Окно, в котором секцию ещё не выбирали, открывается на
 Projects, а не на Assistant-е над ними.
 
-**Assistant** (worfy-assistant, Ticket 14) — отдельная секция: что ждёт во всех Project-ах этой Machine, у каждого пункта
+**[Assistant](assistant.md)** (worfy-assistant, Ticket 14) — отдельная секция: что ждёт во всех Project-ах этой Machine, у каждого пункта
 причина, источник и обязанность, и кнопки Open, Prepare, Snooze и Dismiss; like и dislike на каждом его сообщении; журнал
 его действий, у каждой строки — пункт, который её вызвал; сводка; разговор; строка расхода, где доля Limits помечена как
 оценка. Prepare показывает точный текст Session до старта; ничего не стартует до Start. Пока Assistant включён, его
 собственное уведомление — карточка у его иконки в rail, его цветом, одна за раз, остальное — число на иконке; когда worfy
 не впереди, системное уведомление с заголовком «worfy Assistant» приходит только о срочном и только в work hours, а щелчок
-открывает секцию.
+открывает секцию. Settings → Assistant → Notifications сужает их (worfy-assistant, Ticket 25): карточка в окне сообщает о
+срочных пунктах и пунктах, собранных в пачку, только о срочных или ни о каких (число на иконке и список остаются), а
+системное уведомление можно выключить. Под применённой карточкой Assistant-а «before → after» Undo возвращает её
+настройки, если только одна из них не изменилась после Apply.
+
+Assistant выключен, пока пользователь его не включит (worfy-assistant, Ticket 16). worfy предлагает его один раз: новому
+пользователю — на странице «Meet Assistant» в [First run](onboarding.md#first-run), существующему — одним notice в углу,
+и вверху секции, пока предложение в силе, — «Turn on and meet» или «Not now», после которого предложения больше не будет.
+Когда Assistant включают в первый раз, через предложение или в Settings → Assistant, он представляется в разговоре на
+языке Guide: кто он, что делает и что умеет, какие из Slack и Jira он видит подключёнными в claude.ai и где подключить
+остальные (claude.ai → Settings → Connectors). Он никогда не просит token. Он спрашивает work hours, а следом идёт
+карточка «before → after» с первой настройкой: work hours с понедельника по пятницу, 09:00–18:00 в часовом поясе этой
+Machine, если их не выбрали, и проверка каждого подключённого источника. Ничего не меняется до Apply. Представление worfy
+пишет сам, без модели, поэтому оно не стоит token-ов; Assistant, который был включён до того, как представление
+появилось, не представляется.
 
 **Health check** — кнопка rail прямо над Machines, она есть всегда. Это не секция: в панели она ничего не показывает, а щелчок
 открывает Settings → Health (строки описаны в [First run](onboarding.md#first-run)). Как и Settings, она не входит в tab-ы, по
@@ -94,14 +113,15 @@ Projects, а не на Assistant-е над ними.
 строки не обрезается: часть, которая не помещается, целиком переходит на следующую строку, без « · » перед ней, и карточка
 растёт вместе с ней. У каждой части есть tooltip, который говорит, что она считает: busy — Session-ы, у которых идёт turn;
 PR need you — pull request-ы, которым нужны ваш review, ответ или исправление; waits — Ticket-ы, которые заблокированы или
-ждут человека, а не агента. Project Linked machine сохраняет одну строку.
+ждут человека, а не агента. Те же слова — описание самой карточки, поэтому их дают и фокус клавиатуры на карточке, и
+screen reader. Project Linked machine сохраняет одну строку.
 
 **Секция Acceptance** показывает очередь [Acceptance](acceptance.md) по Project-ам: имя каждого Project-а, затем по строке на
 каждую группу, в которой есть проверка этого Project-а, — Ready to check, Update first, Waits for you, Failed — с её счётом.
 У In work и Older там строки нет. Клик открывает вид Acceptance на первой строке этой группы у этого Project-а; вид — по всем
 Project-ам, поэтому клик не открывает Project. Когда ни в одной из этих групп нет строки, секция пишет «Nothing to check».
-Badge её rail — число Ready to check в Project-ах, которые показывает switcher: при «All Projects» это число на вкладке
-toolbar-а.
+Badge её rail — число Ready to check в Project-ах, которые показывает switcher: при «All Projects» это число, которое
+считает View button Acceptance.
 
 В группе другого Project-а Session показывает имя, которое ей даёт Claude Code, иначе «Session <id>», и «terminal» или
 «desktop». Canvas того Project-а не читается, поэтому его Session-ы worfy там не помечены «worfy». «New session», «Product
@@ -140,7 +160,9 @@ Project, который хранится только на этой Machine. Pul
 | Что | Где |
 |---|---|
 | Полоса, rail и панель | `src/renderer/shell/Sidebar.tsx`, `src/renderer/shell/shell.css` |
+| Ширина sidebar и его край | `src/renderer/shell/sidebar-width.ts`, `src/renderer/shell/SidebarResizeHandle.tsx`, разделитель `src/renderer/theme/kit/Divider.tsx`, пределы — в `src/shared/settings/app-settings.ts` |
 | Секция Assistant-а, его карточка и Prepare | `src/renderer/shell/sidebar/AssistantSection.tsx`, `src/renderer/assistant/`, в main — `src/main/assistant/window/` и `src/main/ipc/assistant.ts`, каналы — в `src/shared/ipc/assistant.ts`, token-ы `--assistant*` в `src/renderer/theme/tokens.css` |
+| Предложение Assistant-а и его представление | `src/renderer/assistant/Offer.tsx`, `src/renderer/assistant/offer-notice.ts`, страница — в `src/renderer/shell/FirstRun.tsx`, в main — `src/main/assistant/intro/` (его слова — в `src/main/assistant/intro/words/`), состояние — в `src/shared/assistant/intro.ts` |
 | Кнопка Health check и её точка | `HealthRailButton` в `src/renderer/shell/Sidebar.tsx`, `openHealthCheck` в `src/renderer/settings/settings-window.ts`, худший уровень — в `src/shared/health/severity.ts`, token-ы `--health-critical` и `--health-warning` в `src/renderer/theme/tokens.css` |
 | Рамка секции | `src/renderer/shell/SidebarSection.tsx`, `src/renderer/shell/sidebar-section.css` |
 | Project switcher | `src/renderer/shell/ProjectSwitcher.tsx` |
@@ -148,10 +170,195 @@ Project, который хранится только на этой Machine. Pul
 | Живое состояние каждого Project-а | `src/shared/ipc/project-pulse.ts`, `src/main/claude-home/pulse.ts`, `src/main/ipc/project-pulse.ts`, `src/renderer/projects/useProjectPulse.ts` |
 | Session другого Project-а, открытая после её Project-а | `src/renderer/shell/session-request.ts` |
 | Секции | `src/renderer/shell/sidebar/` |
+| Что показывает часть, которая не смогла отрисоваться | `src/renderer/shell/ErrorBoundary.tsx`, `src/renderer/shell/error-boundary.css`; стоит в `Sidebar.tsx`, `AppShell.tsx`, `src/renderer/assistant/AssistantPanel.tsx` и `src/renderer/main.tsx` |
 | Записи секций в rail | `src/renderer/shell/registry.ts` |
 
-Главные test-ы: `test/unit/sidebar-scope.test.tsx`, `test/unit/assistant-window.test.ts`, `test/unit/assistant-panel.test.tsx`, `test/unit/assistant-speech.test.tsx`, `test/e2e/assistant.spec.ts`, `test/unit/sidebar-section.test.tsx`, `test/unit/health-rail-button.test.tsx`, `test/unit/acceptance-section.test.tsx`, `test/e2e/sidebar-rail.spec.ts`,
+Главные test-ы: `test/unit/sidebar-scope.test.tsx`, `test/unit/error-boundary.test.tsx`, `test/unit/sidebar-resize.test.tsx`, `test/e2e/sidebar-resize.spec.ts`, `test/unit/assistant-window.test.ts`, `test/unit/assistant-panel.test.tsx`, `test/unit/assistant-speech.test.tsx`, `test/unit/assistant-intro.test.ts`, `test/unit/assistant-offer.test.tsx`, `test/e2e/assistant.spec.ts`, `test/unit/sidebar-section.test.tsx`, `test/unit/health-rail-button.test.tsx`, `test/unit/acceptance-section.test.tsx`, `test/e2e/sidebar-rail.spec.ts`,
 `test/e2e/sidebar-sections.spec.ts`.
+
+## View buttons
+
+### Behaviour
+
+View button переключает main area на один из шести видов: **Canvas**, **Session**, **Pipeline** (см.
+[Workflow](workflow.md)), **Runs** (см. [Flight Recorder](flight-recorder.md) и [Work track](work-track.md)), **Pull
+requests** (см. [Pull requests](pr-inbox.md)) и **Acceptance** (см. [Acceptance](acceptance.md)). У Code story и у
+Changes Ticket-а кнопки нет: они открываются из своего Ticket-а.
+
+Каждая кнопка стоит в одной из трёх зон, в своём порядке:
+
+| Зона | Где | По умолчанию | Как выглядит |
+|---|---|---|---|
+| Header | Группа toolbar-а после заголовка Project-а | Canvas, Session | Иконка, подпись и badge |
+| Sidebar | Блок rail под тонкой линией, после секций верхней группы и перед Health check | Pull requests, Acceptance | Квадрат 34 пикселя с иконкой 18 пикселей и маленькой отметкой окна в углу; tooltip справа |
+| Footer | Левая часть footer-а | Pipeline, Runs | Высота 22 пикселя: иконка, подпись и badge |
+
+Эти страницы называют верхнюю полосу toolbar; «Header» — имя её зоны в меню кнопки. То, где стоят кнопки, — это layout.
+Он один на Machine и хранится в настройках приложения этого компьютера; каждое окно этого компьютера показывает его и
+сразу следует каждому изменению. Ни одну кнопку нельзя скрыть: каждая из шести всегда стоит ровно в одной зоне. Зона
+может быть пустой и тогда ничего не рисует, кроме как во время drag.
+
+**Нажатие, badge-и, tooltip-ы.** Кнопка вида, который сейчас на экране, нажата, в какой бы зоне она ни стояла, и нажатие
+на неё снова открывает её вид. Runs открывает Run history на самом новом Run-е и сохраняет выбор Project-а между Run
+history и Work track. Tooltip-ы: «Canvas», «Session view», «Pipeline board», «Run history», «Pull requests of the open
+Project» и «Checks that wait for you». Badge считает то, что показывает его вид: у Pull requests — pull request-ы
+открытого Project-а, которым нужны вы, у Acceptance — проверки Ready to check всех Project-ов, а у Pipeline есть точка,
+пока Ticket открытого Project-а заблокирован или ждёт человека. У Canvas, Session и Runs badge-а нет. Screen reader
+читает badge как описание кнопки. На rail кнопка не показывает badge, пока там стоит секция с тем же именем со своим
+badge-ем, а отметка окна на её иконке говорит, что кнопка открывает вид main area, а не панель sidebar.
+
+**Неактивные кнопки.** Runs и Pull requests показывают открытый Project. Без него они приглушены в каждой зоне, а их
+tooltip пишет «Open a Project to see its Runs» или «Open a Project to see its pull requests». Неактивная кнопка остаётся
+Tab stop и двигается как любая другая: своим меню, клавишами или drag-ом; нажатие на неё ничего не открывает.
+
+**Клавиатура.** Каждая зона — один Tab stop. ← и → ходят по кнопкам toolbar-а и footer-а, ↑ и ↓ — по кнопкам rail. Блок
+rail не входит в секции, по которым ходят ↑ и ↓ над ним: нажатие переключает main area, а не панель sidebar.
+
+**Ширина окна.** В toolbar кнопки показывают иконки и подписи. Когда кнопок четыре или больше, они показывают только
+иконки в окне шириной 1400 пикселей и меньше, а при любом числе — в окне 1100 пикселей и меньше. В footer-е подписи
+видны в окне шире 1100 пикселей; при 1100 и меньше кнопка показывает иконку и badge, а её tooltip её называет. На rail
+кнопка всегда показывает только иконку.
+
+**Скрытый sidebar.** Пока sidebar скрыт (⌘B), rail не рисуется, и его View button-ы стоят в конце группы toolbar-а после
+тонкой линии. Layout не меняется. Их меню и клавиши работают как на rail (⌥← и ⌥→ двигают их в порядке rail), но
+бросить на них кнопку при drag нельзя.
+
+**Focus mode.** Слой [focus mode](focus-mode.md) закрывает toolbar вместе с main area. View button-ы rail и footer-а не
+реагируют, пока он включён: вид под слоем не виден, поэтому переключать нечего. Version chip footer-а продолжает работать.
+
+**Перемещение кнопки.**
+
+- **Меню.** Правый клик по View button, клик двумя пальцами по touchpad или Shift+F10 на кнопке в фокусе открывает её
+  меню. Под заголовком «Move to» идут **Header**, **Sidebar** и **Footer** — выбор одного из трёх: зона, где стоит
+  кнопка, отмечена и неактивна. «Move to» — заголовок, а не подменю. Дальше идут линия и **Reset layout**, неактивный,
+  пока layout по умолчанию. Move to ставит кнопку в конец этой зоны, и фокус переходит за ней туда. Пока sidebar скрыт,
+  Sidebar ставит её в конец rail, и она показывается в конце toolbar-а после линии.
+- **Клавиши.** ⌥← и ⌥→ в toolbar и footer-е, ⌥↑ и ⌥↓ на rail двигают кнопку в фокусе внутри её зоны, и фокус остаётся
+  на ней. У края зоны клавиши ничего не делают: в другую зону кнопку переносят только меню или drag. Клавиша, нажатая
+  снова до того, как прошлое перемещение сохранено, шагает дальше от места, которое просило это перемещение.
+- **Drag.** View button можно тянуть мышью, неактивный тоже, внутри его зоны или в другую. Пока идёт drag, у каждой зоны
+  на экране пунктирная рамка цвета акцента, у зоны под указателем — сплошная, а линия отмечает промежуток, куда встанет
+  кнопка: вертикальная в toolbar и footer-е, горизонтальная на rail. Промежуток — перед первой кнопкой, чья середина
+  дальше указателя, или после последней. Пустая зона показывает место для одной кнопки, «Drop here», только во время
+  drag. Escape или отпускание вне зоны заканчивает drag и ничего не меняет. Зона принимает только drag, который начался в
+  её собственном окне. Drag, чья кнопка пропала до его конца (её передвинуло другое окно), сразу заканчивается.
+- **Reset layout** возвращает каждую кнопку в её зону и на её место по умолчанию. В Settings → General та же кнопка стоит
+  в строке «View buttons», неактивная, пока layout по умолчанию; когда main не сохраняет сброс, строка пишет «Not saved: …»
+  с причиной.
+
+#### Windows
+
+Alt+← и Alt+→, а на rail Alt+↑ и Alt+↓ двигают кнопку. Shift+F10 и клавиша меню открывают её меню под кнопкой. Окно там
+сохраняет системную рамку и заголовок; зоны и footer такие же, как на macOS.
+
+#### On a Linked machine
+
+Окно на Project-е Linked machine показывает layout этого компьютера, и перемещение в нём меняет layout этого компьютера:
+настройки приложения читаются и пишутся здесь, а не на Linked machine. Его badge-и считают то, что показывают его
+собственные виды.
+
+### How it works
+
+Один registry хранит восемь видов main area, среди них шесть с кнопкой. Имя каждого вида, tooltip, иконка, badge, нужен
+ли ему Project и что открывает нажатие записаны там один раз, и из него же строятся строки View в Command palette. Badge
+читает тот источник, который уже читает его вид: каждый вид остаётся смонтированным, поэтому badge ничего нового не
+запрашивает ни у main, ни у GitHub.
+
+Layout — это поле `viewButtons` настроек приложения. Его нет, пока человек не передвинул кнопку, и это значит layout по
+умолчанию. Main исправляет то, что читает, и то, что присылает окно: неизвестный id отбрасывается, из повторённого id
+остаётся первый, недостающий id идёт в конец своей зоны по умолчанию, а всё, кроме трёх списков, считается layout-ом по
+умолчанию. Испорченное поле никогда не делает остальные настройки нечитаемыми. Каждое перемещение — одна запись всего
+layout, а Reset layout — одна запись, которая удаляет поле. Каждое окно узнаёт о ней через `appSettings.changed`. Каналы
+настроек — `local` ([ADR-0053](../../adr/0053-several-screens-on-one-project.md)), поэтому окно Linked machine читает и
+пишет настройки приложения этого компьютера. Layout — ещё одна часть собственного состояния worfy
+([ADR-0005](../../adr/0005-worfy-own-state-inventory.md)), и своего ADR ему не понадобилось.
+
+Drag — нативный HTML5 drag and drop, без библиотеки, как в очереди Autopilot. Его состояние хранится в собственном модуле
+окна, поэтому зона принимает drop только от drag, который начался в её окне и несёт View button. Пока drag идёт, у shell
+окна стоит `data-view-drag`, и весь toolbar перестаёт быть областью, за которую двигают окно: такая область не получает
+событий drag.
+
+### Implementation
+
+| Что | Где |
+|---|---|
+| Registry видов: имена, tooltip-ы, иконки, badge-и, что открывает нажатие, строки View в Command palette | `src/renderer/shell/views.tsx` |
+| Layout, его значение по умолчанию и его исправление | `src/shared/layout/view-buttons.ts`; поле `viewButtons` в `src/shared/settings/app-settings.ts`, которое читает и сохраняет `src/main/settings/store.ts` |
+| Зона: её группа, меню, клавиши и drag | `src/renderer/shell/ViewZone.tsx`, набор компонентов `src/renderer/theme/kit/ToggleGroup.tsx`, `src/renderer/theme/kit/ContextMenu.tsx` и `src/renderer/theme/kit/Menu.tsx` |
+| Одна кнопка в облике её зоны | `src/renderer/shell/ViewButton.tsx`, `src/renderer/shell/shell.css` |
+| Где рисуются зоны | toolbar — `src/renderer/shell/Toolbar.tsx`, rail — `src/renderer/shell/Sidebar.tsx`, footer — `src/renderer/shell/footer/Footer.tsx` |
+| Reset layout в Settings | `src/renderer/settings/GeneralSection.tsx` |
+
+Главные test-ы: `test/unit/view-buttons.test.ts`, `test/unit/view-registry.test.tsx`, `test/unit/view-zones.test.tsx`,
+`test/unit/settings-reset-layout.test.tsx`, `test/unit/toolbar-runs.test.tsx`, `test/contract/app-settings.test.ts`,
+`test/e2e/view-buttons.spec.ts`, `test/e2e/toolbar.spec.ts`.
+
+## Footer
+
+### Behaviour
+
+Полоса высотой 28 пикселей через всё окно, под sidebar и main area, при масштабе интерфейса 100 %. Она растёт с масштабом
+интерфейса, как и остальное окно: под ней нет кнопок окна. В её левой части стоят View button-ы зоны Footer (см.
+[View buttons](#view-buttons)), середина остаётся пустой, а version chip стоит у правого края; пустой footer показывает
+только chip. За footer окно не перетаскивается, и toast-ы его обходят, поэтому toast у правого края никогда не закрывает
+chip. В focus mode footer остаётся на экране, вне слоя focus mode: его View button-ы не реагируют, а chip продолжает
+работать.
+
+**Version chip** — это версия приложения, `v<major>.<minor>.<N>`, и одна точка на всё, что предлагает сделать его popover;
+худшее идёт первым ([Harness](harness.md), [Updates](updates.md)):
+
+| Точка | Когда |
+|---|---|
+| Красная | Harness-у нужен пользователь: его последний вызов не удался («Harness unavailable»), он не установлен или сломан, а этот запуск может сделать Install или Retry, или старый Harness ждёт переноса («Move old Harness…») |
+| Янтарная | Ждёт обновление: Update worfy, который даёт сигнал (тихий Available update его не даёт), Harness с акцентной «Update Harness», Harness plugin, отключённый в Claude Code («Enable»), или строка Codex с кнопкой или «Codex: approve hooks» |
+| Нет | Во всех остальных случаях. «Replace Harness» той же версии точки не даёт, как и development-запуск, который не может установить |
+
+Пока идёт собственная установка Harness, точка ждёт её ответа. Accessible name chip-а и первая строка его tooltip — это
+версия и то, ради чего стоит точка, например «worfy v0.4.N — Harness needs Install». Пока собирается Update, chip
+показывает его шаг, обрезанный многоточием, а весь шаг есть в tooltip; в окне шириной 1100 пикселей и меньше chip
+показывает только версию.
+
+Нажатие на chip открывает над ним popover, в нём до четырёх строк:
+
+1. **worfy**: версия, чего ждёт Update, и его действия: Update worfy, Restart now, Restart when idle и What's new (см.
+   [Updates](updates.md)). What's new открывается на месте popover-а.
+2. **Harness**: строка Harness с её кнопками Install, Update Harness, Replace Harness, Retry, Enable и Move old Harness…
+   (см. [Harness](harness.md)).
+3. **Codex**: строка Codex с её кнопкой, пока Harness стоит в Claude Code (см. [Vendors](vendors.md)).
+4. **Memory**: собственная память worfy, пока в Settings → General включено «Memory in the version popover».
+
+Esc, нажатие вне popover-а или повторное нажатие на chip его закрывает. Install, Update и Replace сначала называют в
+диалоге каждую команду. Форма переноса и шаг «Approve the Harness hooks in Codex» открываются отдельными окнами и
+закрывают popover; шаг hook-ов по-прежнему открывается сам, пока popover закрыт.
+
+#### Windows
+
+Окно сохраняет системную рамку и заголовок; footer такой же, как на macOS.
+
+#### On a Linked machine
+
+Chip показывает версию, Update и Harness этого компьютера, а не Linked machine: их каналы — `local`.
+
+### How it works
+
+Окно — колонка: строка из sidebar и main area, а под ней footer. Высота footer-а не уменьшается с масштабом интерфейса,
+как у toolbar, потому что у footer-а нет кнопок окна, с которыми надо выравниваться. Chip смонтирован на всю жизнь окна и
+держит состояние Harness, поэтому диалоги и шаг hook-ов Codex не зависят от того, открыт ли popover. Точка — одно чистое
+правило над Update, состоянием Harness, предложением перенести старый Harness и неудачей последнего вызова Harness. В
+полосе 28 пикселей нет места для строк Harness, поэтому chip несёт одну точку, а строки живут в popover-е.
+
+### Implementation
+
+| Что | Где |
+|---|---|
+| Полоса | `src/renderer/shell/footer/Footer.tsx`, `src/renderer/shell/AppShell.tsx`, `src/renderer/shell/shell.css`, `--footer-height` в `src/renderer/theme/tokens.css` |
+| Version chip и его popover | `src/renderer/shell/footer/VersionChip.tsx`, набор компонентов `src/renderer/theme/kit/Popover.tsx`, строка приложения `AppLine` в `src/renderer/update/UpdateChip.tsx` |
+| Правило точки | `src/renderer/shell/footer/version-dot.ts` |
+| Строки Harness и Codex | `src/renderer/harness/HarnessStatus.tsx`, `src/renderer/harness/harness-lines.ts`, состояние — в `src/renderer/harness/useHarnessStatus.tsx` |
+| Строка памяти | `src/renderer/memory/AppMemory.tsx` |
+
+Главные test-ы: `test/unit/version-dot.test.tsx`, `test/unit/update-chip.test.tsx`, `test/unit/view-zones.test.tsx`,
+`test/e2e/footer.spec.ts`, `test/e2e/view-buttons.spec.ts`.
 
 ## Command palette
 
@@ -159,7 +366,7 @@ Project, который хранится только на этой Machine. Pul
 
 Одно поле над окном, которое находит команды и объекты Project-а. Его открывает поле «Search or run…» в toolbar и ⌘K (Ctrl+K на
 Windows). В окне до 1100 px в ширину поле показывает только иконку и сочетание клавиш, чтобы toolbar помещался в самое маленькое
-окно с открытой боковой панелью. Панель шириной 560 пикселей и высотой не больше 440.
+окно с открытым sidebar. Панель шириной 560 пикселей и высотой не больше 440.
 
 Ввод ранжирует строки. ↑ и ↓ ходят по всем строкам через группы и заворачивают по кругу, а указатель над строкой выбирает её.
 Enter или клик запускает выбранную строку. Esc или нажатие вне панели закрывает Command palette.
@@ -177,7 +384,7 @@ Command palette. Settings, открытые поверх неё по ⌘,, ле�
 | Группа | Строки |
 |---|---|
 | Action | New session; New Product Session; «New …» на каждый пункт меню Canvas; Tidy up; Arrange by Epic; Re-pack; Archive finished sessions now; Process gate queue; Run wave `<epic>`; Ship ticket `<epic>/<NN>`; Open changes `<epic>/<NN>`; Resolve conflicts, Fix checks и Address comments `<owner>/<repo>#<N>`; Reconnect machine…; Remove machine…; Update worfy |
-| View | Switch to Canvas; Switch to Session; Pull requests, при открытом Project-е; Acceptance; First-run checks; Health check; Getting started; Settings…; Keyboard shortcuts; worfy Guide; Guide: `<Topic>` на каждый Topic; Show only tag `<tag>`; Show all Nodes |
+| View | Switch to Canvas; Switch to Session; Pipeline board; Open Run history, при открытом Project-е; Pull requests, при открытом Project-е; Acceptance; First-run checks; Health check; Getting started; Settings…; Keyboard shortcuts; worfy Guide; Guide: `<Topic>` на каждый Topic; Show only tag `<tag>`; Show all Nodes |
 | Project | Switch to project `<name>` на каждый другой Project |
 | Go to | Orchestrator; каждый Epic, Ticket и ADR; каждый Node из Layout, кроме тех, что worfy рисует из workflow, и binding anchor-ов |
 | Manual check | Каждая неотмеченная ручная проверка Ticket-а. Эти строки появляются только после ввода |
@@ -431,26 +638,30 @@ machine, открывает Settings своей Machine.
 ### Behaviour
 
 Settings — это настройки самого worfy на этой Machine. Окно открывается из «Settings…» меню приложения (⌘,) и из Command palette. Оно
-модальное, с разделами в колонке слева. Esc или Close закрывает его, и фокус возвращается туда, где был. ↑ и ↓ ходят по разделам, а
-Tab идёт по кругу по элементам окна. Пока оно открыто, ⌘K, ⌘F и ⌘↩ ничего не делают. Нажатие рядом с окном оставляет его открытым,
+модальное, с разделами в колонке слева, под заголовками четырёх групп: App, Agents, Workflow и Workspace. У каждой строки
+перед именем стоит иконка. Колонка прокручивается, когда строки выше окна. Esc или Close закрывает его, и фокус
+возвращается туда, где был. ↑ и ↓ ходят по разделам из одной группы в следующую, а Tab идёт по кругу по элементам окна.
+Заголовок группы — это подпись: он не принимает ни клика, ни фокуса. Пока оно открыто, ⌘K, ⌘F и ⌘↩ ничего не делают. Нажатие рядом с окном оставляет его открытым,
 как и нажатие на toast. Settings, Keyboard shortcuts и Guide — одно модальное окно из собственного набора компонентов приложения:
 приложение за ним скрыто от screen reader-а, toast-ы — нет, и они остаются над окном.
 
-| Раздел | Что в нём |
-|---|---|
-| General | Interface scale; Memory in the toolbar; Fold Epics without work after (группа «Older» секции Epics, см. [Workflow](workflow.md)); Version; Updates там, где Update включён: см. [Updates](updates.md) |
-| Health | Проверки First run с их действиями и «Check again». Открытие раздела запускает проверку. Нажатая кнопка показывает свою работу спиннером и своими словами («Checking…», «Installing…», «Downloading…»), а её строка пишет «Running…» (пока идёт «Check again», каждая строка пишет «Checking…»); остальные кнопки выключены, и их tooltip говорит, что идёт другая проверка. Долгое действие (npm, модели qmd, коллекции qmd, Harness) называет свой шаг и прошедшее время под своей строкой |
-| Shortcuts | Список окна Keyboard shortcuts |
-| Machines | Переключатели связи и уровень доступа каждой Linked machine: см. [Link](link.md) |
-| Terminal AI | Переключатели и модели Terminal AI: см. [Terminal](terminal.md) |
-| Sessions | Окно autocompact для Session-ов |
-| Integrations | Все Integration-ы Machine, их состояние и Project-ы, которые их используют, с Sign in, Sign out, Remove и Clean up: см. [Integrations](integrations.md#settings--integrations) |
-| Canvas | Автоматический архив завершённых Session-ов |
-| Pull requests | Уведомления и утренний дайджест PR inbox, оба по умолчанию включены: см. [Notifications](notifications.md#утренний-дайджест) |
-| Browser | Когда Live Browser засыпает |
-| Autopilot | Run mode по умолчанию, Start window и дневной бюджет Limits: см. [Run planning](run-planning.md#settings--autopilot) |
-| Plan | План, под которым вошёл Claude Code, и для Pro готовый набор с кнопкой Apply |
-| Pipeline | Pipeline активного Project-а: см. [Workflow](workflow.md) |
+| Группа | Раздел | Что в нём |
+|---|---|---|
+| App | General | Interface scale; Memory in the version popover; Fold Epics without work after (группа «Older» секции Epics, см. [Workflow](workflow.md)); View buttons (Reset layout); Version; Updates там, где Update включён: см. [Updates](updates.md) |
+| App | Health | Проверки First run с их действиями и «Check again». Открытие раздела запускает проверку. Нажатая кнопка показывает свою работу спиннером и своими словами («Checking…», «Installing…», «Downloading…»), а её строка пишет «Running…» (пока идёт «Check again», каждая строка пишет «Checking…»); остальные кнопки выключены, и их tooltip говорит, что идёт другая проверка. Долгое действие (npm, модели qmd, коллекции qmd, Harness) называет свой шаг и прошедшее время под своей строкой |
+| App | Shortcuts | Список окна Keyboard shortcuts |
+| App | Machines | Переключатели связи и уровень доступа каждой Linked machine: см. [Link](link.md) |
+| Agents | Assistant | Assistant на этой Machine: его переключатель, work hours, проверки источников и уведомления, его обязанности, расход и пределы, и правила, которые он помнит: см. [Assistant](assistant.md) |
+| Agents | Terminal AI | Переключатели и модели Terminal AI: см. [Terminal](terminal.md) |
+| Agents | Vendors | По строке на каждый Vendor, которого запускает эта сборка, с его аккаунтом или входом: см. [Vendors](vendors.md) |
+| Agents | Sessions | Окно autocompact для Session-ов |
+| Workflow | Autopilot | Run mode по умолчанию, Start window и дневной бюджет Limits: см. [Run planning](run-planning.md#settings--autopilot) |
+| Workflow | Plan | План, под которым вошёл Claude Code, и для Pro готовый набор с кнопкой Apply |
+| Workflow | Pipeline | Pipeline активного Project-а: см. [Workflow](workflow.md) |
+| Workflow | Pull requests | Уведомления и утренний дайджест PR inbox, оба по умолчанию включены: см. [Notifications](notifications.md#утренний-дайджест) |
+| Workspace | Canvas | Автоматический архив завершённых Session-ов |
+| Workspace | Browser | Когда Live Browser засыпает |
+| Workspace | Integrations | Все Integration-ы Machine, их состояние и Project-ы, которые их используют, с Sign in, Sign out, Remove и Clean up: см. [Integrations](integrations.md#settings--integrations) |
 
 Изменение сразу доходит до всех окон Machine. Когда main не может его сохранить, раздел говорит об этом с причиной, и настройка остаётся
 прежней. Большинство разделов пишет «Not saved: …».
@@ -460,7 +671,7 @@ Tab идёт по кругу по элементам окна. Пока оно �
 | Настройка | Значения | По умолчанию |
 |---|---|---|
 | Interface scale | 80–150 % с шагом 10 % | 100 % |
-| Memory in the toolbar | вкл., выкл. | вкл. |
+| Memory in the version popover | вкл., выкл. | вкл. |
 | Sessions: Orchestrator | 100K–1M токенов с шагом 10K, или Claude Code default | 400K |
 | Sessions: Other Sessions | 100K–1M токенов с шагом 10K, или Claude Code default | 500K |
 | Archive finished sessions after | Never, 6 h, 24 h, 3 days, 7 days | 24 h |
@@ -479,9 +690,13 @@ Tab идёт по кругу по элементам окна. Пока оно �
 
 - **Interface scale.** Масштабируется всё окно: текст, Canvas, Terminal, Card-ы. Пока ползунок тянут, меняется только значение рядом с
   ним. Масштаб применяется, когда ползунок отпущен или клавиша сделала шаг. View ▸ Bigger, Smaller и Actual size меняют ту же настройку.
-- **Memory in the toolbar** показывает, сколько памяти занимают собственные процессы worfy. Сессии Terminal не считаются. Main замеряет
-  память, только пока настройка включена.
-- **Version** — номер сборки, `<major>.<minor>.<N>`, как его показывает toolbar: N считает commit-ы от начала истории до commit-а, из
+- **Memory in the version popover** показывает, сколько памяти занимают собственные процессы worfy, в последней строке
+  popover-а version chip-а в footer-е. Сессии Terminal не считаются. Main замеряет память, только пока настройка включена и
+  какой-то version popover открыт.
+- **View buttons** — это Reset layout: Canvas и Session обратно в toolbar, Pull requests и Acceptance на rail, Pipeline и
+  Runs в footer, как делает пункт меню View button (см. [View buttons](#view-buttons)). Кнопка неактивна, пока layout по
+  умолчанию.
+- **Version** — номер сборки, `<major>.<minor>.<N>`, как его показывает version chip в footer-е: N считает commit-ы от начала истории до commit-а, из
   которого собран worfy (`git rev-list --count HEAD`), поэтому у более новой сборки `main` номер больше, а один commit даёт один номер
   на каждой Machine. Рядом, в скобках, стоит версия сборки `<semver>+<short SHA>`, которая называет commit. Сборка с незакоммиченными
   изменениями заканчивается на `.dirty`: она не совпадает со своим commit-ом. У сборки из shallow clone или из папки вне git номера
@@ -528,7 +743,8 @@ Pipeline показывает Pipeline той Machine только для чте
 - **Настройка читается, когда нужна.** Main читает окно autocompact при каждом старте Claude Code у Session, настройки архива при каждом
   run-е архива, настройки сна при каждой проверке правил, а бюджет перед каждой Wave.
 - **Полосы вокруг кнопок окна сохраняют размер.** Масштаб увеличивает всё окно, но кнопки окна macOS остаются на месте в пикселях окна.
-  Поэтому `--toolbar-height` равен 52 пикселям окна при любом масштабе, а содержимое внутри всё равно масштабируется. Каждая загрузка
+  Поэтому `--toolbar-height` равен 52 пикселям окна при любом масштабе, а содержимое внутри всё равно масштабируется. У footer-а нет кнопок окна, поэтому его `--footer-height` масштабируется вместе с
+  остальным. Каждая загрузка
   страницы получает масштаб снова, потому что Chromium хранит свой zoom на origin.
 
 ### Implementation
@@ -542,7 +758,7 @@ Pipeline показывает Pipeline той Machine только для чте
 | Копия настроек в renderer | `src/renderer/settings/useAppSettings.ts` |
 | Окно и его состояние | `src/renderer/settings/SettingsDialog.tsx`, `src/renderer/settings/settings-window.ts` |
 | Модальное окно, его фокус и клавиши приложения, пока оно открыто | `src/renderer/theme/kit/Dialog.tsx`, `src/renderer/theme/kit/layer.ts` |
-| Список разделов | `src/renderer/settings/sections.ts` |
+| Список разделов, их группы и иконки: каждый `*Section.tsx` экспортирует `order`, `title`, `group` и `icon` | `src/renderer/settings/sections.ts`, `src/renderer/settings/icons.tsx` |
 | Масштаб на `<html>` | `src/renderer/settings/interface-scale.ts` |
 
 Раздел — это один файл `src/renderer/settings/<Name>Section.tsx`, который экспортирует компонент по умолчанию, `order` и `title`.

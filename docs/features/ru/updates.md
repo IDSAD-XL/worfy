@@ -1,6 +1,6 @@
 # Updates
 
-> Перевод [английской версии](../updates.md), commit `b82c4d25`.
+> Перевод [английской версии](../updates.md), commit `same-pr`.
 
 Одна Feature. **Update** заменяет Stable copy новой сборкой `main` вместе с её Harness. **Available update** — commit
 `main`, который новее запущенной Stable copy, с зелёным CI и меняет приложение или Harness. Термины объяснены в
@@ -26,7 +26,7 @@ Dev-сборка, копия установщика и упакованная с
 - commit-ы между ними меняют хотя бы один путь вне `docs/`, `.scratch/`, `test/`, `.github/` и Markdown-файлов корня
   репозитория. Список из 300 файлов, на котором GitHub его обрезает, считается изменением.
 
-Тексты называют версию по номеру сборки, как toolbar: `<major>.<minor>.<N>`, где N — число commit-ов от начала истории
+Тексты называют версию по номеру сборки, как version chip: `<major>.<minor>.<N>`, где N — число commit-ов от начала истории
 до этого commit-а ([Settings → General → Version](app-shell.md#settings)). Номер новой версии — номер запущенной копии
 плюс `ahead_by` из сравнения GitHub. Прежняя копия при откате сохраняет номер той копии, которая была запущена, когда
 перезапуск её заменил (`restart.json`). Где номер неизвестен (у запущенной копии его нет, GitHub не даёт `ahead_by`,
@@ -40,7 +40,7 @@ main process. Плановая проверка на экране ничего �
 
 | Место | Что |
 |---|---|
-| Version chip | Версия приложения во второй строке пункта Harness в toolbar становится кнопкой с акцентной точкой. Tooltip: «worfy <version> is available», «Building worfy <version>…», «worfy <version> is ready — restart to update» или «The update to <version> failed — see Settings → Health»; когда строка показывает номер, вторая строка tooltip-а — build version этой копии с её commit-ом. Меню: «Update worfy» (после сборки — «Restart now», а пока что-то работает — «Restart when idle» и «Restart now»; во время сборки — неактивный «Building worfy <version>…»), «What's new» и «Later», который только закрывает меню. Пока Update идёт, chip говорит об этом без наведения (см. «Пока идёт сборка») |
+| Version chip | Версия приложения на правом конце footer-а ([App shell](app-shell.md#footer)) получает янтарную точку, а когда Harness нужен пользователь, — красную ([Harness](harness.md)); тихий Available update точки не даёт. Tooltip chip-а начинается с его имени, `worfy v<version> — <what the dot is for>`, потом говорит «worfy <version> is available», «Building worfy <version>…», «worfy <version> is ready — restart to update» или «The update to <version> failed — see Settings → Health»; когда chip показывает номер, последняя строка tooltip-а — build version этой копии с её commit-ом. Нажатие на chip открывает его popover. Первая строка popover-а — версия с состоянием Update («update <version> available», «building <version>…», «update <version> ready», «the update to <version> failed — see Settings → Health») и её кнопки: «Update worfy» (после сборки — «Restart now», а пока что-то работает — «Restart when idle» и «Restart now»; во время сборки — неактивный «Building worfy <version>…») и «What's new». Нажатие на действие закрывает popover; Esc или нажатие снаружи закрывают его тоже. Пока Update идёт, chip говорит об этом без наведения (см. «Пока идёт сборка») |
 | Toast-ы | См. следующую таблицу |
 | Settings → General | Блок из трёх строк: «Updates», «Update automatically» и «Roll back to previous version» |
 | Settings → Health | Строка «worfy version» группы «worfy»: «<version>, up to date», «<version> available», «update failed» с «Show log» или «<tool> not found». Её сбои сами First run не открывают |
@@ -82,7 +82,7 @@ worfy проверяет ещё раз и собирает голову, кот�
 собирается один раз, после последнего. Время commit-а головы приходит в ответе GitHub о `main`; нет его в ответе —
 голова собирается сразу. «Update worfy» не ждёт никогда.
 Toast «available» тогда не приходит: chip показывает сборку, а toast «ready» приходит в её конце. Выключен — ничего не
-собирается, пока пользователь не нажмёт «Update worfy» в меню chip-а, в Settings или в Command palette, или «Update» в
+собирается, пока пользователь не нажмёт «Update worfy» в version popover-е, в Settings или в Command palette, или «Update» в
 toast-е. В обоих случаях сборка никогда не перезапускает worfy: перезапуск — всегда отдельное нажатие.
 
 **Сборка.** worfy собирает в своём clone в папке данных (см. [Storage and diagnostics](storage-and-diagnostics.md)):
@@ -107,8 +107,8 @@ Project-ов не трогаются никогда. Вывод идёт в `bui
 fetch`, потом checkout), «Installing dependencies» (`pnpm install`), «Downloading Electron» (только если его загрузка не
 закончилась) и «Building app» (`pnpm package`). Сборка считает 3 шага или 4, когда появился «Downloading Electron».
 Version chip показывает вращающееся кольцо вместо точки и «Updating · 2/3 Installing dependencies»; кольцо стоит на
-месте, когда система просит уменьшить движение. Шаг не шире строки Harness над ним и кончается многоточием, так что
-сборка не расширяет toolbar. Tooltip — весь шаг, потом «Building worfy <version>… 3:12», время с начала сборки; оно
+месте, когда система просит уменьшить движение. Шаг не длиннее 28 символов и кончается многоточием, так что
+сборка не расширяет footer; в окне шириной 1100 px и меньше chip во время сборки показывает только версию. Tooltip — весь шаг, потом «Building worfy <version>… 3:12», время с начала сборки; оно
 считает каждую секунду, пока указатель или фокус на chip-е. Нажатие «Update worfy» в chip-е, Settings, Command palette
 или toast-е сразу отвечает «Starting update…», пока сборка не дошла до первого шага. Когда main отказывает нажатию в
 chip-е, Command palette или toast-е, toast говорит почему (см. toast-ы выше); в Settings причина видна под строкой.
@@ -123,8 +123,8 @@ need git, node and pnpm: <missing> not found. See Settings → Health.», а Hea
 проверки свободного места заранее нет. Упавший commit worfy сам заново не собирает: следующий новый commit `main`
 собирается как обычно, а «Update worfy» собирает тот же ещё раз.
 
-**Перезапуск.** Собранный Update ставится только нажатием «Restart now» или «Restart when idle» — в toast-е, меню chip-а,
-Settings или Command palette. «Restart now» предлагается всегда; пока что-то работает, рядом стоит «Restart when idle».
+**Перезапуск.** Собранный Update ставится только нажатием «Restart now» или «Restart when idle» — в toast-е, version
+popover-е, Settings или Command palette. «Restart now» предлагается всегда; пока что-то работает, рядом стоит «Restart when idle».
 Ничего не работает, когда ни одна Session не в ходе (busy или ждёт разрешения), ни у одной Session нет background task
 и ни один run Autopilot не в работе. Run, который ждёт Limits, бюджет или Start window, не в работе: перезапуск
 приостанавливает его, а после старта он продолжает то же ожидание. В работе: run с Wave-ом в работе, run, который ждёт
@@ -158,11 +158,12 @@ into an Update needs it (Settings → Health)».
 
 **Harness после Update.** При первом старте новой копии worfy ставит её Harness, если установленный устарел или его нет,
 без второго диалога и только один раз. Claude Code берёт его со следующей Session. Сбой показывает «The Harness was not
-updated» с «Open Health», а пункт Harness — своё состояние ошибки с Retry. Подробности — на странице
+updated» с «Open Health», а строка Harness в version popover-е — своё состояние
+ошибки с Retry, и на chip-е красная точка. Подробности — на странице
 [Harness](harness.md#installing-from-the-app).
 
 **Harness out of date.** Harness, который отстаёт от Harness этой копии, виден в трёх местах. Кнопка «Update Harness» в
-toolbar получает акцент и точку, toast «Harness out of date: <from> → <to>» предлагает «Update», а строка Health «Harness
+version popover-е получает акцент и точку, а version chip — янтарную точку; toast «Harness out of date: <from> → <to>» предлагает «Update», а строка Health «Harness
 plugin» падает с «<from> → <to>» и «Update it to the Harness of this build». Меньший semver отстаёт в любой сборке, но
 toast приходит только там, где Update включён. Для того же semver из другого commit-а worfy спрашивает GitHub, и только
 пока Update включён; нет ответа от GitHub — нет сигнала, остаётся простой «Replace Harness».
@@ -199,9 +200,9 @@ new copy did not start, or was rolled back by hand», и commit, с которо
 Новая копия, упавшая позже, это уже прочитала: тогда commit не молчит, и «Update automatically» собирает его снова;
 выключите эту настройку, пока в `main` не появится более новый commit.
 
-**What's new.** «What's new» в меню chip-а открывает popover под chip-ом: «What's new in worfy <version>», строку «<PR
-title> #<number>» на каждый PR, влитый между запущенной копией и новой версией, новые сверху, и первый пункт меню chip-а
-как кнопку. Новая версия — сборка, которая запущена или готова, иначе Available update. Строки берутся из одного
+**What's new.** «What's new» в version popover-е открывает на его месте popover у chip-а: «What's new in worfy
+<version>», строку «<PR title> #<number>» на каждый PR, влитый между запущенной копией и новой версией, новые сверху, и
+первое действие строки worfy этого popover-а как кнопку. Новая версия — сборка, которая запущена или готова, иначе Available update. Строки берутся из одного
 сравнения на GitHub: первая строка каждого commit-а, который кончается на `(#<number>)`, как пишет squash merge. Commit,
 запушенный в `main` без PR, в список не попадает. Сравнение отдаёт не больше 250 commit-ов; при 250 последняя строка —
 «…and more on GitHub», ссылка на страницу сравнения. Номера и эта ссылка открываются в браузере системы. Пока список
@@ -265,7 +266,7 @@ Update принадлежит Machine, на которой запущен. Вс�
 | Является ли голова Available update; расписание проверок | `src/main/update/check.ts` |
 | Где лежит Stable copy, какой commit она запускает, включён ли Update | `src/main/update/stable-copy.ts` |
 | Файл состояния `update/state.json` | `src/main/update/state.ts` |
-| «Update automatically»: какой Update собирается | `src/main/update/auto.ts` |
+| «Update automatically»: какой Update собирается и ожидание тихого `main` | `src/main/update/auto.ts` |
 | Clone, сборка, `build.log`, недостающие инструменты | `src/main/update/build.ts` |
 | Работает ли что-нибудь | `src/main/update/idle.ts` |
 | «Restart now», «Restart when idle», откат, итог последнего перезапуска | `src/main/update/restart.ts` |
@@ -279,11 +280,11 @@ Update принадлежит Machine, на которой запущен. Вс�
 | Настройка `autoUpdate` в `app-settings.json` | `src/shared/settings/app-settings.ts` |
 | Строка Health «worfy version» и строка Harness | `src/main/first-run/checks.ts` |
 | Снимок в renderer; тексты шагов, прошедшее время, «Starting update…» и toast отказа | `src/renderer/update/store.ts` |
-| Version chip и What's new | `src/renderer/update/UpdateChip.tsx`, `src/renderer/update/WhatsNew.tsx` |
+| Version chip, его popover и What's new | `src/renderer/shell/footer/VersionChip.tsx`, `src/renderer/shell/footer/version-dot.ts`, `src/renderer/update/UpdateChip.tsx` (строка приложения), `src/renderer/update/useChipFace.tsx`, `src/renderer/update/update-signal.ts`, `src/renderer/update/WhatsNew.tsx` |
 | Toast-ы | `src/renderer/update/toasts.ts` |
 | Settings → General → Updates | `src/renderer/settings/UpdatesBlock.tsx` |
 | «Update worfy» в Command palette | `src/renderer/palette/commands.ts` |
-| Акцент «Update Harness» | `src/renderer/shell/toolbar/HarnessStatus.tsx` |
+| Акцент «Update Harness» | `src/renderer/harness/harness-lines.ts` |
 
 Файлы Update лежат в `<папка данных>/update`: `state.json`, clone `repo`, `build.log`, `restart.json` (что делает
 перезапуск и из какой копии), `result.json` (что записал помощник) и `restart.log` (что помощник напечатал). Переменные
@@ -292,9 +293,10 @@ API, `WORFY_UPDATE_REPO` — репозиторий clone-а, `WORFY_UPDATE_BUIL
 Stable copy, `WORFY_UPDATE_QUIET_MINUTES` — 20 минут тишины `main` (целое число; `0` — собирать сразу, не больше суток).
 
 Test-ы: stub GitHub `test/update-stub.ts`; `test/unit/update-check.test.ts`, `test/contract/update-github.test.ts`,
-`test/contract/update-state.test.ts`, `test/contract/update-build.test.ts`, `test/unit/update-idle.test.ts`,
+`test/contract/update-state.test.ts`, `test/contract/update-build.test.ts`, `test/unit/update-build-light.test.ts`,
+`test/unit/update-idle.test.ts`,
 `test/contract/update-restart.test.ts`, `test/contract/update-restart-continuity.test.ts`,
 `test/contract/update-harness.test.ts`, `test/unit/update-harness-lag.test.ts`, `test/unit/update-whats-new.test.ts`,
 `test/unit/install-stable-update.test.ts`; интерфейс — в `test/unit/update-chip.test.tsx`,
-`test/unit/update-toasts.test.tsx`, `test/unit/updates-block.test.tsx`, `test/unit/whats-new-view.test.tsx`, и e2e
-test-ы `test/e2e/update-toolbar.spec.ts`, `test/e2e/update-toasts.spec.ts` и `test/e2e/update-settings.spec.ts`.
+`test/unit/version-dot.test.tsx`, `test/unit/update-toasts.test.tsx`, `test/unit/updates-block.test.tsx`, `test/unit/whats-new-view.test.tsx`, и e2e
+test-ы `test/e2e/update-toolbar.spec.ts`, `test/e2e/footer.spec.ts`, `test/e2e/update-toasts.spec.ts` и `test/e2e/update-settings.spec.ts`.

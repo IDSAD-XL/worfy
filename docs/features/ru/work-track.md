@@ -1,10 +1,10 @@
 # Work track
 
-> Перевод [английской версии](../work-track.md), commit `b82c4d25`.
+> Перевод [английской версии](../work-track.md), commit `same-pr`.
 
 Work track показывает на одной оси времени всю работу Project-а на этой Machine за Day, Week или Month: run-ы
 Autopilot-а и их Wave-ы, Wave-ы, отправленные вручную, turn-ы каждой Session и их Subagent-ов, gate run-ы и смёрженные
-PR, а над ними — сколько часов ушло на каждый Epic. Это вторая половина вкладки **Runs**, рядом с Run history, которая
+PR, а над ними — сколько часов ушло на каждый Epic. Это вторая половина вида **Runs**, рядом с Run history, которая
 подробно показывает один run Autopilot-а ([Flight Recorder](flight-recorder.md)). Как и Run history, Work track
 вычисляется из источников при каждом чтении и ничего своего не хранит. Если термины незнакомы, начните с
 [Concepts](concepts.md).
@@ -15,9 +15,9 @@ PR, а над ними — сколько часов ушло на каждый 
 
 #### Открытие view
 
-**Runs** в переключателе видов на панели инструментов открывает вкладку Runs. Над ней стоит переключатель
+**View button Runs** (по умолчанию в footer-е, [App shell](app-shell.md)) открывает вид Runs. Над ним стоит переключатель
 `Run history | Work track`. Project показывает Run history, пока для него не выбран Work track; после этого, пока
-приложение работает, вкладка показывает для этого Project-а Work track. Выбор хранится для каждого Project-а отдельно и
+приложение работает, вид показывает для этого Project-а Work track. Выбор хранится для каждого Project-а отдельно и
 только в памяти окна. **Open Run history** в Command palette всегда показывает Run history и снова делает его выбором
 Project-а. Вход, который называет run или Epic, показывает Run
 history, что бы ни было выбрано: toast остановки, **History** у строки состояния Autopilot, **Run history** в меню «⋯»
@@ -27,7 +27,7 @@ Epic-а и **Open Run** панели Span ниже.
 текстовое поле. Выбор другого Project-а в боковой панели тоже возвращает на Canvas.
 
 View читает Work track каждый раз, когда открывается, и каждый раз, когда меняется период. Пока view открыт, он не
-следит за работой: переключатель, вкладка или другой период читают его заново.
+следит за работой: переключатель, View button или другой период читают его заново.
 
 #### Элементы управления
 
@@ -76,7 +76,13 @@ Main сразу отвечает тем, что дали быстрые исто
 - **Ticket status · git log**: точка на каждую смену `Status:` Ticket-а, во время смены; смена на `blocked` — оранжевая.
 
 Tooltip отметки — такой же, как у полосы; клик по ней открывает панель Span. Эти две строки одинаковы в `by Session` и
-`by Epic`.
+`by Epic`. Отметки, которые при текущем масштабе легли бы одна на другую, рисуются одной отметкой с их числом, цветом
+худшей из них. Так красный CI run среди зелёных виден красным, а смена на `blocked` — оранжевой. CI run шириной не
+меньше 4 пикселей. Смена статуса — точка шириной 8 пикселей с центром в её времени. Отметка с числом шириной 14
+пикселей (18 для двух цифр, 24 для трёх); она начинается с её первого run-а или стоит центром на её первой смене.
+Отметка, которая начинается левее правого края группы перед ней, входит в эту группу, так что число ничто не
+закрывает. Tooltip такой отметки начинается с числа (`17 CI runs`, `17 Ticket status changes`), дальше строка на каждую
+отметку. Клик открывает отметку, чей цвет она показывает, самую позднюю из таких.
 
 **by Session**, сверху вниз:
 
@@ -236,7 +242,7 @@ remote-ветки, которых в ней нет, ещё с 14 днями до
 | `src/main/work-track/harness-state.ts` | Gate run-ы и маркеры Wave в домашней папке Harness. |
 | `src/main/work-track/ticket-status.ts` | Смены статуса Ticket-ов из git. |
 | `src/main/ipc/work-track.ts`, `src/shared/ipc/work-track.ts` | Канал `workTrack.read` и форма его ответа. |
-| `src/renderer/flight-recorder/RunsView.tsx` | Вкладка Runs: переключатель `Run history \| Work track` и какую половину показывает каждый Project. |
+| `src/renderer/flight-recorder/RunsView.tsx` | Вид Runs: переключатель `Run history \| Work track` и какую половину показывает каждый Project. |
 | `src/renderer/work-track/WorkTrackView.tsx` | View: элементы управления, сводка, дорожки, панель, легенда. |
 | `src/renderer/work-track/Lanes.tsx` | Ось, строки CI run-ов и смен статуса, имена дорожек и их полосы, пробелы. |
 | `src/renderer/work-track/MonthGrid.tsx` | Month: дни и их ячейки. |
@@ -275,7 +281,7 @@ remote-ветки, которых в ней нет, ещё с 14 днями до
 | `test/contract/work-track-github.test.ts` | Чтения по неделям и по дням, ответ, хранимый минуту, остановку на первом сбое. |
 | `test/contract/work-track-ticket-status.test.ts` | Смены статуса ветки, squash-нутой в главную ветку, и одной главной ветки, их время. |
 | `test/contract/work-track-service.test.ts` | Все источники вместе, Wave, отправленную вручную, пробел gate, неответ GitHub и то, что ничего не пишется. |
-| `test/unit/work-track-view.test.tsx` | Переключатель вкладки Runs, периоды и `‹ ›`, дорожки, отметки CI run-ов и смен статуса, пробелы, Month, медленные источники, Retry. |
+| `test/unit/work-track-view.test.tsx` | Переключатель вида Runs, периоды и `‹ ›`, дорожки, отметки CI run-ов и смен статуса, пробелы, Month, медленные источники, Retry. |
 | `test/unit/work-track-panel.test.tsx` | Сводку и панель Span с её кнопками и Esc, в том числе для CI run-а и смены статуса. |
 | `test/unit/palette-commands.test.tsx` | **Open Run history** показывает Run history после выбора Work track. |
 | `test/e2e/work-track.spec.ts` | Собранное приложение: Week, Day, Month, сводку, переход Open Run в Run history, отметку CI run-а и её панель, пробелы GitHub и git и Open Run history из Command palette после Work track. |

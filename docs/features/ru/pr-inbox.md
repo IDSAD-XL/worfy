@@ -1,6 +1,6 @@
 # Pull requests
 
-> Перевод [английской версии](../pr-inbox.md), commit `same-pr`.
+> Перевод [английской версии](../pr-inbox.md), commit `e035cd09`.
 
 **PR inbox** Project-а: открытые pull request-ы (PR) пользователя и запросы ревью у него в репозиториях Project-а,
 сгруппированные по тому, чей ход, с нитями ревью и их последними комментариями. В UI — **Pull requests**. Он читает
@@ -18,8 +18,8 @@ GitHub, а его поиск находит любой другой PR, кото
 
 **Где открывается.**
 
-- **Pull requests** в View switch toolbar-а — пятая вкладка после Canvas, Session, Pipeline и Runs. Без Project-а
-  вкладка неактивна, tooltip говорит открыть Project.
+- **View button Pull requests**, по умолчанию на rail-е sidebar-а ([App shell](app-shell.md)). Без Project-а кнопка
+  неактивна, tooltip говорит открыть Project.
 - Строка **Pull requests** в Command palette, группа View, при открытом Project-е.
 - Группа в разделе **Pull requests** sidebar-а: вид Project-а этой строки, прокрученный к этой группе, её заголовок
   выделен, её первый PR выбран (увиденным не помечается). Строка другого Project-а сначала выбирает этот Project.
@@ -89,7 +89,8 @@ chip-а). `#N` и текст CI остаются целыми, и ничто н�
 - заголовок, `owner/repo#N`, chip Ticket-а, `Draft` у черновика PR, «via team», если ревью просят только у команды
   пользователя, автора, ветку и «N new since you looked»;
 - **что делать дальше** — одна плашка в цвете группы PR, по группе, CI, ревью и черновикам, с главной кнопкой: «Your
-  review is asked» с **Start review ▾** ([Review mode](#review-mode)); «Answer N open threads» — с **Send all (N)**, когда
+  review is asked» с **Start review ▾** ([Review mode](#review-mode)); «Answer N open threads», где N считает только нити, которые ждут ответа пользователя (у PR коллеги — те, в
+  которых пользователь писал), — с **Send all (N)**, когда
   ниже готовы два черновика ответов или больше (открывает диалог Send all, см. ниже), с **Draft replies**, когда
   черновиков ещё нет, и без кнопки при одном черновике — его **Send** стоит под его нитью; «CI failing», «Changes
   requested», «Merge conflict» или несколько из них («Merge conflict and CI failing») с кнопками причин PR и **Open
@@ -296,7 +297,8 @@ Review mode только для чтения: diff и нити, «Read only» в
 under their threads» или почему Session не запустилась.
 
 **Черновик под своей нитью.** Черновики выбранного PR читаются, когда его выбирают, каждые 5 секунд, пока он выбран, и
-когда окно получает фокус; черновики других PR не читаются. Каждый черновик ответа стоит под своей нитью, а ответ в
+когда окно получает фокус, и всё это только пока вид Pull requests показан: скрытый вид не читает ничего, а показанный
+снова читает сразу. Черновики других PR не читаются. Каждый черновик ответа стоит под своей нитью, а ответ в
 разговоре PR — под **Conversation**: его метка (Needs code change, Needs answer, FYI, Resolved by push), `Edited`, когда
 пользователь его изменил, и текст в поле, которое пользователь правит. Ответ, чьей нити PR не перечисляет, стоит под
 «Replies to threads not shown here». План изменения кода, если skill его написал, стоит под полем; он никогда не
@@ -368,7 +370,7 @@ pending-ревью, не помечает notification прочитанным, �
 в Project settings или ни один его репозиторий не на GitHub, — показывает об этом одну строку и ни одной панели. Чтение
 без единого PR показывает вместо панелей спокойную заметку «No open pull requests and no review requests.»
 
-**Чтение при открытии.** Каждый раз, когда вид показан — вкладкой toolbar, командой палитры, группой раздела sidebar,
+**Чтение при открытии.** Каждый раз, когда вид показан — его View button-ом, командой палитры, группой раздела sidebar,
 уведомлением или другим входом, или другим Project-ом, пока вид показан, — main сразу читает этот Project из GitHub, не
 дожидаясь следующего поиска: review comment, оставленный минуту назад, уже виден. Пока это чтение идёт, строка состояния
 пишет «Reading pull requests…» и «Last read 3m ago» (время чтения перед ним) вместо следующего поиска, а строки того
@@ -468,7 +470,7 @@ Project читается сразу, не дожидаясь следующег�
 | Копия inbox в renderer; тексты строки; Ticket PR-а; что делать дальше, состояние merge и размер | `src/renderer/pr-inbox/usePrInbox.ts` |
 | Открытие вида — на одном PR или на группе | `src/renderer/pr-inbox/open.ts` |
 | Раздел sidebar | `src/renderer/shell/sidebar/PullRequestsSection.tsx` |
-| Вкладка и вид в shell | `src/renderer/shell/Toolbar.tsx`, `src/renderer/shell/AppShell.tsx` |
+| View button и вид в shell | `src/renderer/shell/views.tsx`, `src/renderer/shell/ViewZone.tsx`, `src/renderer/shell/AppShell.tsx` |
 | Строка palette | `src/renderer/palette/commands.ts` |
 | Переключатель | `src/renderer/shell/ProjectSettings.tsx`; поле `prInbox` в `src/shared/projects/action-templates.ts` |
 | Каналы `prInbox.get`, `prInbox.markSeen`, `prInbox.changed`, `prInbox.drafts`, `prInbox.saveDraft`, `prInbox.discard`, `prInbox.send` | `src/shared/ipc/pr-inbox.ts`, `src/main/ipc/pr-inbox.ts` |

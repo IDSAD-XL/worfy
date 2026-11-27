@@ -1,11 +1,11 @@
 # Flight Recorder
 
-> Перевод [английской версии](../flight-recorder.md), commit `b82c4d25`.
+> Перевод [английской версии](../flight-recorder.md), commit `same-pr`.
 
 Flight Recorder показывает на одной оси времени, что происходило за один run Autopilot-а: его Wave-ы, Ticket-ы, Stage-ы,
 агентов, CI run-ы, gate run-ы, повторы, ожидания и блокировки, а над ними — на что ушло больше всего времени. Экран
 называется **Run history**. Он читает journal run-а и источники, в которых подробности уже лежат, и ничего своего не
-хранит. Сам run описан на странице [Autopilot](autopilot.md). Та же вкладка **Runs** содержит
+хранит. Сам run описан на странице [Autopilot](autopilot.md). Тот же вид **Runs** содержит
 [Work track](work-track.md) — всю работу Project-а за Day, Week или Month. Если термины незнакомы, начните с [Concepts](concepts.md).
 
 ## Run history
@@ -17,10 +17,10 @@ Flight Recorder показывает на одной оси времени, чт
 Run history занимает всю главную область окна вместо Canvas. Он открывается
 из пяти мест:
 
-- **Runs** в переключателе видов на панели инструментов, после Canvas, Session и Pipeline: экран на самом новом run-е
-  активного Project-а, в списке run-ы всех его Epic-ов. Пока экран открыт, вкладка выбрана, а любая другая вкладка
-  уводит с экрана. У Project-а без run-ов вкладка тоже есть, экран показывает своё пустое состояние. Без Project-а
-  вкладка неактивна, с tooltip "Open a Project to see its Runs".
+- **View button Runs**, по умолчанию в footer-е ([App shell](app-shell.md)): экран на самом новом run-е
+  активного Project-а, в списке run-ы всех его Epic-ов. Пока экран открыт, кнопка нажата, а любой другой View button
+  уводит с экрана. У Project-а без run-ов кнопка тоже есть, экран показывает своё пустое состояние. Без Project-а
+  кнопка неактивна, с tooltip "Open a Project to see its Runs".
 
 - **Toast остановки.** Когда run останавливается, по любой причине, toast говорит `Run stopped: <reason> · N done,
   M blocked · <duration>` с кнопкой **Open history**, которая открывает экран на этом run-е. Toast не исчезает сам.
@@ -35,8 +35,8 @@ Run history занимает всю главную область окна вм�
   не рисует кнопку Autopilot, но всё равно имеет «⋯» с этим единственным пунктом, когда у него есть прошлые run-ы.
 - **Open Run history** в Command palette: экран на самом новом run-е активного Project-а.
 
-Над экраном стоит переключатель `Run history | Work track` вкладки Runs ([Work track](work-track.md)). Project
-показывает Run history, пока для него не выбран Work track. Тогда, пока приложение работает, вкладка показывает для
+Над экраном стоит переключатель `Run history | Work track` вида Runs ([Work track](work-track.md)). Project
+показывает Run history, пока для него не выбран Work track. Тогда, пока приложение работает, вид показывает для
 этого Project-а Work track. **Open Run history** в Command palette всегда показывает Run history и снова делает его
 выбором Project-а. Toast остановки, **History**, **Run history** в «⋯» и **Open Run** панели Work track называют run
 или Epic, поэтому тоже всегда показывают Run history.
@@ -317,7 +317,7 @@ Codex» в разделе How it works. GitHub хранит свой ответ 
 | `src/main/flight-recorder/local-verdicts.ts` | Файл отметок и git для Ticket-ов без PR. |
 | `src/main/flight-recorder/worktree-path.ts` | Единая форма пути worktree, которую передаёт каждый reader. |
 | `src/main/ipc/runs.ts`, `src/shared/ipc/runs.ts` | Каналы IPC `runs` и форма view run-а. |
-| `src/renderer/flight-recorder/RunsView.tsx` | Вкладка Runs: переключатель `Run history \| Work track`; Run history остаётся смонтированным, скрытым, под Work track. |
+| `src/renderer/flight-recorder/RunsView.tsx` | Вид Runs: переключатель `Run history \| Work track`; Run history остаётся смонтированным, скрытым, под Work track. |
 | `src/renderer/flight-recorder/RunHistoryView.tsx` | Экран: заголовок, notice-ы, сводка, шкала времени, панель; Esc. |
 | `src/renderer/flight-recorder/Timeline.tsx` | Элементы управления, ось и мини-карта, масштаб, строки и полосы. |
 | `src/renderer/flight-recorder/label-layout.ts` | Куда ставится подпись полосы. Чистые функции. |
@@ -330,7 +330,7 @@ Codex» в разделе How it works. GitHub хранит свой ответ 
 | `src/renderer/flight-recorder/open.ts` | `openRunHistory`, который вызывает каждый вход. |
 | `src/renderer/canvas/actions/AutopilotAction.tsx` | «History» у строки состояния и «Run history» в «⋯». |
 | `src/renderer/palette/commands.ts` | «Open Run history». |
-| `src/renderer/shell/Toolbar.tsx` | Вкладка **Runs** переключателя видов. |
+| `src/renderer/shell/views.tsx` | **View button Runs**; `src/renderer/shell/ViewZone.tsx` рисует его в его зоне. |
 | `src/renderer/theme/tokens.css` | Цвета `--span-*` обеих тем. |
 
 #### Поток данных
@@ -371,7 +371,7 @@ Codex» в разделе How it works. GitHub хранит свой ответ 
 | `test/unit/flight-recorder-filter.test.ts`, `test/unit/flight-recorder-label-layout.test.ts` | Фильтр и Problems only; место подписей. |
 | `test/unit/flight-recorder-stop-toast.test.ts` | Toast остановки: один на run, последний на Project. |
 | `test/unit/canvas-actions.test.tsx`, `test/unit/palette-commands.test.tsx` | «History», «Run history» в «⋯», «Open Run history». |
-| `test/unit/toolbar-runs.test.tsx` | Вкладку **Runs**: пять вкладок (последняя — Pull requests), Project, который она передаёт, выбранность на экране, неактивность без Project-а. |
+| `test/unit/toolbar-runs.test.tsx` | **View button Runs**: его место после Canvas, Session и Pipeline при раскладке, где все шесть в toolbar, Project, который он передаёт, нажатость на экране, неактивность без Project-а, его tooltip. |
 | `test/unit/work-track-view.test.tsx` | Переключатель `Run history \| Work track`, который запоминается для каждого Project-а. |
 | `test/contract/flight-recorder-service.test.ts` | Сервис над всеми reader-ами, живое повторное вычисление, Retry, решения Auto-approval run-а и решения Shadow Project-а на данный момент. |
 | `test/contract/flight-recorder-transcripts.test.ts`, `test/contract/flight-recorder-github.test.ts`, `test/contract/flight-recorder-gate-logs.test.ts` | Reader-ы в main. Test transcript-ов ещё читает run на Codex из поддельного app-server (`test/fixtures/codex-scripts/flight-recorder-run.jsonl`). |
