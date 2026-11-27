@@ -85,10 +85,10 @@ name: CI
 #
 # The free plan runs 5 macOS jobs at a time, and pull requests waited 26 to 67 minutes for them while
 # their longest job took 19. So a pull request asks for at most 4 of them (one macos-tests and three
-# macos-e2e shards) when it changes the app and a macOS path, for three (macos-e2e) when it changes the
-# app elsewhere (fewer when it runs fewer spec files), for one (macos-tests) when it changes only a macOS path outside the app, and for none
-# when it changes only other scripts, the Harness's tests and evals or unit and contract tests. The
-# push to main runs them all.
+# macos-e2e shards) when it changes the app and a macOS path, for three (macos-e2e) when it changes
+# the app elsewhere (fewer when it runs fewer spec files), for one (macos-tests) when it changes only
+# a macOS path outside the app, and for none when it changes only other scripts, the Harness's tests
+# and evals or unit and contract tests. The push to main runs them all.
 #
 # The manual run stays: Actions → CI → Run workflow, or `gh workflow run ci.yml --ref <ref> -f
 # job=check` (lint, typecheck and the Linux shards — the batch run of a Wave) and `-f job=full-macos`
