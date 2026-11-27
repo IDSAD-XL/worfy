@@ -9,7 +9,7 @@
     "src/main/harness/locate.ts",
     "src/main/vendors/claude/options.ts",
     "src/main/workflow/profile.ts",
-    "src/renderer/shell/toolbar/HarnessStatus.tsx",
+    "src/renderer/harness/HarnessStatus.tsx",
     "harness/hooks/hooks.json"
   ]
 }

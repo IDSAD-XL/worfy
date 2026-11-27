@@ -541,7 +541,7 @@ function CodeStoriesSection({ root, machine, readOnly }: CodeStoriesSectionProps
         setFailure(`${what}: ${done.reason}`)
         return
       case 'too-old':
-        setFailure(`${what}: the Harness is too old. Update it from the Harness item of the toolbar.`)
+        setFailure(`${what}: the Harness is too old. Update it from the version chip in the footer.`)
         return
     }
   }

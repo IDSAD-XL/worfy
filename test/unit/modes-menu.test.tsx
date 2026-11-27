@@ -539,7 +539,7 @@ describe('Eco mode in the menu', () => {
   it.each<[string, EcoModeSetResult | string, RegExp]>([
     ['refused', { status: 'invalid', reason: 'cannot write profile.json: EACCES' }, /^Eco mode was not turned on: cannot write profile\.json: EACCES$/u],
     ['busy', { status: 'busy' }, /another write of the Profile is in progress/u],
-    ['too old', { status: 'too-old' }, /the Harness is too old/u],
+    ['too old', { status: 'too-old' }, /^Eco mode was not turned on: the Harness is too old\. Update it from the version chip in the footer\.$/u],
     ['failed in main', 'ecoMode.set: bin/profile-set --set failed (exit 9)', /^Eco mode was not turned on: ecoMode\.set: bin\/profile-set --set failed \(exit 9\)$/u],
   ])('a write that did not go through (%s): an error toast with the reason, and the item back to what the Profile says', async (_name, set, text) => {
     main = preload({ eco: [ECO_OFF], ecoSet: set })

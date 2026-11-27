@@ -218,15 +218,14 @@ test('signed in to Codex: a Codex section with the windows of its plan next to C
     await expect(claude.getByTestId('limit-five_hour-value')).toHaveAttribute('title', /^5-hour: 62% · resets /)
     expect((await box(claude)).x, 'Claude\'s section first').toBeLessThan((await box(codex)).x)
 
-    // Both sections fit the toolbar: the meter ends before the Harness column, inside the window.
+    // Both sections fit the toolbar: the meter ends before the search field, inside the window (the Harness column
+    // that stood between them is the version chip of the footer since worfy-layout ticket 03).
     const limits = await box(meter)
-    const harness = await box(toolbar.getByTestId('harness-column'))
-    expect(limits.x + limits.width, `the Limits (${JSON.stringify(limits)}) end before the Harness column (${JSON.stringify(harness)})`).toBeLessThanOrEqual(harness.x)
     const bar = await box(toolbar)
     expect(limits.y >= bar.y && limits.y + limits.height <= bar.y + bar.height, 'the Limits inside the toolbar').toBe(true)
     const width = await window.evaluate(() => (globalThis as unknown as { innerWidth: number }).innerWidth)
     const search = await box(toolbar.locator('.w-toolbar__palette-hint'))
-    expect(search.x, 'the search field after the Harness column').toBeGreaterThanOrEqual(harness.x + harness.width)
+    expect(limits.x + limits.width, `the Limits (${JSON.stringify(limits)}) end before the search field (${JSON.stringify(search)})`).toBeLessThanOrEqual(search.x)
     expect(search.x + search.width, `the search field ends inside the window (${width} px)`).toBeLessThanOrEqual(width)
 
 
@@ -257,7 +256,7 @@ test('signed in to Codex: a Codex section with the windows of its plan next to C
     await expectStacked(claude, ['limit-five_hour', 'limit-seven_day'])
     const wide = await box(meter)
     expect(wide.y >= bar.y && wide.y + wide.height <= bar.y + bar.height, 'the Limits inside the toolbar at 1600 px').toBe(true)
-    expect(wide.x + wide.width, 'the Limits end before the Harness column at 1600 px').toBeLessThanOrEqual((await box(toolbar.getByTestId('harness-column'))).x)
+    expect(wide.x + wide.width, 'the Limits end before the search field at 1600 px').toBeLessThanOrEqual((await box(toolbar.locator('.w-toolbar__palette-hint'))).x)
     await screenshots(window, 'limits-vendors-1600')
   } finally {
     await launched.close()

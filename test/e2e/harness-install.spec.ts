@@ -4,7 +4,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { expect, test } from '@playwright/test'
-import { launchApp, type LaunchedApp, openSecondWindow, repoRoot } from './helpers'
+import { launchApp, type LaunchedApp, openSecondWindow, openVersionPopover, repoRoot } from './helpers'
 
 // worfy-harness tickets 13 and 30: the Harness item of the toolbar and the consent dialog. The app
 // runs with the temporary Claude home of launchApp (WORFY_CLAUDE_HOME, so the install is offered in
@@ -134,12 +134,12 @@ async function answerDialogWith(launched: LaunchedApp, button: number): Promise<
 const shownDialogs = (launched: LaunchedApp): Promise<ShownDialog[]> =>
   launched.app.evaluate(() => ((globalThis as { shownDialogs?: unknown[] }).shownDialogs ?? []) as ShownDialog[])
 
-/** Screenshots of the toolbar in both themes, kept with the test's output. */
+/** Screenshots of the version popover of the footer (worfy-layout ticket 03), with its Harness line, in both themes, kept with the test's output. */
 async function shoot(launched: LaunchedApp, name: string): Promise<void> {
-  const toolbar = launched.window.getByRole('banner')
+  const popover = await openVersionPopover(launched.window)
   for (const scheme of ['light', 'dark'] as const) {
     await launched.window.emulateMedia({ colorScheme: scheme })
-    await toolbar.screenshot({ path: test.info().outputPath(`13-harness-${name}-${scheme}.png`) })
+    await popover.screenshot({ path: test.info().outputPath(`13-harness-${name}-${scheme}.png`) })
   }
   await launched.window.emulateMedia({ colorScheme: null })
 }
@@ -149,6 +149,8 @@ test('"Harness not installed" → Install → one dialog names the dependency co
   try {
     const { window, claudeHome } = launched
     const pluginDir = join(claudeHome, 'worfy-harness', 'plugin')
+    // The Harness line is a row of the version chip's popover in the footer (worfy-layout ticket 03).
+    await openVersionPopover(window)
     const item = window.getByTestId('harness-status')
     await expect(item.getByTestId('harness-text')).toHaveText('Harness not installed')
     await expect(item.getByTestId('harness-action')).toHaveAccessibleName('Install')
@@ -192,6 +194,7 @@ test('the Harness of this build (out/harness, no dependency): Install runs no co
   const launched = await launchApp({ env })
   try {
     const pluginDir = join(launched.claudeHome, 'worfy-harness', 'plugin')
+    await openVersionPopover(launched.window)
     const item = launched.window.getByTestId('harness-status')
     await answerDialogWith(launched, 0)
     await item.getByTestId('harness-action').click()
@@ -205,18 +208,23 @@ test('the Harness of this build (out/harness, no dependency): Install runs no co
   }
 })
 
-test('two windows: an install from the toolbar of one changes the toolbar of the other without a reload', async () => {
+test('two windows: an install from the version popover of one changes the chip and the popover of the other without a reload', async () => {
   const launched = await launchApp({ env: stub.env })
   try {
     const second = await openSecondWindow(launched)
-    const other = second.getByTestId('harness-status')
-    await expect(other.getByTestId('harness-text')).toHaveText('Harness not installed')
-    await expect(other.getByTestId('harness-action')).toHaveAccessibleName('Install')
+    // The other window's chip says it with its red dot: its popover would close as the first window takes the focus.
+    const otherChip = second.getByTestId('app-version')
+    await expect(otherChip).toHaveAttribute('data-dot', 'red')
+    await expect(otherChip).toHaveAttribute('aria-label', /Harness needs Install$/)
 
+    await openVersionPopover(launched.window)
     const item = launched.window.getByTestId('harness-status')
     await answerDialogWith(launched, 0)
     await item.getByTestId('harness-action').click()
     await expect(item.getByTestId('harness-text')).toHaveText(`Harness ${bundledVersion()}`)
+    await expect(otherChip).not.toHaveAttribute('data-dot', 'red')
+    await openVersionPopover(second)
+    const other = second.getByTestId('harness-status')
     await expect(other.getByTestId('harness-text')).toHaveText(`Harness ${bundledVersion()}`)
     await expect(other.getByTestId('harness-action')).toHaveCount(0)
     expect(await shownDialogs(launched)).toHaveLength(1)
@@ -228,6 +236,7 @@ test('two windows: an install from the toolbar of one changes the toolbar of the
 test('Cancel in the dialog writes nothing: claude ran only its two reads', async () => {
   const launched = await launchApp({ env: stub.env })
   try {
+    await openVersionPopover(launched.window)
     const item = launched.window.getByTestId('harness-status')
     await expect(item.getByTestId('harness-action')).toHaveAccessibleName('Install')
     await answerDialogWith(launched, 1)
@@ -260,6 +269,7 @@ test('another version installed: "Update Harness" → the dialog shows from → 
     )
     await launched.window.reload()
 
+    await openVersionPopover(launched.window)
     const item = launched.window.getByTestId('harness-status')
     await expect(item.getByTestId('harness-action')).toHaveAccessibleName('Update Harness')
     // The tooltip is the Tooltip kit's (worfy-ui-kit ticket 13): no native title; a screen reader hears it as the description.
@@ -289,6 +299,7 @@ test('another version installed: "Update Harness" → the dialog shows from → 
 test('a failing `claude plugin install` of worfy shows the step, with the tail of stderr in the tooltip', async () => {
   const launched = await launchApp({ env: { ...stub.env, STUB_CLAUDE_FAIL: 'plugin install worfy@' } })
   try {
+    await openVersionPopover(launched.window)
     const item = launched.window.getByTestId('harness-status')
     await answerDialogWith(launched, 0)
     await item.getByTestId('harness-action').click()
@@ -307,6 +318,7 @@ test('a failing install of the dependency: "Harness error: dependency install", 
   const launched = await launchApp({ env: { ...stub.env, STUB_CLAUDE_FAIL_FILE: failFile } })
   try {
     const pluginDir = join(launched.claudeHome, 'worfy-harness', 'plugin')
+    await openVersionPopover(launched.window)
     const item = launched.window.getByTestId('harness-status')
     await answerDialogWith(launched, 0)
     await item.getByTestId('harness-action').click()
@@ -347,6 +359,7 @@ test('worfy installed without its dependency: "Harness error: dependency install
     writeFileSync(stub.state, JSON.stringify({ marketplaces: { 'worfy-harness': pluginDir }, plugins: { 'worfy@worfy-harness': bundledVersion() } }))
     await launched.window.reload()
 
+    await openVersionPopover(launched.window)
     const item = launched.window.getByTestId('harness-status')
     await expect(item.getByTestId('harness-text')).toHaveText('Harness error: dependency install')
     await expect(item.getByTestId('harness-text')).toHaveAttribute('title', new RegExp(DEP))

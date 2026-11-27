@@ -407,9 +407,12 @@ test('in the composer: Queued messages and Effort, at the bottom edge of the win
   await expect(queue).toBeVisible()
   await expect(queue).toHaveAttribute('data-testid', 'queue-list')
   await expect(chip).toHaveAttribute('aria-expanded', 'true')
-  // No room under the chip: it is on the last lines of the window.
+  // No room under the chip: it is on the last lines of the window, above the footer that spans the window's
+  // bottom edge (worfy-layout ticket 03).
+  const floor = (await box(window.getByTestId('footer'))).y
+  expect(floor).toBeLessThan(page.height)
   const chipBox = await box(chip)
-  expect(page.height - (chipBox.y + chipBox.height)).toBeLessThan((await box(queue)).height)
+  expect(floor - (chipBox.y + chipBox.height)).toBeLessThan((await box(queue)).height)
   await expect(queue).toHaveAttribute('data-side', 'top')
   // The positioner settles a frame after data-side is set (worfy-polish 115): poll the place, not one read.
   await expect.poll(async () => { const b = await box(queue); return b.y + b.height }).toBeLessThanOrEqual(chipBox.y + 1)
@@ -424,7 +427,7 @@ test('in the composer: Queued messages and Effort, at the bottom edge of the win
   await expect(popover).toBeVisible()
   await expect(popover).toHaveAttribute('data-testid', 'effort-popover')
   const effortBox = await box(effort)
-  expect(page.height - (effortBox.y + effortBox.height)).toBeLessThan((await box(popover)).height)
+  expect(floor - (effortBox.y + effortBox.height)).toBeLessThan((await box(popover)).height)
   await expect(popover).toHaveAttribute('data-side', 'top')
   await expect.poll(async () => { const b = await box(popover); return b.y + b.height }).toBeLessThanOrEqual(effortBox.y + 1)
   await expect.poll(() => insideWindow(window, popover)).toBe(true)

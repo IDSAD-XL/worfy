@@ -265,11 +265,18 @@ const LONG_MAP = [
   },
 ]
 
+/**
+ * The window of the Mind map test: 1440 wide, and 900 high for the main area plus the 28 px footer under it
+ * (worfy-layout ticket 03), so the map has the room it had before the footer. In a map too low for the card on
+ * either side of a node the card covers it by design (cardPlace, mind-map-layout.ts).
+ */
+const MIND_MAP_WINDOW = { width: 1440, height: 900 + 28 }
+
 test('the Mind map keeps long texts inside their nodes, opens the card beside its node and fits again when the window narrows', async () => {
   const launched = await launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_AGENT_SCRIPT: 'product-mind-map' } })
   try {
     const { app, window } = launched
-    await canvasReady(launched, { size: { width: 1440, height: 900 }, visible: [window.getByTestId('orchestrator-node')] })
+    await canvasReady(launched, { size: MIND_MAP_WINDOW, visible: [window.getByTestId('orchestrator-node')] })
     await window.emulateMedia({ colorScheme: 'dark' })
     await window.keyboard.press('ControlOrMeta+k')
     await window.getByTestId('palette-input').fill('new product session')
@@ -414,7 +421,7 @@ test('the Mind map keeps long texts inside their nodes, opens the card beside it
     // After a zoom by hand the owner's view stays when the window changes size.
     await map.getByRole('button', { name: 'Zoom in' }).click()
     const owners = await zoom.textContent()
-    await resize(1440, 900)
+    await resize(MIND_MAP_WINDOW.width, MIND_MAP_WINDOW.height)
     await window.waitForTimeout(300)
     await expect(zoom).toHaveText(owners ?? '')
   } finally {

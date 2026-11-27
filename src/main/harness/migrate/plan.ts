@@ -113,7 +113,7 @@ export interface PlanOptions {
   env?: NodeJS.ProcessEnv
   /** The SHA-256 list of the personal scripts of bin/ (isPersonalBin); PERSONAL_BIN by default. */
   personalBin?: readonly string[]
-  /** The installer's state of the plugin; undefined when not asked (the toolbar's offer). */
+  /** The installer's state of the plugin; undefined when not asked (the version chip's offer). */
   pluginState?: HarnessState
 }
 
@@ -538,8 +538,8 @@ export function buildPlan(options: PlanOptions): BuiltPlan {
   if (!options.offered) missing.push('a development build on the real ~/.claude does not move the Harness: start the packaged app, or set WORFY_CLAUDE_HOME to a sandbox')
   const plugin = options.pluginState
   if (plugin !== undefined) {
-    if (plugin.kind === 'not-installed') missing.push('the plugin worfy is not installed: install it first (Install in the toolbar)')
-    else if (plugin.kind === 'outdated') missing.push('the plugin worfy is not the version of this build: update or replace it first from the Harness item of the toolbar')
+    if (plugin.kind === 'not-installed') missing.push('the plugin worfy is not installed: install it first from the version chip in the footer')
+    else if (plugin.kind === 'outdated') missing.push('the plugin worfy is not the version of this build: update or replace it first from the version chip in the footer')
     else if (plugin.kind === 'error') missing.push(`the plugin worfy reports an error (${plugin.step}): ${plugin.reason}`)
     else if (!plugin.enabled) missing.push('the plugin worfy is disabled in Claude Code: enable it first')
   }
@@ -569,7 +569,7 @@ export function buildPlan(options: PlanOptions): BuiltPlan {
   }
 }
 
-/** Whether the toolbar offers the form: anything of the old Harness that a move would take. Runs no `claude`. */
+/** Whether the version chip offers the form: anything of the old Harness that a move would take. Runs no `claude`. */
 export function hasLegacyHarness(options: Omit<PlanOptions, 'pluginState'>): boolean {
   return buildPlan(options).legacyFound
 }

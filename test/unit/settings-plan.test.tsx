@@ -155,7 +155,7 @@ describe('Settings → Plan', () => {
 
   it('a Harness without profile-set --field: the offer without Apply, and what to do', async () => {
     await mount({ subscriptionType: 'Claude Pro', planError: null, profile: { available: false, reason: 'this Harness has no bin/profile-set --field' } })
-    expect((await screen.findByTestId('plan-profile-unavailable')).textContent).toMatch(/too old/u)
+    expect((await screen.findByTestId('plan-profile-unavailable')).textContent).toBe('The Harness is too old to apply the settings. Update it from the version chip in the footer.')
     expect(screen.queryByTestId('plan-apply')).toBeNull()
   })
 })

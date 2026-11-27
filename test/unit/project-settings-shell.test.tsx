@@ -531,6 +531,13 @@ describe('Code stories for PRs in Project settings', () => {
     expect(storySwitch().getAttribute('aria-checked')).toBe('true')
   })
 
+  it('a Harness too old for profile-set: the window sends the user to the version chip in the footer', async () => {
+    main.answers['codeStoriesSetting.set'] = { ok: true, value: { status: 'too-old' } }
+    await openWithPath()
+    await click()
+    expect(within(section()).getByRole('alert').textContent).toBe('Code stories were not turned off: the Harness is too old. Update it from the version chip in the footer.')
+  })
+
   it('a failed call is shown too; a Profile changed outside worfy is read again and said so', async () => {
     main.answers['codeStoriesSetting.set'] = { ok: false, error: 'bin/profile-set --set failed (exit 9): boom' }
     await openWithPath()

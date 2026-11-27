@@ -6,7 +6,7 @@ import { homedir, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import { BUILD_VERSION, buildVersion } from '../../scripts/build-version'
-import { launchApp, type LaunchedApp, type ListedProcess, NO_WINDOW_RESTORE, packagedBuild, packagedExecutable as executableOf, packagedResources as resourcesOf, processesWith, repoRoot } from './helpers'
+import { launchApp, type LaunchedApp, type ListedProcess, NO_WINDOW_RESTORE, openVersionPopover, packagedBuild, packagedExecutable as executableOf, packagedResources as resourcesOf, processesWith, repoRoot } from './helpers'
 import { bundleDifferences, enableInspector, fuseProblems, fuseStates, inspectableCopy, refuseUnlessScratch } from './fuses'
 import { DIRECT_START_PROFILE, directStartEnv } from './launch-env'
 import { WINDOWS } from './terminal-shell'
@@ -712,8 +712,10 @@ test.describe('the stable copy of the packaged app', { tag: '@packaged' }, () =>
       const [major, minor] = version.split('.')
       const dirty = version.endsWith('.dirty') ? '\\.dirty' : ''
       await expect(launched.window.getByTestId('app-version')).toHaveText(new RegExp(`^v(${version.replaceAll('.', '\\.').replace('+', '\\+')}|${major}\\.${minor}\\.\\d+${dirty})$`))
-      // A packaged app offers the install (worfy-harness ticket 13); the Claude home of launchApp is
-      // a sandbox without the plugin, so reading the state runs no `claude` at all.
+      // A packaged app offers the install (worfy-harness ticket 13) on the Harness line of the version chip's popover
+      // (worfy-layout ticket 03); the Claude home of launchApp is a sandbox without the plugin, so reading the state
+      // runs no `claude` at all.
+      await openVersionPopover(launched.window)
       await expect(launched.window.getByTestId('harness-text')).toHaveText('Harness not installed')
       await expect(launched.window.getByTestId('harness-action')).toHaveAccessibleName('Install')
     } finally {

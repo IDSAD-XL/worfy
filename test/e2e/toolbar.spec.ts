@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { buildNumber } from '../../scripts/build-version'
-import { animatedText, launchApp, repoRoot, smallestWindow, wednesdayReset, type LaunchedApp } from './helpers'
+import { animatedText, launchApp, openVersionPopover, repoRoot, smallestWindow, wednesdayReset, type LaunchedApp } from './helpers'
 import { profileJsonScript } from '../harness-node'
 
 /**
@@ -123,19 +123,26 @@ test('a Project name of 80 characters is cut with an ellipsis and the rest of th
     // Old data: the bar is dimmed with "as of" as its tooltip, and no "as of" line (worfy-ui ticket 18).
     await expect(toolbar.getByTestId('limit-seven_day')).toHaveAttribute('title', / · as of /)
     await expect(toolbar.getByTestId('limit-seven_day')).not.toContainText('as of')
-    await expect(toolbar.getByTestId('app-version')).toBeVisible()
-    await expect(toolbar.getByTestId('harness-text')).toHaveText('Harness not installed')
-    await expect(toolbar.getByTestId('harness-action')).toHaveAccessibleName('Install')
+    // The app version and the Harness left the toolbar for the version chip of the footer (worfy-layout ticket 03).
+    await expect(toolbar.getByTestId('app-version')).toHaveCount(0)
+    await expect(toolbar.getByTestId('harness-status')).toHaveCount(0)
+    const chip = window.getByTestId('footer').getByTestId('app-version')
     // The build version from the Harness copy (out/harness, scripts/build-version.ts), longer than v0.0.0 was;
     // numbered `v<major>.<minor>.<N>` where the checkout has its whole history (worfy-update ticket 14).
     const number = buildNumber(repoRoot)
     const [major, minor] = packageVersion.split('.')
-    await expect(toolbar.getByTestId('app-version')).toHaveText(
+    await expect(chip).toHaveText(
       number === null ? new RegExp(`^v${packageVersion.replaceAll('.', '\\.')}\\+[0-9a-f]{7,}(\\.dirty)?$`) : new RegExp(`^v${major}\\.${minor}\\.${number}(\\.dirty)?$`),
     )
-    // worfy's own memory after the version, on the same line of the Harness column (worfy-ui ticket 20):
-    // the column measured below carries it.
-    await expect(toolbar.getByTestId('app-line').getByTestId('app-memory')).toHaveText(/^\d+(\.\d)? (MB|GB)$/)
+    // "Harness not installed" (the Claude home of launchApp is a sandbox): the chip's red dot, and in its popover the
+    // Harness line with Install and worfy's own memory (worfy-ui ticket 20).
+    await expect(chip).toHaveAttribute('data-dot', 'red')
+    const popover = await openVersionPopover(window)
+    await expect(popover.getByTestId('harness-text')).toHaveText('Harness not installed')
+    await expect(popover.getByTestId('harness-action')).toHaveAccessibleName('Install')
+    await expect(popover.getByTestId('app-memory')).toHaveText(/^\d+(\.\d)? (MB|GB)$/)
+    await window.keyboard.press('Escape')
+    await expect(popover).toHaveCount(0)
 
     // Every other item of the toolbar is whole and inside the window, to the right of the title.
     const width = await innerWidth(window)
@@ -143,9 +150,6 @@ test('a Project name of 80 characters is cut with an ellipsis and the rest of th
     const items: Record<string, Locator> = {
       view: toolbar.getByRole('group', { name: 'View', exact: true }),
       limits: toolbar.getByTestId('limits-meter'),
-      // worfy-harness ticket 13: "Harness not installed" with its Install button (the Claude home of launchApp is a sandbox),
-      // and the app version under it in one column (worfy-ui ticket 18).
-      harness: toolbar.getByTestId('harness-column'),
       search: toolbar.locator('.w-toolbar__palette-hint'),
     }
     let previousRight = title.x + title.width
@@ -155,22 +159,28 @@ test('a Project name of 80 characters is cut with an ellipsis and the rest of th
       expect(found.x + found.width, `${item} ends inside the window (${width} px)`).toBeLessThanOrEqual(width)
       previousRight = found.x + found.width
     }
-    // The version is the second line of the Harness column: below the Harness line, inside the toolbar.
-    const harnessLine = await box(toolbar.getByTestId('harness-status'))
-    const version = await box(toolbar.getByTestId('app-version'))
-    const bar = await box(toolbar)
-    expect(version.y, 'the version is under the Harness line').toBeGreaterThanOrEqual(harnessLine.y + harnessLine.height - 1)
-    expect(harnessLine.y, 'the Harness line is inside the toolbar').toBeGreaterThanOrEqual(bar.y)
-    expect(version.y + version.height, 'the version is inside the toolbar').toBeLessThanOrEqual(bar.y + bar.height)
+    // The chip stands at the right end of the footer, inside the window.
+    const footer = await box(window.getByTestId('footer'))
+    const version = await box(chip)
+    expect(version.x + version.width, 'the version chip ends inside the window').toBeLessThanOrEqual(width)
+    expect(version.y, 'the version chip is in the footer').toBeGreaterThanOrEqual(footer.y)
 
-    // The name and the subtitle are cut with an ellipsis; the full text is their tooltip.
-    for (const element of [name, subtitle.locator('.w-toolbar__subtitle-text')]) {
-      const cut = await element.evaluate((node) => {
-        const found = node as unknown as { scrollWidth: number; clientWidth: number; ownerDocument: { defaultView: { getComputedStyle(e: unknown): { textOverflow: string } } } }
-        return { overflows: found.scrollWidth > found.clientWidth, textOverflow: found.ownerDocument.defaultView.getComputedStyle(found).textOverflow }
+    // The name and the subtitle are cut with an ellipsis where they do not fit; the full text is their tooltip.
+    // The name does not fit. The subtitle is set smaller: with the Harness column gone from the toolbar
+    // (worfy-layout ticket 03) it may fit whole where the system font is narrow (Segoe UI on Windows), and is
+    // then simply shown whole; where it does not fit, the same rule cuts it.
+    const cutOf = (element: Locator) =>
+      element.evaluate((node) => {
+        const found = node as unknown as {
+          scrollWidth: number
+          clientWidth: number
+          ownerDocument: { defaultView: { getComputedStyle(e: unknown): { textOverflow: string; overflowX: string; whiteSpace: string } } }
+        }
+        const style = found.ownerDocument.defaultView.getComputedStyle(found)
+        return { overflows: found.scrollWidth > found.clientWidth, textOverflow: style.textOverflow, overflowX: style.overflowX, whiteSpace: style.whiteSpace }
       })
-      expect(cut).toEqual({ overflows: true, textOverflow: 'ellipsis' })
-    }
+    expect(await cutOf(name)).toEqual({ overflows: true, textOverflow: 'ellipsis', overflowX: 'hidden', whiteSpace: 'nowrap' })
+    expect(await cutOf(subtitle.locator('.w-toolbar__subtitle-text'))).toMatchObject({ textOverflow: 'ellipsis', overflowX: 'hidden', whiteSpace: 'nowrap' })
     await expect(name).toHaveAttribute('title', LONG_NAME)
     await expect(subtitle).toHaveAttribute('title', `${LONG_NAME} · main`)
 
@@ -186,9 +196,10 @@ test('a Project name of 80 characters is cut with an ellipsis and the rest of th
 
 // worfy-polish ticket 48: the smallest window (800×520) with the sidebar open, where the toolbar is
 // narrowest. The toolbar is no wider than the window: the Limits show their percents alone (the
-// window names and reset lines are the tooltip), the search field its icon and shortcut, the Harness
-// line ends with an ellipsis, and the step of an Update build is cut the same way. The order and the
-// set of items stay. At 1600 px everything is spelled out again.
+// window names and reset lines are the tooltip), the search field its icon and shortcut. The order and the
+// set of items stay. The version chip of the footer (worfy-layout ticket 03) shows the version alone there,
+// the step of an Update build in its tooltip. At 1600 px everything is spelled out again, the step on the
+// chip ending with an ellipsis.
 
 /** limits.json with both windows received now: each bar has its reset line, on a Wednesday as in staleLimits. */
 function freshLimits(dataDir: string): void {
@@ -233,7 +244,6 @@ async function expectItemsInside(window: Page, toolbar: Locator, what: string): 
   for (const [item, locator] of Object.entries({
     view: toolbar.getByRole('group', { name: 'View', exact: true }),
     limits: toolbar.getByTestId('limits-meter'),
-    harness: toolbar.getByTestId('harness-column'),
     search: toolbar.getByTestId('palette-trigger'),
   })) {
     const found = await box(locator)
@@ -292,7 +302,9 @@ test('in the smallest window with the sidebar open the toolbar is no wider than 
     await addProject(launched, repo)
     const toolbar = window.getByRole('banner')
     await expect(toolbar.locator('.w-toolbar__name')).toHaveText(LONG_NAME)
-    await expect(toolbar.getByTestId('harness-text')).toHaveText('Harness not installed')
+    const footer = window.getByTestId('footer')
+    const chip = footer.getByTestId('app-version')
+    await expect(chip).toHaveAttribute('data-dot', 'red')
     await expect(window.getByRole('navigation', { name: 'Sidebar' })).toBeVisible()
     const fiveHour = toolbar.getByTestId('limit-five_hour')
     const percent = fiveHour.getByTestId('limit-five_hour-value')
@@ -312,31 +324,37 @@ test('in the smallest window with the sidebar open the toolbar is no wider than 
     await expect(search.locator('.w-toolbar__palette-text')).toBeHidden()
     await expect(search.locator('kbd')).toBeVisible()
     await expect(search).toHaveAccessibleName(/^Search or run… (⌘K|Ctrl\+K)$/u)
-    // The Harness line may end with an ellipsis: its whole text is the tooltip.
-    await expect(toolbar.getByTestId('harness-text')).toHaveAttribute('title', 'Harness not installed')
+    // The footer spans the window, the chip inside it.
+    const footerBox = await box(footer)
+    expect(footerBox.x + footerBox.width, 'the footer ends inside the window').toBeLessThanOrEqual(smallest.width)
+    const chipBox = await box(chip)
+    expect(chipBox.x + chipBox.width, 'the version chip ends inside the window').toBeLessThanOrEqual(smallest.width)
     for (const scheme of ['light', 'dark'] as const) {
       await window.emulateMedia({ colorScheme: scheme })
-      for (const [what, text] of Object.entries({ percent, shortcut: search.locator('kbd'), version: toolbar.getByTestId('app-version') })) {
+      for (const [what, text] of Object.entries({ percent, shortcut: search.locator('kbd'), version: chip })) {
         expect(await contrast(text), `${what} in the ${scheme} theme`).toBeGreaterThanOrEqual(4.5)
       }
       await toolbar.screenshot({ path: test.info().outputPath(`48-header-800x520-${scheme}.png`) })
+      await footer.screenshot({ path: test.info().outputPath(`03-footer-800x520-${scheme}.png`) })
     }
     await window.emulateMedia({ colorScheme: null })
 
-    // An Update builds: the step on the chip ends with an ellipsis, its whole text in the tooltip.
+    // An Update builds: in a window up to 1100 px the chip keeps the version alone (worfy-layout ticket 03), the
+    // step of the build in its tooltip, after the chip's name.
     await app.evaluate(({ BrowserWindow }, payload) => {
       for (const each of BrowserWindow.getAllWindows()) each.webContents.send('worfy:update.changed', payload)
     }, buildingSnapshot())
-    const chip = toolbar.getByTestId('app-version')
-    const step = chip.locator('.w-toolbar__version-step')
-    await expect(chip).toHaveText('Updating · 2/3 Installing dependencies')
-    await expect(chip).toHaveAttribute('title', /^Updating · 2\/3 Installing dependencies\n/u)
-    expect(await cutWithEllipsis(step)).toEqual({ overflows: true, textOverflow: 'ellipsis' })
+    const step = chip.locator('.w-footer__chip-step')
+    await expect(chip).toHaveAttribute('data-update', 'building')
+    await expect(step).toBeHidden()
+    await expect(chip.locator('.w-footer__chip-narrow')).toBeVisible()
+    await expect(chip).toHaveAttribute('title', /\nUpdating · 2\/3 Installing dependencies\n/u)
     await expectItemsInside(window, toolbar, 'smallest window, an Update building')
+    const buildingBox = await box(chip)
+    expect(buildingBox.x + buildingBox.width, 'the version chip ends inside the window while an Update builds').toBeLessThanOrEqual(smallest.width)
     for (const scheme of ['light', 'dark'] as const) {
       await window.emulateMedia({ colorScheme: scheme })
-      expect(await contrast(step), `the step in the ${scheme} theme`).toBeGreaterThanOrEqual(4.5)
-      await toolbar.screenshot({ path: test.info().outputPath(`48-header-800x520-building-${scheme}.png`) })
+      await footer.screenshot({ path: test.info().outputPath(`48-footer-800x520-building-${scheme}.png`) })
     }
     await window.emulateMedia({ colorScheme: null })
 
@@ -346,9 +364,14 @@ test('in the smallest window with the sidebar open the toolbar is no wider than 
     await expect(fiveHour.getByText('5h', { exact: true })).toBeVisible()
     await expect(fiveHour.getByTestId('limit-five_hour-note')).toBeVisible()
     await expect(search.locator('.w-toolbar__palette-text')).toBeVisible()
+    // The step of the build is back on the chip, and ends with an ellipsis; its whole text stays in the tooltip.
+    await expect(step).toHaveText('Updating · 2/3 Installing dependencies')
+    expect(await cutWithEllipsis(step)).toEqual({ overflows: true, textOverflow: 'ellipsis' })
     for (const scheme of ['light', 'dark'] as const) {
       await window.emulateMedia({ colorScheme: scheme })
+      expect(await contrast(step), `the step in the ${scheme} theme`).toBeGreaterThanOrEqual(4.5)
       await toolbar.screenshot({ path: test.info().outputPath(`48-header-1600-${scheme}.png`) })
+      await footer.screenshot({ path: test.info().outputPath(`48-footer-1600-building-${scheme}.png`) })
     }
     await window.emulateMedia({ colorScheme: null })
   } finally {

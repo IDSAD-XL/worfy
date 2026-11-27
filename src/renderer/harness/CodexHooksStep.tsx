@@ -7,10 +7,10 @@ import { Dialog } from '../theme/kit/Dialog'
 // The step "Approve the Harness hooks in Codex" (worfy-multi-vendor ticket 39; ADR-0094, risk 3). Codex
 // keeps a plugin's hooks off after each install or update of it until the user approves them in Codex
 // (`/hooks`), and without them the gate and the guards of the workflow do not run there, so a Codex
-// Autopilot Run does not start. The toolbar's Harness item opens the step when an install or update in
-// Codex leaves hooks to approve (`hooksToApprove` of the Codex part), and again on a click of its
-// "Codex: approve hooks". The step says what to open, and "Check again" asks Codex through main
-// (`harness.codexHooks`): approved — the toolbar item no longer asks; not approved, or worfy could not
+// Autopilot Run does not start. The version chip of the footer opens the step when an install or update in
+// Codex leaves hooks to approve (`hooksToApprove` of the Codex part), and again on a click of
+// "Codex: approve hooks" on the Codex line of its popover. The step says what to open, and "Check again"
+// asks Codex through main (`harness.codexHooks`): approved — the Codex line no longer asks; not approved, or worfy could not
 // tell, — the step says so and stays.
 //
 // Step 1 names the Codex to open (worfy-polish ticket 54): worfy runs the Codex binary of its build, and
@@ -79,7 +79,7 @@ type Check = { kind: 'idle' } | { kind: 'checking' } | { kind: 'answered'; trust
 
 export interface CodexHooksStepProps {
   onClose: () => void
-  /** The status main answered with after a check; the Harness item shows it. */
+  /** The status main answered with after a check; the Codex line of the version chip shows it. */
   onStatus: (status: HarnessStatus) => void
 }
 

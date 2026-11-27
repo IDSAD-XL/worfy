@@ -23,7 +23,7 @@ public repository `IDSAD-XL/worfy`, without sign-in. The head is an Available up
 - the commits between the two change at least one path outside `docs/`, `.scratch/`, `test/`, `.github/` and the
   Markdown files of the repository root. A list of 300 files, where GitHub cuts it, counts as a change.
 
-Texts name a version by its build number, as the toolbar does: `<major>.<minor>.<N>`, where N counts the commits from the
+Texts name a version by its build number, as the version chip does: `<major>.<minor>.<N>`, where N counts the commits from the
 start of the history to that commit ([Settings → General → Version](app-shell.md#settings)). The number of the new
 version is the number of the copy that runs plus `ahead_by` of GitHub's comparison. The previous copy of a roll back
 keeps the number of the copy that ran when the restart replaced it (`restart.json`). Where a number is not known (the
@@ -37,7 +37,7 @@ Without sign-in GitHub allows 60 requests an hour from one address, and a check 
 
 | Place | What |
 |---|---|
-| Version chip | The app version on the second line of the toolbar's Harness item turns into a button with an accent dot. Its tooltip says "worfy <version> is available", "Building worfy <version>…", "worfy <version> is ready — restart to update" or "The update to <version> failed — see Settings → Health"; when the line shows a number, a second line of the tooltip is the build version of this copy with its commit. Its menu: "Update worfy" (once built, "Restart now", or while something works "Restart when idle" and "Restart now"; during a build, an inactive "Building worfy <version>…"), "What's new", and "Later", which only closes the menu. While an Update is under way the chip says so without a hover (see "While it builds") |
+| Version chip | The app version at the right end of the footer ([App shell](app-shell.md#footer)) gets an amber dot, unless the Harness needs the user and the dot is red ([Harness](harness.md)); a quiet Available update gives no dot. The chip's tooltip starts with its name, `worfy v<version> — <what the dot is for>`, then says "worfy <version> is available", "Building worfy <version>…", "worfy <version> is ready — restart to update" or "The update to <version> failed — see Settings → Health"; when the chip shows a number, the last line of the tooltip is the build version of this copy with its commit. A press on the chip opens its popover. Its first row is the version with the state of the Update ("update <version> available", "building <version>…", "update <version> ready", "the update to <version> failed — see Settings → Health") and its buttons: "Update worfy" (once built, "Restart now", or while something works "Restart when idle" and "Restart now"; during a build, an inactive "Building worfy <version>…") and "What's new". A press on an action closes the popover; Esc or a press outside closes it too. While an Update is under way the chip says so without a hover (see "While it builds") |
 | Toasts | See the next table |
 | Settings → General | The block of three rows "Updates", "Update automatically" and "Roll back to previous version" |
 | Settings → Health | The row "worfy version" of the group "worfy": "<version>, up to date", "<version> available", "update failed" with "Show log", or "<tool> not found". Its failures do not open First run by themselves |
@@ -105,8 +105,8 @@ window hears each change; it never reads the log for that. The steps are "Fetchi
 fetch`, then the checkout), "Installing dependencies" (`pnpm install`), "Downloading Electron" (only when its download
 did not finish) and "Building app" (`pnpm package`). A build counts 3 steps, or 4 once "Downloading Electron" comes. The
 version chip shows a turning ring in place of the dot, and "Updating · 2/3 Installing dependencies"; the ring stands still
-when the system asks for reduced motion. The step is no wider than the Harness line above it and ends with an ellipsis, so a
-build does not widen the toolbar. Its tooltip is the whole step, then "Building worfy <version>… 3:12", the time since the
+when the system asks for reduced motion. The step is 28 characters wide at most and ends with an ellipsis, so a
+build does not widen the footer; in a window 1100 px wide or less the chip shows the version alone during a build. Its tooltip is the whole step, then "Building worfy <version>… 3:12", the time since the
 build began, counting each second while the pointer or the focus is on the chip. A press of "Update worfy" in the chip, Settings, the
 Command palette or the toast answers at once with "Starting update…", until the build reaches its first step. When main
 refuses a press of the chip, the Command palette or the toast, a toast says why (see the toasts above); in Settings the
@@ -156,11 +156,11 @@ restart into an Update needs it (Settings → Health)".
 
 **Harness after Update.** At the first start of the new copy, worfy installs that copy's Harness when the installed one
 is outdated or missing, without a second dialog and only once. Claude Code takes it from the next Session on. A failure
-shows "The Harness was not updated" with "Open Health", and the Harness item shows its error state with Retry. The
+shows "The Harness was not updated" with "Open Health", and the Harness line of the version popover shows its error state with Retry, with a red dot on the chip. The
 details are on the [Harness](harness.md#installing-from-the-app) page.
 
-**Harness out of date.** A Harness behind this copy's is shown in three places. The toolbar button "Update Harness" gets
-the accent and a dot, the toast "Harness out of date: <from> → <to>" offers "Update", and the Health row "Harness plugin"
+**Harness out of date.** A Harness behind this copy's is shown in three places. The button "Update Harness" of the version
+popover gets the accent and a dot, and the version chip an amber dot; the toast "Harness out of date: <from> → <to>" offers "Update", and the Health row "Harness plugin"
 fails with "<from> → <to>" and "Update it to the Harness of this build". An older semver is behind in any build, though
 the toast comes only where Update is on. For the same semver from another commit, worfy asks GitHub, and only while
 Update is on; no answer from GitHub means no signal and the plain "Replace Harness".
@@ -278,11 +278,11 @@ updates its own Stable copy.
 | The setting `autoUpdate` in `app-settings.json` | `src/shared/settings/app-settings.ts` |
 | The Health row "worfy version" and the Harness row | `src/main/first-run/checks.ts` |
 | The snapshot in the renderer; the step texts, the elapsed time, "Starting update…" and the refusal toast | `src/renderer/update/store.ts` |
-| The version chip and What's new | `src/renderer/update/UpdateChip.tsx`, `src/renderer/update/WhatsNew.tsx` |
+| The version chip, its popover and What's new | `src/renderer/shell/footer/VersionChip.tsx`, `src/renderer/shell/footer/version-dot.ts`, `src/renderer/update/UpdateChip.tsx` (the app row), `src/renderer/update/useChipFace.tsx`, `src/renderer/update/update-signal.ts`, `src/renderer/update/WhatsNew.tsx` |
 | The toasts | `src/renderer/update/toasts.ts` |
 | Settings → General → Updates | `src/renderer/settings/UpdatesBlock.tsx` |
 | "Update worfy" in the Command palette | `src/renderer/palette/commands.ts` |
-| The accent of "Update Harness" | `src/renderer/shell/toolbar/HarnessStatus.tsx` |
+| The accent of "Update Harness" | `src/renderer/harness/harness-lines.ts` |
 
 The files of Update are in `<data folder>/update`: `state.json`, the clone `repo`, `build.log`, `restart.json` (what the
 restart does and from which copy), `result.json` (what the helper wrote) and `restart.log` (what the helper printed).
@@ -295,6 +295,6 @@ Tests: the GitHub stub `test/update-stub.ts`; `test/unit/update-check.test.ts`, 
 `test/contract/update-state.test.ts`, `test/contract/update-build.test.ts`, `test/unit/update-build-light.test.ts`, `test/unit/update-idle.test.ts`,
 `test/contract/update-restart.test.ts`, `test/contract/update-restart-continuity.test.ts`, `test/contract/update-harness.test.ts`, `test/unit/update-harness-lag.test.ts`,
 `test/unit/update-whats-new.test.ts`, `test/unit/install-stable-update.test.ts`; the interface in
-`test/unit/update-chip.test.tsx`, `test/unit/update-toasts.test.tsx`, `test/unit/updates-block.test.tsx`,
-`test/unit/whats-new-view.test.tsx`, and the e2e tests `test/e2e/update-toolbar.spec.ts`,
+`test/unit/update-chip.test.tsx`, `test/unit/version-dot.test.tsx`, `test/unit/update-toasts.test.tsx`, `test/unit/updates-block.test.tsx`,
+`test/unit/whats-new-view.test.tsx`, and the e2e tests `test/e2e/update-toolbar.spec.ts`, `test/e2e/footer.spec.ts`,
 `test/e2e/update-toasts.spec.ts` and `test/e2e/update-settings.spec.ts`.

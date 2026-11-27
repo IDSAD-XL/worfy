@@ -1,7 +1,7 @@
 // Settings → General: the interface scale of this Machine (a slider, 80–150 % by steps of 10 %),
-// whether the toolbar shows worfy's own memory (worfy-ui ticket 20), when an Epic of the sidebar without work
+// whether the version popover of the footer shows worfy's own memory (worfy-ui ticket 20; worfy-layout ticket 03), when an Epic of the sidebar without work
 // moves into the folded «Older» group (`epicsOlderAfter`, worfy-polish ticket 98), the build version
-// (`app.version`), numbered as the toolbar shows it with the build version next to it (worfy-update
+// (`app.version`), numbered as the version chip shows it with the build version next to it (worfy-update
 // ticket 14), and, under it, the block "Updates" (worfy-update ticket 09, UpdatesBlock.tsx).
 import { useEffect, useRef, useState } from 'react'
 import { failureReason } from '../../shared/ipc/channels'
@@ -88,7 +88,7 @@ function InterfaceScaleRow() {
 }
 
 /**
- * Whether the toolbar shows worfy's own memory (src/renderer/memory/AppMemory.tsx). Every open
+ * Whether the version popover of the footer shows worfy's own memory (src/renderer/memory/AppMemory.tsx). Every open
  * window follows the change at once, through `appSettings.changed`.
  */
 function MemoryIndicatorRow() {
@@ -96,10 +96,10 @@ function MemoryIndicatorRow() {
   const [problem, setProblem] = useState<string>()
   return (
     <SettingRow
-      label="Memory in the toolbar"
+      label="Memory in the version popover"
       description={
         problem === undefined ? (
-          "Shows how much memory worfy's own processes use, after the app version. Terminal sessions are not counted."
+          "Shows how much memory worfy's own processes use, in the popover of the version chip. Terminal sessions are not counted."
         ) : (
           <span role="alert" data-testid="settings-memory-indicator-problem">
             Not saved: {problem}
@@ -109,7 +109,7 @@ function MemoryIndicatorRow() {
       testId="settings-memory-indicator-row"
     >
       <SettingSwitch
-        label="Show worfy's memory in the toolbar"
+        label="Show worfy's memory in the version popover"
         checked={enabled}
         onChange={(next) => {
           void setAppSettings({ memoryIndicator: next }).then(setProblem)

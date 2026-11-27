@@ -265,7 +265,8 @@ describe('the plan of the form', () => {
   })
 
   it('names what is missing without the plugin installed and enabled, and reads nothing it would write', () => {
-    expect(plan({ pluginState: { kind: 'not-installed' } }).missing).toEqual(['the plugin worfy is not installed: install it first (Install in the toolbar)'])
+    expect(plan({ pluginState: { kind: 'not-installed' } }).missing).toEqual(['the plugin worfy is not installed: install it first from the version chip in the footer'])
+    expect(plan({ pluginState: { kind: 'outdated', from: '0.1.0', to: '0.2.0', sameVersion: false } }).missing).toEqual(['the plugin worfy is not the version of this build: update or replace it first from the version chip in the footer'])
     expect(plan({ pluginState: { ...INSTALLED, enabled: false } }).missing).toEqual(['the plugin worfy is disabled in Claude Code: enable it first'])
     expect(plan({ pluginState: { kind: 'not-installed' } }).available).toBe(false)
   })

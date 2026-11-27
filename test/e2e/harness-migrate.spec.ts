@@ -6,7 +6,7 @@ import { expect, test } from '@playwright/test'
 import { restoreCommand } from '../../src/main/harness/migrate/restore'
 import { claudePluginStub } from './claude-plugin-stub'
 import { writeSandbox } from './first-run-sandbox'
-import { launchApp, type LaunchedApp, repoRoot } from './helpers'
+import { launchApp, type LaunchedApp, openVersionPopover, repoRoot } from './helpers'
 import { legacyClaudeHome } from './legacy-claude-home'
 import { ms } from '../time-scale'
 
@@ -61,29 +61,35 @@ async function shoot(launched: LaunchedApp, locator: ReturnType<LaunchedApp['win
   await launched.window.emulateMedia({ colorScheme: null })
 }
 
-test('the move form: from the toolbar, rows by group and the CLAUDE.md diff, switches, Move → the backup and the restore command', async () => {
+test('the move form: from the version popover, rows by group and the CLAUDE.md diff, switches, Move → the backup and the restore command', async () => {
   const launched = await launchApp({ env })
   try {
     const { window } = launched
+    // An old Harness to move gives the version chip of the footer its red dot (worfy-layout ticket 03).
+    const chip = window.getByTestId('app-version')
+    await expect(chip).toHaveAttribute('data-dot', 'red')
+    await expect(chip).toHaveAttribute('aria-label', /old Harness to move$/)
+    // The chip's popover opened by the keyboard: Enter on the chip, and the focus goes to the popover's first
+    // button, "Move old Harness…" (no Update and no Harness action here).
+    await chip.focus()
+    await window.keyboard.press('Enter')
+    const popover = window.getByRole('dialog', { name: 'worfy version' })
+    await expect(popover).toBeVisible()
     const item = window.getByTestId('harness-status')
     await expect(item.getByTestId('harness-text')).toHaveText(`Harness ${bundledVersion()}`)
     const open = item.getByTestId('harness-migrate')
     await expect(open).toHaveAccessibleName('Move old Harness…')
-    // The tooltip is the Tooltip kit's (worfy-ui-kit ticket 13), and the keyboard shows it: Tab onto the
-    // icon (from the control before it) opens it at once, Esc hides it. A single hover right after the
-    // launch did not open it in CI (run 43256327281), while the Tab focus is a real key press.
+    // The tooltip is the Tooltip kit's (worfy-ui-kit ticket 13), and the keyboard focus shows it, Esc hides it.
+    // A single hover right after the launch did not open it in CI (run 43256327281), while a key press does.
     await expect(open).not.toHaveAttribute('title', /./)
-    await open.focus()
-    await window.keyboard.press('Shift+Tab')
-    await expect(open).not.toBeFocused()
-    await window.keyboard.press('Tab')
     await expect(open).toBeFocused()
     await expect(window.getByRole('tooltip')).toHaveText('Move old Harness…')
     await window.keyboard.press('Escape')
     await expect(window.getByRole('tooltip')).toHaveCount(0)
-    // The shot of the toolbar below is taken as before: nothing focused in it.
+    // The shot of the popover below is taken with nothing focused in it; an Esc that closed it opens it again.
+    await openVersionPopover(window)
     await open.blur()
-    await shoot(launched, window.getByRole('banner'), 'toolbar')
+    await shoot(launched, popover, 'popover')
 
     await open.click()
     const form = window.getByTestId('migration-form')
@@ -147,16 +153,19 @@ test('the move form: from the toolbar, rows by group and the CLAUDE.md diff, swi
     for (const name of ['notify-mcp', 'bazaar-staging-db-mcp', 'agent-clock']) expect(existsSync(join(claudeHome, 'bin', name)), name).toBe(true)
     expect(existsSync(join(backup, 'restore.mjs'))).toBe(true)
 
-    // Closed, the toolbar no longer offers a move: nothing of the old Harness is left to take.
+    // Closed, the popover no longer offers a move: nothing of the old Harness is left to take, and the red dot went.
     await form.getByTestId('migration-close').click()
     await expect(form).toHaveCount(0)
+    await expect(chip).not.toHaveAttribute('data-dot', 'red')
+    await openVersionPopover(window)
+    await expect(item.getByTestId('harness-text')).toHaveText(`Harness ${bundledVersion()}`)
     await expect(item.getByTestId('harness-migrate')).toHaveCount(0)
   } finally {
     await launched.close()
   }
 })
 
-test('a move from the form of the first-run screen: "Move old Harness…" leaves the toolbar without a reload', async () => {
+test('a move from the form of the first-run screen: the version chip no longer asks for the move, without a reload', async () => {
   // The first-run screen opens by itself. Its checks run a login /bin/sh over the sandbox's HOME,
   // whose .profile sets PATH to the system folders alone (as sandbox() in first-run.spec.ts does):
   // without it /etc/profile's path_helper adds /opt/homebrew/bin, and the checks would run the real
@@ -170,11 +179,11 @@ test('a move from the form of the first-run screen: "Move old Harness…" leaves
   const launched = await launchApp({ env: { ...env, WORFY_FIRST_RUN_AUTO: '1', HOME: home, SHELL: '/bin/sh', ...sandboxEnv } })
   try {
     const { window } = launched
-    const item = window.getByTestId('harness-status')
-    // First run opens by itself at this start, a modal window of the kit (worfy-ui-kit ticket 06): the
-    // page behind it, the toolbar included, is hidden from a screen reader (aria-hidden), so the
-    // accessible name reads "" while it is open. The name is read from the attribute it comes from.
-    await expect(item.getByTestId('harness-migrate')).toHaveAttribute('aria-label', 'Move old Harness…')
+    // The version chip of the footer asks for the move (worfy-layout ticket 03). First run opens by itself at this
+    // start, a modal window of the kit (worfy-ui-kit ticket 06): the page behind it, the footer included, is hidden
+    // from a screen reader (aria-hidden), so the chip's name is read from the attribute it comes from.
+    const chip = window.getByTestId('app-version')
+    await expect(chip).toHaveAttribute('aria-label', /old Harness to move$/)
 
     const screen = window.getByTestId('first-run')
     await expect(screen).toBeVisible({ timeout: ms(30_000) })
@@ -190,8 +199,8 @@ test('a move from the form of the first-run screen: "Move old Harness…" leaves
     await answerDialogWith(launched, 0)
     await form.getByTestId('migration-actions').getByRole('button', { name: 'Move' }).click()
     await expect(form.getByTestId('migration-done')).toBeVisible({ timeout: ms(30_000) })
-    // The form is still open and was not opened by the toolbar: only `harnessMigration.changed` tells the toolbar.
-    await expect(item.getByTestId('harness-migrate')).toHaveCount(0)
+    // The form is still open and was not opened by the chip: only `harnessMigration.changed` tells the chip.
+    await expect(chip).not.toHaveAttribute('aria-label', /old Harness to move/)
     expect(existsSync(join(claudeHome, 'agents', 'scout.md'))).toBe(false)
   } finally {
     await launched.close()

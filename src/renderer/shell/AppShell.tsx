@@ -15,6 +15,7 @@ import { ShortcutsOverlay } from '../shortcuts/ShortcutsOverlay'
 import { StoryScreen } from '../stories/StoryView'
 import { ErrorBoundary } from './ErrorBoundary'
 import { FirstRun } from './FirstRun'
+import { Footer } from './footer/Footer'
 import { Sidebar } from './Sidebar'
 import { followSidebarCommand, SIDEBAR_TOGGLE_SELECTOR, useSidebarVisibility } from './sidebar-visibility'
 import { useSidebarWidthVariable } from './sidebar-width'
@@ -91,7 +92,7 @@ const VIEW_NAMES: Record<ShellView, string> = {
   changes: 'Changes',
 }
 
-/** The window of design F: sidebar, unified toolbar and the main area under it. */
+/** The window of design F: sidebar, unified toolbar and the main area under it, and the footer across the bottom. */
 export function AppShell({ project, canvas, session, pipeline, history, view: controlledView, onViewChange }: AppShellProps) {
   const [ownView, setOwnView] = useState<ShellView>('canvas')
   const view = controlledView ?? ownView
@@ -116,62 +117,67 @@ export function AppShell({ project, canvas, session, pipeline, history, view: co
 
   return (
     <div ref={shell} className="w-shell" data-testid="app-shell" data-sidebar={sidebarVisible ? 'visible' : 'hidden'}>
-      {/* The button that hides it is in its own strip at the top; while it is hidden, the toolbar has the button that shows it. */}
-      {sidebarVisible ? <Sidebar onToggle={toggleSidebar} /> : null}
-      {/* Focus mode draws its layer in the main area (focus/focus-state.ts): over the toolbar and the
-          view, next to the sidebar. */}
-      <div ref={setFocusSlot} className="w-shell__main">
-        <Toolbar project={project} view={view} onViewChange={setView} sidebarVisible={sidebarVisible} onToggleSidebar={toggleSidebar} />
-        <main className={`w-shell__content w-shell__content--${view}`} aria-label={VIEW_NAMES[view]}>
-          {/* Both views stay mounted and the inactive one is only hidden: switching must not
-              destroy what a view keeps in memory (the React Flow instance, xterm terminals). A throw
-              inside one view stays in it: the sidebar and the toolbar keep working (worfy-polish 163). */}
-          <div className="w-shell__view" data-view="canvas" hidden={view !== 'canvas'}>
-            <ErrorBoundary scope="view" name="canvas">
-              {canvas}
-            </ErrorBoundary>
-          </div>
-          <div className="w-shell__view" data-view="session" hidden={view !== 'session'}>
-            <ErrorBoundary scope="view" name="session">
-              {session}
-            </ErrorBoundary>
-          </div>
-          <div className="w-shell__view" data-view="pipeline" hidden={view !== 'pipeline'}>
-            <ErrorBoundary scope="view" name="pipeline">
-              {pipeline}
-            </ErrorBoundary>
-          </div>
-          <div className="w-shell__view" data-view="history" hidden={view !== 'history'}>
-            <ErrorBoundary scope="view" name="history">
-              {history}
-            </ErrorBoundary>
-          </div>
-          {/* The PR inbox of the active Project (worfy-pr-inbox ticket 03): the view finds the Project itself. */}
-          <div className="w-shell__view" data-view="pull-requests" hidden={view !== 'pull-requests'}>
-            <ErrorBoundary scope="view" name="pull-requests">
-              <PullRequestsView />
-            </ErrorBoundary>
-          </div>
-          {/* The checks that wait for the owner in every Project (worfy-acceptance ticket 05): no Project needed. */}
-          <div className="w-shell__view" data-view="acceptance" hidden={view !== 'acceptance'}>
-            <ErrorBoundary scope="view" name="acceptance">
-              <AcceptanceView />
-            </ErrorBoundary>
-          </div>
-          {/* A Code story (worfy-code-stories ticket 09): openStory (stories/open.ts) opens it, Esc leaves it. */}
-          <div className="w-shell__view" data-view="story" hidden={view !== 'story'}>
-            <ErrorBoundary scope="view" name="story">
-              <StoryScreen activeProjectId={project?.id} />
-            </ErrorBoundary>
-          </div>
-          {/* The Changes of a Ticket (worfy-changes-view ticket 08): openChanges (changes/open.ts) opens it, «← Canvas» and Esc leave it. */}
-          <div className="w-shell__view" data-view="changes" hidden={view !== 'changes'}>
-            <ErrorBoundary scope="view" name="changes">
-              <ChangesScreen activeProjectId={project?.id} />
-            </ErrorBoundary>
-          </div>
-        </main>
+      {/* The window is a column (worfy-layout ticket 03): the row of the sidebar and the main area, and the footer under it. */}
+      <div className="w-shell__body">
+        {/* The button that hides it is in its own strip at the top; while it is hidden, the toolbar has the button that shows it. */}
+        {sidebarVisible ? <Sidebar onToggle={toggleSidebar} /> : null}
+        {/* Focus mode draws its layer in the main area (focus/focus-state.ts): over the toolbar and the
+            view, next to the sidebar. */}
+        <div ref={setFocusSlot} className="w-shell__main">
+          <Toolbar project={project} view={view} onViewChange={setView} sidebarVisible={sidebarVisible} onToggleSidebar={toggleSidebar} />
+          <main className={`w-shell__content w-shell__content--${view}`} aria-label={VIEW_NAMES[view]}>
+            {/* Both views stay mounted and the inactive one is only hidden: switching must not
+                destroy what a view keeps in memory (the React Flow instance, xterm terminals). A throw
+                inside one view stays in it: the sidebar and the toolbar keep working (worfy-polish 163). */}
+            <div className="w-shell__view" data-view="canvas" hidden={view !== 'canvas'}>
+              <ErrorBoundary scope="view" name="canvas">
+                {canvas}
+              </ErrorBoundary>
+            </div>
+            <div className="w-shell__view" data-view="session" hidden={view !== 'session'}>
+              <ErrorBoundary scope="view" name="session">
+                {session}
+              </ErrorBoundary>
+            </div>
+            <div className="w-shell__view" data-view="pipeline" hidden={view !== 'pipeline'}>
+              <ErrorBoundary scope="view" name="pipeline">
+                {pipeline}
+              </ErrorBoundary>
+            </div>
+            <div className="w-shell__view" data-view="history" hidden={view !== 'history'}>
+              <ErrorBoundary scope="view" name="history">
+                {history}
+              </ErrorBoundary>
+            </div>
+            {/* The PR inbox of the active Project (worfy-pr-inbox ticket 03): the view finds the Project itself. */}
+            <div className="w-shell__view" data-view="pull-requests" hidden={view !== 'pull-requests'}>
+              <ErrorBoundary scope="view" name="pull-requests">
+                <PullRequestsView />
+              </ErrorBoundary>
+            </div>
+            {/* The checks that wait for the owner in every Project (worfy-acceptance ticket 05): no Project needed. */}
+            <div className="w-shell__view" data-view="acceptance" hidden={view !== 'acceptance'}>
+              <ErrorBoundary scope="view" name="acceptance">
+                <AcceptanceView />
+              </ErrorBoundary>
+            </div>
+            {/* A Code story (worfy-code-stories ticket 09): openStory (stories/open.ts) opens it, Esc leaves it. */}
+            <div className="w-shell__view" data-view="story" hidden={view !== 'story'}>
+              <ErrorBoundary scope="view" name="story">
+                <StoryScreen activeProjectId={project?.id} />
+              </ErrorBoundary>
+            </div>
+            {/* The Changes of a Ticket (worfy-changes-view ticket 08): openChanges (changes/open.ts) opens it, «← Canvas» and Esc leave it. */}
+            <div className="w-shell__view" data-view="changes" hidden={view !== 'changes'}>
+              <ErrorBoundary scope="view" name="changes">
+                <ChangesScreen activeProjectId={project?.id} />
+              </ErrorBoundary>
+            </div>
+          </main>
+        </div>
       </div>
+      {/* Across the whole window, outside focus mode's layer: it stays on screen in focus mode, and its version chip keeps working. */}
+      <Footer />
       <SidebarFocusKeeper visible={sidebarVisible} shell={shell} />
       {/* The Assistant's speech card at its rail icon, its badge and Prepare (worfy-assistant ticket 14); mounted while the sidebar is hidden too. */}
       <AssistantSpeech sidebarVisible={sidebarVisible} />

@@ -46,6 +46,7 @@ test('Settings… in the menu opens Settings with General and the version; Esc c
   const launched = await launchApp()
   try {
     const { app, window } = launched
+    // The version chip of the footer (worfy-layout ticket 03).
     const toolbarVersion = window.getByTestId('app-version')
     await expect(toolbarVersion).toHaveText(/^v\S+$/)
     const version = (await toolbarVersion.textContent())!.slice(1)
@@ -65,7 +66,7 @@ test('Settings… in the menu opens Settings with General and the version; Esc c
 
     // The keyboard stays in the window: Tab goes through the rows of the section list, however many
     // sections there are, then the controls of the section shown — the interface scale slider of
-    // General, the switch of worfy's memory in the toolbar (worfy-ui ticket 20) and the choice of when an
+    // General, the switch of worfy's memory in the version popover (worfy-ui ticket 20) and the choice of when an
     // Epic without work folds into «Older» in the sidebar (worfy-polish ticket 98) — then Close, and round
     // to the first row again.
     const rows = await sections.count()
@@ -76,7 +77,7 @@ test('Settings… in the menu opens Settings with General and the version; Esc c
     }
     await expect(dialog.getByRole('slider', { name: 'Interface scale' })).toBeFocused()
     await window.keyboard.press('Tab')
-    await expect(dialog.getByRole('switch', { name: "Show worfy's memory in the toolbar" })).toBeFocused()
+    await expect(dialog.getByRole('switch', { name: "Show worfy's memory in the version popover" })).toBeFocused()
     await window.keyboard.press('Tab')
     await expect(dialog.getByRole('combobox', { name: 'Fold Epics without work after' })).toBeFocused()
     await window.keyboard.press('Tab')

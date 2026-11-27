@@ -108,7 +108,7 @@ export function useEcoMode(projectId: string): EcoMode {
       case 'invalid':
         return failed(`Eco mode was not ${what}: ${done.reason}`)
       case 'too-old':
-        return failed(`Eco mode was not ${what}: the Harness is too old. Update it from the Harness item of the toolbar.`)
+        return failed(`Eco mode was not ${what}: the Harness is too old. Update it from the version chip in the footer.`)
     }
   }
 

@@ -208,9 +208,22 @@ test('in focus mode the sidebar stays and works; the palette and a menu of the s
     expect(layer.x).toBeCloseTo(side.width, 0)
     expect(layer.y).toBe(0)
     expect(layer.x + layer.width).toBeCloseTo(size.width, 0)
-    expect(layer.height).toBeCloseTo(size.height, 0)
+    // Down to the footer, which stays across the whole window (worfy-layout ticket 03).
+    const footer = await box(window.getByTestId('footer'))
+    expect(layer.height).toBeCloseTo(size.height - footer.height, 0)
+    expect(layer.y + layer.height).toBeCloseTo(footer.y, 0)
     await expect(window.locator('.w-toolbar')).toHaveAttribute('inert', '')
     expect(await onTop(window.locator('.w-toolbar'))).toBe(false)
+    // The version chip of the footer stays on screen in focus mode and opens its popover; a second press closes it.
+    const chip = window.getByTestId('footer').getByTestId('app-version')
+    expect(await onTop(chip)).toBe(true)
+    const popover = window.getByRole('dialog', { name: 'worfy version' })
+    await chip.click()
+    await expect(popover).toBeVisible()
+    await expect(popover.getByTestId('version-app-line')).toBeVisible()
+    await chip.click()
+    await expect(popover).toHaveCount(0)
+    await expect(focus).toBeVisible()
     // No tile lies under the sidebar, and the sidebar is what is drawn in its own place.
     for (const tile of await focus.getByTestId('focus-tile').all()) expect((await box(tile)).x).toBeGreaterThanOrEqual(side.x + side.width)
     expect(await onTop(sidebar)).toBe(true)
@@ -479,15 +492,19 @@ test('the sidebar is hidden and shown apart for the normal view and focus mode, 
     const sidebar = sidebarOf(window)
     const toolbar = window.locator('.w-toolbar')
 
-    // The button of the focus mode bar hides the sidebar: the layer is the whole window, and its bar
-    // keeps clear of the window buttons.
+    // The button of the focus mode bar hides the sidebar: the layer is the whole window above the footer,
+    // which stays across the window under it (worfy-layout ticket 03), and its bar keeps clear of the
+    // window buttons.
     const focus = await enterFocus(window)
     const bar = focus.locator('.w-focus__bar')
     await focus.getByRole('button', { name: 'Hide sidebar' }).click()
     await expect(sidebar).toHaveCount(0)
     await expect(bar).toHaveAttribute('data-sidebar', 'hidden')
     const size = await windowSize(window)
-    expect(await box(focus)).toEqual({ x: 0, y: 0, ...size })
+    const footer = await box(window.getByTestId('footer'))
+    expect(footer).toEqual({ x: 0, y: size.height - footer.height, width: size.width, height: footer.height })
+    expect(footer.height).toBeGreaterThan(0)
+    expect(await box(focus)).toEqual({ x: 0, y: 0, width: size.width, height: footer.y })
     if (mac) expect(await paddingLeft(bar)).toBe(TRAFFIC_LIGHTS_PX)
     await expect(focus.getByRole('button', { name: 'Show sidebar' })).toHaveAttribute('aria-pressed', 'false')
     await expect.poll(savedVisibility).toEqual({ normal: true, focus: false })

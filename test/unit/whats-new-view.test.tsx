@@ -2,10 +2,12 @@ import { act, cleanup, fireEvent, render, screen, within } from '@testing-librar
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import { updateSnapshotSchema, type UpdateSnapshot, type WhatsNew } from '../../src/shared/ipc/update'
-import UpdateChip from '../../src/renderer/update/UpdateChip'
+import type { HarnessStatusState } from '../../src/renderer/harness/useHarnessStatus'
+import { VersionChipView } from '../../src/renderer/shell/footer/VersionChip'
 
-// worfy-update ticket 10: "What's new" from the version chip's menu. The item sits between "Update
-// worfy" and "Later" and opens a popover under the chip: "What's new in worfy <version>", a line
+// worfy-update ticket 10: "What's new" from the version chip. Since worfy-layout ticket 03 the button sits
+// after the Update's first action on the app row of the chip's popover (footer/VersionChip.tsx), and opens a
+// popover at the chip in its place: "What's new in worfy <version>", a line
 // "<PR title> #<number>" for each PR (the number opens the PR in the system's browser), "…and more on
 // GitHub" when the comparison was cut at 250 commits, and "Update worfy". A failure shows its reason.
 // The titles are GitHub's text: shown as text, never as markup.
@@ -55,23 +57,31 @@ afterEach(() => {
   delete globals.worfy
 })
 
+const NO_HARNESS: HarnessStatusState = { status: undefined, busy: false, failure: undefined, migration: false, onInstall: () => undefined, onMigrate: undefined, onApproveHooks: () => undefined, harnessBehind: null, dialogs: null }
+
+/** The footer's version chip with the app version and the Update snapshot given, and no Harness. */
+function UpdateChip({ version, update }: { version: string; update: UpdateSnapshot | null }) {
+  return <VersionChipView version={{ version }} update={update} harness={NO_HARNESS} memoryShown={false} />
+}
+
 const chip = (): HTMLElement => screen.getByTestId('app-version')
 /** Lets Base UI's effects and timers run. */
 const settle = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 20)))
-const items = (): string[] => screen.getAllByRole('menuitem').map((item) => item.textContent ?? '')
+const items = (): string[] => [...screen.getByTestId('version-app-line').querySelectorAll('button')].map((item) => item.textContent ?? '')
+const versionPopover = () => screen.queryByRole('dialog', { name: 'worfy version' })
 
-/** Opens the chip's menu and chooses "What's new"; answers the popover once main has answered. */
+/** Opens the chip's popover and chooses "What's new"; answers the popover once main has answered. */
 async function openWhatsNew(): Promise<HTMLElement> {
   fireEvent.click(chip())
   await act(async () => {
-    fireEvent.click(screen.getByRole('menuitem', { name: "What's new" }))
+    fireEvent.click(screen.getByRole('button', { name: "What's new" }))
     await Promise.resolve()
   })
   return screen.getByRole('dialog', { name: `What's new in worfy ${NEW}` })
 }
 
 describe("What's new", () => {
-  it('is the menu item between "Update worfy" and "Later", in every phase of the chip', () => {
+  it('is the button after the Update\'s first action on the app row, in every phase of the chip', () => {
     fakeBridge({ ok: true, value: ANSWER })
     const phases: Partial<UpdateSnapshot>[] = [
       {},
@@ -83,7 +93,7 @@ describe("What's new", () => {
     phases.forEach((fields, at) => {
       render(<UpdateChip version="0.4.0+aaaaaaa" update={withUpdate(fields)} />)
       fireEvent.click(chip())
-      expect(items()).toEqual([first[at], "What's new", 'Later'])
+      expect(items()).toEqual([first[at], "What's new"])
       cleanup()
     })
   })
@@ -92,8 +102,8 @@ describe("What's new", () => {
     const calls = fakeBridge({ ok: true, value: ANSWER })
     render(<UpdateChip version="0.4.0+aaaaaaa" update={withUpdate()} />)
     const popover = await openWhatsNew()
-    // The menu is gone; the popover asked main once.
-    expect(screen.queryByRole('menu')).toBeNull()
+    // The chip's popover is gone; What's new asked main once.
+    expect(versionPopover()).toBeNull()
     expect(calls.filter((call) => call.channel === 'update.whatsNew')).toHaveLength(1)
     expect(within(popover).getByRole('heading').textContent).toBe(`What's new in worfy ${NEW}`)
     const lines = within(popover).getAllByRole('listitem')
@@ -177,7 +187,7 @@ describe("What's new", () => {
     expect(errors.mock.calls.filter((call) => String(call[0]).includes('same key'))).toEqual([])
   })
 
-  it('the menu and the popover close when the focus goes to anything else of the window, as the Command palette field takes it on ⌘K', async () => {
+  it('the chip\'s popover and What\'s new close when the focus goes to anything else of the window, as the Command palette field takes it on ⌘K', async () => {
     fakeBridge({ ok: true, value: ANSWER })
     render(
       <>
@@ -187,9 +197,9 @@ describe("What's new", () => {
     )
     const field = screen.getByRole('textbox', { name: 'Search or run' })
     fireEvent.click(chip())
-    expect(screen.getByRole('menu')).toBeTruthy()
+    expect(versionPopover()).toBeTruthy()
     act(() => field.focus())
-    expect(screen.queryByRole('menu')).toBeNull()
+    expect(versionPopover()).toBeNull()
 
     const popover = await openWhatsNew()
     // The focus inside the popover, and back on the chip, keeps it open.
@@ -217,7 +227,7 @@ describe("What's new", () => {
     expect(document.activeElement).toBe(chip())
   })
 
-  it('stays open when the window loses the focus, as a PR opening in the browser takes it; a press on the chip closes it, as it would the menu', async () => {
+  it('stays open when the window loses the focus, as a PR opening in the browser takes it; a press on the chip closes it, and does not open the chip\'s popover', async () => {
     fakeBridge({ ok: true, value: ANSWER })
     render(<UpdateChip version="0.4.0+aaaaaaa" update={withUpdate()} />)
     await openWhatsNew()
@@ -227,7 +237,7 @@ describe("What's new", () => {
     })
     await settle()
     expect(screen.getByRole('dialog', { name: `What's new in worfy ${NEW}` })).toBeTruthy()
-    // The chip's own press (its kit Menu, UpdateChip.tsx) closes it, not the popover's press outside: the menu stays closed too.
+    // The chip's own press (its kit Popover, footer/VersionChip.tsx) closes it, not What's new's press outside: the chip's popover stays closed too.
     fireEvent.pointerDown(chip(), { button: 0, pointerType: 'mouse' })
     fireEvent.mouseDown(chip(), { button: 0 })
     fireEvent.pointerUp(chip(), { button: 0, pointerType: 'mouse' })
@@ -235,6 +245,6 @@ describe("What's new", () => {
     fireEvent.click(chip(), { button: 0 })
     await settle()
     expect(screen.queryByRole('dialog', { name: `What's new in worfy ${NEW}` })).toBeNull()
-    expect(screen.queryByRole('menu')).toBeNull()
+    expect(versionPopover()).toBeNull()
   })
 })

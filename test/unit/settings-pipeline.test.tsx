@@ -41,7 +41,7 @@ const ticket = (num: number, stage: string, kind: string, passed: string[]) => (
   enteredAt: null,
 })
 
-/** This Machine's preload: the Pipeline editor's channels, the Stages, and the Harness item of the toolbar. */
+/** This Machine's preload: the Pipeline editor's channels, the Stages, and the Harness lines. */
 function preload(read: PipelineEditorRead): FakeMain {
   const main: FakeMain = { reads: 0, writes: [], read, write: { status: 'saved', fingerprint: NEW_FINGERPRINT, warning: null }, calls: [] }
   const answer = (value: unknown) => Promise.resolve({ ok: true, value } as never)
@@ -289,9 +289,10 @@ describe('Settings → Pipeline', () => {
     expect(screen.queryByTestId('pipeline-stage')).toBeNull()
   })
 
-  it("the Harness item under the old-Harness line shows the app version but not worfy's memory, which stands only in the toolbar (worfy-ui ticket 20)", async () => {
+  it("the Harness lines under the old-Harness line show neither the app version nor worfy's memory: both are the footer's version chip's (worfy-layout ticket 03)", async () => {
     const { main } = await mount({ available: false, reason: 'this Harness has no bin/profile-set' })
-    expect(await screen.findByTestId('app-version')).toBeTruthy()
+    expect(await screen.findByTestId('harness-lines')).toBeTruthy()
+    expect(screen.queryByTestId('app-version')).toBeNull()
     expect(screen.queryByTestId('app-memory')).toBeNull()
     expect(main.calls.filter((channel) => channel.startsWith('memory.'))).toEqual([])
   })

@@ -74,7 +74,7 @@ export function App() {
   // Session view (session/navigation.ts).
   const view = useNavigation((store) => store.view)
   const canvas = <Canvas projectId={active?.id} />
-  // The app version is the second line of the Harness toolbar item (shell/toolbar/HarnessStatus.tsx).
+  // The app version is the chip at the right end of the footer (shell/footer/VersionChip.tsx).
   // The toasts of the window (toast/ToastRegion.tsx) are drawn on <body>, above every view.
   return (
     <>

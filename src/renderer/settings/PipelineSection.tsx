@@ -13,18 +13,18 @@
 // - Reset to default asks first, then removes the field.
 // - The write goes ahead only over the Pipeline the section read; otherwise a line and Reload.
 // - A commit that failed in the Harness home's git leaves the write: a warning with its reason.
-// - A Harness without bin/profile-set: a line and the Harness item of the toolbar with its Update.
+// - A Harness without bin/profile-set: a line and the Harness line with its Update (harness/HarnessStatus.tsx).
 // - Only this Machine writes. A window that shows a Linked machine shows its Pipeline read-only
 //   and says where to edit it.
 import { useEffect, useState, type CSSProperties } from 'react'
 import type { PipelineEditorRead } from '../../shared/ipc/pipeline'
 import { DEFAULT_PIPELINE, pipelineSchema, pipelineStageSchema, stageId, stageLabel, STAGE_KINDS, type PipelineStage, type StageKind } from '../../shared/workflow/pipeline'
+import { HarnessStatus } from '../harness/HarnessStatus'
 import { invoke, readableReason, windowMachine } from '../ipc'
 import { useMachineName } from '../machines/useMachines'
 import { inWork } from '../pipeline/board'
 import { usePipeline } from '../pipeline/usePipeline'
 import { activeProject, useProjects } from '../projects/useProjects'
-import { HarnessStatus } from '../shell/toolbar/HarnessStatus'
 import { Select, type SelectOption } from '../theme/Select'
 import type { SettingsGroup, SettingsIconName } from './sections'
 
@@ -35,7 +35,7 @@ export const icon: SettingsIconName = 'columns'
 
 /** The line under Save: a change is never blocked, every Stage is computed again. */
 export const RECOMPUTE_NOTE = 'The Stage of every Ticket will be computed again.'
-/** What a Harness without bin/profile-set gets: a line and the Harness item with its Update. */
+/** What a Harness without bin/profile-set gets: a line and the Harness line with its Update. */
 export const HARNESS_TOO_OLD = 'The Harness is too old for the Pipeline editor.'
 /** The line of a conflict: the Profile changed since the section read it; nothing was written. */
 export const CHANGED_SINCE_READ = 'The Pipeline has changed since it was read. Reload it.'

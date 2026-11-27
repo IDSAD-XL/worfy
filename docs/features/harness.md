@@ -12,20 +12,25 @@ page](gate-and-github.md).
 Each build of worfy carries a copy of the Harness and installs it as the Claude Code plugin `worfy`, in the user scope,
 and into Codex as well when Codex is on the Machine (see [In Codex](#in-codex)).
 The Harness home is the folder of the Harness on a Machine, by default `worfy-harness` inside the Claude home, and the
-copy goes into its folder `plugin`. Three places offer the install: the Harness item of the toolbar, the [First
+copy goes into its folder `plugin`. Three places offer the install: the Harness line of the version popover in the footer, the [First
 run](onboarding.md) checks, and Settings → Pipeline when the Harness has no script for the Pipeline editor. All three
 use one installer. A second request during an install gets the same run, and an install that may have changed something
 reaches every window.
 
-**The toolbar item.** It is the last item of the toolbar. When the toolbar has no room left once the Project title is
-gone, the item gives way: its lines end with an ellipsis, and the Harness line keeps its whole text as its tooltip. Its second line holds the app version and worfy's own memory
-([Storage and diagnostics](storage-and-diagnostics.md)). The version is `v<major>.<minor>.<N>` with the build number
-([Settings → General → Version](app-shell.md#settings)), and its tooltip is the build version with the commit; a build
-without a number shows the build version `v<semver>+<short SHA>` with no tooltip. In the Stable copy the version is the
-version chip of [Update](updates.md): while an Update waits, its tooltip names the Update, and the build version follows
-on a second line.
-A third line, under the version, holds the Harness in Codex when it has something to say, such as `Codex: approve hooks`
-(see [In Codex](#in-codex) below).
+**The version chip.** The Harness has no place in the toolbar. Its state is in the version chip at the right end of the
+footer ([App shell](app-shell.md#footer)): the app version `v<major>.<minor>.<N>` with the build number ([Settings →
+General → Version](app-shell.md#settings)), or `v<semver>+<short SHA>` for a build without a number, and one dot. The dot
+is red while the Harness needs the user: "Harness unavailable", a Harness not installed or broken that this run may
+install (Install, Retry), or an old Harness to move. It is amber while an update waits: an [Update](updates.md) of worfy,
+"Update Harness", or a Codex line with a button or `Codex: approve hooks`. Red comes before amber, and with nothing to do
+there is no dot. The chip's accessible name and the first line of its tooltip say what the dot is for, such as
+`worfy v<version> — Harness needs Install`.
+A press on the chip opens a popover above it, and Esc or a press outside closes it. Its rows are the app version with
+the Update's actions, the Harness line with its icon buttons, the Codex line with its button when it has something to
+say (see [In Codex](#in-codex) below), and worfy's own memory ([Storage and diagnostics](storage-and-diagnostics.md)).
+A line too long for the popover ends with an ellipsis, and the Harness line keeps its whole text as its tooltip. The
+consent dialog, the move form and the step "Approve the Harness hooks in Codex" open from the chip as they did from the
+toolbar, and the step still opens by itself while the popover is closed.
 
 | State | Text | Icon button | When |
 |---|---|---|---|
@@ -64,12 +69,12 @@ command that installs a dependency 600 s.
 
 **A plugin an older Harness had worfy install.** Older Harness versions declared
 `mattpocock-skills@claude-plugins-official`, and worfy installed it. After an update of an installed `worfy` has gone
-in (Update Harness in the toolbar, or the install after an app Update), worfy removes that plugin with
+in (Update Harness in the version popover, or the install after an app Update), worfy removes that plugin with
 `claude plugin uninstall mattpocock-skills@claude-plugins-official --scope user`, only when worfy installed it: its own
 record says so, or Claude Code lists the plugin as installed at most 10 minutes before `worfy@worfy-harness`, and
 before it. A record of a plugin that is gone, or that Claude Code lists as installed later than the record, is dropped. A plugin the user installed at another time, one without a readable install time, and one on a first
 install stay. Codex follows the same rule with `codex plugin remove <id>`; Codex lists no install time for such a
-plugin, so there only worfy's record removes it. The marketplace stays. The toolbar line then shows
+plugin, so there only worfy's record removes it. The marketplace stays. The Harness line then shows
 `· removed mattpocock-skills`, and its tooltip names the command that puts it back. A failed removal shows
 `· could not remove …` with the command's output; the Harness stays installed, and the next Update tries again.
 
@@ -108,7 +113,7 @@ back" was the consent to that copy's Harness. At the first start of the new copy
 installed one is outdated or missing, through the same installer and commands as above. It does so once: the record of
 the restart is marked as used first, so a failed install is not tried again until the user presses the button. A
 failure is the usual error state with Retry, and the Update state marks it for a notice. An install started from the
-toolbar at that moment is shared, and Cancel in its dialog leaves the Harness as it was. When the copy that starts is not the one
+version popover at that moment is shared, and Cancel in its dialog leaves the Harness as it was. When the copy that starts is not the one
 the restart named, because the swap did not happen, nothing is installed. Claude Code takes the new Harness from the
 next Session on. The Update itself is described in [Updates](updates.md).
 
@@ -120,8 +125,8 @@ accent and the dot of "Update Harness", the toast "Harness out of date: <from> �
 [Updates](updates.md).
 
 **Moving an old Harness.** Before the plugin, the Harness lived directly in `~/.claude`. While anything of it is left
-there, the First run row offers "Move…", and in a run that may install the toolbar also shows the icon "Move old
-Harness…". The form "Move the old Harness out of ~/.claude" has a row for each thing:
+there, the First run row offers "Move…", and in a run that may install the Harness line of the version popover also
+shows the icon "Move old Harness…", and the version chip has a red dot. The form "Move the old Harness out of ~/.claude" has a row for each thing:
 
 | Group | Choices |
 |---|---|
@@ -166,7 +171,7 @@ of Codex. The commands run the Codex binary of this build, never the user's `cod
 The consent dialog names the Codex commands and agent files after the Claude Code part, or alone when Claude Code already
 has this build's Harness, and says that Codex keeps the hooks of a new or updated plugin off until they are approved in
 `/hooks`. A failure in the Claude Code part leaves Codex untouched. A failure in Codex leaves Claude Code installed, and
-the Codex part of the toolbar item shows the step that failed. A Codex command gets 120 s, and one that adds a marketplace
+the Codex line of the version popover shows the step that failed. A Codex command gets 120 s, and one that adds a marketplace
 or the dependency 600 s.
 
 **The agents.** Each one is made from the agent of the same name in the plugin: its `description`, its text as the
@@ -174,11 +179,10 @@ developer instructions with the plugin folder in place of `${CLAUDE_PLUGIN_ROOT}
 effort. A Claude model name such as `inherit` or `sonnet` is not written, so the agent takes the model of the Session that
 starts it. Every file worfy writes starts with a comment line that begins `# Written by worfy's Harness installer` and
 names the Harness version. A `worfy-*.toml` file without it is the user's own: worfy neither rewrites nor removes it. When such a file has the name of an agent of this build,
-that agent is not written, and the toolbar says so. A marked file of an agent this build does not have is removed.
+that agent is not written, and the Codex line says so. A marked file of an agent this build does not have is removed.
 
-**On the toolbar.** The Codex part is the third line of the toolbar item, under the app version, with its button at its end,
-only while the Claude Code part is installed. With three lines the item keeps the toolbar's height: the Harness line and the
-icon buttons are 16 px high instead of 20, and the text stays 11 px.
+**In the version popover.** The Codex part is its own row of the version popover, under the Harness line, with its
+button at its end, only while the Claude Code part is installed. The text is 11 px.
 The state waits for `codex plugin list --json` 10 s at most, and then the Codex part alone is `Codex error: plugin list`.
 
 | Codex part | Button | When |
@@ -207,7 +211,7 @@ finds no Codex binary of its own, step 1 says so instead. The check asks Codex a
 - "worfy could not read the hooks from Codex. Check that the Harness is installed in Codex, then check again."
 
 The dialog opens by itself in the windows open when an install or update in Codex left hooks to approve. After "Close",
-only "Codex: approve hooks" opens it again. That flag is kept only while worfy runs: after a restart the toolbar does not
+only "Codex: approve hooks" opens it again. That flag is kept only while worfy runs: after a restart the Codex line does not
 show it, but Autopilot still asks Codex before every run.
 
 #### On Windows
@@ -268,7 +272,8 @@ that Machine itself.
 | `src/main/harness/locate.ts` | Which Harness is on the Machine (`plugin`, `legacy`, `none`), and the folders of its scripts and Gate state |
 | `src/main/ipc/harness.ts` | The app's one installer and the consent dialog. Announces `harness.changed` |
 | `src/shared/ipc/harness.ts` | The channels and states |
-| `src/renderer/shell/toolbar/HarnessStatus.tsx` | The toolbar item, which `src/renderer/settings/PipelineSection.tsx` shows too |
+| `src/renderer/harness/HarnessStatus.tsx`, `src/renderer/harness/useHarnessStatus.tsx`, `src/renderer/harness/harness-lines.ts` | The Harness and Codex lines of the version popover, which `src/renderer/settings/PipelineSection.tsx` shows too |
+| `src/renderer/shell/footer/VersionChip.tsx`, `src/renderer/shell/footer/version-dot.ts` | The version chip, its dot and its popover |
 | `src/main/first-run/actions.ts` | Runs the same installer from First run |
 | `src/main/harness/migrate/plan.ts` | The rows of the move form, read from disk. Writes nothing |
 | `src/main/harness/migrate/apply.ts` | The move, step by step: backup, settings, `.claude.json`, CLAUDE.md, state, files, `bin/epic-status`, commit |
@@ -280,7 +285,8 @@ Every path a move writes or removes is checked to be inside the Claude home or t
 the one file outside them.
 
 Main tests: `test/contract/harness-install.test.ts`, with a stand-in Claude Code and failures injected in the copy and
-the renames. `test/e2e/harness-install.spec.ts` and `test/e2e/harness-migrate.spec.ts` go through the toolbar. Also
+the renames. `test/e2e/harness-install.spec.ts` and `test/e2e/harness-migrate.spec.ts` go through the version popover, and
+`test/e2e/footer.spec.ts` checks the chip's dot and the popover. Also
 `test/contract/harness-changed.test.ts`, `test/contract/harness-migrate.test.ts`, `test/unit/harness-locate.test.ts`,
 `test/unit/harness-status.test.tsx`, `test/unit/harness-migration-form.test.tsx` and, for the removal of a retired
 dependency, `test/contract/harness-dependency-cleanup.test.ts`. In Codex:

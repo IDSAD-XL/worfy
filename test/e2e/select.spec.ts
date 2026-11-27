@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator } from '@playwright/test'
 import { claudePluginStub } from './claude-plugin-stub'
-import { launchApp, repoRoot, type LaunchedApp } from './helpers'
+import { launchApp, openVersionPopover, repoRoot, type LaunchedApp } from './helpers'
 import { legacyClaudeHome } from './legacy-claude-home'
 import { clickMenuItem } from './menu'
 import { ms } from '../time-scale'
@@ -155,6 +155,8 @@ test('the Profile fields of the move form: chosen through the Select, inactive w
   const launched = await launchApp({ env: { WORFY_CLAUDE_HOME: claudeHome, WORFY_CLAUDE: claudeStub(), STUB_PLUGIN_VERSION: bundledVersion() } })
   try {
     const { window } = launched
+    // "Move old Harness…" is on the Harness line of the version chip's popover in the footer (worfy-layout ticket 03).
+    await openVersionPopover(window)
     await window.getByTestId('harness-status').getByTestId('harness-migrate').click()
     const form = window.getByTestId('migration-form')
     const fields = form.getByTestId('profile-fields').first()

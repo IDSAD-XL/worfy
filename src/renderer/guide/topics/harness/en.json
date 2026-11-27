@@ -95,7 +95,7 @@
       "src/main/harness/locate.ts": "Which Harness is on the Machine, and where its scripts are",
       "src/main/vendors/claude/options.ts": "Passes the copy inline to a Session and registers its servers",
       "src/main/workflow/profile.ts": "Runs bin/profile and reads the Profile's fields",
-      "src/renderer/shell/toolbar/HarnessStatus.tsx": "The Harness item of the toolbar",
+      "src/renderer/harness/HarnessStatus.tsx": "The Harness line of the version popover in the footer",
       "harness/hooks/hooks.json": "Wires every hook of the plugin"
     },
     "limits": [

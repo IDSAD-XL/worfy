@@ -1,13 +1,15 @@
 // worfy's own memory in the renderer (worfy-ui ticket 20):
 // - the figure (src/renderer/memory/AppMemory.tsx): number and unit, the breakdown as its tooltip;
-// - its place: the second line of the Harness column, after the app version (HarnessStatus.tsx);
+// - its place: the last row of the version chip's popover in the footer (worfy-layout ticket 03,
+//   src/renderer/shell/footer/VersionChip.tsx), while the setting is on;
 // - the window opens the figure in main only while the `memoryIndicator` setting is on, and closes
 //   it when the setting goes off (src/renderer/memory/useAppMemory.ts);
 // - the switch of Settings → General writes the setting (src/renderer/settings/GeneralSection.tsx).
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppMemoryView } from '../../src/renderer/memory/AppMemory'
-import { HarnessStatusView } from '../../src/renderer/shell/toolbar/HarnessStatus'
+import type { HarnessStatusState } from '../../src/renderer/harness/useHarnessStatus'
+import { VersionChipView } from '../../src/renderer/shell/footer/VersionChip'
 import type { IpcResult, WorfyBridge } from '../../src/shared/ipc/channels'
 import { sumAppMetrics, type MemoryUsage } from '../../src/shared/memory'
 import { defaultAppSettings, type AppSettings } from '../../src/shared/settings/app-settings'
@@ -38,12 +40,12 @@ describe('the memory figure', () => {
     expect(figure.hasAttribute('title')).toBe(false)
   })
 
-  it('stands on the second line of the Harness column, after the app version', () => {
-    render(<HarnessStatusView status={undefined} busy={false} failure={undefined} onInstall={() => undefined} version="0.3.0+abc" memory={<AppMemoryView usage={usage} />} />)
-    const line = screen.getByTestId('app-line')
-    expect(screen.getByTestId('harness-column').lastElementChild).toBe(line)
-    expect([...line.children].map((child) => child.getAttribute('data-testid'))).toEqual(['app-version', 'app-memory'])
-    expect(line.textContent).toBe('v0.3.0+abc412 MB')
+  it('is no row of the version popover while the setting is off', () => {
+    const harness: HarnessStatusState = { status: undefined, busy: false, failure: undefined, migration: false, onInstall: () => undefined, onMigrate: undefined, onApproveHooks: () => undefined, harnessBehind: null, dialogs: null }
+    render(<VersionChipView version={{ version: '0.3.0+abc' }} update={null} harness={harness} memoryShown={false} />)
+    fireEvent.click(screen.getByTestId('app-version'))
+    expect(screen.getByRole('dialog', { name: 'worfy version' })).toBeTruthy()
+    expect(screen.queryByTestId('version-memory-line')).toBeNull()
   })
 })
 
@@ -139,12 +141,16 @@ describe('the memory figure and the setting', () => {
     expect(calls.filter((channel) => channel === 'memory.open').length).toBe(calls.filter((channel) => channel === 'memory.close').length)
   })
 
-  it('the toolbar item of the Harness column carries the figure after the app version', async () => {
-    const { default: HarnessStatusItem } = await import('../../src/renderer/shell/toolbar/HarnessStatus')
-    render(<HarnessStatusItem />)
+  it('the version chip of the footer carries the figure as the last row of its popover, and samples only while it is open', async () => {
+    const { VersionChip } = await import('../../src/renderer/shell/footer/VersionChip')
+    render(<VersionChip />)
+    fireEvent.click(await screen.findByTestId('app-version'))
     expect(await screen.findByText('412 MB')).toBeTruthy()
-    const line = screen.getByTestId('app-line')
-    await vi.waitFor(() => expect([...line.children].map((child) => child.getAttribute('data-testid'))).toEqual(['app-version', 'app-memory']))
+    const popover = screen.getByRole('dialog', { name: 'worfy version' })
+    expect(popover.lastElementChild).toBe(screen.getByTestId('version-memory-line'))
+    expect(screen.getByTestId('version-memory-line').textContent).toBe('Memory412 MB')
+    fireEvent.keyDown(screen.getByTestId('app-memory'), { key: 'Escape' })
+    await vi.waitFor(() => expect(memoryCalls()).toEqual(['memory.open', 'memory.close']))
   })
 
   it('a sample that arrives before the answer to memory.open is kept: the older answer does not replace it', async () => {
@@ -163,7 +169,7 @@ describe('the memory figure and the setting', () => {
     fake.setReply = () => Promise.resolve({ ok: false, error: 'disk full' })
     const { default: GeneralSection } = await import('../../src/renderer/settings/GeneralSection')
     render(<GeneralSection />)
-    const toggle = await screen.findByRole('switch', { name: "Show worfy's memory in the toolbar" })
+    const toggle = await screen.findByRole('switch', { name: "Show worfy's memory in the version popover" })
     fireEvent.click(toggle)
     expect((await screen.findByTestId('settings-memory-indicator-problem')).textContent).toBe('Not saved: disk full')
     expect(screen.getByTestId('settings-memory-indicator-row').textContent).not.toContain('Terminal sessions are not counted.')
@@ -174,7 +180,7 @@ describe('the memory figure and the setting', () => {
   it('the switch of Settings → General writes memoryIndicator, on by default', async () => {
     const { default: GeneralSection } = await import('../../src/renderer/settings/GeneralSection')
     render(<GeneralSection />)
-    const toggle = await screen.findByRole('switch', { name: "Show worfy's memory in the toolbar" })
+    const toggle = await screen.findByRole('switch', { name: "Show worfy's memory in the version popover" })
     expect(toggle.getAttribute('aria-checked')).toBe('true')
     fireEvent.click(toggle)
     await vi.waitFor(() => expect(toggle.getAttribute('aria-checked')).toBe('false'))

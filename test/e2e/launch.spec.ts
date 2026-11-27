@@ -40,7 +40,8 @@ test('the window shows the build version of the Harness copy, which main returns
     // into main; the build version as it is in a shallow clone (CI's fetch-depth), and in the tooltip.
     const number = buildNumber(repoRoot)
     await expect(launched.window.getByTestId('app-version')).toHaveText(`v${numberedVersion(manifest.version, number)}`)
-    if (number !== null) await expect(launched.window.getByTestId('app-version')).toHaveAttribute('title', new RegExp(`^worfy ${manifest.version.replaceAll('.', '\\.').replace('+', '\\+')}`))
+    // The chip's tooltip: its name first, then the build version on a line of its own (worfy-layout ticket 03).
+    if (number !== null) await expect(launched.window.getByTestId('app-version')).toHaveAttribute('title', new RegExp(`\\nworfy ${manifest.version.replaceAll('.', '\\.').replace('+', '\\+')}`))
   } finally {
     await launched.close()
   }

@@ -1,5 +1,5 @@
 // worfy's own memory in main (worfy-ui ticket 20): a sample of app.getAppMetrics() every 5 s, summed
-// by src/shared/memory.ts, for the windows that show it in the toolbar (src/main/ipc/memory.ts).
+// by src/shared/memory.ts, for the windows that show it in the version chip's popover (src/main/ipc/memory.ts).
 //
 // The timer runs only while both hold: some window listens, and the `memoryIndicator` setting is on
 // (followMemorySetting). Otherwise no timer exists and nothing is read. A window that starts

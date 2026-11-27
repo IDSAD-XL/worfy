@@ -95,7 +95,7 @@
       "src/main/harness/locate.ts": "Какой Harness стоит на Machine и где его скрипты",
       "src/main/vendors/claude/options.ts": "Передаёт копию Session inline и регистрирует её серверы",
       "src/main/workflow/profile.ts": "Запускает bin/profile и читает поля Profile",
-      "src/renderer/shell/toolbar/HarnessStatus.tsx": "Пункт Harness в toolbar",
+      "src/renderer/harness/HarnessStatus.tsx": "Строка Harness в popover-е версии в footer",
       "harness/hooks/hooks.json": "Подключает каждый hook plugin"
     },
     "limits": [

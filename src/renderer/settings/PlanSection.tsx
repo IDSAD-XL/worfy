@@ -23,7 +23,7 @@ export const CHANGED_SINCE_READ = 'The Profile has changed since it was read. Re
 /** The line of a busy lock: another write of this Profile is going on; nothing was written. */
 export const WRITE_IN_PROGRESS = 'Another write is in progress — try again.'
 /** What a Harness without `bin/profile-set --field` gets. */
-export const HARNESS_TOO_OLD = 'The Harness is too old to apply the settings. Update it from the Harness item of the toolbar.'
+export const HARNESS_TOO_OLD = 'The Harness is too old to apply the settings. Update it from the version chip in the footer.'
 
 const styles = {
   lead: { margin: '0 0 var(--space-3)', color: 'var(--text-secondary)', fontSize: 'var(--text-12)' },
