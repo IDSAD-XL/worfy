@@ -255,3 +255,33 @@ e2e локально не запускали (правило владельца)
 3. Почему сообщение пользователя не идёт через Markdown?
    - Ответ: Session view рисует строку пользователя как обычный текст, и Ticket велит следовать ему.
    - Строки: `src/renderer/assistant/AssistantPanel.tsx:352-357`
+
+## 9. Что нашёл review и что осталось
+
+> VERIFIED — worfy-polish 162 (the Assistant's chat messages and the morning summary render as Markdown through the shared Session-view renderer; user messages stay plain text; raw HTML stays text, images show their alt, only http(s) links act, and in the Assistant a link whose text is not its own address shows its real host), head 5c83102c9163b5bbd7d90968da7b0dfd89c46797
+>
+> Gate (depth medium, two rounds):
+> - Round 1, reviewer (lens: correctness and safety of outside text) — FIX.
+>   - med: a quoted link could name one address and open another. `[https://jira.example/SHOP-12](https://evil.example/steal)` and reference-style links both did this, and the docs and the test claimed that quotes act on nothing.
+>   - low: a file link without a Project looked live but did nothing.
+>   - Checked fine:
+>     - no rehype-raw;
+>     - script and img onerror stay text;
+>     - images load nothing;
+>     - javascript:, file:, data: and mailto: links are inert;
+>     - removing pre-wrap breaks no existing message;
+>     - the e2e spec still matches;
+>     - 5 of the 7 new tests fail on the old code;
+>     - a mutation that renders img turns a test red.
+> - Fix 5c83102c9:
+>   - a showLinkHost option in Markdown.tsx with linkHost in links.ts:102-123, on only in AssistantWords;
+>   - a file link without a Project is inert;
+>   - docs, comment and test name corrected;
+>   - 4 tests red first.
+> - Round 2: the renderer diff read by the orchestrator. The Session view is unchanged. The PR inbox gets only the inert file link. Closes the findings.
+> Evidence:
+> - 12 test files (283 tests), exit 0;
+> - lint and typecheck, exit 0;
+> - gate fast green;
+> - story-check, exit 0.
+> Not verified: the look in real Electron (owner rule); the owner's manual item 4.
