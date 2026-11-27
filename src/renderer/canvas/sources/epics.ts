@@ -588,7 +588,9 @@ export function buildEpicNodes(
       // New inputs that lay the frame out as before — the Pipeline's Stage names or the Project's repositories coming
       // after the first frame, an answer of ELK with the places already shown — keep the Epic's Node objects, so React
       // Flow draws none of its cards again (worfy-polish ticket 152: each such answer drew every card on screen anew).
-      if (entry !== undefined && sameFrame(entry, inputs, sameTickets) && entry.reserve === reserve && sameLayout(entry.layout, epicLayout)) {
+      // A new ELK request is not such an input: requestEpicLayouts runs on new Nodes only, so the Nodes are new with it.
+      const sameRequest = (entry?.request?.key ?? null) === (request?.key ?? null)
+      if (entry !== undefined && sameRequest && sameFrame(entry, inputs, sameTickets) && entry.reserve === reserve && sameLayout(entry.layout, epicLayout)) {
         entry = { ...entry, inputs, request }
         cache.set(key, entry)
         return { epic, saved, entry }

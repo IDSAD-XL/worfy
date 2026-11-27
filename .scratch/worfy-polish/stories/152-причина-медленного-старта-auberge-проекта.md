@@ -16,13 +16,15 @@ job-ов упирался в потолок, то есть решала скор
 
 ## 2. Та же раскладка — те же объекты Node-ов
 
-Code: `src/renderer/canvas/sources/epics.ts:588-595` · key lines: 591, 592
+Code: `src/renderer/canvas/sources/epics.ts:588-597` · key lines: 592, 593, 594
 
 ```ts
       // New inputs that lay the frame out as before — the Pipeline's Stage names or the Project's repositories coming
       // after the first frame, an answer of ELK with the places already shown — keep the Epic's Node objects, so React
       // Flow draws none of its cards again (worfy-polish ticket 152: each such answer drew every card on screen anew).
-      if (entry !== undefined && sameFrame(entry, inputs, sameTickets) && entry.reserve === reserve && sameLayout(entry.layout, epicLayout)) {
+      // A new ELK request is not such an input: requestEpicLayouts runs on new Nodes only, so the Nodes are new with it.
+      const sameRequest = (entry?.request?.key ?? null) === (request?.key ?? null)
+      if (entry !== undefined && sameRequest && sameFrame(entry, inputs, sameTickets) && entry.reserve === reserve && sameLayout(entry.layout, epicLayout)) {
         entry = { ...entry, inputs, request }
         cache.set(key, entry)
         return { epic, saved, entry }
@@ -30,7 +32,8 @@ Code: `src/renderer/canvas/sources/epics.ts:588-595` · key lines: 591, 592
 ```
 
 - Что делает: когда новые входы Epic-а (новые `cards`, новый ответ ELK) дают ту же раскладку рамки — те же Ticket-ы,
-  сохранённое, свёрнутость, `reserve` и `layout`, — запись кэша получает новые входы, но прежние объекты Node-ов.
+  сохранённое, свёрнутость, `reserve` и `layout`, — и тот же ключ запроса ELK, запись кэша получает новые входы, но
+  прежние объекты Node-ов.
   React Flow сравнивает Node-ы по ссылке и не рисует карточки заново.
 - Почему здесь: замер назвал `buildEpicNodes` источником новых объектов; Ticket велит чинить то, что назвал замер
   («Где в коде»: `src/renderer/canvas/`).
@@ -105,7 +108,7 @@ Code: `src/renderer/canvas/arrangement-record.ts:255-257` · key lines: 257
 
 ## 6. Test: новая `cards` при той же раскладке — тот же массив Node-ов
 
-Code: `test/unit/epic-node-memo.test.tsx:178-186` · key lines: 183, 185
+Code: `test/unit/epic-node-memo.test.tsx:181-189` · key lines: 186, 188
 
 ```tsx
   it('a new card context that changes no height keeps every Node object: React Flow draws nothing again', () => {
@@ -120,7 +123,7 @@ Code: `test/unit/epic-node-memo.test.tsx:178-186` · key lines: 183, 185
 ```
 
 - Что делает: строит Node-ы дважды на одной модели, второй раз с контекстом карточек, как после `checks.repos`, и
-  ждёт тот же массив. Соседний test (`epic-node-memo.test.tsx:166-176`) ждёт, что Pipeline и репозитории рисуют
+  ждёт тот же массив. Соседний test (`epic-node-memo.test.tsx:169-179`) ждёт, что Pipeline и репозитории рисуют
   Stepper, но не слоты.
 - Почему здесь: Ticket требует test на найденную причину, сначала красный.
 - Без него: новый объект Node-а при той же раскладке ничем, кроме времени на runner-е, не виден.
@@ -128,7 +131,34 @@ Code: `test/unit/epic-node-memo.test.tsx:178-186` · key lines: 183, 185
 - Риски и пробелы test-ов: на коде main — exit 1 (3 failed: слоты нарисованы 3 раза вместо 1, новый Node, новый
   массив), с починкой — exit 0.
 
-## 7. Предел от замеренной базы: 5 × R
+## 7. Новый запрос ELK — новые Node-ы (review, раунд 1)
+
+Code: `test/unit/epic-node-memo.test.tsx:206-213` · key lines: 210, 212, 213
+
+```tsx
+    setElkEngine({} as never)
+    try {
+      const first = buildEpicNodes(projectId, '/repo', read, emptyLayout, {}, [], answers, before)
+      expect(arrangementOf(projectId)?.settled).toBe(true)
+      const asked = buildEpicNodes(projectId, '/repo', read, emptyLayout, {}, [], answers, after)
+      // The frame waits for ELK's answer to the new key; the effect that sends the request runs on a new array.
+      expect(arrangementOf(projectId)?.settled).toBe(false)
+      expect(asked).not.toBe(first)
+```
+
+- Что делает: Epic со свёрнутой стопкой done-Ticket-ов; новый контекст карточек меняет высоту только свёрнутой done-карточки
+  (`reviewChips['a/3']`). Ключ ELK новый, раскладка и `reserve` те же. Test ждёт `settled` false и новый массив
+  Node-ов: запрос к ELK отправляет только эффект `useEffect(() => requestEpicLayouts(projectId), [projectId, nodes])`
+  (`epics.ts:813`), и он запускается только на новом массиве. Условие `sameRequest` — шаг 2, строка 592.
+- Почему здесь: reviewer отклонил head 29e5e1ca8: короткий путь шага 2 оставлял прежние Node-ы при новом ключе запроса,
+  запрос не уходил, рамка оставалась `settled` false, и запись раскладки ждала.
+- Без него: Epic ждёт ответа ELK, о котором ELK не спросили, пока что-то другое не перестроит Node-ы.
+- Требование: [Итог, Починка](../issues/152-причина-медленного-старта-auberge-проекта.md#починка)
+- Риски и пробелы test-ов: на коде без `sameRequest` test красный (тот же массив). Выбран этот путь, а не второй
+  повод для эффекта по ключам запросов: условие держит правило «новый запрос — новые Node-ы» в одном месте, а
+  платит за него только Epic, у которого сменился ключ (высота карточки, которой нет в раскладке).
+
+## 8. Предел от замеренной базы: 5 × R
 
 Code: `test/e2e/start-budget.ts:15-19` · key lines: 19
 
@@ -150,7 +180,7 @@ export const START_RATIO = 5
   окажется выше 5, test покраснеет раньше потолка. `test/unit/e2e-start-budget.test.ts` проверяет 5, переход на
   потолок на 1460 ms и эту выборку.
 
-## 8. Что сознательно не меняли
+## 9. Что сознательно не меняли
 
 Вне файлов Ticket-а, хотя замер их видит: `pipeline.get` в main ждёт 11 вызовов `gh pr list` подряд (961–1342 ms,
 `src/main/github/prs.ts`), `useLayoutEffect` без deps в `src/renderer/session/composer/Pickers.tsx` (137 ms),
@@ -158,7 +188,7 @@ export const START_RATIO = 5
 (`src/main/start-profile.ts`, marks, minify off) из ветки удалён. Карантин снят: файл
 `test/quarantine/epic-frame-auberge-start-macos-ci.json` удалён, test объявлен через `test(...)`.
 
-## 9. Как проверено
+## 10. Как проверено
 
 `node scripts/vitest-electron.mjs test/unit/epic-node-memo.test.tsx test/unit/checks-badges.test.tsx` на коде main —
 exit 1, с починкой — exit 0. `pnpm lint && pnpm typecheck && pnpm test`, gate fast — коды выхода в PR. Локально e2e и
@@ -173,7 +203,7 @@ Electron не запускали (правило владельца); e2e без
 2. Почему запись кэша при той же раскладке всё же заменяется новой, а не остаётся старой целиком?
    - Ответ: в ней новые `inputs` и `request`: следующее сравнение `same` и проверка `settled` должны видеть
      последний ответ ELK и `cards`, иначе каждый следующий рендер считал бы входы новыми.
-   - Строки: `src/renderer/canvas/sources/epics.ts:591-593`
+   - Строки: `src/renderer/canvas/sources/epics.ts:593-595`
 3. Почему отношение 5, а не медиана `N / R` с запасом?
    - Ответ: 5 выше 95-го процентиля `N / R` кода до починки, так что предел держит почти все машины и без выигрыша
      починки, а потолок решает только при `R` от 1460 ms.

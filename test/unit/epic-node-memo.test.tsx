@@ -14,6 +14,9 @@ import type { SlotProps } from '../../src/renderer/canvas/badges'
 import EpicFrameNode from '../../src/renderer/canvas/nodes/EpicFrameNode'
 import TicketNode from '../../src/renderer/canvas/nodes/TicketNode'
 import type { CanvasFlowNode, CanvasNodeProps } from '../../src/renderer/canvas/nodes/index'
+import { arrangementOf } from '../../src/renderer/canvas/arrangement-record'
+import { elkKey, setElkEngine, type ElkAnswer } from '../../src/renderer/canvas/elk/client'
+import { layoutEpic, type CardContext } from '../../src/renderer/canvas/epic-layout'
 import { buildEpicNodes, epicNodeId, ticketNodeId, type TicketNodeData } from '../../src/renderer/canvas/sources/epics'
 
 const drawn = vi.hoisted(() => ({ ticket: 0, epic: 0 }))
@@ -183,5 +186,33 @@ describe('answers that come after the first frame do not draw the cards again fo
     const first = buildEpicNodes(projectId, '/repo', read, emptyLayout, {}, [], {}, undefined)
     const known = buildEpicNodes(projectId, '/repo', read, emptyLayout, {}, [], {}, { severalRepos: false, repoNames: ['repo'], reviewChips: {}, sideEffects: {} })
     expect(known).toBe(first)
+  })
+
+  it('a new card context that asks ELK anew gives new Node objects, so the request goes out (review of PR #2321)', () => {
+    // A folded done stack: the done Tickets' cards are not in the frame's layout, but their heights are in ELK's key.
+    const tickets = [ticket(1, { state: 'work', statusRaw: 'claimed 2026-11-27T09:00Z' }), ticket(2, { state: 'done', statusRaw: 'done' }), ticket(3, { state: 'done', statusRaw: 'done' })]
+    const projectId = 'memo-0000000c'
+    const read = model(tickets)
+    const before: CardContext = { severalRepos: false, repoNames: ['repo'], reviewChips: {}, sideEffects: {} }
+    const after: CardContext = { ...before, reviewChips: { 'a/3': 1 } }
+    expect(elkKey(tickets, 'a', after)).not.toBe(elkKey(tickets, 'a', before))
+    const answers: Record<string, ElkAnswer> = {
+      a: {
+        key: elkKey(tickets, 'a', before),
+        folded: layoutEpic({ tickets, collapsed: false, doneExpanded: false, name: 'a', cards: before }),
+        open: layoutEpic({ tickets, collapsed: false, doneExpanded: true, name: 'a', cards: before }),
+      },
+    }
+    setElkEngine({} as never)
+    try {
+      const first = buildEpicNodes(projectId, '/repo', read, emptyLayout, {}, [], answers, before)
+      expect(arrangementOf(projectId)?.settled).toBe(true)
+      const asked = buildEpicNodes(projectId, '/repo', read, emptyLayout, {}, [], answers, after)
+      // The frame waits for ELK's answer to the new key; the effect that sends the request runs on a new array.
+      expect(arrangementOf(projectId)?.settled).toBe(false)
+      expect(asked).not.toBe(first)
+    } finally {
+      setElkEngine(null)
+    }
   })
 })

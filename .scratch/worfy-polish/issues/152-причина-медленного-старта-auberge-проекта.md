@@ -140,7 +140,9 @@ job-ы Ticket-а 150 — медленные машины, на которых `6
 ### Починка
 
 - `src/renderer/canvas/sources/epics.ts`: если новые входы дают Epic-у ту же раскладку (те же Ticket-ы, сохранённое,
-  свёрнутость, `doneExpanded`, `reserve` и `layout`), `buildEpicNodes` оставляет прежние объекты Node-ов.
+  свёрнутость, `doneExpanded`, `reserve` и `layout`) и тот же ключ запроса ELK, `buildEpicNodes` оставляет прежние
+  объекты Node-ов. Ключ — после review PR #2321: запрос к ELK уходит только на новых Node-ах, и новый ключ при прежних
+  Node-ах оставлял Epic без запроса и без `settled` (test в `test/unit/epic-node-memo.test.tsx`, красный без условия).
 - `src/renderer/canvas/nodes/TicketNode.tsx`: слоты карточки — `memo`-компонент, `subject` — `useMemo`.
 - `src/renderer/canvas/badges/use-checks.ts`: `branchesInWork` читает один список Ticket-ов один раз (`WeakMap`).
 - `src/renderer/canvas/arrangement-record.ts`: эффект записи раскладки срабатывает и на `settled` — без этого ответ ELK
