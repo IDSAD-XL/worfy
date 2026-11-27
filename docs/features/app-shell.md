@@ -457,27 +457,31 @@ Main tests: `test/contract/view-menu.test.ts`, `test/unit/menu-command.test.tsx`
 ### Behaviour
 
 Settings are the settings of worfy itself on this Machine. The window opens from "Settings…" of the app menu (⌘,) and from
-the palette. It is modal, with its sections in a column on the left. Esc or Close closes it, and the focus goes back where it
-was. ↑ and ↓ move through the sections, and Tab goes round the controls of the window. While it is open, ⌘K, ⌘F and ⌘↩ do
-nothing. A press beside the window leaves it open, and so does a press on a toast. Settings, Keyboard shortcuts and the
+the palette. It is modal, with its sections in a column on the left, under the headings of four groups: App, Agents,
+Workflow and Workspace. Each row has an icon before its name. The column scrolls when the rows are taller than the window.
+Esc or Close closes it, and the focus goes back where it was. ↑ and ↓ move through the sections from one group into the next,
+and Tab goes round the controls of the window. A group heading is a label: it takes no click and no focus. While it is
+open, ⌘K, ⌘F and ⌘↩ do nothing. A press beside the window leaves it open, and so does a press on a toast. Settings, Keyboard shortcuts and the
 Guide are one modal window of the app's own kit: the app behind it is hidden from a screen reader, the toasts are not, and
 they stay above the window.
 
-| Section | What it holds |
-|---|---|
-| General | Interface scale; Memory in the toolbar; Fold Epics without work after (the «Older» group of the Epics section, see [Workflow](workflow.md)); Version; Updates, where Update is on: see [Updates](updates.md) |
-| Health | The First run checks with their actions and "Check again". Opening the section checks. A pressed button shows its work with a spinner and its own words ("Checking…", "Installing…", "Downloading…"), and its row says "Running…" (every row says "Checking…" while "Check again" runs); the other buttons are off, and their tooltip says another check is running. A long action (npm, qmd models, qmd collections, the Harness) names its step and the time it has taken under its row |
-| Shortcuts | The list of the Keyboard shortcuts window |
-| Machines | The switches of the link and the access level of each Linked machine: see [Link](link.md) |
-| Terminal AI | The switches and models of Terminal AI: see [Terminal](terminal.md) |
-| Sessions | The autocompact window of Sessions |
-| Integrations | Every Integration of the Machine, its status and the Projects that use it, with Sign in, Sign out, Remove and Clean up: see [Integrations](integrations.md#settings--integrations) |
-| Canvas | The automatic archive of finished Sessions |
-| Pull requests | The notifications and the morning digest of the PR inbox, both on by default: see [Notifications](notifications.md#the-morning-digest) |
-| Browser | When a Live Browser goes to sleep |
-| Autopilot | The default Run mode, the Start window and the daily budget of the Limits: see [Run planning](run-planning.md#settings--autopilot) |
-| Plan | The plan Claude Code is signed in with, and for Pro a preset with an Apply button |
-| Pipeline | The Pipeline of the active Project: see [Workflow](workflow.md) |
+| Group | Section | What it holds |
+|---|---|---|
+| App | General | Interface scale; Memory in the toolbar; Fold Epics without work after (the «Older» group of the Epics section, see [Workflow](workflow.md)); Version; Updates, where Update is on: see [Updates](updates.md) |
+| App | Health | The First run checks with their actions and "Check again". Opening the section checks. A pressed button shows its work with a spinner and its own words ("Checking…", "Installing…", "Downloading…"), and its row says "Running…" (every row says "Checking…" while "Check again" runs); the other buttons are off, and their tooltip says another check is running. A long action (npm, qmd models, qmd collections, the Harness) names its step and the time it has taken under its row |
+| App | Shortcuts | The list of the Keyboard shortcuts window |
+| App | Machines | The switches of the link and the access level of each Linked machine: see [Link](link.md) |
+| Agents | Assistant | The Assistant on this Machine: its switch, work hours, checks of sources and notifications, its duties, usage and limits, and the rules it remembers: see [Assistant](assistant.md) |
+| Agents | Terminal AI | The switches and models of Terminal AI: see [Terminal](terminal.md) |
+| Agents | Vendors | One row per Vendor this build runs, with its account or a sign-in: see [Vendors](vendors.md) |
+| Agents | Sessions | The autocompact window of Sessions |
+| Workflow | Autopilot | The default Run mode, the Start window and the daily budget of the Limits: see [Run planning](run-planning.md#settings--autopilot) |
+| Workflow | Plan | The plan Claude Code is signed in with, and for Pro a preset with an Apply button |
+| Workflow | Pipeline | The Pipeline of the active Project: see [Workflow](workflow.md) |
+| Workflow | Pull requests | The notifications and the morning digest of the PR inbox, both on by default: see [Notifications](notifications.md#the-morning-digest) |
+| Workspace | Canvas | The automatic archive of finished Sessions |
+| Workspace | Browser | When a Live Browser goes to sleep |
+| Workspace | Integrations | Every Integration of the Machine, its status and the Projects that use it, with Sign in, Sign out, Remove and Clean up: see [Integrations](integrations.md#settings--integrations) |
 
 A change reaches every window of the Machine at once. When main cannot save it, the section says so with the reason, and the
 setting stays as it was. Most sections word it "Not saved: …".
@@ -575,7 +579,7 @@ settings are applied in worfy on the Machine of the Project.
 | The renderer's copy of the settings | `src/renderer/settings/useAppSettings.ts` |
 | The window and its state | `src/renderer/settings/SettingsDialog.tsx`, `src/renderer/settings/settings-window.ts` |
 | The modal window, its focus and the keys of the app while it is open | `src/renderer/theme/kit/Dialog.tsx`, `src/renderer/theme/kit/layer.ts` |
-| The list of sections | `src/renderer/settings/sections.ts` |
+| The list of sections, their groups and icons: each `*Section.tsx` exports `order`, `title`, `group` and `icon` | `src/renderer/settings/sections.ts`, `src/renderer/settings/icons.tsx` |
 | The scale on `<html>` | `src/renderer/settings/interface-scale.ts` |
 
 A section is one file `src/renderer/settings/<Name>Section.tsx` that default-exports a component and exports `order` and

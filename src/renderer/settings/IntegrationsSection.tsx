@@ -13,9 +13,12 @@ import type { MachineIntegration } from '../../shared/ipc/integrations'
 import { invoke } from '../ipc'
 import { Button } from '../theme/Button'
 import '../integrations/integrations.css'
+import type { SettingsGroup, SettingsIconName } from './sections'
 
-export const order = 64
+export const order = 72
 export const title = 'Integrations'
+export const group: SettingsGroup = 'Workspace'
+export const icon: SettingsIconName = 'plug'
 
 const STATUS_TEXT = { 'signed-in': 'Signed in', 'needs-sign-in': 'Sign-in needed', error: 'Error', checking: 'Checking' } as const
 

@@ -11,9 +11,12 @@ import { autopilotBudgetOf } from '../../shared/settings/app-settings'
 import { invoke, readableReason, windowMachine } from '../ipc'
 import { activeProject, useProjects } from '../projects/useProjects'
 import { useAppSettings } from './useAppSettings'
+import type { SettingsGroup, SettingsIconName } from './sections'
 
 export const order = 69
 export const title = 'Plan'
+export const group: SettingsGroup = 'Workflow'
+export const icon: SettingsIconName = 'list'
 
 /** The line of a conflict: the Profile changed since the section read it; nothing was written. */
 export const CHANGED_SINCE_READ = 'The Profile has changed since it was read. Reload it.'

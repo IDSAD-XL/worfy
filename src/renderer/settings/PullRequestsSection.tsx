@@ -9,9 +9,12 @@ import { useState } from 'react'
 import { prInboxDigestOf, prInboxNotifyOf, type AppSettingsPatch } from '../../shared/settings/app-settings'
 import { SettingRow, SettingSwitch } from './controls'
 import { setAppSettings, useAppSettings } from './useAppSettings'
+import type { SettingsGroup, SettingsIconName } from './sections'
 
-export const order = 66
+export const order = 71
 export const title = 'Pull requests'
+export const group: SettingsGroup = 'Workflow'
+export const icon: SettingsIconName = 'pr'
 
 export const NOTIFY_LABEL = 'Notify about new review requests and replies'
 export const DIGEST_LABEL = 'Morning digest'

@@ -13,9 +13,12 @@ import { sessionArchiveOf, type SessionArchiveAfter, type SessionArchiveChoice }
 import { Select, type SelectOption } from '../theme/Select'
 import { SettingRow, SettingSwitch } from './controls'
 import { setAppSettings, useAppSettings } from './useAppSettings'
+import type { SettingsGroup, SettingsIconName } from './sections'
 
 export const order = 65
 export const title = 'Canvas'
+export const group: SettingsGroup = 'Workspace'
+export const icon: SettingsIconName = 'canvas'
 
 /** The thresholds in the order of ADR-0076, with their labels. */
 const ARCHIVE_AFTER_OPTIONS: readonly SelectOption<SessionArchiveAfter>[] = [

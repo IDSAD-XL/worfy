@@ -29,9 +29,12 @@ import { SettingRow, SettingSwitch } from './controls'
 import { setAppSettings, useAppSettings } from './useAppSettings'
 import { failureLine, onSinceText, timeText, tokensText } from './assistant-settings-format'
 import { checkNow, configureDuty, resumeDuty, setPauseAfter, useAssistantSettings } from './useAssistantSettings'
+import type { SettingsGroup, SettingsIconName } from './sections'
 
-export const order = 55
+export const order = 45
 export const title = 'Assistant'
+export const group: SettingsGroup = 'Agents'
+export const icon: SettingsIconName = 'spark'
 
 export const SWITCH_LABEL = 'Assistant on this Mac'
 

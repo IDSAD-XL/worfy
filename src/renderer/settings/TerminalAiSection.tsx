@@ -12,9 +12,12 @@ import { useNow } from '../limits/useLimits'
 import { Select, type SelectOption } from '../theme/Select'
 import { SettingRow, SettingSwitch } from './controls'
 import { useTerminalAi } from './useTerminalAi'
+import type { SettingsGroup, SettingsIconName } from './sections'
 
 export const order = 50
 export const title = 'Terminal AI'
+export const group: SettingsGroup = 'Agents'
+export const icon: SettingsIconName = 'terminal'
 
 const MODEL_LABELS: Record<NextCommandModel, string> = { sonnet: 'Sonnet', haiku: 'Haiku' }
 const MODEL_OPTIONS: readonly SelectOption<NextCommandModel>[] = NEXT_COMMAND_MODELS.map((value) => ({ value, label: MODEL_LABELS[value] }))

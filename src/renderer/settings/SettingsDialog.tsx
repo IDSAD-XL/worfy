@@ -1,5 +1,6 @@
 // The Settings window of worfy (worfy-ui ticket 2): a modal dialog over the app window, its
-// sections in a column on the left, the chosen section on the right. Placed and drawn like the
+// sections in a column on the left under the headings of their groups, each row with its icon
+// (worfy-polish ticket 166), the chosen section on the right. Placed and drawn like the
 // First run screen (docs/design/F-SPEC.md, "First run", "Place"). Each section is its own file
 // (sections.ts); this file does not change when one is added.
 //
@@ -13,7 +14,8 @@ import '../canvas/actions/actions.css'
 import { Dialog } from '../theme/kit/Dialog'
 import { ListRow } from '../theme/primitives'
 import './settings.css'
-import { settingsSections, type SettingsSection } from './sections'
+import { SettingsIcon } from './icons'
+import { groupSections, settingsSections, type SettingsSection } from './sections'
 import { closeSettings, followMenuCommands, selectSection, useSettingsWindow } from './settings-window'
 
 export interface SettingsDialogViewProps {
@@ -21,11 +23,15 @@ export interface SettingsDialogViewProps {
 }
 
 /** The window over the given sections; open and closed by settings-window.ts. */
-export function SettingsDialogView({ sections }: SettingsDialogViewProps) {
+export function SettingsDialogView({ sections: given }: SettingsDialogViewProps) {
   const { open, section } = useSettingsWindow()
   const titleId = useId()
   const headingId = useId()
+  const groupId = useId()
   const nav = useRef<HTMLDivElement>(null)
+  // The rows in the order the list shows them, group after group: ↑ and ↓ and the row index follow it.
+  const groups = groupSections(given)
+  const sections = groups.flatMap((each) => each.sections)
 
   const index = Math.max(
     0,
@@ -66,8 +72,16 @@ export function SettingsDialogView({ sections }: SettingsDialogViewProps) {
             Settings
           </p>
           <div className="w-settings__nav-list">
-            {sections.map((each) => (
-              <ListRow key={each.id} label={each.title} selected={each === shown} onSelect={() => selectSection(each.id)} />
+            {groups.map(({ group, sections: inGroup }) => (
+              // A group of rows named by its heading; the heading is a label, never a control or a Tab stop.
+              <div key={group} className="w-settings__nav-group" role="group" aria-labelledby={`${groupId}-${group}`}>
+                <p id={`${groupId}-${group}`} className="w-settings__nav-group-title">
+                  {group}
+                </p>
+                {inGroup.map((each) => (
+                  <ListRow key={each.id} icon={<SettingsIcon name={each.icon} />} label={each.title} selected={each === shown} onSelect={() => selectSection(each.id)} />
+                ))}
+              </div>
             ))}
           </div>
         </div>

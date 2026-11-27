@@ -13,9 +13,12 @@ import { SettingRow, SettingSwitch } from './controls'
 import { UpdatesBlock } from './UpdatesBlock'
 import { formatScale, scaleToPercent } from './interface-scale'
 import { setAppSettings, useAppSettings } from './useAppSettings'
+import type { SettingsGroup, SettingsIconName } from './sections'
 
 export const order = 10
 export const title = 'General'
+export const group: SettingsGroup = 'App'
+export const icon: SettingsIconName = 'sliders'
 
 type Version = { kind: 'loading' } | { kind: 'ok'; version: string; number?: number | undefined } | { kind: 'failed'; reason: string }
 

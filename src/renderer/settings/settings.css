@@ -38,6 +38,7 @@
   padding: var(--space-3) var(--space-2);
   border-right: 1px solid var(--border);
   background: var(--surface-raised);
+  min-height: 0;
   overflow-y: auto;
 }
 .w-settings__nav-title {
@@ -46,10 +47,29 @@
   font-size: var(--text-11);
   font-weight: 600;
 }
+/* The groups of the list (worfy-polish ticket 166), each under its heading; the column scrolls when
+   they are taller than the window. */
 .w-settings__nav-list {
   display: flex;
   flex-direction: column;
+  gap: var(--space-3);
+}
+.w-settings__nav-group {
+  display: flex;
+  flex-direction: column;
   gap: 2px;
+}
+.w-settings__nav-group-title {
+  margin: 0 var(--space-2) 2px;
+  color: var(--text-muted);
+  font-size: var(--text-11);
+  font-weight: 600;
+  cursor: default;
+  user-select: none;
+}
+/* The row's icon in the colour of its title when the row is chosen. */
+.w-settings__nav-group .w-row[aria-current='true'] .w-row__icon {
+  color: var(--text);
 }
 .w-settings__pane {
   flex: 1;

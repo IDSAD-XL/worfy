@@ -18,7 +18,7 @@ import { pressTab } from './tab-key'
 const globals = globalThis as { worfy?: WorfyBridge }
 
 /** A section of Settings with one field: the window's own content does not matter here. */
-const SECTIONS: readonly SettingsSection[] = [{ id: 'ProbeSection', order: 1, title: 'Probe', Component: () => <input aria-label="Probe field" /> }]
+const SECTIONS: readonly SettingsSection[] = [{ id: 'ProbeSection', order: 1, title: 'Probe', group: 'App', icon: 'sliders', Component: () => <input aria-label="Probe field" /> }]
 
 /** Lets Base UI's effects and frames run. */
 const flush = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 20)))
