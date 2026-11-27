@@ -1,7 +1,8 @@
 # 168 — macOS e2e в три части: часть идёт 35–37 минут при общем лимите 40
 
 Type: task
-Status: open
+Status: claimed 2026-11-27T04:17Z
+Branch: worfy-polish/168
 Blocked by: —
 Source: решение владельца 2026-11-27 («на все вопросы - да»). Ночью 2026-11-27 часть `macos-e2e (1/2)` PR #2306
 (worfy-layout 02) упёрлась в общий лимит `globalTimeout` 40 минут: 216 test-ов прошли, 56 не запустились, ни один не

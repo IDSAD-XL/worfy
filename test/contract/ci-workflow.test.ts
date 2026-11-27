@@ -353,18 +353,20 @@ describe('ci.yml: every pull request and every push to main, one check for the m
     expect(matrix('windows')).toEqual([...shards('windows'), ...shards('windows', 'harness-scripts ')])
   })
 
-  it('asks the free plan for 3 macOS jobs on an ordinary pull request: macos-tests is one job, macos-e2e two shards', () => {
+  it('asks the free plan for 4 macOS jobs on an ordinary pull request: macos-tests is one job, macos-e2e three shards', () => {
     // The free plan runs 5 macOS jobs at a time; macos-package runs only when ci-scope.mjs says so.
     expect(job('macos-tests').join('\n')).not.toMatch(/strategy:|matrix|shard/i)
     expect(value(job('macos-tests'), 'timeout-minutes')).toBe('45')
   })
 
-  it('runs a full macos-e2e in two shards of one Playwright worker each: two workers on the runner were measured flaky', () => {
+  it('runs a full macos-e2e in three shards of one Playwright worker each: two workers on the runner were measured flaky', () => {
     // worfy-throughput ticket 59 (2026-10-30): one shard in two workers took 1340 s, over the 20 min
     // allowed one job; two shards in two workers went red once and brought 7 flaky tests in three
     // runs, against none in one worker. playwright.config.ts keeps CI at one worker, and the job
-    // passes no --workers of its own (its run lines are pinned above).
-    expect(E2E_SHARDS['macos-e2e']).toBe(2)
+    // passes no --workers of its own (its run lines are pinned above). worfy-polish ticket 168
+    // (2026-11-27): two shards took 35-37 min against the 40 min globalTimeout, and one ran into it;
+    // three shards of about 19 min of tests each, the limit unchanged.
+    expect(E2E_SHARDS['macos-e2e']).toBe(3)
     expect(readFileSync(join(REPO, 'playwright.config.ts'), 'utf8')).toMatch(/^const E2E_WORKERS = process\.platform === 'darwin' && !process\.env\.CI \? 3 : 1$/m)
   })
 
@@ -2038,7 +2040,7 @@ describe('ci.yml: the e2e jobs run the spec files and shards that scripts/ci-sco
     expect(readFileSync(join(REPO, 'playwright.config.ts'), 'utf8')).not.toMatch(/E2E_FILES|e2e-specs/)
   })
 
-  it('a push to main writes the full shards: two for macos-e2e, four for windows-e2e, and no list of spec files', () => {
+  it('a push to main writes the full shards: three for macos-e2e, four for windows-e2e, and no list of spec files', () => {
     const output = join(mkdtempSync(join(tmpdir(), 'worfy-ci-scope-push-')), 'output')
     try {
       writeFileSync(output, '')
@@ -2046,7 +2048,7 @@ describe('ci.yml: the e2e jobs run the spec files and shards that scripts/ci-sco
       expect(result.status, result.stderr).toBe(0)
       const text = readFileSync(output, 'utf8')
       expect(text).toContain('e2e-files=\n')
-      expect(text).toContain('macos-e2e-shards=["1/2","2/2"]\n')
+      expect(text).toContain('macos-e2e-shards=["1/3","2/3","3/3"]\n')
       expect(text).toContain('windows-e2e-shards=["1/4","2/4","3/4","4/4"]\n')
     } finally {
       removeTestTree(dirname(output))

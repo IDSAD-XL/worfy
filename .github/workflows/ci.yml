@@ -34,8 +34,10 @@ name: CI
 #   push to main runs every file; a pull request that touches a macOS path the files with a macOS-only
 #   test or assertion (scripts/ci-scope.mjs, output macos-tests-files), and any other pull request
 #   skips the job.
-# - macos-e2e: pnpm test:e2e on macOS in 2 shards, Electron with a window. scripts/e2e-shard.mjs gives
-#   each shard its spec files by their measured time (test/e2e/timings.json), not by test count. A
+# - macos-e2e: pnpm test:e2e on macOS in 3 shards, Electron with a window: "macos-e2e (1/3)" to
+#   "(3/3)". In 2 shards one took 35-37 min against the 40 min globalTimeout of playwright.config.ts,
+#   which stays as it is. scripts/e2e-shard.mjs gives each shard its spec files by their measured
+#   time (test/e2e/timings.json), not by test count. A
 #   pull request runs only the spec files its diff asks for (scripts/e2e-specs.table.json, output
 #   e2e-files), in fewer shards when they take less time; any app path the table does not narrow runs
 #   them all.
@@ -82,9 +84,9 @@ name: CI
 # test/contract/ci-workflow.test.ts checks that the four steps are the same in every such job.
 #
 # The free plan runs 5 macOS jobs at a time, and pull requests waited 26 to 67 minutes for them while
-# their longest job took 19. So a pull request asks for at most 3 of them (one macos-tests and two
-# macos-e2e shards) when it changes the app and a macOS path, for two (macos-e2e) when it changes the
-# app elsewhere, for one (macos-tests) when it changes only a macOS path outside the app, and for none
+# their longest job took 19. So a pull request asks for at most 4 of them (one macos-tests and three
+# macos-e2e shards) when it changes the app and a macOS path, for three (macos-e2e) when it changes the
+# app elsewhere (fewer when it runs fewer spec files), for one (macos-tests) when it changes only a macOS path outside the app, and for none
 # when it changes only other scripts, the Harness's tests and evals or unit and contract tests. The
 # push to main runs them all.
 #
@@ -365,7 +367,7 @@ jobs:
     if: fromJSON(needs.changes.outputs.expect)['macos-e2e']
     runs-on: macos-latest
     timeout-minutes: 45
-    # The shards come from scripts/ci-scope.mjs: two for every spec file, fewer when a pull request
+    # The shards come from scripts/ci-scope.mjs: three for every spec file, fewer when a pull request
     # runs only the spec files its diff asks for (output e2e-files), so no runner starts for nothing.
     strategy:
       fail-fast: false
@@ -410,8 +412,9 @@ jobs:
       # Playwright's --shard splits by the count of tests and left the heavy spec files almost all in
       # shard 1: 900–1121 s against 696–925 s for shard 2 on main (runs 40770425114 to 40788089367).
       # scripts/e2e-shard.mjs splits the spec files by their seconds in test/e2e/timings.json instead,
-      # about 843 s of tests each, and hands this shard's files to the next step (output files). The
-      # file names are plain, one word each, so the shell splits the list on its spaces. The script
+      # about 1130 s of tests each by the table of 2026-11-27, and hands this shard's files to the
+      # next step (output files). The file names are plain, one word each, so the shell splits the
+      # list on its spaces. The script
       # fails rather than hand an empty list, which would run every file. On a pull request it splits
       # only the spec files the diff asks for (e2e-files, plain names); empty means every spec file.
       - name: Pick the spec files of this shard
