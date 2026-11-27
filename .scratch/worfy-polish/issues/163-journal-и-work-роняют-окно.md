@@ -1,7 +1,7 @@
 # 163 — Journal и Work роняют окно: ошибка рендера одной части гасит всё окно
 
 Type: bug
-Status: claimed
+Status: done 2026-11-27T00:15Z
 PR: #2294
 Branch: worfy-polish/163
 Blocked by: —
@@ -79,14 +79,18 @@ worfy (main около 23a992a0c) пустое, тёмный фон, сразу 
       to render», текст ошибки и Reload; остальное окно работает.
   - evidence: test-run pass · `pnpm test test/unit/error-boundary.test.tsx` exit 0 · mac - · 4e161b2f1d4395b691424fe2cb08b4121082d71c
   - evidence: test-run pass · `pnpm test test/unit/error-boundary.test.tsx` exit 0 · mac - · 61d3fd5a4
+  - evidence: review pass · PR #2294 · - - · 1ac047b3c8e73e5610d5124a0d3cb387273a2940
 - [ ] Ошибка, которую не поймал ни один внутренний boundary, показывает текст ошибки и «Reload window», а не пустое
       окно.
   - evidence: test-run pass · `pnpm test test/unit/error-boundary.test.tsx` exit 0 · mac - · 4e161b2f1d4395b691424fe2cb08b4121082d71c
+  - evidence: review pass · PR #2294 · - - · 1ac047b3c8e73e5610d5124a0d3cb387273a2940
 - [ ] `docs/features/app-shell.md` говорит о запасном виде упавшей части.
   - evidence: commit pass · worfy-polish/163: the boundary's text helpers apart, the fallback in app-shell.md · - - · c3ac9c86f
+  - evidence: review pass · PR #2294 · - - · 1ac047b3c8e73e5610d5124a0d3cb387273a2940
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast зелёный; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · c3ac9c86f
   - evidence: gate pass · `gate fast` exit 0 · mac - · c4bc37317a98b866b2a2c6ff247e5e69591d6aec
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45904284294/job/140215779257 · ci - · 1ac047b3c8e73e5610d5124a0d3cb387273a2940
 - [ ] (вручную) Сделай: в Stable worfy открой раздел Assistant и нажми вкладку Journal, затем вид Runs → Work track
       → Должно быть: окно не пустеет; если часть всё же падает — в ней «… failed to render» с текстом ошибки и
       Reload, а sidebar и toolbar работают. Текст ошибки, если он есть, — прислать.
