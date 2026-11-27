@@ -35,9 +35,12 @@ import { invoke } from '../ipc'
 import { Select, type SelectOption } from '../theme/Select'
 import { SettingRow, SettingSwitch } from './controls'
 import { setAppSettings, useAppSettings } from './useAppSettings'
+import type { SettingsGroup, SettingsIconName } from './sections'
 
 export const order = 60
 export const title = 'Sessions'
+export const group: SettingsGroup = 'Agents'
+export const icon: SettingsIconName = 'chat'
 
 /** Which window: a Project's Orchestrator, or any other Session. */
 export type WindowRole = AutoCompactRole

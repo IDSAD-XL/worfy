@@ -66,7 +66,7 @@ async function openPipeline(): Promise<HTMLElement> {
   const { collectSections } = await import('../../src/renderer/settings/sections')
   const { PipelineEditor } = await import('../../src/renderer/settings/PipelineSection')
   const { openSettings } = await import('../../src/renderer/settings/settings-window')
-  const sections = collectSections({ './PipelineSection.tsx': { default: () => <PipelineEditor root="/work/demo" linkedMachine={null} />, order: 10, title: 'Pipeline' } })
+  const sections = collectSections({ './PipelineSection.tsx': { default: () => <PipelineEditor root="/work/demo" linkedMachine={null} />, order: 10, title: 'Pipeline', group: 'Workflow', icon: 'columns' } })
   render(<SettingsDialogView sections={sections} />)
   act(() => openSettings())
   await flush()

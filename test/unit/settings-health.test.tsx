@@ -59,7 +59,7 @@ const installed = (): FirstRunReport => report({ harness: { status: 'ok', detail
 const sections = () => {
   const health = settingsSections.find((each) => each.id === 'HealthSection')
   if (health === undefined) throw new Error('src/renderer/settings/HealthSection.tsx is not among the sections')
-  return [health, ...collectSections({ './OtherSection.tsx': { default: () => <p>Other body</p>, order: 99, title: 'Other' } })]
+  return [health, ...collectSections({ './OtherSection.tsx': { default: () => <p>Other body</p>, order: 99, title: 'Other', group: 'App', icon: 'sliders' } })]
 }
 
 function renderApp(options: { firstRun?: boolean } = {}) {

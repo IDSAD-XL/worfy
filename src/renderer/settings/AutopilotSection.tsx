@@ -18,9 +18,12 @@ import { autopilotBudgetOf, autopilotRunOf, START_WINDOW_SAME_HOURS, type AppSet
 import { Select, type SelectOption } from '../theme/Select'
 import { SettingRow, SettingSwitch } from './controls'
 import { setAppSettings, useAppSettings } from './useAppSettings'
+import type { SettingsGroup, SettingsIconName } from './sections'
 
 export const order = 68
 export const title = 'Autopilot'
+export const group: SettingsGroup = 'Workflow'
+export const icon: SettingsIconName = 'autopilot'
 
 export const MODE_LABEL = 'Default run mode'
 export const WINDOW_FROM_LABEL = 'Start window from'

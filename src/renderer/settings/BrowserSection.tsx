@@ -12,9 +12,12 @@ import { browserSleepOf, type BrowserSleep, type BrowserSleepChoice } from '../.
 import { Select, type SelectOption } from '../theme/Select'
 import { SettingRow } from './controls'
 import { setAppSettings, useAppSettings } from './useAppSettings'
+import type { SettingsGroup, SettingsIconName } from './sections'
 
 export const order = 67
 export const title = 'Browser'
+export const group: SettingsGroup = 'Workspace'
+export const icon: SettingsIconName = 'globe'
 
 export const MAX_LIVE_LABEL = 'Live browsers at once'
 export const OFFSCREEN_LABEL = 'Sleep when off screen after'

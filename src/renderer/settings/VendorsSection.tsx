@@ -14,9 +14,12 @@ import type { VendorConnection, VendorEntry } from '../../shared/ipc/vendors'
 import { vendorLabel } from '../../shared/vendors/vendor'
 import { invoke, readableReason } from '../ipc'
 import { VendorBadge } from '../session/VendorBadge'
+import type { SettingsGroup, SettingsIconName } from './sections'
 
 export const order = 58
 export const title = 'Vendors'
+export const group: SettingsGroup = 'Agents'
+export const icon: SettingsIconName = 'layers'
 
 const styles = {
   lead: { margin: '0 0 var(--space-3)', color: 'var(--text-secondary)', fontSize: 'var(--text-12)' },

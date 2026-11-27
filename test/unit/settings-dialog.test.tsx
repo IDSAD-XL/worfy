@@ -7,7 +7,7 @@ import { FocusMode } from '../../src/renderer/focus/FocusMode'
 import { buildPreset, type TileTree } from '../../src/renderer/focus/split-tree'
 import { SettingSwitch } from '../../src/renderer/settings/controls'
 import { SettingsDialogView } from '../../src/renderer/settings/SettingsDialog'
-import { collectSections } from '../../src/renderer/settings/sections'
+import { collectSections, groupSections } from '../../src/renderer/settings/sections'
 import { closeSettings, openSettings, useSettingsWindow } from '../../src/renderer/settings/settings-window'
 import { AppShell } from '../../src/renderer/shell/AppShell'
 import { pressTab } from './tab-key'
@@ -18,7 +18,7 @@ import { pressTab } from './tab-key'
 // which read the app's settings through the preload bridge.
 vi.mock('../../src/renderer/settings/sections', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/renderer/settings/sections')>()
-  return { ...actual, settingsSections: actual.collectSections({ './StubSection.tsx': { default: () => 'Stub body', order: 10, title: 'Stub' } }) }
+  return { ...actual, settingsSections: actual.collectSections({ './StubSection.tsx': { default: () => 'Stub body', order: 10, title: 'Stub', group: 'App', icon: 'sliders' } }) }
 })
 
 const section = (text: string) =>
@@ -28,8 +28,8 @@ const section = (text: string) =>
 
 const sections = () =>
   collectSections({
-    './AlphaSection.tsx': { default: section('Alpha body'), order: 20, title: 'Alpha' },
-    './BetaSection.tsx': { default: section('Beta body'), order: 10, title: 'Beta' },
+    './AlphaSection.tsx': { default: section('Alpha body'), order: 20, title: 'Alpha', group: 'App', icon: 'sliders' },
+    './BetaSection.tsx': { default: section('Beta body'), order: 10, title: 'Beta', group: 'App', icon: 'heart' },
   })
 
 const dialog = () => screen.getByRole('dialog', { name: 'Settings' })
@@ -66,10 +66,104 @@ describe('collectSections', () => {
   })
 
   it('a file without a title, an order or a component is an error that names the file', () => {
-    expect(() => collectSections({ './NoTitleSection.tsx': { default: section('x'), order: 1 } })).toThrow(/\.\/NoTitleSection\.tsx.*title/)
-    expect(() => collectSections({ './EmptyTitleSection.tsx': { default: section('x'), order: 1, title: '  ' } })).toThrow(/\.\/EmptyTitleSection\.tsx.*title/)
+    expect(() => collectSections({ './NoTitleSection.tsx': { default: section('x'), order: 1, group: 'App', icon: 'sliders' } })).toThrow(/\.\/NoTitleSection\.tsx.*title/)
+    expect(() => collectSections({ './EmptyTitleSection.tsx': { default: section('x'), order: 1, title: '  ', group: 'App', icon: 'sliders' } })).toThrow(/\.\/EmptyTitleSection\.tsx.*title/)
     expect(() => collectSections({ './NoOrderSection.tsx': { default: section('x'), title: 'No order' } })).toThrow(/\.\/NoOrderSection\.tsx.*order/)
     expect(() => collectSections({ './NoComponentSection.tsx': { order: 1, title: 'No component' } })).toThrow(/\.\/NoComponentSection\.tsx.*component/)
+  })
+
+  it('puts the sections in the order of their groups, and by `order` inside a group', () => {
+    const grouped = collectSections({
+      './LastSection.tsx': { default: section('x'), order: 1, title: 'Last', group: 'Workspace', icon: 'globe' },
+      './LaterSection.tsx': { default: section('x'), order: 20, title: 'Later', group: 'App', icon: 'heart' },
+      './FirstSection.tsx': { default: section('x'), order: 10, title: 'First', group: 'App', icon: 'sliders' },
+      './AgentSection.tsx': { default: section('x'), order: 5, title: 'Agent', group: 'Agents', icon: 'terminal' },
+      './FlowSection.tsx': { default: section('x'), order: 2, title: 'Flow', group: 'Workflow', icon: 'list' },
+    })
+    expect(grouped.map(({ title, group }) => [group, title])).toEqual([
+      ['App', 'First'],
+      ['App', 'Later'],
+      ['Agents', 'Agent'],
+      ['Workflow', 'Flow'],
+      ['Workspace', 'Last'],
+    ])
+    expect(groupSections(grouped).map(({ group, sections: inGroup }) => [group, inGroup.map(({ title }) => title)])).toEqual([
+      ['App', ['First', 'Later']],
+      ['Agents', ['Agent']],
+      ['Workflow', ['Flow']],
+      ['Workspace', ['Last']],
+    ])
+  })
+
+  it('a file without a known `group` or `icon` is an error that names the file', () => {
+    expect(() => collectSections({ './NoGroupSection.tsx': { default: section('x'), order: 1, title: 'No group', icon: 'sliders' } })).toThrow(/\.\/NoGroupSection\.tsx.*group/)
+    expect(() => collectSections({ './OddGroupSection.tsx': { default: section('x'), order: 1, title: 'Odd group', group: 'Misc', icon: 'sliders' } })).toThrow(/\.\/OddGroupSection\.tsx.*group/)
+    expect(() => collectSections({ './NoIconSection.tsx': { default: section('x'), order: 1, title: 'No icon', group: 'App' } })).toThrow(/\.\/NoIconSection\.tsx.*icon/)
+    expect(() => collectSections({ './OddIconSection.tsx': { default: section('x'), order: 1, title: 'Odd icon', group: 'App', icon: 'no-such-glyph' } })).toThrow(/\.\/OddIconSection\.tsx.*icon/)
+  })
+
+  it('the section files of the window fall into App, Agents, Workflow and Workspace', async () => {
+    const { settingsSections: real } = await vi.importActual<typeof import('../../src/renderer/settings/sections')>('../../src/renderer/settings/sections')
+    expect(groupSections(real).map(({ group, sections: inGroup }) => [group, inGroup.map(({ title }) => title)])).toEqual([
+      ['App', ['General', 'Health', 'Shortcuts', 'Machines']],
+      ['Agents', ['Terminal AI', 'Assistant', 'Vendors', 'Sessions']],
+      ['Workflow', ['Pull requests', 'Autopilot', 'Plan', 'Pipeline']],
+      ['Workspace', ['Integrations', 'Canvas', 'Browser']],
+    ])
+  })
+})
+
+describe('Settings window: groups and icons', () => {
+  const grouped = () =>
+    collectSections({
+      './OneSection.tsx': { default: section('One body'), order: 10, title: 'One', group: 'App', icon: 'sliders' },
+      './TwoSection.tsx': { default: section('Two body'), order: 20, title: 'Two', group: 'App', icon: 'heart' },
+      './ThreeSection.tsx': { default: section('Three body'), order: 5, title: 'Three', group: 'Agents', icon: 'terminal' },
+    })
+  const nav = () => screen.getByRole('navigation', { name: 'Settings sections' })
+
+  it('shows each group under its heading, in order, and an icon before each title', () => {
+    render(<SettingsDialogView sections={grouped()} />)
+    act(() => openSettings())
+    const groups = within(nav()).getAllByRole('group')
+    expect(groups.map((each) => each.getAttribute('aria-label') ?? document.getElementById(each.getAttribute('aria-labelledby') ?? '')?.textContent)).toEqual(['App', 'Agents'])
+    expect(within(groups[0]!).getAllByRole('button').map((row) => row.textContent)).toEqual(['One', 'Two'])
+    expect(within(groups[1]!).getAllByRole('button').map((row) => row.textContent)).toEqual(['Three'])
+    for (const row of rows()) {
+      const icon = row.querySelector('.w-row__icon svg')
+      expect(icon, row.textContent ?? '').not.toBeNull()
+      expect(icon?.getAttribute('width')).toBe('16')
+    }
+  })
+
+  it('a group heading is a label, not a control: no button, no focus, and the arrows step over it', () => {
+    render(<SettingsDialogView sections={grouped()} />)
+    act(() => openSettings())
+    const heading = within(nav()).getByText('Agents')
+    expect(heading.closest('button')).toBeNull()
+    expect(heading.tabIndex).toBe(-1)
+    expect(heading.hasAttribute('tabindex')).toBe(false)
+    heading.focus()
+    expect(document.activeElement).not.toBe(heading)
+    // Only the rows are buttons of the list.
+    expect(rows().map((row) => row.textContent)).toEqual(['One', 'Two', 'Three'])
+    // From the last row of App, ↓ goes to the first row of Agents.
+    fireEvent.click(rows()[1]!)
+    rows()[1]!.focus()
+    fireEvent.keyDown(rows()[1]!, { key: 'ArrowDown' })
+    expect(shownTitle()).toBe('Three')
+    expect(document.activeElement).toBe(rows()[2])
+    fireEvent.keyDown(rows()[2]!, { key: 'ArrowUp' })
+    expect(shownTitle()).toBe('Two')
+    expect(document.activeElement).toBe(rows()[1])
+  })
+
+  it('openSettings(id) selects a section of a later group', () => {
+    render(<SettingsDialogView sections={grouped()} />)
+    act(() => openSettings('ThreeSection'))
+    expect(shownTitle()).toBe('Three')
+    expect(rows()[2]?.getAttribute('aria-current')).toBe('true')
+    expect(document.activeElement).toBe(rows()[2])
   })
 })
 
@@ -284,7 +378,7 @@ describe('Settings window: modal', () => {
         </button>
       )
     }
-    render(<SettingsDialogView sections={collectSections({ './TakerSection.tsx': { default: Taker, order: 1, title: 'Taker' } })} />)
+    render(<SettingsDialogView sections={collectSections({ './TakerSection.tsx': { default: Taker, order: 1, title: 'Taker', group: 'App', icon: 'sliders' } })} />)
     act(() => openSettings())
     const taker = screen.getByRole('button', { name: 'takes Esc' })
     taker.focus()

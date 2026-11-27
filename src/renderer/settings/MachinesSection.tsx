@@ -21,9 +21,12 @@ import { useLinked } from '../projects/useProjects'
 import { Select, type SelectOption } from '../theme/Select'
 import { machineAccessLines, setKeepAwake, setMachineAccess, setProjectsAccess, setTailscale, useMachines } from '../machines/useMachines'
 import { SettingRow, SettingSwitch } from './controls'
+import type { SettingsGroup, SettingsIconName } from './sections'
 
 export const order = 40
 export const title = 'Machines'
+export const group: SettingsGroup = 'App'
+export const icon: SettingsIconName = 'monitor'
 
 const ACCESS_LABEL = 'Linked machines can work with my Projects'
 const KEEP_AWAKE_LABEL = 'Keep this computer awake while linked machines are connected'

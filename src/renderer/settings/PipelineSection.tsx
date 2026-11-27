@@ -26,9 +26,12 @@ import { usePipeline } from '../pipeline/usePipeline'
 import { activeProject, useProjects } from '../projects/useProjects'
 import { HarnessStatus } from '../shell/toolbar/HarnessStatus'
 import { Select, type SelectOption } from '../theme/Select'
+import type { SettingsGroup, SettingsIconName } from './sections'
 
 export const order = 70
 export const title = 'Pipeline'
+export const group: SettingsGroup = 'Workflow'
+export const icon: SettingsIconName = 'columns'
 
 /** The line under Save: a change is never blocked, every Stage is computed again. */
 export const RECOMPUTE_NOTE = 'The Stage of every Ticket will be computed again.'

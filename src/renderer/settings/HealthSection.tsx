@@ -7,9 +7,12 @@
 import type { CSSProperties } from 'react'
 import { FirstRunChecks } from '../shell/FirstRunChecks'
 import { closeSettings } from './settings-window'
+import type { SettingsGroup, SettingsIconName } from './sections'
 
 export const order = 20
 export const title = 'Health'
+export const group: SettingsGroup = 'App'
+export const icon: SettingsIconName = 'heart'
 
 const styles = {
   // Stays in sight while the rows scroll: the result of an action pressed far down shows here.

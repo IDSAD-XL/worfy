@@ -55,7 +55,7 @@ async function renderPage() {
   const { SettingsDialogView } = await import('../../src/renderer/settings/SettingsDialog')
   const { collectSections } = await import('../../src/renderer/settings/sections')
   const settings = await import('../../src/renderer/settings/settings-window')
-  const sections = collectSections({ './StubSection.tsx': { default: () => <button type="button">Stub control</button>, order: 10, title: 'Stub' } })
+  const sections = collectSections({ './StubSection.tsx': { default: () => <button type="button">Stub control</button>, order: 10, title: 'Stub', group: 'App', icon: 'sliders' } })
   render(
     <>
       <button type="button">opener</button>
