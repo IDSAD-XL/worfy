@@ -256,3 +256,43 @@ implementer-а.
 4. Harness не установлен, и человек нажал Install. Почему chip в это время без красной точки?
    - Ответ: пока идёт install (`busy`), правило точки получает вместо статуса `undefined`, а без статуса красной точки Install нет.
    - Строки: `src/renderer/shell/footer/VersionChip.tsx:83-84`
+
+## 11. Что нашёл review и что осталось
+
+> VERIFIED — worfy-layout 03 (a ~28 px footer across the window with the version chip on the right: a dot none/amber/red by the ticket's rule, a popover with the app version and Update/Restart, the Harness line and its buttons, the Codex line and memory, closed by Esc or a click outside; the Harness column leaves the header; memory is measured only while the popover is open; Settings → Pipeline no longer shows the app version), head 84bc66b1c72446696b65e1f02d9487bd01c32ea5
+>
+> Gate (depth medium, two rounds):
+> - Round 1, reviewer (lens: correctness, the implementer's report, spec conformance) — REJECTED on bc8786098:
+>   - med: four user-visible messages sent the user to the removed toolbar Harness item (PlanSection.tsx:26, ProjectSettings.tsx:544, eco-mode.ts:111, migrate/plan.ts:541-542);
+>   - low: docs/features/autopilot.md:172; no test for the busy rule at VersionChip.tsx:84 (mutant survived); stale code comments.
+>   - Checked fine: version-dot.ts:26-41 matches the ticket, 8 of 8 rule mutants die; the Codex hooks step still opens with the popover closed; memory row unmounts and main stops its timer at zero listeners (diagnostics/memory.ts:69-77); focus mode marks only .w-shell__main inert, the footer stays live; no e2e spec still looks for harness-column, app-line, update-chip-menu or «Later», every harness test id comes after openVersionPopover; Settings → General still shows the version.
+> - Rework (fresh implementer): rebased onto ca79ca19e (range-diff: no content change), the four messages name the version chip in the footer and are pinned whole; autopilot.md fixed; busy-rule test; comments rewritten; 6 mutants each fail their test.
+> - Round 2, reviewer (rework diff) — REJECTED on the Guide harness topic texts («on the toolbar», en.json/ru.json :4,:42,:58), then withdrawn after the orchestrator's reason: ticket 07 of this epic (issues/07:19-20, :28-29) names exactly the Guide texts about the toolbar and the docs/features and ru pages; round 1 had put them out of this ticket. Final round-2 verdict VERIFIED.
+>   - Noted (debt for ticket 07): Guide harness topic en/ru; stale «toolbar» comments in src/main/ipc/harness.ts:19,97, codex-install.ts:28,50,403, update/harness-after-update.ts:4,27,87,99, vendors/codex/harness-hooks.ts:7, shared/memory.ts:2,57; docs/features/vendors.md:121-123 and the ru feature pages.
+> Evidence: round 1 — 22 files (504 tests) exit 0, gate fast green; rework — pnpm lint/typecheck/test exit 0 (21578), gate fast green, story-check exit 0; round 2 — 7 files (223 tests) exit 0, story-check exit 0.
+> Not verified: e2e (15 changed specs and the new footer.spec.ts) and screenshots in both themes — no Electron locally (owner rule), CI runs e2e.
+> Owner to confirm: Harness/Codex buttons as icon buttons; no app version in Settings → Pipeline; dot colours --health-critical/--health-warning; chip tooltip «worfy v<N> — <reason>»; a spinner instead of the dot while a build runs, version only at ≤1100 px; the popover closes after an app-line action; a click on the chip closes What's new.
+> Red CI on 4c5b6db0e (run 45952481526): five e2e tests red on both attempts — focus-sidebar:486, layers-popover:399 (macOS and Windows), product-session:268 (macOS), toolbar:97 (Windows), and done-stack:109 (Windows, a flaky test: failed once, passed on retry; Playwright marked it flaky).
+> - Rework round (fresh implementer), 5504d4100 + evidence commit: four specs follow the footer's geometry, the app unchanged — the focus layer ends at the footer's top and the footer spans the width under it (focus-sidebar:504-507, stricter than before); popover room measured to the footer's top (layers-popover:410-415,:430); the Mind map test window 1440×928 so the map keeps its old height (product-session:268-273,:279,:424); the path subtitle at 1280 px needs only the truncation rule (toolbar:166-181), the name check unchanged.
+> - Review of the rework (lens: test integrity) — VERIFIED: no guard weakened; [low] debt: at 1440×900 the Mind map card now covers its node by a few pixels (cardPlace clamp, mind-map-layout.ts:836-854, by design) — a cardPlace unit case would pin it.
+> CI on 84bc66b1c (run 45957417595): success, every macOS and Windows e2e job green.
+
+Code: `docs/features/autopilot.md:172-172` · key lines: 172
+
+```md
+  Codex line of the version chip's popover in the footer says "Codex: approve hooks", the chip has an amber dot, and a
+```
+
+Code: `src/main/ipc/harness.ts:19-19` · key lines: 19
+
+```ts
+// After an install or update in Codex the toolbar shows the step "Approve the Harness hooks in Codex"
+```
+
+Code: `docs/features/vendors.md:121-123` · key lines: 121
+
+```md
+**The Harness in Codex.** The one installer of the Harness, the toolbar's and First run's, also installs it into Codex
+as a Codex plugin, and writes its three agents `worfy-implementer`, `worfy-reviewer` and `worfy-scout` into Codex's agents
+folder. Codex keeps the hooks of a new or updated plugin off until the user approves them in `/hooks`, and the toolbar
+```
