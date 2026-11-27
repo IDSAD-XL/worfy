@@ -59,6 +59,8 @@ spec.md, раздел «Решения по реализации», «Drag»; «
 - [ ] Drag Runs из footer в header между Canvas и Session ставит его туда (`view-buttons.spec.ts`); пока он идёт, три
       зоны подсвечены и маркер виден; `dragEnd` без drop ничего не меняет.
   - evidence: test-run pass · `pnpm test` exit 0 (test/unit/view-zones.test.tsx: drag across zones, within a zone, dragEnd without drop) · mac - · 5b55335ffee7bf7c75ae293a04535f624da88965
+  - evidence: test-run pass · `pnpm test` exit 0 (view-zones: drag of the inactive Runs, aria-disabled) · mac - · a0b9ae54a0b8137e4f1b4ae603c3df224f322d28
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 5b55335ffee7bf7c75ae293a04535f624da88965
   - evidence: gate pass · `gate fast` exit 0 · mac - · 5b55335ffee7bf7c75ae293a04535f624da88965
+  - evidence: gate pass · `gate fast` exit 0 · mac - · a0b9ae54a0b8137e4f1b4ae603c3df224f322d28
