@@ -12,34 +12,30 @@ drag мышью: между зонами и внутри зоны, с подсв
 
 ## 2. Drag живёт в модуле окна
 
-Code: `src/renderer/shell/ViewZone.tsx:108-128` · key lines: 109, 117, 121, 126, 127
+Code: `src/renderer/shell/ViewZone.tsx:109-124` · key lines: 110, 118, 122, 123
 
 ```tsx
 /** The type of the drag's data: the id of the View button. */
 const DRAG_TYPE = 'application/x-worfy-view-button'
 
-/** The drag of a View button in this window: which one, and the gap of the zone the pointer is over. */
+/** The drag of a View button in this window: which one, the button it began on, and the gap of the zone the pointer is over. */
 interface ViewDrag {
   id: ViewButtonId
+  source: HTMLElement
   over: { zone: Zone; gap: number } | null
 }
 
 const useViewDrag = create<{ drag: ViewDrag | null }>(() => ({ drag: null }))
 
 function startDrag(id: ViewButtonId, source: HTMLElement): void {
-  useViewDrag.setState({ drag: { id, over: null } })
+  useViewDrag.setState({ drag: { id, source, over: null } })
   source.closest('.w-shell')?.setAttribute('data-view-drag', id)
-}
-
-/** Ends the drag, dropped or not: the zones go out and the header is the window's drag area again (shell.css). */
-function endDrag(): void {
-  if (useViewDrag.getState().drag !== null) useViewDrag.setState({ drag: null })
-  for (const shell of document.querySelectorAll('[data-view-drag]')) shell.removeAttribute('data-view-drag')
 }
 ```
 
-- Что делает: одна zustand-store на окно хранит, какую кнопку тянут и над каким промежутком какой зоны курсор.
-  `dragstart` кнопки кладёт id в store и ставит `data-view-drag` на `.w-shell`; `dragend` и drop снимают и то, и другое.
+- Что делает: одна zustand-store на окно хранит, какую кнопку тянут, с какой кнопки drag начался и над каким
+  промежутком какой зоны курсор. `dragstart` кнопки кладёт это в store и ставит `data-view-drag` на `.w-shell`; `endDrag`
+  (`ViewZone.tsx:146-149`) по `dragend` и drop снимает и то, и другое.
 - Почему здесь: Ticket называет `ViewZone.tsx` в «Где в коде». Spec: «Drop принимается только в окне, где drag начался
   (id лежит в модуле окна)». Три зоны рисуют разные компоненты (Toolbar, Sidebar, Footer), поэтому состояние общее, а не
   у одной зоны. Атрибут ставится на DOM напрямую: `AppShell.tsx`, где рисуется `.w-shell`, не в «Где в коде».
@@ -52,7 +48,7 @@ function endDrag(): void {
 
 ## 3. Промежуток — по середине кнопки, как gapAt
 
-Code: `src/renderer/shell/ViewZone.tsx:137-150` · key lines: 143, 144, 147, 149
+Code: `src/renderer/shell/ViewZone.tsx:158-171` · key lines: 164, 165, 168, 170
 
 ```tsx
 /**
@@ -73,21 +69,26 @@ function gapAt(group: HTMLElement, zone: Zone, event: DragEvent<HTMLElement>): n
 
 - Что делает: промежуток — номер первой кнопки зоны, середина которой дальше курсора; по x в header и footer, по y на
   rail. Курсор за всеми кнопками — конец зоны. Считаются только кнопки с `data-zone` этой зоны.
-- Почему здесь: spec, «Drag»: «Промежуток считается по середине кнопки, как `gapAt`». Фильтр по `data-zone` — решение
-  владельца A: пока sidebar спрятан, кнопки rail в конце header не зона для drop.
-- Без него: маркер и место drop расходились бы, а курсор над кнопками rail в header ставил бы кнопку в rail.
+- Почему здесь: spec, «Drag»: «Промежуток считается по середине кнопки, как `gapAt`». Фильтр по `data-zone`: пока sidebar
+  спрятан, кнопки rail в конце header — не кнопки header; drop над ними отказывает `overGuests` (шаг 12).
+- Без него: маркер и место drop расходились бы.
 - Требование: [Решения](../issues/06-drag.md#решения)
 - Риски и пробелы test-ов: jsdom ничего не раскладывает, unit-test-ы задают коробки кнопок подменой
   `getBoundingClientRect`. Настоящую раскладку проверяет только e2e.
 
 ## 4. Зона: dragover, dragleave, drop
 
-Code: `src/renderer/shell/ViewZone.tsx:202-225` · key lines: 204, 205, 212, 213, 220, 221, 223, 224
+Code: `src/renderer/shell/ViewZone.tsx:230-258` · key lines: 233, 234, 238, 245, 246, 251, 253, 256, 257
 
 ```tsx
-  // A zone takes only a drag that began in this window: the drag of this module.
+  // A zone takes only a drag that began in this window, the drag of this module, and not over the rail's buttons drawn
+  // at the end of the header: there no `preventDefault`, so the drop is refused, as outside a zone.
   const onDragOver = (event: DragEvent<HTMLDivElement>) => {
-    if (useViewDrag.getState().drag === null) return
+    if (dragOf(event) === null) return
+    if (overGuests(event.currentTarget, zone, event)) {
+      overGap(null)
+      return
+    }
     event.preventDefault()
     if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
     overGap({ zone, gap: gapAt(event.currentTarget, zone, event) })
@@ -100,8 +101,8 @@ Code: `src/renderer/shell/ViewZone.tsx:202-225` · key lines: 204, 205, 212, 213
   }
   // The gap is counted on the layout drawn, as the marker is; the button goes there among the others of the zone.
   const onDrop = (event: DragEvent<HTMLDivElement>) => {
-    const dragged = useViewDrag.getState().drag
-    if (dragged === null) return
+    const dragged = dragOf(event)
+    if (dragged === null || overGuests(event.currentTarget, zone, event)) return
     event.preventDefault()
     const at = gapAt(event.currentTarget, zone, event)
     endDrag()
@@ -111,8 +112,9 @@ Code: `src/renderer/shell/ViewZone.tsx:202-225` · key lines: 204, 205, 212, 213
   }
 ```
 
-- Что делает: зона разрешает drop (`preventDefault` в `dragover`) только при drag-е из store этого окна и запоминает
-  промежуток под курсором. `dragleave` гасит маркер, только когда точка вышла из коробки зоны. Drop переводит промежуток в
+- Что делает: зона разрешает drop (`preventDefault` в `dragover`) только при drag-е из store этого окна с типом данных
+  View button и не над кнопками rail в конце header (`dragOf`, `overGuests`, шаг 12), и запоминает промежуток под
+  курсором. `dragleave` гасит маркер, только когда точка вышла из коробки зоны. Drop переводит промежуток в
   место среди остальных кнопок зоны (кнопка, которую тянут вправо внутри своей зоны, освобождает своё место, отсюда
   `at - 1`) и шлёт один `setAppSettings` через `place`; drop на своё же место ничего не шлёт.
 - Почему здесь: spec, «Drag»: «Drop — `moveToZone` или `moveWithin` и один `setAppSettings({ viewButtons })`».
@@ -126,7 +128,7 @@ Code: `src/renderer/shell/ViewZone.tsx:202-225` · key lines: 204, 205, 212, 213
 
 ## 5. Подсветка, маркер и «Drop here»
 
-Code: `src/renderer/shell/ViewZone.tsx:296-302` · key lines: 297, 298, 299
+Code: `src/renderer/shell/ViewZone.tsx:329-335` · key lines: 330, 331, 332
 
 ```tsx
         {own.map(button(zone))}
@@ -139,8 +141,8 @@ Code: `src/renderer/shell/ViewZone.tsx:296-302` · key lines: 297, 298, 299
 ```
 
 - Что делает: пустая зона во время drag рисует место размером с кнопку «Drop here»; без drag пустая зона по-прежнему не
-  рисует ничего (`ViewZone.tsx:193`). Сама зона во время drag несёт `data-drop-zone="on"`, под курсором `"over"`
-  (`ViewZone.tsx:283`), а кнопка у промежутка — `data-drop-marker="before"` или `"after"` (`ViewZone.tsx:261`). Черту
+  рисует ничего (`ViewZone.tsx:221`). Сама зона во время drag несёт `data-drop-zone="on"`, под курсором `"over"`
+  (`ViewZone.tsx:316`), а кнопка у промежутка — `data-drop-marker="before"` или `"after"` (`ViewZone.tsx:294`). Черту
   маркера рисует `::after` в `shell.css`: она не занимает места, и кнопки под курсором не сдвигаются.
 - Почему здесь: spec, «Набросок функции», «Во время drag» и абзац про пустую зону.
 - Без него: в пустую зону нельзя было бы бросить кнопку — у неё нет ни одного элемента, над которым идёт `dragover`.
@@ -196,7 +198,7 @@ Code: `src/renderer/shell/ViewButton.tsx:98-101` · key lines: 101
 
 ## 8. Долг review Ticket-а 05: два ⌥→ до ответа main
 
-Code: `src/renderer/shell/ViewZone.tsx:86-106` · key lines: 91, 94, 99, 101
+Code: `src/renderer/shell/ViewZone.tsx:87-107` · key lines: 92, 95, 100, 102
 
 ```tsx
 /**
@@ -233,24 +235,29 @@ function place(next: ViewButtons | null, id: ViewButtonId): void {
 
 ## 9. Долг review Ticket-а 05: «Not saved» после сброса из другого окна
 
-Code: `src/renderer/settings/GeneralSection.tsx:175-181` · key lines: 176, 180, 181
+Code: `src/renderer/settings/GeneralSection.tsx:175-183` · key lines: 176, 181, 183
 
 ```tsx
 function ViewButtonsRow() {
   const layout = useAppSettings((settings) => settings.viewButtons)
   const moved = layout !== undefined && !isDefault(layout)
   // The reason main refused, with the layout it refused to reset: once the layout changes (another window reset or moved
-  // it), the reason is of a layout no longer there, and it goes.
+  // it), the reason is of a layout no longer there, and it goes. Compared by its buttons: every change of the settings,
+  // of another setting too, brings the layout in a new object.
   const [refused, setRefused] = useState<{ problem: string; layout: typeof layout }>()
-  const problem = refused !== undefined && refused.layout === layout ? refused.problem : undefined
+  const problem =
+    refused !== undefined && sameViewButtons(refused.layout ?? DEFAULT_VIEW_BUTTONS, layout ?? DEFAULT_VIEW_BUTTONS) ? refused.problem : undefined
 ```
 
 - Что делает: причина отказа main хранится вместе с расстановкой, которую не удалось сбросить, и показывается, только
-  пока расстановка та же. Любая смена (сброс или перенос из другого окна) убирает «Not saved».
-- Почему здесь: бриф называет этот долг review Ticket-а 05 (`GeneralSection.tsx:177,195`).
-- Без него: «Not saved: …» оставался под строкой, когда расстановка уже стала по умолчанию.
+  пока расстановка та же по кнопкам. Сброс или перенос из другого окна убирает «Not saved»; смена другой настройки — нет.
+- Почему здесь: бриф называет этот долг review Ticket-а 05 (`GeneralSection.tsx:177,195`). Сравнение `sameViewButtons`
+  вместо ссылки — находка review раунда 1: `acceptAppSettings` приносит новый объект `viewButtons` при каждом
+  `appSettings.changed`.
+- Без него: «Not saved: …» оставался под строкой, когда расстановка уже стала по умолчанию, или пропадал от смены другой
+  настройки.
 - Требование: не записано
-- Риски и пробелы test-ов: это долг review, не пункт «Готово, когда». Сравнение по ссылке на объект: store настроек заменяет объект при каждом принятом изменении.
+- Риски и пробелы test-ов: это долг review, не пункт «Готово, когда».
 
 ## 10. Что сознательно не меняли
 
@@ -270,18 +277,60 @@ footer над левой половиной Session, в середине drag �
 локально не запускали (правило владельца), его проверит CI; первый run (46003066639) упал на Windows: drag
 неактивной Runs не начался — исправлено шагом 7.
 
+## 12. Review, раунд 1: drop над кнопками rail в header и зависший drag
+
+Code: `src/renderer/shell/ViewZone.tsx:126-143` · key lines: 132, 140, 141, 142
+
+```tsx
+/**
+ * The drag of this window a drag event over a zone is part of, or `null`: none goes, or the event carries no View button
+ * (a file from Finder, a drag of another window). The data itself is read only on drop; its type is seen all along.
+ */
+function dragOf(event: DragEvent<HTMLElement>): ViewDrag | null {
+  const { drag } = useViewDrag.getState()
+  return drag !== null && event.dataTransfer?.types?.includes(DRAG_TYPE) === true ? drag : null
+}
+
+/**
+ * Whether the pointer is past the header's own buttons, over the line and the rail's buttons drawn after it while the
+ * sidebar is hidden: no drop place (owner's decision A).
+ */
+function overGuests(group: HTMLElement, zone: Zone, event: DragEvent<HTMLElement>): boolean {
+  if (zone !== 'header') return false
+  const first = group.querySelector<HTMLElement>(`.w-view-zone__line, [data-view-button]:not([data-zone="${zone}"])`)
+  return first !== null && event.clientX >= first.getBoundingClientRect().left
+}
+```
+
+- Что делает: `dragOf` отдаёт drag окна только для события, в данных которого есть тип View button. `overGuests` говорит,
+  что курсор за собственными кнопками header — над чертой и кнопками rail, нарисованными после неё. Над ними `dragover`
+  не зовёт `preventDefault`, и drop отказан, как вне зоны. Отдельный `useLayoutEffect` без зависимостей
+  (`ViewZone.tsx:210-215`) кончает drag, чья кнопка пропала из DOM.
+- Почему здесь: находки review раунда 1. Spec (решение владельца A): кнопки rail в header — «не зона для drop»; первый
+  раунд ставил кнопку в конец header, и Acceptance, брошенная на саму себя, уходила из rail в header. `DRAG_TYPE`
+  писался, но не читался: при зависшем drag-е файл из Finder, брошенный на зону, двигал старую кнопку. Кнопка, которую
+  другое окно перенесло в другую зону, перемонтируется, и `dragend` старого элемента не приходит.
+- Без него: drop над кнопками rail в header менял расстановку; после чужого переноса зоны оставались подсвечены, а любой
+  drop двигал кнопку, которую уже никто не тянул.
+- Требование: [Решения](../issues/06-drag.md#решения)
+- Риски и пробелы test-ов: граница — левый край черты (или первой кнопки rail, если своих кнопок нет); jsdom её не
+  раскладывает, unit-test задаёт коробки. Что Playwright в e2e передаёт тип данных в `types`, проверено на собранном
+  renderer-е в headless Chromium (не Electron); в Electron это покажет CI. Мутанты в своём tree: без поправки `at - 1`,
+  без `overGuests`, без проверки типа, без проверки `isConnected`, сравнение «Not saved» по ссылке — каждый краснит
+  свой unit-test.
+
 ## Проверить себя
 
 1. Canvas стоит первой в header из двух кнопок. Её тянут и отпускают над правой половиной Session. Какое место
    получит `moveToZone`, и почему не 2?
    - Ответ: промежуток 2 (после Session), но Canvas сама стоит раньше него в этой же зоне, и место среди остающихся
      кнопок на одно меньше — 1. Header станет Session, Canvas.
-   - Строки: `src/renderer/shell/ViewZone.tsx:220-224`
+   - Строки: `src/renderer/shell/ViewZone.tsx:252-257`
 2. Почему зона в другом окне не примет drag кнопки из этого окна, хотя тип данных тот же?
-   - Ответ: `dragover` разрешает drop только при drag-е в store своего модуля, а store у каждого окна свой; без
-     `preventDefault` drop не приходит.
-   - Строки: `src/renderer/shell/ViewZone.tsx:203-205`
-3. Sidebar спрятан, кнопку тянут и отпускают над Acceptance в конце header. Куда она встанет?
-   - Ответ: в конец собственных кнопок header: `gapAt` считает только кнопки с `data-zone="header"`, а кнопки rail в
-     header — не зона для drop.
-   - Строки: `src/renderer/shell/ViewZone.tsx:142-150`
+   - Ответ: `dragOf` отдаёт drag только из store своего модуля, а store у каждого окна свой; без `preventDefault` drop не
+     приходит.
+   - Строки: `src/renderer/shell/ViewZone.tsx:130-133`
+3. Sidebar спрятан, Acceptance тянут из конца header и отпускают на ней самой. Что изменится?
+   - Ответ: ничего: курсор за чертой, `overGuests` истинно, `dragover` не разрешает drop, и drag кончается, как после
+     Esc. Кнопка остаётся на rail.
+   - Строки: `src/renderer/shell/ViewZone.tsx:232-241`
