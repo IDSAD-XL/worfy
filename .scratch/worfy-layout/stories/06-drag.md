@@ -334,3 +334,31 @@ function overGuests(group: HTMLElement, zone: Zone, event: DragEvent<HTMLElement
    - Ответ: ничего: курсор за чертой, `overGuests` истинно, `dragover` не разрешает drop, и drag кончается, как после
      Esc. Кнопка остаётся на rail.
    - Строки: `src/renderer/shell/ViewZone.tsx:232-241`
+
+## 13. Что нашёл review и что осталось
+
+> VERIFIED — worfy-layout 06 (drag a view button between and within header, rail and footer: zones highlighted and a drop marker while dragging, «Drop here» in an empty zone, dragEnd without drop changes nothing, the drop goes through the same moveToZone as the menu; with the sidebar hidden the rail buttons drawn at the end of the header are no drop zone; inactive view buttons are aria-disabled so they can be dragged; the two 05 debts closed: two ⌥→ before main answers move two places, «Not saved» clears when the layout changes), head fcee9bdb9977eb7aa8e15219923962bf848e60b3
+>
+> Gate (depth medium, two rounds): worfy:reviewer, lens correctness.
+> Round 1 (6475186c9) REJECTED: [med] ViewZone.tsx:203-224 — with the sidebar hidden the header accepted a drop over the rail buttons after the divider (spec.md:244 «Эти кнопки — не зона для drop»): a rail button dropped on itself moved into the header. [low] drag state stuck when the source button unmounts mid-drag; DRAG_TYPE never read (a Finder file could move a stale button). [low] GeneralSection «Not saved» compared by reference. [low] index correction of a within-zone drag unpinned (two-button test). Clean otherwise: aria-disabled buttons open nothing on click/Enter/Space (openView needs a Project), ToggleGroup arrows only move focus; 1297 shell unit tests EXIT=0.
+> Round 2 (fcee9bdb9, rebased on main) VERIFIED: all four closed — overGuests (ViewZone.tsx:139-143) refuses the drop there; dragOf checks dataTransfer.types; a drag whose source left the DOM ends (:212-215), no false end of a live drag found (badge, in-zone move and «Drop here» keep the node); sameViewButtons in GeneralSection; three-button case view-zones.test.tsx:613-624. 6 of 6 mutants red. 11 shell/settings files 278/278 EXIT=0, lint EXIT=0, typecheck EXIT=0, story-check EXIT=0; implementer gate fast green. CI run 46020874317 green on the head, the drag e2e case view-buttons.spec.ts:237 passed on macos-e2e and windows-e2e.
+> Consider: none
+> Noted: [low] test/unit/view-zones.test.tsx:79-87 — afterEach resets no drag state; the app's unmount effect covers a leftover drag. A rail button whose inactive state flips mid-drag is re-created (ViewButton.tsx:121) and the drag is cancelled — harmless.
+> Dismissed: none
+> Not verified: Esc during a real OS mouse drag and a drop at the header edge under -webkit-app-region — manual item of ticket 08.
+> Review depth: medium — owner rule
+> Review tokens: 101796 + 78330
+
+Code: `test/unit/view-zones.test.tsx:79-87` · key lines: 79
+
+```tsx
+afterEach(() => {
+  cleanup()
+  act(() => setFocusActive(false))
+  readyCount.value = 0
+  prCounts.value = []
+  tickets.value = []
+  openRunHistory.mockClear()
+  patches.length = 0
+})
+```
