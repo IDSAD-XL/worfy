@@ -105,11 +105,12 @@ describe('scripts/e2e-shard.mjs', () => {
     expect(shardsOf(2, root).flat()).not.toContain('test/e2e/gone.spec.ts')
   })
 
-  it('splits the two shards of the current table to within 10 % of the total', () => {
-    const shards = splitShards(listSpecs(REPO), readTimings(REPO), 2)
-    const total = shards.reduce((sum, shard) => sum + shard.seconds, 0)
-    const [one, two] = shards.map((shard) => shard.seconds)
-    expect(Math.abs((one ?? 0) - (two ?? 0))).toBeLessThan(total * 0.1)
+  it('splits the three shards of the current table to within 10 % of a shard', () => {
+    // macos-e2e runs 3 shards (E2E_SHARDS of scripts/ci-scope.mjs, worfy-polish ticket 168).
+    const shards = splitShards(listSpecs(REPO), readTimings(REPO), 3)
+    const seconds = shards.map((shard) => shard.seconds)
+    const total = seconds.reduce((sum, value) => sum + value, 0)
+    expect(Math.max(...seconds) - Math.min(...seconds)).toBeLessThan((total / 3) * 0.1)
   })
 
   it('splits only the spec files given after <i>/<n>, not every file', () => {
@@ -120,8 +121,8 @@ describe('scripts/e2e-shard.mjs', () => {
     expect(two.code, two.err).toBe(0)
     const given = [...one.out.split('\n'), ...two.out.split('\n')].filter((line) => line !== '').sort()
     expect(given).toEqual(['test/e2e/agent.spec.ts', 'test/e2e/browser.spec.ts', 'test/e2e/terminal.spec.ts'])
-    // browser 53.4 s alone; terminal 47.3 s and agent 10.9 s together.
-    expect(one.out).toBe('test/e2e/browser.spec.ts\n')
+    // terminal 60.1 s alone; browser 57.8 s and agent 3.1 s together.
+    expect(one.out).toBe('test/e2e/terminal.spec.ts\n')
     expect(one.err).toMatch(/1 of 3 spec files/)
   })
 

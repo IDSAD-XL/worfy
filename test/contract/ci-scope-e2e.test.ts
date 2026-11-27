@@ -339,7 +339,7 @@ describe('scripts/e2e-specs.table.json of this repository', () => {
       expect(e2eShard([shard], { out: (text) => listed.push(...text.split('\n').filter((line) => line !== '')), err: () => {} }), shard).toBe(0)
     }
     expect(listed.sort()).toEqual(specs)
-    expect(E2E_SHARDS).toEqual({ 'macos-e2e': 2, 'windows-e2e': 4 })
+    expect(E2E_SHARDS).toEqual({ 'macos-e2e': 3, 'windows-e2e': 4 })
   })
 })
 
@@ -386,7 +386,7 @@ describe('scripts/ci-scope.mjs: the outputs e2e-files, macos-e2e-shards and wind
     }
   }
 
-  const FULL = { files: '', macos: ['1/2', '2/2'], windows: ['1/4', '2/4', '3/4', '4/4'] }
+  const FULL = { files: '', macos: ['1/3', '2/3', '3/3'], windows:['1/4', '2/4', '3/4', '4/4'] }
   /** A quarantine entry (test/quarantine/<id>.json) of an e2e test of `file`. */
   const entry = (file: string): string => `${JSON.stringify({ runner: 'playwright', file, test: 'x', platforms: ['win32'], reason: 'r', owner: 'o', since: '2026-10-29', until: '2026-11-12' })}\n`
 
@@ -441,12 +441,12 @@ describe('scripts/ci-scope.mjs: the outputs e2e-files, macos-e2e-shards and wind
   })
 
   it('a pull request with more mapped time gets more shards, never more than a full run', () => {
-    // b and c: 60 of 100 s. macOS: 2 shards of 50 s → 2; Windows: 4 of 25 s → 3, but only 2 files.
+    // a, b and c: 70 of 100 s. macOS: 3 shards of 33 s → 3, a full run; Windows: 4 of 25 s → 3.
     commitOnBase(['harness/skills/epic-wave/SKILL.md', 'test/e2e/a.spec.ts'])
     const result = scope({ EVENT: 'pull_request', BASE: base })
     expect(result.status, result.stderr).toBe(0)
     expect(result.files).toBe('test/e2e/a.spec.ts test/e2e/b.spec.ts test/e2e/c.spec.ts')
-    expect(result.macos).toEqual(['1/2', '2/2'])
+    expect(result.macos).toEqual(['1/3', '2/3', '3/3'])
     expect(result.windows).toEqual(['1/3', '2/3', '3/3'])
   })
 
