@@ -2,6 +2,7 @@
 
 Type: task
 Status: claimed 2026-11-27T09:24Z
+PR: #2322
 Branch: worfy-layout/05
 Blocked by: 04
 Source: [spec.md](../spec.md), «Ticket-ы», 05; «Решения по реализации» («Меню View button», «Клавиши», «Settings → General», «Sidebar спрятан»); «Решения по test-ам», Seam 3 и Seam 4; решения владельца Q3, Q6; «Волны», Wave 3
