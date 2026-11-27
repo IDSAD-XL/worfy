@@ -473,7 +473,7 @@ describe('the Chat tab with a scroll that returns a value (worfy-polish ticket 1
   const message = (id: string) => ({ id, at: NOW, who: 'assistant' as const, text: `Message ${id}`, state: 'done' as const, reason: 'user' as const, rating: null })
 
   it('a new message and a switch to another tab leave Chat without an error, when scrollIntoView returns a Promise', async () => {
-    // Chromium of Electron 44 answers scrollIntoView with a Promise; jsdom has no scrollIntoView at all. React 19
+    // Chromium of Electron 44 may answer scrollIntoView with a Promise; jsdom has no scrollIntoView at all. React 19
     // keeps whatever an effect returns and calls it on unmount: a returned Promise threw «destroy_ is not a function».
     const original = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollIntoView')
     Object.defineProperty(Element.prototype, 'scrollIntoView', { configurable: true, writable: true, value: () => Promise.resolve() })
