@@ -1,7 +1,7 @@
 # 167 — Кнопка Enable у выключенного Harness-а в строке статуса
 
 Type: feature
-Status: claimed 2026-11-27T08:03Z
+Status: done 2026-11-27T09:03Z
 PR: #2317
 Branch: worfy-polish/167
 Blocked by: worfy-layout 03 (footer и chip версии: строка Harness переезжает в popover chip-а и в `src/renderer/harness/HarnessStatus.tsx`)
@@ -44,11 +44,14 @@ mattpocock-skills». Plugin worfy был выключен в Claude Code, а с�
 - [ ] При выключенном plugin-е строка показывает кнопку Enable; после нажатия статус перечитан и строка без
       «disabled»; ошибка включения видна в tooltip-е.
   - evidence: test-run pass · `pnpm test test/contract/harness-install.test.ts test/contract/harness-changed.test.ts test/unit/harness-status.test.tsx test/unit/version-dot.test.tsx` exit 0 · mac - · cc476fac0478366d40b7f75d6d9b8592ad8b6bd1
+  - evidence: review pass · PR #2317 · - - · 69a492c7fe8ac481698a143f8350dcdff625f32e
 - [ ] Unit- и contract-test-ы на действие Enable и на строку; test-ы красные до правки.
   - evidence: test-run pass · `pnpm test` exit 0, 17 new tests red before the change · mac - · cc476fac0478366d40b7f75d6d9b8592ad8b6bd1
+  - evidence: review pass · PR #2317 · - - · 69a492c7fe8ac481698a143f8350dcdff625f32e
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast зелёный; `ci-ok` зелёный на head PR.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · cc476fac0478366d40b7f75d6d9b8592ad8b6bd1
   - evidence: gate pass · `gate fast` exit 0 · mac - · cc476fac0478366d40b7f75d6d9b8592ad8b6bd1
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45966667871/job/140408615079 · ci - · 69a492c7fe8ac481698a143f8350dcdff625f32e
 - [ ] (вручную) Сделай: в Claude Code выключи plugin worfy (`/plugin`), в Stable worfy нажми Enable в строке
       Harness → Должно быть: строка без «disabled», в Claude Code plugin worfy снова включён.
   - needs: mac stable

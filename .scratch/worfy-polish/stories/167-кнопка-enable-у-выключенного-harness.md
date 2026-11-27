@@ -206,3 +206,21 @@ Install. Перевод `docs/features/ru/` не правился (ADR-0088).
 3. Откуда у chip-а янтарная точка при выключенном plugin-е?
    - Ответ: `harnessPart` даёт кнопке Enable accent, а точка chip-а читает тот же `harnessPart`.
    - Строки: `src/renderer/harness/harness-lines.ts:45`
+
+## 10. Что нашёл review и что осталось
+
+> VERIFIED — worfy-polish 167 (an Enable button in the Harness line of the version chip's popover when the Claude Code plugin is installed but disabled: main runs `claude plugin enable worfy@worfy-harness --scope user` through the same sandboxed runner as Install, refuses in a dev run, broadcasts harness.changed only on success; the chip gets an amber dot "Harness needs Enable"), head 69a492c7fe8ac481698a143f8350dcdff625f32e
+>
+> Gate (depth medium, one round): worfy:reviewer, lens correctness — all four done items covered by code and tests; 4 of 4 mutants red (enabled check in install.ts, unconditional broadcast, dropped setEnableFailure, Enable accent false). pnpm test on the four touched files 167/167 EXIT=0, lint EXIT=0, typecheck EXIT=0, story-check EXIT=0; implementer: full pnpm test 21597 EXIT=0, gate fast green.
+> Consider: none
+> Noted: [low] src/main/harness/install.ts:556 — install() does not wait for a running this.enabling (enable() waits for this.running at :582): Install from another window or the first-run screen during Enable could run plugin install/update next to plugin enable; one state never shows both buttons, so rare.
+> Dismissed: none
+> Not verified: the real `claude plugin enable` (stub in tests; manual item 4 in Stable).
+> Review depth: medium — owner rule
+> Review tokens: 77237
+
+Code: `src/main/harness/install.ts:556-556` · key lines: 556
+
+```ts
+    this.running ??= this.runInstall(confirm).finally(() => {
+```
