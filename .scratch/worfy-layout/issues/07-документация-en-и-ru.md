@@ -1,7 +1,8 @@
 # 07: Документация en и ru
 
 Type: task
-Status: open
+Status: claimed 2026-11-27T16:06Z
+Branch: worfy-layout/07
 Blocked by: 03, 04, 05, 06
 Source: [spec.md](../spec.md), «Ticket-ы», 07; «Решения по реализации» («Термины в CONTEXT.md», «Тексты UI»); «Решения по test-ам» («Какие e2e запускает PR»); «Волны», Wave 5
 

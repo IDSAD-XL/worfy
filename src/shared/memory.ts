@@ -1,5 +1,5 @@
 // worfy's own memory (worfy-ui ticket 20): what main reads from app.getAppMetrics() every few
-// seconds while a window shows it (src/main/diagnostics/memory.ts), and how the toolbar writes it
+// seconds while a window shows it (src/main/diagnostics/memory.ts), and how the version popover writes it
 // (src/renderer/memory/AppMemory.tsx). Only the processes of Electron itself count: main, the
 // windows' renderers, GPU and utility. The children of the terminals (claude CLI under node-pty)
 // are not in app.getAppMetrics() and are not counted.
@@ -54,7 +54,7 @@ export function formatMemory(sizeKb: number): string {
   return `${(sizeOf(sizeKb) / 1024 / 1024).toFixed(1)} GB`
 }
 
-/** The tooltip of the toolbar's figure: what is counted, then the split by kind. */
+/** The tooltip of the version popover's figure: what is counted, then the split by kind. */
 export function memoryTooltip(usage: MemoryUsage): string {
   const { main, windows, gpu, other } = usage.byKind
   return [

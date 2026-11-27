@@ -3,7 +3,7 @@
 Flight Recorder shows what happened during one Autopilot run on one time axis: its Waves, Tickets, Stages, agents, CI
 runs, gate runs, retries, waits and blocks, and above them where most of the time went. The screen is **Run history**.
 It reads the run's journal and the sources that already hold the details, and stores nothing of its own. The run
-itself is described on the [Autopilot](autopilot.md) page. The same **Runs** tab holds [Work track](work-track.md), all the
+itself is described on the [Autopilot](autopilot.md) page. The same **Runs** view holds [Work track](work-track.md), all the
 work of a Project over a Day, a Week or a Month. New to the terms: start with [Concepts](concepts.md).
 
 ## Run history
@@ -33,8 +33,8 @@ from five places:
   Autopilot button, but still has "⋯" with this one item when it has past runs.
 - **Open Run history** in the Command palette: the screen at the newest run of the active Project.
 
-Over the screen is the switch `Run history | Work track` of the Runs tab ([Work track](work-track.md)). A Project shows
-Run history until Work track is chosen for it. While the app runs, the tab then shows Work track for that Project.
+Over the screen is the switch `Run history | Work track` of the Runs view ([Work track](work-track.md)). A Project shows
+Run history until Work track is chosen for it. While the app runs, the view then shows Work track for that Project.
 **Open Run history** in the Command palette always shows Run history and makes it the Project's choice again. The stop
 toast, **History**, **Run history** in "⋯" and **Open Run** of the Work track panel name a run or an Epic, so they
 always show Run history too.
@@ -311,7 +311,7 @@ is over is read whole, once per computation, and kept nowhere.
 | `src/main/flight-recorder/local-verdicts.ts` | The marks file and git, for Tickets without a PR. |
 | `src/main/flight-recorder/worktree-path.ts` | The one form of a worktree path that every reader hands over. |
 | `src/main/ipc/runs.ts`, `src/shared/ipc/runs.ts` | The `runs` IPC channels and the shape of a run's view. |
-| `src/renderer/flight-recorder/RunsView.tsx` | The Runs tab: the switch `Run history \| Work track`; Run history stays mounted, hidden, under Work track. |
+| `src/renderer/flight-recorder/RunsView.tsx` | The Runs view: the switch `Run history \| Work track`; Run history stays mounted, hidden, under Work track. |
 | `src/renderer/flight-recorder/RunHistoryView.tsx` | The screen: header, notices, summary, timeline, panel; Esc. |
 | `src/renderer/flight-recorder/Timeline.tsx` | The controls, the axis and mini-map, the zoom, the rows and bars. |
 | `src/renderer/flight-recorder/label-layout.ts` | Where a bar's label goes. Pure. |
@@ -364,7 +364,7 @@ These tests call no model and no GitHub: the journal and transcripts are fixture
 | `test/unit/flight-recorder-filter.test.ts`, `test/unit/flight-recorder-label-layout.test.ts` | The filter and Problems only; the place of labels. |
 | `test/unit/flight-recorder-stop-toast.test.ts` | The stop toast: one per run, the latest per Project. |
 | `test/unit/canvas-actions.test.tsx`, `test/unit/palette-commands.test.tsx` | "History", "Run history" in "⋯", "Open Run history". |
-| `test/unit/toolbar-runs.test.tsx` | The **Runs** tab: five tabs (Pull requests last), the Project it passes, selected on the screen, inactive without a Project. |
+| `test/unit/toolbar-runs.test.tsx` | The **Runs** View button: its place after Canvas, Session and Pipeline in a layout of the six in the toolbar, the Project it passes, pressed on the screen, inactive without a Project, its tooltip. |
 | `test/unit/work-track-view.test.tsx` | The switch `Run history \| Work track`, remembered per Project. |
 | `test/contract/flight-recorder-service.test.ts` | The service over all readers, the live recompute, Retry, the Auto-approval decisions of a run and the Project's Shadow decisions so far. |
 | `test/contract/flight-recorder-transcripts.test.ts`, `test/contract/flight-recorder-github.test.ts`, `test/contract/flight-recorder-gate-logs.test.ts` | The readers in main. The transcripts test also reads a run on Codex from the fake app-server (`test/fixtures/codex-scripts/flight-recorder-run.jsonl`). |

@@ -133,7 +133,7 @@ Span, в котором работа стоит по внешней причин
 _Avoid_: простой, пауза, idle
 
 **Run history**:
-Вид одного Run-а Autopilot-а: шкала его Wave-ов, Ticket-ов, агентов, CI и gate, ожиданий и блокировок; считается при открытии из источников. Половина вкладки Runs рядом с Work track.
+Вид одного Run-а Autopilot-а: шкала его Wave-ов, Ticket-ов, агентов, CI и gate, ожиданий и блокировок; считается при открытии из источников. Половина вида Runs рядом с Work track.
 _Avoid_: журнал (как имя вида), trace
 
 **Ticket continuation**:
@@ -157,7 +157,7 @@ _Avoid_: silent (Silent mode — режим Project-а), hung (так зовёт
 _Avoid_: inbox (без PR), входящие, dashboard; для действий правки — голое Fix (так зовутся действие Terminal AI и кнопка строки Health check), autofix
 
 **Review mode**:
-Экран ревью одного PR во вкладке Pull requests: список сворачивается в узкую колонку, на месте панели PR — дерево файлов с отметками Viewed, diff из Changes, нити ревью GitHub на своих строках, pending comments черновика ревью и полоса Your review с Finish review, который открывает диалог Submit review. Открывается кнопкой Start review; черновик ревью — файл на этой Machine, не pending review на GitHub. На Linked machine — только чтение (View changes).
+Экран ревью одного PR в виде Pull requests: список сворачивается в узкую колонку, на месте панели PR — дерево файлов с отметками Viewed, diff из Changes, нити ревью GitHub на своих строках, pending comments черновика ревью и полоса Your review с Finish review, который открывает диалог Submit review. Открывается кнопкой Start review; черновик ревью — файл на этой Machine, не pending review на GitHub. На Linked machine — только чтение (View changes).
 _Avoid_: review screen, режим ревью, Changes view (тот показывает Ticket)
 
 **Required approvals**:
@@ -348,6 +348,14 @@ _Avoid_: автоповтор, replay, retry loop
 _Avoid_: интеграция как общее слово, connector (это claude.ai), MCP-сервер worfy (это `worfy-canvas` и соседи), аккаунт, подключение
 
 ## App
+
+**View button**:
+Кнопка, которая переключает main area на один из шести видов (Canvas, Session, Pipeline, Runs, Pull requests, Acceptance). Стоит в одной из трёх зон: Header, Sidebar (rail), Footer. Расстановка — в app settings этой Machine. Header в коде и документах остаётся toolbar (`Toolbar.tsx`, `w-toolbar`); «Header» — имя зоны в меню «Move to».
+_Avoid_: вкладка, tab, View switch (как имя всего набора)
+
+**Footer**:
+Полоса внизу окна под sidebar и main area: View button-ы зоны Footer и chip версии с popover-ом приложения и Harness.
+_Avoid_: status bar, нижняя панель
 
 **Settings**:
 Настройки самого worfy на этой Machine — масштаб интерфейса, доступ Linked machine-ов, Terminal AI и другие функции worfy — и окно Settings (Cmd/Ctrl+, или «Settings…» в меню), где они меняются; там же для справки — Health check и список сочетаний клавиш. Это собственное состояние worfy на Machine ([ADR-0005](docs/adr/0005-worfy-own-state-inventory.md)): в репозиторий Project-а и в Profile Settings не попадают и действуют во всех Project-ах этой Machine. Это не Profile — описание Project-а для Harness, — и не «Project settings…» — окно одного Project-а в worfy с его шаблонами действий.

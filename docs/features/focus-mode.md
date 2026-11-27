@@ -19,8 +19,10 @@ order they were selected in. An Epic frame cannot be selected, so it never gets 
 
 ### What is on screen
 
-The layer covers the main area of the window: the toolbar and the Canvas. The sidebar stays next to it and keeps working.
-With the sidebar hidden, the layer is the whole window.
+The layer covers the main area of the window: the toolbar and the Canvas. The sidebar stays next to it and the footer
+under it, and both keep working, except their [View buttons](app-shell.md#view-buttons): those of the rail and of the
+footer are inert while focus mode is on, as the view under the layer is not seen. The version chip of the footer keeps
+working. With the sidebar hidden, the layer is the whole width of the window above the footer.
 
 Above the layer open the Command palette, the menus and dialogs of the sidebar, the Settings window and the Keyboard
 Shortcuts window. Toasts are above it too, and keep clear of the bar, the title bars of the tiles and the header of a Node
@@ -114,7 +116,7 @@ the press leaves focus mode and it stays open.
 | ⌘F | Does nothing: the find bar of the Canvas does not open under the layer |
 | ⌘=, ⌘-, ⌘0 | Do nothing: the Canvas does not zoom unseen |
 | ⌥⌘=, ⌥⌘-, ⌥⌘0 | Reach the interface scale items of the View menu ([App shell](app-shell.md)) |
-| Tab | Walks the layer's controls and the sidebar, never the toolbar or the Canvas under the layer |
+| Tab | Walks the layer's controls, the sidebar and the version chip of the footer, never the toolbar, the Canvas under the layer or a View button |
 
 Pressed with the focus in the layer or nowhere, arrow keys move no Canvas Node, and Delete, Backspace, ⌘Z and ⇧⌘Z do not
 act on the Canvas. With the focus nowhere, ⌘Z and ⇧⌘Z go to Undo and Redo of the Edit menu, which can undo typing in a

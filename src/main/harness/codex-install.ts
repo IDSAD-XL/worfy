@@ -25,8 +25,8 @@
 //
 // The agents: worfy-implementer, worfy-reviewer, worfy-scout as TOML files in <CODEX_HOME>/agents/
 // only (codex-agents.ts). Codex turns the hooks of a plugin off after every install or update until
-// the user approves them in Codex (`/hooks`); the status says so (`hooksToApprove`), and the toolbar
-// shows the step "Approve the Harness hooks in Codex" (ticket 39), whose "Check again" asks Codex
+// the user approves them in Codex (`/hooks`); the status says so (`hooksToApprove`), and the version
+// chip of the footer shows the step "Approve the Harness hooks in Codex" (ticket 39), whose "Check again" asks Codex
 // (src/main/vendors/codex/harness-hooks.ts) and clears it once they are approved (hooksApproved).
 //
 // The MCP servers: Codex 0.166.0 reads Claude Code's .mcp.json of a plugin but fills in no
@@ -47,7 +47,7 @@
 // after its last install into Codex stands for it, so an update runs once, not on every Install.
 //
 // The status reads Codex for CODEX_STATUS_TIMEOUT_MS at most: every read of the Harness state waits
-// for it (the toolbar, the first-run screen, the Update check), the Claude Code part included, so a
+// for it (the version chip, the first-run screen, the Update check), the Claude Code part included, so a
 // Codex that hangs makes its own part an error rather than holding the rest.
 import { existsSync, readFileSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
@@ -400,7 +400,7 @@ export class CodexHarness {
       }
     }
     if (plan.commands.length > 0) {
-      // Codex turns the plugin's hooks off until they are approved again: the toolbar shows the step (ticket 39).
+      // Codex turns the plugin's hooks off until they are approved again: the version chip shows the step (ticket 39).
       this.hooksToApprove = true
       await this.record(plan.to)
     }

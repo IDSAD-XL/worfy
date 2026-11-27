@@ -1,43 +1,14 @@
 # App shell
 
-What surrounds the Canvas in every window, on every Project. Eight Features: the **Sidebar**, the **Footer**, the
-**Command palette**, **Shortcuts**, the **Menu**, **Settings**, the **worfy Guide** and the **Theme**. [Notifications](notifications.md), the ninth, has a page of its own. Terms are
-explained in [Concepts](concepts.md).
+What surrounds the Canvas in every window, on every Project. Nine Features: the **Sidebar**, the **View buttons**, the
+**Footer**, the **Command palette**, **Shortcuts**, the **Menu**, **Settings**, the **worfy Guide** and the **Theme**.
+[Notifications](notifications.md), the tenth, has a page of its own. Terms are explained in [Concepts](concepts.md).
 
-Six View buttons pick what the main area shows: **Canvas**, **Session**, **Pipeline** (see [Workflow](workflow.md)),
-**Runs** (see [Flight Recorder](flight-recorder.md) and [Work track](work-track.md)), **Pull requests** (see
-[Pull requests](pr-inbox.md)) and **Acceptance** (see [Acceptance](acceptance.md)). Each stands in one of three zones,
-as the layout in the app settings of this computer says; by default Canvas and Session are in the toolbar, Pull requests
-and Acceptance on the sidebar's rail under a thin line, after the sections of the top, and Pipeline and Runs on the left
-of the footer. A window on a Linked machine's Project shows the layout of this computer. The button of the view on screen
-is pressed in whatever zone it stands. Their tooltips are "Canvas", "Session view", "Pipeline board", "Run history",
-"Pull requests of the open Project" and "Checks that wait for you". Pull requests counts the pull requests of the open
-Project that need you, Acceptance the checks Ready to check, and Pipeline has a dot while a Ticket of the open Project is
-blocked or waits for a person. On the rail a button shows no count while the section of the same name stands there with
-its own, and its icon carries a small window mark: it opens a view of the main area, not a section. In the toolbar the
-buttons show icons and labels, from four buttons on their icons alone in a window under 1400 pixels, and in any number
-at 1100 pixels or less; on the rail always their icons; in the footer their labels over 1100 pixels. While the sidebar
-is hidden, its buttons stand at the end of the toolbar's group after a thin line. In focus mode the buttons of the rail
-and of the footer are inert, as the toolbar is. Runs and Pull requests are inactive without a Project, and their tooltip
-then says to open one. Every view stays mounted while another one is shown, so switching back finds it as it was.
-
-A right click on a View button, a click with two fingers on a touchpad, or Shift+F10 on the focused button opens its
-menu: "Move to" with **Header**, **Sidebar** and **Footer** (the zone it stands in is checked and inactive), a line, and
-**Reset layout**, inactive while the layout is the default one. Move to puts the button at the end of that zone and the
-focus follows it there; while the sidebar is hidden, Sidebar puts it at the end of the rail, and it shows in the toolbar
-after the line. ⌥← and ⌥→ (Alt on Windows) in the toolbar and the footer, ⌥↑ and ⌥↓ on the rail, move the focused
-button within its zone, and the focus stays on it; at the edge of a zone the keys do nothing: the menu or a drag moves a
-button to another zone. Reset layout puts every button back in its default zone; Settings → General has the same button
-in its row "View buttons". Every window of this computer follows each change at once. No button can be hidden.
-
-A View button can also be dragged with the mouse, an inactive one too, within its zone or into another one. While the
-drag goes, every zone on screen has a dashed accent frame, the one under the pointer a solid one, and a line marks the
-gap the button will land in: a vertical one in the toolbar and the footer, a horizontal one on the rail. The gap is
-before the first button whose middle is past the pointer, or after the last one. An empty zone shows a place of one
-button, "Drop here", only during a drag. Escape, or letting go outside a zone, ends the drag and changes nothing. A
-zone takes only a drag that began in its own window. While the sidebar is hidden, its buttons at the end of the toolbar,
-after the line, are no place to drop on: letting go over them changes nothing, as outside a zone. A drag whose button
-goes away before it ends (another window moved it) ends at once.
+A window is the sidebar on the left, the main area on the right with the toolbar over it, and the footer across the whole
+width at the bottom. The toolbar holds the title of the Project, the View buttons of its zone, the Limits (see
+[Transcripts and usage](transcripts-and-usage.md)) and the "Search or run…" field of the Command palette. Six View buttons
+pick what the main area shows, and each stands in one of three zones: the toolbar, the sidebar's rail or the footer (see
+[View buttons](#view-buttons)). Every view stays mounted while another one is shown, so switching back finds it as it was.
 
 A part that fails to render stays a part: a sidebar section, a tab of the Assistant or a view shows "This section failed
 to render" (or "This tab…", "This view…") with the error's message and **Reload**, and the rest of the window keeps
@@ -55,7 +26,9 @@ top:
 - **The Project switcher**, a row of its own under the strip, as wide as the sidebar: the name of what the sidebar shows
   and a chevron at its right end. A long Project name has the whole row.
 - **The rail**, a column of icons, one per section: first the Assistant, in its own colour and above a rule, then
-  Projects, Sessions, Pull requests, Acceptance, Pipeline, Epics, ADR, and at its foot Health check, Machines and Settings. The chosen section has an accent bar. A section's icon carries a badge that shows while
+  Projects, Sessions, Pull requests, Acceptance, Pipeline, Epics, ADR, and at its foot Health check, Machines and Settings. Under
+  the sections of the top, after a thin line, stand the View buttons of the Sidebar zone, Pull requests and Acceptance by
+  default (see [View buttons](#view-buttons)). The chosen section has an accent bar. A section's icon carries a badge that shows while
   another section is open: the number of busy Sessions of the Projects the switcher shows, in the colour of work, the
   number of pull requests that need you (review, answer or fix), the number of checks in Ready to check of
   [Acceptance](acceptance.md), in the colour of work, a dot while a Ticket in work is blocked or waits for
@@ -202,10 +175,130 @@ watcher. Only the open Project's documents are watched.
 | Sections | `src/renderer/shell/sidebar/` |
 | What a part that fails to render shows | `src/renderer/shell/ErrorBoundary.tsx`, `src/renderer/shell/error-boundary.css`; placed in `Sidebar.tsx`, `AppShell.tsx`, `src/renderer/assistant/AssistantPanel.tsx` and `src/renderer/main.tsx` |
 | Rail entries of the sections | `src/renderer/shell/registry.ts` |
-| The views: names, tab tooltips, icons, the Acceptance count and their View rows of the palette | `src/renderer/shell/views.tsx` |
 
 Main tests: `test/unit/sidebar-scope.test.tsx`, `test/unit/error-boundary.test.tsx`, `test/unit/sidebar-resize.test.tsx`, `test/e2e/sidebar-resize.spec.ts`, `test/unit/assistant-window.test.ts`, `test/unit/assistant-panel.test.tsx`, `test/unit/assistant-speech.test.tsx`, `test/unit/assistant-intro.test.ts`, `test/unit/assistant-offer.test.tsx`, `test/e2e/assistant.spec.ts`, `test/unit/sidebar-section.test.tsx`, `test/unit/health-rail-button.test.tsx`, `test/unit/acceptance-section.test.tsx`, `test/e2e/sidebar-rail.spec.ts`,
 `test/e2e/sidebar-sections.spec.ts`.
+
+## View buttons
+
+### Behaviour
+
+A View button switches the main area to one of six views: **Canvas**, **Session**, **Pipeline** (see
+[Workflow](workflow.md)), **Runs** (see [Flight Recorder](flight-recorder.md) and [Work track](work-track.md)), **Pull
+requests** (see [Pull requests](pr-inbox.md)) and **Acceptance** (see [Acceptance](acceptance.md)). A Code story and the
+Changes of a Ticket have no button: they open from their Ticket.
+
+Each button stands in one of three zones, in an order of its own:
+
+| Zone | Where | By default | Look |
+|---|---|---|---|
+| Header | The group of the toolbar, after the title of the Project | Canvas, Session | Icon, label and badge |
+| Sidebar | A block of the rail under a thin line, after the sections of the top group and before Health check | Pull requests, Acceptance | A square of 34 pixels with an 18-pixel icon and a small window mark in its corner; the tooltip on the right |
+| Footer | The left part of the footer | Pipeline, Runs | 22 pixels high: icon, label and badge |
+
+These pages call the top strip the toolbar; "Header" is the name of its zone in the button's menu. Where the buttons
+stand is the layout. It is one per Machine, kept in the app settings of this computer, and every window of this computer
+shows it and follows each change at once. No button can be hidden: each of the six always stands in exactly one zone. A
+zone may be empty and then draws nothing, except during a drag.
+
+**Pressed, badges, tooltips.** The button of the view on screen is pressed, in whatever zone it stands, and a press on it
+opens its view again. Runs opens the Run history at the newest Run and keeps the Project's choice between Run history
+and Work track. The tooltips are "Canvas", "Session view", "Pipeline board", "Run history", "Pull requests of the open
+Project" and "Checks that wait for you". A badge counts what its view shows: Pull requests the pull requests of the open
+Project that need you, Acceptance the checks Ready to check of every Project, and Pipeline has a dot while a Ticket of
+the open Project is blocked or waits for a person. Canvas, Session and Runs have no badge. A screen reader hears the
+badge as the button's description. On the rail a button shows no badge while the section of the same name stands there
+with its own, and the window mark on its icon says that it opens a view of the main area, not a panel of the sidebar.
+
+**Inactive.** Runs and Pull requests show the open Project. Without one they are dimmed in every zone, and their tooltip
+says "Open a Project to see its Runs" or "Open a Project to see its pull requests". An inactive button stays a Tab stop
+and can be moved like any other, by its menu, its keys or a drag; a press on it opens nothing.
+
+**Keyboard.** Each zone is one Tab stop. ← and → walk the buttons of the toolbar and of the footer, ↑ and ↓ those of the
+rail. The rail's block is not one of the sections that ↑ and ↓ walk above it: a press switches the main area, not the
+panel of the sidebar.
+
+**Window width.** In the toolbar the buttons show their icons and labels. With four buttons or more they show their
+icons alone in a window 1400 pixels wide or less, and with any number at 1100 pixels or less. In the footer the labels
+show in a window wider than 1100 pixels; at 1100 or less a button shows its icon and badge, and its tooltip names it. On
+the rail a button always shows its icon alone.
+
+**The sidebar hidden.** While the sidebar is hidden (⌘B), the rail is not drawn, and its View buttons stand at the end of
+the toolbar's group after a thin line. The layout does not change. Their menu and keys work as on the rail (⌥← and ⌥→
+move them within the rail's order), but they are no place to drop a button on.
+
+**Focus mode.** The layer of [focus mode](focus-mode.md) covers the toolbar with the main area. The View buttons of the
+rail and of the footer are inert while it is on: the view under the layer is not seen, so there is nothing to switch.
+The version chip of the footer keeps working.
+
+**Moving a button.**
+
+- **The menu.** A right click on a View button, a click with two fingers on a touchpad, or Shift+F10 on the focused
+  button opens its menu. Under the heading "Move to" come **Header**, **Sidebar** and **Footer** as a choice of one: the
+  zone the button stands in is checked and inactive. "Move to" is a heading, not a submenu. Then a line and **Reset
+  layout**, inactive while the layout is the default one. Move to puts the button at the end of that zone, and the focus
+  follows it there. While the sidebar is hidden, Sidebar puts it at the end of the rail, and it shows at the end of the
+  toolbar after the line.
+- **The keys.** ⌥← and ⌥→ in the toolbar and the footer, ⌥↑ and ⌥↓ on the rail, move the focused button within its zone,
+  and the focus stays on it. At the edge of a zone the keys do nothing: only the menu or a drag takes a button to another
+  zone. A key pressed again before the last move is saved steps on from the place that move asked for.
+- **A drag.** A View button can be dragged with the mouse, an inactive one too, within its zone or into another one.
+  While the drag goes, every zone on screen has a dashed accent frame, the one under the pointer a solid one, and a line
+  marks the gap the button will land in: a vertical one in the toolbar and the footer, a horizontal one on the rail. The
+  gap is before the first button whose middle is past the pointer, or after the last one. An empty zone shows a place of
+  one button, "Drop here", only during a drag. Escape, or letting go outside a zone, ends the drag and changes nothing. A
+  zone takes only a drag that began in its own window. A drag whose button goes away before it ends (another window moved
+  it) ends at once.
+- **Reset layout** puts every button back in its default zone and place. Settings → General has the same button in its
+  row "View buttons", inactive while the layout is the default one; when main does not save the reset, the row says
+  "Not saved: …" with the reason.
+
+#### Windows
+
+Alt+← and Alt+→, and Alt+↑ and Alt+↓ on the rail, move a button. Shift+F10 and the menu key open its menu under the
+button. The window keeps its system frame and title bar there; the zones and the footer are the same as on macOS.
+
+#### On a Linked machine
+
+A window on a Linked machine's Project shows the layout of this computer, and a move in it changes the layout of this
+computer: the app settings are read and written here, not on the Linked machine. Its badges count what its own views
+show.
+
+### How it works
+
+One registry holds the eight views of the main area, the six with a button among them. Each view's name, tooltip, icon,
+badge, whether it needs a Project and what a press opens are written there once, and the View rows of the Command
+palette are built from it too. A badge reads the source its view already reads: every view stays mounted, so a badge
+asks main and GitHub for nothing new.
+
+The layout is the field `viewButtons` of the app settings. It is absent until the person moves a button, which means the
+default layout. Main repairs what it reads and what a window sends: an unknown id is dropped, of a repeated id the first
+stays, a missing id goes to the end of its default zone, and anything but three lists is the default layout. A damaged
+field never makes the rest of the settings unreadable. Each move is one write of the whole layout, and Reset layout is
+one write that removes the field. Every window hears it through `appSettings.changed`. The settings channels are `local`
+([ADR-0053](../adr/0053-several-screens-on-one-project.md)), so a Linked machine's window reads and writes the app
+settings of this computer. The layout is one more piece of worfy's own state
+([ADR-0005](../adr/0005-worfy-own-state-inventory.md)), and no ADR of its own was needed.
+
+The drag is native HTML5 drag and drop, with no library, as in the queue of Autopilot. It is kept in the window's own
+module, so a zone takes a drop only from a drag that began in its own window and carries a View button. While it goes,
+the shell carries `data-view-drag`, and the whole toolbar stops being the area that moves the window: such an area gets
+no drag events.
+
+### Implementation
+
+| What | Where |
+|---|---|
+| The registry of the views: names, tooltips, icons, badges, what a press opens, the View rows of the palette | `src/renderer/shell/views.tsx` |
+| The layout, its default and its repair | `src/shared/layout/view-buttons.ts`; the field `viewButtons` in `src/shared/settings/app-settings.ts`, read and saved by `src/main/settings/store.ts` |
+| A zone: its group, the menu, the keys and the drag | `src/renderer/shell/ViewZone.tsx`, the kit `src/renderer/theme/kit/ToggleGroup.tsx`, `src/renderer/theme/kit/ContextMenu.tsx` and `src/renderer/theme/kit/Menu.tsx` |
+| One button in the look of its zone | `src/renderer/shell/ViewButton.tsx`, `src/renderer/shell/shell.css` |
+| Where the zones are drawn | The toolbar `src/renderer/shell/Toolbar.tsx`, the rail `src/renderer/shell/Sidebar.tsx`, the footer `src/renderer/shell/footer/Footer.tsx` |
+| Reset layout in Settings | `src/renderer/settings/GeneralSection.tsx` |
+
+Main tests: `test/unit/view-buttons.test.ts`, `test/unit/view-registry.test.tsx`, `test/unit/view-zones.test.tsx`,
+`test/unit/settings-reset-layout.test.tsx`, `test/unit/toolbar-runs.test.tsx`, `test/contract/app-settings.test.ts`,
+`test/e2e/view-buttons.spec.ts`, `test/e2e/toolbar.spec.ts`.
 
 ## Footer
 
@@ -213,26 +306,68 @@ Main tests: `test/unit/sidebar-scope.test.tsx`, `test/unit/error-boundary.test.t
 
 A strip 28 pixels high across the whole window, under the sidebar and the main area, at an interface scale of 100 %. It
 grows with the interface scale, as the rest of the window does: there are no window buttons under it. Its left part
-holds the View buttons of the footer, 22 pixels high, its middle stays empty, and the version chip stands at its right
-end. It is no area to
-drag the window by, and toasts keep clear of it. In focus mode the footer stays on screen under the focus layer, and the
-chip keeps working.
+holds the View buttons of the Footer zone (see [View buttons](#view-buttons)), its middle stays empty, and the version
+chip stands at its right end; an empty footer shows the chip alone. It is no area to drag the window by, and toasts
+keep clear of it, so a toast at the right edge never covers the chip. In focus mode the footer stays on screen, outside
+the focus layer: its View buttons are inert, and the chip keeps working.
 
-The version chip is the app version, `v<major>.<minor>.<N>`, with one dot: red while the Harness needs the user, amber
-while an update waits, none otherwise ([Harness](harness.md), [Updates](updates.md)). Its accessible name and the first
-line of its tooltip say what the dot is for. A press opens a popover above it with the app version and the Update's
-actions, the Harness line, the Codex line and worfy's memory; Esc, a press outside or a second press on the chip closes
-it. While an Update builds, the chip shows its step; in a window 1100 pixels wide or less, the version alone.
+**The version chip** is the app version, `v<major>.<minor>.<N>`, with one dot for everything its popover offers to do,
+the worst first ([Harness](harness.md), [Updates](updates.md)):
+
+| Dot | When |
+|---|---|
+| Red | The Harness needs the user: its last call failed ("Harness unavailable"), it is not installed or broken while this run can Install or Retry, or an old Harness waits to be moved ("Move old Harness…") |
+| Amber | An update waits: an Update of worfy that gives a signal (a quiet Available update gives none), a Harness with an accented "Update Harness", a Harness plugin disabled in Claude Code ("Enable"), or a Codex line with a button or "Codex: approve hooks" |
+| None | Otherwise. "Replace Harness" of the same version gives no dot, and neither does a development run that cannot install |
+
+While the Harness's own install runs, the dot waits for its answer. The chip's accessible name and the first line of its
+tooltip are the version and what the dot is for, such as "worfy v0.4.N — Harness needs Install". While an Update
+builds, the chip shows its step, cut with an ellipsis, and the whole step is in the tooltip; in a window 1100 pixels wide
+or less the chip shows the version alone.
+
+A press on the chip opens a popover above it, with up to four rows:
+
+1. **worfy**: the version, what the Update waits for, and its actions: Update worfy, Restart now, Restart when idle and
+   What's new (see [Updates](updates.md)). What's new opens in the popover's place.
+2. **Harness**: the Harness line with its buttons, Install, Update Harness, Replace Harness, Retry, Enable and Move old
+   Harness… (see [Harness](harness.md)).
+3. **Codex**: the Codex line with its button, while the Harness is in Claude Code (see [Vendors](vendors.md)).
+4. **Memory**: worfy's own memory, while "Memory in the version popover" is on in Settings → General.
+
+Esc, a press outside or a second press on the chip closes it. Install, Update and Replace first name every command in a
+dialog. The move form and the step "Approve the Harness hooks in Codex" open as windows of their own and close the
+popover; the hooks step still opens by itself while the popover is closed.
+
+#### Windows
+
+The window keeps its system frame and title bar; the footer is the same as on macOS.
+
+#### On a Linked machine
+
+The chip shows the version, the Update and the Harness of this computer, not of the Linked machine: their channels are
+`local`.
+
+### How it works
+
+The window is a column: the row of the sidebar and the main area, and the footer under it. The footer's height does not
+shrink with the interface scale, as the toolbar's does, because it has no window buttons to line up with. The chip is
+mounted for the life of the window and holds the Harness state, so the dialogs and the Codex hooks step do not depend on
+the popover being open. The dot is one pure rule over the Update, the Harness state, the offer to move an old Harness and
+the failure of the last Harness call. A strip of 28 pixels has no room for the Harness's lines, so the chip carries one
+dot and the lines live in the popover.
 
 ### Implementation
 
 | What | Where |
 |---|---|
 | The strip | `src/renderer/shell/footer/Footer.tsx`, `src/renderer/shell/AppShell.tsx`, `src/renderer/shell/shell.css`, `--footer-height` in `src/renderer/theme/tokens.css` |
-| The View buttons of the three zones | `src/renderer/shell/ViewZone.tsx`, `src/renderer/shell/ViewButton.tsx`, the registry `src/renderer/shell/views.tsx`, the layout `src/shared/layout/view-buttons.ts` |
-| The version chip, its dot and its popover | `src/renderer/shell/footer/VersionChip.tsx`, `src/renderer/shell/footer/version-dot.ts` |
+| The version chip and its popover | `src/renderer/shell/footer/VersionChip.tsx`, the kit `src/renderer/theme/kit/Popover.tsx`, the app row `AppLine` in `src/renderer/update/UpdateChip.tsx` |
+| The rule of the dot | `src/renderer/shell/footer/version-dot.ts` |
+| The Harness and Codex lines | `src/renderer/harness/HarnessStatus.tsx`, `src/renderer/harness/harness-lines.ts`, the state in `src/renderer/harness/useHarnessStatus.tsx` |
+| The memory row | `src/renderer/memory/AppMemory.tsx` |
 
-Main tests: `test/unit/version-dot.test.tsx`, `test/unit/update-chip.test.tsx`, `test/unit/view-zones.test.tsx`, `test/e2e/footer.spec.ts`, `test/e2e/view-buttons.spec.ts`.
+Main tests: `test/unit/version-dot.test.tsx`, `test/unit/update-chip.test.tsx`, `test/unit/view-zones.test.tsx`,
+`test/e2e/footer.spec.ts`, `test/e2e/view-buttons.spec.ts`.
 
 ## Command palette
 
@@ -571,6 +706,9 @@ setting stays as it was. Most sections word it "Not saved: …".
 - **Memory in the version popover** shows how much memory worfy's own processes use, on the last row of the popover of
   the version chip in the footer. Terminal sessions are not counted. Main samples the memory only while the setting is on
   and a version popover is open.
+- **View buttons** has Reset layout: Canvas and Session back in the toolbar, Pull requests and Acceptance on the rail,
+  Pipeline and Runs in the footer, as the item of a View button's menu does (see [View buttons](#view-buttons)). It is
+  inactive while the layout is the default one.
 - **Version** is the build number, `<major>.<minor>.<N>`, as the version chip of the footer shows it: N counts the commits from the start of
   the history to the commit worfy was built from (`git rev-list --count HEAD`), so a newer build of `main` has a bigger
   number, and one commit gives one number on every Machine. Next to it, in brackets, is the build version

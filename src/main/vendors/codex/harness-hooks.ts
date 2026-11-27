@@ -4,7 +4,7 @@
 // (src/main/harness/codex-install.ts) its hooks are off until the user approves them in Codex (`/hooks`).
 // Without them the gate and the guards of the workflow do not hold in Codex, so Autopilot does not start
 // a Run, nor a Wave of one, on a Codex Orchestrator until they are approved
-// (Orchestrators.unattendedRefusal), and the toolbar's step "Approve the Harness hooks in Codex" asks
+// (Orchestrators.unattendedRefusal), and the version chip's step "Approve the Harness hooks in Codex" asks
 // the same (src/renderer/harness/CodexHooksStep.tsx, `harness.codexHooks`).
 //
 // The answer comes from Codex itself: `hooks/list` of a short-lived app-server (account.ts, withCodex),
