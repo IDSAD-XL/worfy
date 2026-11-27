@@ -113,6 +113,8 @@ spec.md, раздел «Решения по реализации», «Footer» �
   - evidence: gate pass · `gate fast` exit 0 · mac - · 20f738e3db7d4e7c59f2c432419d1c83e1e6ad69
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · f8556b1dcc8cba48ebcb83e58724b2c3ae43a139
   - evidence: gate pass · `gate fast` exit 0 · mac - · f8556b1dcc8cba48ebcb83e58724b2c3ae43a139
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 5504d4100d8922ff50004971a154f67a8b092a3d
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 5504d4100d8922ff50004971a154f67a8b092a3d
 
 ## Итог
 
