@@ -1116,23 +1116,47 @@ interface CpuProfile {
   timeDeltas: number[]
 }
 
-/** Self time in the first `windowMs` of a CPU profile, by function and by file, the biggest first. */
+/** Self and inclusive time in the first `windowMs` of a CPU profile, callers of forced layouts, and a timeline. */
 function profileTops(json: string | null, windowMs: number): string {
   if (json === null) return 'no profile'
   const profile = JSON.parse(json) as CpuProfile
   const byId = new Map(profile.nodes.map((node) => [node.id, node]))
-  const byFn = new Map<string, number>()
-  const byFile = new Map<string, number>()
+  const parent = new Map<number, number>()
+  for (const node of profile.nodes) for (const child of node.children ?? []) parent.set(child, node.id)
+  const nameOf = (id: number): string => {
+    const frame = byId.get(id)!.callFrame
+    const file = frame.url.replace(/^.*node_modules\/(\.pnpm\/)?/, 'nm:').replace(/^.*\//, '') || frame.functionName
+    return `${frame.functionName || '(anon)'}@${file.slice(0, 30)}:${frame.lineNumber + 1}`
+  }
+  const self = new Map<string, number>()
+  const inclusive = new Map<string, number>()
+  const layoutCallers = new Map<string, number>()
+  const buckets = new Map<number, { idle: number; fns: Map<string, number> }>()
+  const add = (map: Map<string, number>, key: string, t: number): void => void map.set(key, (map.get(key) ?? 0) + t)
   let elapsed = 0
   for (let i = 0; i < profile.samples.length; i += 1) {
     const delta = (profile.timeDeltas[i + 1] ?? 0) / 1000
     elapsed += (profile.timeDeltas[i] ?? 0) / 1000
     if (elapsed > windowMs) break
-    const frame = byId.get(profile.samples[i]!)!.callFrame
-    const file = frame.url.replace(/^.*node_modules\/(\.pnpm\/)?/, 'nm:').replace(/^.*\//, '') || frame.functionName
-    const fn = `${frame.functionName || '(anon)'}@${file.slice(0, 40)}:${frame.lineNumber + 1}`
-    byFn.set(fn, (byFn.get(fn) ?? 0) + delta)
-    byFile.set(file.slice(0, 60), (byFile.get(file.slice(0, 60)) ?? 0) + delta)
+    const leaf = profile.samples[i]!
+    const leafName = nameOf(leaf)
+    add(self, leafName, delta)
+    const bucket = Math.floor(elapsed / 500) * 500
+    if (!buckets.has(bucket)) buckets.set(bucket, { idle: 0, fns: new Map() })
+    const b = buckets.get(bucket)!
+    if (leafName.startsWith('(idle)')) b.idle += delta
+    const seen = new Set<string>()
+    const chain: string[] = []
+    for (let id: number | undefined = leaf; id !== undefined; id = parent.get(id)) {
+      const name = nameOf(id)
+      if (chain.length < 6) chain.push(name.replace(/@.*:/, ':'))
+      if (seen.has(name) || name.startsWith('(root)')) continue
+      seen.add(name)
+      add(inclusive, name, delta)
+    }
+    // The app's frames under this sample, by the closest app function that is not React's or the bundle's runtime.
+    if (!leafName.startsWith('(idle)') && !leafName.startsWith('(program)')) add(b.fns, chain.slice(0, 3).join('<'), delta)
+    if (/getBoundingClientRect|getComputedStyle|offsetWidth|offsetHeight|clientWidth|scrollHeight/.test(leafName)) add(layoutCallers, chain.slice(0, 6).join('<'), delta)
   }
   const top = (map: Map<string, number>, n: number): string =>
     [...map]
@@ -1140,7 +1164,8 @@ function profileTops(json: string | null, windowMs: number): string {
       .slice(0, n)
       .map(([name, t]) => `${name} ${Math.round(t)}`)
       .join(' | ')
-  return `files: ${top(byFile, 12)} ## functions: ${top(byFn, 25)}`
+  const timeline = [...buckets].map(([at, b]) => `@${at} idle ${Math.round(b.idle)}: ${top(b.fns, 3)}`).join(' ;; ')
+  return `self: ${top(self, 20)} ## inclusive: ${top(inclusive, 45)} ## forced layout callers: ${top(layoutCallers, 6)} ## timeline: ${timeline}`
 }
 
 async function printStartProfile(launched: LaunchedApp, label: string, interactiveMs: number): Promise<void> {
@@ -1149,6 +1174,8 @@ async function printStartProfile(launched: LaunchedApp, label: string, interacti
       performance: { timeOrigin: number; getEntriesByType(type: string): { name: string; startTime: number; responseEnd?: number; domInteractive?: number; domContentLoadedEventEnd?: number; duration: number }[] }
       __worfyIpcTimes?: unknown[]
       __worfyElk?: unknown[]
+      __worfyBuilds?: unknown[]
+      __worfyLoaf?: unknown[]
     }
     const nav = g.performance.getEntriesByType('navigation')[0]
     return {
@@ -1159,6 +1186,8 @@ async function printStartProfile(launched: LaunchedApp, label: string, interacti
       longtasks: g.performance.getEntriesByType('longtask').map((t) => [Math.round(t.startTime), Math.round(t.duration)]),
       ipc: g.__worfyIpcTimes ?? [],
       elk: g.__worfyElk ?? [],
+      builds: g.__worfyBuilds ?? [],
+      loaf: g.__worfyLoaf ?? [],
     }
   })
   const stopped = (await launched.app.evaluate(async () => {
@@ -1167,12 +1196,17 @@ async function printStartProfile(launched: LaunchedApp, label: string, interacti
   })) as { main: string | null; renderer: string | null; mainLag: number[][]; mainIpc: [string, number, number, number][]; startedAt: number; children: unknown[][]; loadedAt: number } | null
   const shift = stopped ? stopped.startedAt - page.origin : 0
   const ipc = (page.ipc as [string, number, number][]).filter(([, at]) => at <= interactiveMs + 200).sort((a, b) => b[2] - a[2])
-  const elk = page.elk as [string, number, number, number, number][]
+  const elk = (page.elk as [string, number[]][]).map(([epic, row]) => [epic, ...row] as [string, number, number, number, number, number, number, number])
+  const counts = new Map<string, number>()
+  for (const [channel] of ipc) counts.set(channel, (counts.get(channel) ?? 0) + 1)
   console.log(`auberge-stage ${label}: interactive ${interactiveMs} ms; main profile from page ms ${shift}; nav [responseEnd, domInteractive, dcl] ${JSON.stringify(page.nav)}; marks ${JSON.stringify(page.marks)}`)
   console.log(`auberge-stage ${label} resources: ${JSON.stringify(page.res)}`)
   console.log(`auberge-stage ${label} renderer ipc (channel, sent, took) slowest: ${JSON.stringify(ipc.slice(0, 25))}; count ${ipc.length}`)
-  console.log(`auberge-stage ${label} elk: ${elk.length} answers, first sent ${elk.length ? Math.min(...elk.map((e) => e[2])) : '-'}, last answered ${elk.length ? Math.max(...elk.map((e) => e[3])) : '-'}, setState total ${elk.reduce((a, e) => a + e[4], 0)} ms; ${JSON.stringify(elk.slice(0, 6))}`)
-  console.log(`auberge-stage ${label} longtasks: ${JSON.stringify(page.longtasks)}`)
+  const answered = elk.filter((e) => e[6] >= 0)
+  console.log(`auberge-stage ${label} elk (epic, tickets, built at, build ms, folded at, open at, answered at, setState ms): ${elk.length} requests, ${answered.length} answered, first built ${elk.length ? Math.min(...elk.map((e) => e[2])) : "-"}, build total ${elk.reduce((a, e) => a + e[3], 0)} ms, last answered ${answered.length ? Math.max(...answered.map((e) => e[6])) : "-"}; ${JSON.stringify(elk)}`)
+  console.log(`auberge-stage ${label} ipc counts: ${JSON.stringify([...counts].sort((a, b) => b[1] - a[1]).slice(0, 20))}`)
+  console.log(`auberge-stage ${label} epic node builds (at, ms, nodes, answers): ${JSON.stringify(page.builds)}`)
+  console.log(`auberge-stage ${label} long frames (at, ms, blocking, scripts): ${JSON.stringify(page.loaf)}`)
   if (stopped === null) return
   const mainIpc = stopped.mainIpc.map(([name, at, handle, parse]) => [name, at - page.origin, handle, parse] as const).filter(([, at]) => at <= interactiveMs + 200).sort((a, b) => b[2] + b[3] - a[2] - a[3])
   console.log(`auberge-stage ${label} main ipc (channel, at page ms, handle, output parse) slowest: ${JSON.stringify(mainIpc.slice(0, 25))}`)

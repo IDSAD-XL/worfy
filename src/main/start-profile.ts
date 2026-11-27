@@ -37,6 +37,8 @@ if (process.env.WORFY_START_PROFILE === '1') {
       }
     }
   }
+  // The bundle is an ES module: its named imports of node:child_process follow the patched functions only after this.
+  ;(process.getBuiltinModule('node:module') as unknown as { syncBuiltinESMExports(): void }).syncBuiltinESMExports()
 }
 
 interface Stopped {
