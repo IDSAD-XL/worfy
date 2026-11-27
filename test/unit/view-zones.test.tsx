@@ -430,16 +430,17 @@ describe('the parts without a shell', () => {
 
 describe('a drag of a View button (ticket 06)', () => {
   const answered = () => act(async () => {})
-  const transfer = () => ({ setData: vi.fn(), effectAllowed: 'all', dropEffect: 'none' })
+  // As Chromium has it during a drag: the types of the data, not the data (read only on drop).
+  const transfer = (types: string[] = ['application/x-worfy-view-button']) => ({ setData: vi.fn(), types, effectAllowed: 'all', dropEffect: 'none' })
   const shell = () => screen.getByTestId('app-shell')
   const zoneOf = (zone: string) => document.querySelector<HTMLElement>(`.w-view-zone[data-zone="${zone}"]`)
   const viewButton = (id: string) => document.querySelector<HTMLButtonElement>(`[data-view-button="${id}"]`)!
   /**
-   * jsdom lays nothing out: the buttons of a zone are given boxes side by side, 80 px wide (the rail's one above the
-   * other, 34 px high), in the order they are drawn.
+   * jsdom lays nothing out: the buttons of a zone, and the line before the rail's in the header, are given boxes side by
+   * side, 80 px wide (the rail's one above the other, 34 px high), in the order they are drawn.
    */
   function layOut(zone: string): void {
-    const buttons = [...document.querySelectorAll<HTMLElement>(`[data-view-button][data-zone="${zone}"]`)]
+    const buttons = [...zoneOf(zone)!.querySelectorAll<HTMLElement>('[data-view-button], .w-view-zone__line')]
     buttons.forEach((button, at) => {
       const box = zone === 'rail' ? { left: 0, width: 34, top: at * 34, height: 34 } : { left: at * 80, width: 80, top: 0, height: 24 }
       vi.spyOn(button, 'getBoundingClientRect').mockReturnValue({ ...box, right: box.left + box.width, bottom: box.top + box.height, x: box.left, y: box.top, toJSON: () => ({}) })
@@ -576,21 +577,83 @@ describe('a drag of a View button (ticket 06)', () => {
     expect(document.querySelector('[data-drop-zone]')).toBeNull()
   })
 
-  it('while the sidebar is hidden the rail buttons at the end of the header are no drop place: past the header\'s own buttons is the end of the header', async () => {
+  it('while the sidebar is hidden the rail buttons after the line at the end of the header are no drop place (owner\'s decision A): a drop there is refused', async () => {
     render(<AppShell project={PROJECT} />)
     fireEvent.click(screen.getByRole('button', { name: 'Hide sidebar' }))
+    // Canvas 0–80, Session 80–160, the line 160–240, Pull requests 240–320, Acceptance 320–400.
     layOut('header')
     const data = transfer()
     fireEvent.dragStart(viewButton('pipeline'), { dataTransfer: data })
     expect(zoneOf('rail')).toBeNull()
-    dragAt(createEvent.dragOver, viewButton('acceptance'), data, { x: 400 })
-    expect(viewButton('session').dataset.dropMarker).toBe('after')
-    expect(viewButton('acceptance').dataset.dropMarker).toBeUndefined()
-    dragAt(createEvent.drop, viewButton('acceptance'), data, { x: 400 })
+    dragAt(createEvent.dragOver, viewButton('session'), data, { x: 100 })
+    expect(viewButton('session').dataset.dropMarker).toBe('before')
+    const over = createEvent.dragOver(viewButton('acceptance'), { dataTransfer: data })
+    Object.defineProperty(over, 'clientX', { value: 350 })
+    fireEvent(viewButton('acceptance'), over)
+    expect(over.defaultPrevented).toBe(false)
+    expect(zoneOf('header')?.dataset.dropZone).toBe('on')
+    expect(document.querySelector('[data-drop-marker]')).toBeNull()
+    dragAt(createEvent.drop, viewButton('acceptance'), data, { x: 350 })
+    fireEvent.dragEnd(viewButton('pipeline'), { dataTransfer: data })
+    // A rail button drawn there and dropped on itself stays on the rail, as after Esc.
+    fireEvent.dragStart(viewButton('acceptance'), { dataTransfer: data })
+    dragAt(createEvent.drop, viewButton('acceptance'), data, { x: 350 })
+    fireEvent.dragEnd(viewButton('acceptance'), { dataTransfer: data })
+    await answered()
+    expect(patches).toEqual([])
+    // Over the header's own part the drop is taken.
+    fireEvent.dragStart(viewButton('pipeline'), { dataTransfer: data })
+    dragAt(createEvent.dragOver, viewButton('session'), data, { x: 150 })
+    dragAt(createEvent.drop, viewButton('session'), data, { x: 150 })
     fireEvent.dragEnd(viewButton('pipeline'), { dataTransfer: data })
     expect(patches).toEqual([{ viewButtons: { header: ['canvas', 'session', 'pipeline'], rail: ['pull-requests', 'acceptance'], footer: ['history'] } }])
     await answered()
     fireEvent.click(screen.getByRole('button', { name: 'Show sidebar' }))
+  })
+
+  it('within a zone of three: Canvas over the right half of Session lands between Session and Pipeline, where the marker stood', async () => {
+    useLayout({ header: ['canvas', 'session', 'pipeline'], rail: ['pull-requests', 'acceptance'], footer: ['history'] })
+    render(<AppShell project={PROJECT} />)
+    layOut('header')
+    const data = transfer()
+    fireEvent.dragStart(viewButton('canvas'), { dataTransfer: data })
+    dragAt(createEvent.dragOver, viewButton('session'), data, { x: 150 })
+    expect(viewButton('pipeline').dataset.dropMarker).toBe('before')
+    dragAt(createEvent.drop, viewButton('session'), data, { x: 150 })
+    fireEvent.dragEnd(viewButton('canvas'), { dataTransfer: data })
+    expect(patches).toEqual([{ viewButtons: { header: ['session', 'canvas', 'pipeline'], rail: ['pull-requests', 'acceptance'], footer: ['history'] } }])
+  })
+
+  it('a drag whose button goes away before dragend (another window moved it) ends: the zones go out, and a file dropped later moves nothing', async () => {
+    render(<AppShell project={PROJECT} />)
+    const data = transfer()
+    fireEvent.dragStart(viewButton('history'), { dataTransfer: data })
+    expect(shell().dataset.viewDrag).toBe('history')
+    // Another window of this Machine moves Runs to the header: the button that began the drag is gone.
+    useLayout({ header: ['canvas', 'session', 'history'], rail: ['pull-requests', 'acceptance'], footer: ['pipeline'] })
+    expect(shell().dataset.viewDrag).toBeUndefined()
+    expect(document.querySelector('[data-drop-zone]')).toBeNull()
+    const file = transfer(['Files'])
+    const over = createEvent.dragOver(viewButton('canvas'), { dataTransfer: file })
+    fireEvent(viewButton('canvas'), over)
+    expect(over.defaultPrevented).toBe(false)
+    fireEvent.drop(viewButton('canvas'), { dataTransfer: file })
+    await answered()
+    expect(patches).toEqual([])
+  })
+
+  it('a drag of this window that carries no View button (a file dragged in while the drag state stands) is no drop', async () => {
+    render(<AppShell project={PROJECT} />)
+    layOut('header')
+    fireEvent.dragStart(viewButton('history'), { dataTransfer: transfer() })
+    const file = transfer(['Files'])
+    const over = createEvent.dragOver(viewButton('canvas'), { dataTransfer: file })
+    fireEvent(viewButton('canvas'), over)
+    expect(over.defaultPrevented).toBe(false)
+    dragAt(createEvent.drop, viewButton('canvas'), file, { x: 10 })
+    await answered()
+    expect(patches).toEqual([])
+    fireEvent.dragEnd(viewButton('history'), { dataTransfer: transfer() })
   })
 })
 

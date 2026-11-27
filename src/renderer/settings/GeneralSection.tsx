@@ -6,7 +6,7 @@
 // ticket 14), and, under it, the block "Updates" (worfy-update ticket 09, UpdatesBlock.tsx).
 import { useEffect, useRef, useState } from 'react'
 import { failureReason } from '../../shared/ipc/channels'
-import { isDefault } from '../../shared/layout/view-buttons'
+import { DEFAULT_VIEW_BUTTONS, isDefault, sameViewButtons } from '../../shared/layout/view-buttons'
 import { buildVersionTooltip, numberedVersion } from '../../shared/version-number'
 import { epicsOlderAfterOf, INTERFACE_SCALE_MAX, INTERFACE_SCALE_MIN, INTERFACE_SCALE_STEP, type EpicsOlderAfter } from '../../shared/settings/app-settings'
 import { invoke } from '../ipc'
@@ -176,9 +176,11 @@ function ViewButtonsRow() {
   const layout = useAppSettings((settings) => settings.viewButtons)
   const moved = layout !== undefined && !isDefault(layout)
   // The reason main refused, with the layout it refused to reset: once the layout changes (another window reset or moved
-  // it), the reason is of a layout no longer there, and it goes.
+  // it), the reason is of a layout no longer there, and it goes. Compared by its buttons: every change of the settings,
+  // of another setting too, brings the layout in a new object.
   const [refused, setRefused] = useState<{ problem: string; layout: typeof layout }>()
-  const problem = refused !== undefined && refused.layout === layout ? refused.problem : undefined
+  const problem =
+    refused !== undefined && sameViewButtons(refused.layout ?? DEFAULT_VIEW_BUTTONS, layout ?? DEFAULT_VIEW_BUTTONS) ? refused.problem : undefined
   return (
     <SettingRow
       label="View buttons"

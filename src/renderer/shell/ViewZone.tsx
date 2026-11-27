@@ -108,17 +108,37 @@ function place(next: ViewButtons | null, id: ViewButtonId): void {
 /** The type of the drag's data: the id of the View button. */
 const DRAG_TYPE = 'application/x-worfy-view-button'
 
-/** The drag of a View button in this window: which one, and the gap of the zone the pointer is over. */
+/** The drag of a View button in this window: which one, the button it began on, and the gap of the zone the pointer is over. */
 interface ViewDrag {
   id: ViewButtonId
+  source: HTMLElement
   over: { zone: Zone; gap: number } | null
 }
 
 const useViewDrag = create<{ drag: ViewDrag | null }>(() => ({ drag: null }))
 
 function startDrag(id: ViewButtonId, source: HTMLElement): void {
-  useViewDrag.setState({ drag: { id, over: null } })
+  useViewDrag.setState({ drag: { id, source, over: null } })
   source.closest('.w-shell')?.setAttribute('data-view-drag', id)
+}
+
+/**
+ * The drag of this window a drag event over a zone is part of, or `null`: none goes, or the event carries no View button
+ * (a file from Finder, a drag of another window). The data itself is read only on drop; its type is seen all along.
+ */
+function dragOf(event: DragEvent<HTMLElement>): ViewDrag | null {
+  const { drag } = useViewDrag.getState()
+  return drag !== null && event.dataTransfer?.types?.includes(DRAG_TYPE) === true ? drag : null
+}
+
+/**
+ * Whether the pointer is past the header's own buttons, over the line and the rail's buttons drawn after it while the
+ * sidebar is hidden: no drop place (owner's decision A).
+ */
+function overGuests(group: HTMLElement, zone: Zone, event: DragEvent<HTMLElement>): boolean {
+  if (zone !== 'header') return false
+  const first = group.querySelector<HTMLElement>(`.w-view-zone__line, [data-view-button]:not([data-zone="${zone}"])`)
+  return first !== null && event.clientX >= first.getBoundingClientRect().left
 }
 
 /** Ends the drag, dropped or not: the zones go out and the header is the window's drag area again (shell.css). */
@@ -186,6 +206,13 @@ export function ViewZone({ zone, views, withRail = false, sectionNames }: ViewZo
     if (document.activeElement !== moved) moved.focus()
   }, [layout])
 
+  // A drag whose button is gone (another window moved it to another zone, the sidebar was hidden) gets no `dragend`: it
+  // ends here, after any draw of a zone, so that no zone stays lit and no later drop moves a button no longer dragged.
+  useLayoutEffect(() => {
+    const current = useViewDrag.getState().drag
+    if (current !== null && !current.source.isConnected) endDrag()
+  })
+
   const drag = useViewDrag((state) => state.drag)
   const own = entriesOf(layout[zone])
   const guests = zone === 'header' && withRail ? entriesOf(layout.rail) : []
@@ -199,9 +226,14 @@ export function ViewZone({ zone, views, withRail = false, sectionNames }: ViewZo
     const id = layout[entryZone].find((each) => each === entry.id)
     if (id !== undefined) setMenu({ id, label: entry.button.label, zone: entryZone, opener, at })
   }
-  // A zone takes only a drag that began in this window: the drag of this module.
+  // A zone takes only a drag that began in this window, the drag of this module, and not over the rail's buttons drawn
+  // at the end of the header: there no `preventDefault`, so the drop is refused, as outside a zone.
   const onDragOver = (event: DragEvent<HTMLDivElement>) => {
-    if (useViewDrag.getState().drag === null) return
+    if (dragOf(event) === null) return
+    if (overGuests(event.currentTarget, zone, event)) {
+      overGap(null)
+      return
+    }
     event.preventDefault()
     if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
     overGap({ zone, gap: gapAt(event.currentTarget, zone, event) })
@@ -214,8 +246,8 @@ export function ViewZone({ zone, views, withRail = false, sectionNames }: ViewZo
   }
   // The gap is counted on the layout drawn, as the marker is; the button goes there among the others of the zone.
   const onDrop = (event: DragEvent<HTMLDivElement>) => {
-    const dragged = useViewDrag.getState().drag
-    if (dragged === null) return
+    const dragged = dragOf(event)
+    if (dragged === null || overGuests(event.currentTarget, zone, event)) return
     event.preventDefault()
     const at = gapAt(event.currentTarget, zone, event)
     endDrag()

@@ -35,8 +35,9 @@ drag goes, every zone on screen has a dashed accent frame, the one under the poi
 gap the button will land in: a vertical one in the toolbar and the footer, a horizontal one on the rail. The gap is
 before the first button whose middle is past the pointer, or after the last one. An empty zone shows a place of one
 button, "Drop here", only during a drag. Escape, or letting go outside a zone, ends the drag and changes nothing. A
-zone takes only a drag that began in its own window. While the sidebar is hidden, its buttons at the end of the toolbar
-are no place to drop on: letting go over them puts the button at the end of the toolbar's own buttons.
+zone takes only a drag that began in its own window. While the sidebar is hidden, its buttons at the end of the toolbar,
+after the line, are no place to drop on: letting go over them changes nothing, as outside a zone. A drag whose button
+goes away before it ends (another window moved it) ends at once.
 
 A part that fails to render stays a part: a sidebar section, a tab of the Assistant or a view shows "This section failed
 to render" (or "This tab…", "This view…") with the error's message and **Reload**, and the rest of the window keeps
