@@ -1,7 +1,7 @@
 # 168 — macOS e2e в три части: часть идёт 35–37 минут при общем лимите 40
 
 Type: task
-Status: claimed 2026-11-27T04:17Z
+Status: done 2026-11-27T05:48Z
 PR: #2312
 Branch: worfy-polish/168
 Blocked by: —
@@ -42,7 +42,10 @@ Source: решение владельца 2026-11-27 («на все вопрос
 
 - [ ] macOS e2e на PR, который просит весь набор, идёт в трёх частях; каждая часть заканчивается не позже ~25 минут
       на трёх зелёных run-ах подряд (время — по `gh run view --json jobs`).
+  - evidence: review pass · PR #2312 · - - · 3682bdd6b71a2a180d09250dfbd1c28d44d29e48
 - [ ] `ci-ok` ждёт все части; land и `ci-scope` не путают имена частей.
   - evidence: test-run pass · `pnpm test test/unit/e2e-shard.test.ts test/contract/ci-scope-e2e.test.ts test/contract/ci-workflow.test.ts` exit 0 · mac - · 030db7d45f5171860cbd5cdac26ef71ff0b4cfe1
+  - evidence: review pass · PR #2312 · - - · 3682bdd6b71a2a180d09250dfbd1c28d44d29e48
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast зелёный; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 030db7d45f5171860cbd5cdac26ef71ff0b4cfe1
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45945264248/job/140336264086 · ci - · 3682bdd6b71a2a180d09250dfbd1c28d44d29e48
