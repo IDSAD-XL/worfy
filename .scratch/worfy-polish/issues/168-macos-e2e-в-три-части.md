@@ -42,4 +42,6 @@ Source: решение владельца 2026-11-27 («на все вопрос
 - [ ] macOS e2e на PR, который просит весь набор, идёт в трёх частях; каждая часть заканчивается не позже ~25 минут
       на трёх зелёных run-ах подряд (время — по `gh run view --json jobs`).
 - [ ] `ci-ok` ждёт все части; land и `ci-scope` не путают имена частей.
+  - evidence: test-run pass · `pnpm test test/unit/e2e-shard.test.ts test/contract/ci-scope-e2e.test.ts test/contract/ci-workflow.test.ts` exit 0 · mac - · 030db7d45f5171860cbd5cdac26ef71ff0b4cfe1
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast зелёный; `ci-ok` зелёный на head PR.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 030db7d45f5171860cbd5cdac26ef71ff0b4cfe1
