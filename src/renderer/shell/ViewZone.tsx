@@ -27,8 +27,9 @@
 // before the button whose middle is past the pointer, or after the last one. An empty zone shows a place of one button,
 // «Drop here», and only then. A drop is one `appSettings.set`; Esc or letting go outside a zone ends the drag with no
 // drop, and `dragend` puts the zones out. The drag lives in this module, so a zone takes a drop only from a drag that
-// began in its own window. While the sidebar is hidden the rail's buttons at the end of the header are no drop place
-// (owner's decision A): past the header's own buttons is the end of the header.
+// began in its own window and carries a View button. While the sidebar is hidden the line and the rail's buttons at the
+// end of the header are no drop place (owner's decision A): a drop there is refused, as outside a zone. A drag whose
+// button is gone before `dragend` (another window moved it) ends after the next draw.
 import { useLayoutEffect, useState, type DragEvent, type KeyboardEvent, type MouseEvent } from 'react'
 import { create } from 'zustand'
 import { defaultViewButtons, isDefault, moveToZone, moveWithin, sameViewButtons, VIEW_ZONES, type ViewButtonId, type ViewButtons, type ViewZone as Zone } from '../../shared/layout/view-buttons'
