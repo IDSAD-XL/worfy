@@ -1,7 +1,8 @@
 # 02: Модель расстановки в app settings
 
 Type: task
-Status: open
+Status: claimed 2026-11-27T02:06Z
+Branch: worfy-layout/02
 Blocked by: None — can start immediately
 Source: [spec.md](../spec.md), «Ticket-ы», 02; «Решения по реализации» («Модель расстановки», «Хранение», «Окно Linked machine (Q13)»); «Решения по test-ам», Seam 1 и Seam 2; «Риски» («Сборка новее и сборка старее»); «Волны», Wave 1
 
@@ -68,5 +69,19 @@ spec.md, раздел «Решения по реализации», «Модел
 
 - [ ] Unit-test-ы модели и contract-test store из раздела test-ов зелёные; испорченное поле не сбрасывает остальные
       настройки.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/view-buttons.test.ts test/contract/app-settings.test.ts` exit 0 · mac - · 6d43f8889687d77ede457b59c7e856c5506bdb0c
 - [ ] Unit-проверка `routeOf('appSettings.get') === 'this-machine'` есть.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/view-buttons.test.ts` exit 0 · mac - · 6d43f8889687d77ede457b59c7e856c5506bdb0c
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 6d43f8889687d77ede457b59c7e856c5506bdb0c
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 6d43f8889687d77ede457b59c7e856c5506bdb0c
+
+## Итог
+
+- Модель — `src/shared/layout/view-buttons.ts`; поле `viewButtons` в `appSettingsSchema`, мягкое чтение и patch с
+  `null` — `src/main/settings/store.ts`; `viewButtonsOf` с комментарием про окно Linked machine (Q13).
+- Сначала красные test-ы: `test/unit/view-buttons.test.ts` падал на импорте (модуля не было); три новых contract-test-а
+  в `test/contract/app-settings.test.ts` на прежнем `store.ts` — 3 failed, 74 passed.
+- Решено без владельца: patch с неизвестным id отказывается (окно той же сборки шлёт только свои id), с повтором или
+  пропуском — чинится; пропавшая зона в файле — «не та форма», расстановка по умолчанию; отсутствующее поле и
+  расстановка по умолчанию, записанная явно, — разные состояния store.

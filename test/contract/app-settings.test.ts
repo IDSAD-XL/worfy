@@ -13,7 +13,8 @@ import { createLinkIpc, LinkPeer, LinkSender } from '../../src/main/link/ipc-ada
 import { APP_SETTINGS_FILE, AppSettingsStore } from '../../src/main/settings/store'
 import { appSettingsChanged, appSettingsGet, appSettingsSet } from '../../src/shared/ipc/app-settings'
 import { IPC_CHANNEL_PREFIX, type IpcResult } from '../../src/shared/ipc/channels'
-import { AUTOPILOT_BUDGET_DEFAULTS, autopilotBudgetOf, autopilotRunOf, autoCompactWindowChosen, autoUpdateOf, BROWSER_SLEEP_DEFAULTS, browserSleepOf, clampScale, clampSidebarWidth, DEFAULT_APP_SETTINGS, epicsOlderAfterOf, liveSummaryOf, prInboxDigestOf, prInboxNotifyOf, productSessionSplitOf, SESSION_ARCHIVE_DEFAULTS, sessionArchiveOf, SIDEBAR_WIDTH_DEFAULT, SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN, sidebarWidthOf, type AppSettings } from '../../src/shared/settings/app-settings'
+import { AUTOPILOT_BUDGET_DEFAULTS, autopilotBudgetOf, autopilotRunOf, autoCompactWindowChosen, autoUpdateOf, BROWSER_SLEEP_DEFAULTS, browserSleepOf, clampScale, clampSidebarWidth, DEFAULT_APP_SETTINGS, epicsOlderAfterOf, liveSummaryOf, prInboxDigestOf, prInboxNotifyOf, productSessionSplitOf, SESSION_ARCHIVE_DEFAULTS, sessionArchiveOf, SIDEBAR_WIDTH_DEFAULT, SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN, sidebarWidthOf, type AppSettings, viewButtonsOf } from '../../src/shared/settings/app-settings'
+import { DEFAULT_VIEW_BUTTONS } from '../../src/shared/layout/view-buttons'
 import { removeTestTree } from '../remove'
 
 /** The path of every readFileSync call, by the test and by the code under test. */
@@ -622,6 +623,69 @@ describe('AppSettingsStore', () => {
     }
   })
 
+  it('the View button layout (worfy-layout ticket 02): the default until made; a layout is repaired, written, read back after a restart and kept; null is Reset layout; each write grows the revision', () => {
+    expect(DEFAULT_APP_SETTINGS).not.toHaveProperty('viewButtons')
+    const file = freshFile()
+    mkdirSync(join(file, '..'), { recursive: true })
+    writeFileSync(file, JSON.stringify({ interfaceScale: 1.1, revision: 2 }))
+    const store = new AppSettingsStore(file)
+    expect(store.get()).not.toHaveProperty('viewButtons')
+    expect(viewButtonsOf(store.get())).toEqual(DEFAULT_VIEW_BUTTONS)
+
+    const moved = { header: ['canvas', 'session', 'history'], rail: ['pull-requests', 'acceptance'], footer: ['pipeline'] } as const
+    const changed: AppSettings[] = []
+    store.on('changed', (settings) => changed.push(settings))
+    expect(store.set({ viewButtons: { header: [...moved.header], rail: [...moved.rail], footer: [...moved.footer] } })).toMatchObject({ viewButtons: moved, revision: 3 })
+    expect(JSON.parse(readFileSync(file, 'utf8'))).toMatchObject({ viewButtons: moved, revision: 3 })
+    expect(viewButtonsOf(new AppSettingsStore(file).get())).toEqual(moved)
+    expect(changed.map((settings) => settings.revision)).toEqual([3])
+    // The same layout again changes nothing; another setting keeps it.
+    expect(store.set({ viewButtons: { header: [...moved.header], rail: [...moved.rail], footer: [...moved.footer] } }).revision).toBe(3)
+    expect(store.set({ interfaceScale: 1.2 })).toMatchObject({ interfaceScale: 1.2, viewButtons: moved, revision: 4 })
+
+    // A layout a window sends is repaired too: a repeat is dropped, a button left out goes back to its zone.
+    expect(store.set({ viewButtons: { header: ['history', 'history'], rail: [], footer: ['canvas'] } })).toMatchObject({
+      viewButtons: { header: ['history', 'session'], rail: ['pull-requests', 'acceptance'], footer: ['canvas', 'pipeline'] },
+      revision: 5,
+    })
+    // Reset layout: the field goes, the default is in force, the revision grows; null once more changes nothing.
+    const reset = store.set({ viewButtons: null })
+    expect(reset).not.toHaveProperty('viewButtons')
+    expect(reset).toMatchObject({ interfaceScale: 1.2, revision: 6 })
+    expect(JSON.parse(readFileSync(file, 'utf8'))).not.toHaveProperty('viewButtons')
+    expect(viewButtonsOf(reset)).toEqual(DEFAULT_VIEW_BUTTONS)
+    expect(store.set({ viewButtons: null }).revision).toBe(6)
+    expect(changed.map((settings) => settings.revision)).toEqual([3, 4, 5, 6])
+  })
+
+  it('a spoilt View button layout in the file (worfy-layout ticket 02) is repaired; the other settings stay, and the file is not set aside', () => {
+    const file = freshFile()
+    mkdirSync(join(file, '..'), { recursive: true })
+    const others = { interfaceScale: 1.3, sidebar: { collapsed: { epics: true }, visible: { normal: false, focus: true } }, memoryIndicator: false, prInboxNotify: false, revision: 7 }
+    const cases: [unknown, unknown][] = [
+      // A build newer than this one: a view this one does not know.
+      [{ header: ['canvas', 'timeline'], rail: ['session', 'pull-requests', 'acceptance'], footer: ['pipeline', 'history'] }, { header: ['canvas'], rail: ['session', 'pull-requests', 'acceptance'], footer: ['pipeline', 'history'] }],
+      // A repeat, an id of the wrong type, a button missing.
+      [{ header: ['canvas', 'canvas', 3], rail: ['acceptance'], footer: ['history', 'session'] }, { header: ['canvas'], rail: ['acceptance', 'pull-requests'], footer: ['history', 'session', 'pipeline'] }],
+      // The wrong shape: the default layout.
+      ['header', DEFAULT_VIEW_BUTTONS],
+      [null, DEFAULT_VIEW_BUTTONS],
+      [[['canvas'], [], []], DEFAULT_VIEW_BUTTONS],
+      [{ header: 'canvas', rail: [], footer: [] }, DEFAULT_VIEW_BUTTONS],
+    ]
+    for (const [viewButtons, repaired] of cases) {
+      writeFileSync(file, JSON.stringify({ ...others, viewButtons }))
+      const read = new AppSettingsStore(file).get()
+      expect(viewButtonsOf(read), JSON.stringify(viewButtons)).toEqual(repaired)
+      expect(read).toMatchObject(others)
+    }
+    expect(readdirSync(join(file, '..'))).toEqual([APP_SETTINGS_FILE])
+    // The next write puts the repaired layout in the file: the view of the newer build is gone from it.
+    writeFileSync(file, JSON.stringify({ ...others, viewButtons: cases[0]?.[0] }))
+    new AppSettingsStore(file).set({ interfaceScale: 1.4 })
+    expect(JSON.parse(readFileSync(file, 'utf8'))).toMatchObject({ interfaceScale: 1.4, viewButtons: cases[0]?.[1] })
+  })
+
   it('the PR inbox switches (worfy-pr-inbox ticket 07): on until chosen; off is written, read back after a restart and kept; a value of the wrong type reads as on', () => {
     expect(prInboxNotifyOf(DEFAULT_APP_SETTINGS)).toBe(true)
     expect(prInboxDigestOf(DEFAULT_APP_SETTINGS)).toBe(true)
@@ -848,6 +912,19 @@ describe('appSettings channels', () => {
     }
     expect(await call('appSettings.set', { autopilotRun: { windowTo: 22 } })).toMatchObject({ ok: false, error: 'appSettings.set failed: the Start window cannot start and end at the same hour' })
     expect(await call('appSettings.get')).toMatchObject({ ok: true, value: { autopilotRun: { mode: 'start-window', windowFrom: 22, windowTo: 6 } } })
+  })
+
+  it('appSettings.set takes a whole View button layout and null, and refuses an unknown id or a zone missing (worfy-layout ticket 02)', async () => {
+    const call = await windowCaller()
+    const layout = { header: ['session'], rail: ['canvas', 'pull-requests', 'acceptance'], footer: ['history', 'pipeline'] }
+    expect(await call('appSettings.set', { viewButtons: layout })).toMatchObject({ ok: true, value: { viewButtons: layout } })
+    for (const refused of [{ ...layout, header: ['session', 'timeline'] }, { header: ['session'], rail: [] }, 'default', []]) {
+      expect((await call('appSettings.set', { viewButtons: refused })).ok, JSON.stringify(refused)).toBe(false)
+    }
+    expect(await call('appSettings.get')).toMatchObject({ ok: true, value: { viewButtons: layout } })
+    const reset = await call('appSettings.set', { viewButtons: null })
+    expect(reset).toMatchObject({ ok: true })
+    expect(reset).not.toMatchObject({ value: { viewButtons: expect.anything() as unknown } })
   })
 
   it('appSettings.set takes the share of the Product Session divider within 0.1–0.9 and refuses one outside (worfy-product-session ticket 07)', async () => {

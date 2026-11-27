@@ -75,11 +75,15 @@
 // - `assistant` — whether the Assistant runs on this Machine and since when, the daily limit of its automatic
 //   wakes and how it may notify (worfy-assistant tickets 15 and 25, src/shared/assistant/settings.ts); absent
 //   while nothing is chosen: off;
+// - `viewButtons` — which View button sits in which zone of the window, header, rail or footer, and in
+//   what order (worfy-layout ticket 02, src/shared/layout/view-buttons.ts); absent while the person has
+//   moved none, and again after Reset layout: the default layout;
 // - `revision` — grows with every write, so a renderer keeps the newest of the states it hears.
 import { z } from 'zod'
 import { assistantScheduleChoiceSchema } from '../assistant/schedule/settings'
 import { assistantChoiceSchema, assistantStateSchema } from '../assistant/settings'
 import { DEFAULT_START_WINDOW, RUN_MODES, type RunMode, type StartWindow } from '../autopilot/run-mode'
+import { defaultViewButtons, viewButtonsPatchSchema, viewButtonsSchema, type ViewButtons } from '../layout/view-buttons'
 import { PROJECT_ID_HASH_LENGTH, PROJECT_ID_HASH_SUFFIX } from '../projects/project-id'
 
 /** The languages of the worfy Guide (ADR-0090): English, the main one, and Russian. */
@@ -367,6 +371,8 @@ export const appSettingsSchema = z.object({
   prInboxNotify: z.boolean().optional(),
   /** The morning digest of the PR inbox; absent while not chosen: on (see prInboxDigestOf). */
   prInboxDigest: z.boolean().optional(),
+  /** The View button layout the person made (worfy-layout ticket 02); absent while none is: the default (see viewButtonsOf). */
+  viewButtons: viewButtonsSchema.optional(),
   revision: z.number().int().nonnegative(),
 })
 export type AppSettings = z.output<typeof appSettingsSchema>
@@ -425,6 +431,11 @@ export const appSettingsPatchSchema = z.object({
     .optional(),
   prInboxNotify: z.boolean().optional(),
   prInboxDigest: z.boolean().optional(),
+  /**
+   * The whole View button layout; the store repairs it (repairViewButtons) before it keeps it, so a
+   * button left out goes back to its default zone. null is Reset layout: the field goes.
+   */
+  viewButtons: viewButtonsPatchSchema.nullable().optional(),
 })
 export type AppSettingsPatch = z.input<typeof appSettingsPatchSchema>
 
@@ -478,6 +489,17 @@ export function prInboxNotifyOf(settings: Pick<AppSettings, 'prInboxNotify'>): b
 /** Whether the first focus of the day shows the morning digest of the PR inbox: on unless set off (Settings → Pull requests). */
 export function prInboxDigestOf(settings: Pick<AppSettings, 'prInboxDigest'>): boolean {
   return settings.prInboxDigest ?? true
+}
+
+/**
+ * The View button layout in force: the one the person made, else the default. It belongs to this
+ * Machine (Q5 of the worfy-layout spec), and a window on a Linked machine's Project shows it too (Q13)
+ * with no channel of its own: `appSettings.get`, `.set` and `.changed` are `local`
+ * (src/shared/ipc/app-settings.ts), and from such a window a `local` channel goes to this Machine's
+ * main, not to the Linked machine (routeOf of src/renderer/ipc.ts).
+ */
+export function viewButtonsOf(settings: Pick<AppSettings, 'viewButtons'>): ViewButtons {
+  return settings.viewButtons ?? defaultViewButtons()
 }
 
 /** The Auto-approval mode of Project `projectId`: its entry, else Off. */
