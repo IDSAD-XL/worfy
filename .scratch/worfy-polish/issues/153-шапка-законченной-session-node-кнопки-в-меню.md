@@ -1,7 +1,8 @@
 # 153 — Шапка законченной worfy Session Node: кнопки уходят в меню раньше, чем имя становится нечитаемым
 
 Type: bug
-Status: open
+Status: claimed 2026-11-27T09:24Z
+Branch: worfy-polish/153
 Blocked by: —
 Source: решение владельца 2026-11-26 (раунд Q1–Q12 вечернего отчёта 2026-11-25), Q8; замер review
 worfy-product-session 37 (PR #2194, `test/e2e/session-archive.spec.ts:167-174`).
@@ -68,3 +69,39 @@ Session, не открыв её.
 - [ ] `docs/features/sessions.md` говорит о меню кнопок на узкой Node.
 - [ ] «Итог»: выбранный минимум и порядок ухода кнопок — в «Решено без владельца».
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+
+## Итог
+
+PR #PRNUM.
+
+**Что изменилось.**
+- Шапка Session Node — один компонент `SessionHeader` для live, read-only и Codex Node
+  (`src/renderer/canvas/nodes/SessionNode.tsx`). Кнопки шапки — список `HeaderTool` (название, test id, tooltip,
+  своё отключение, нажатость Keep); `HeaderTools` рисует первые снаружи, а последние — пунктами kit Menu «⋯»
+  (`session-node-more`, меню «Session actions»). Пункт — то же действие с тем же названием и tooltip-ом; Remove
+  неактивен, пока Session идёт, с той же причиной; на read-only экране каждый пункт неактивен с причиной (`writeItem`);
+  Keep — `menuitemcheckbox`, отмечен, пока Node kept.
+- Сколько кнопок уходит, решает `useHeaderFit`: шапка измеряется `useElementSize` (ширина в пикселях Layout-а, zoom
+  Canvas-а не влияет), а до paint `useLayoutEffect` смотрит, переполнено ли содержимое шапки, когда имя держит
+  минимум (`scrollWidth > clientWidth`). Пока переполнено — уходит ещё одна кнопка, а нужная ширина запоминается;
+  кнопка возвращается, только когда шапка шире нужного на 8 px. Шрифт и chip меряются как есть, без констант ширины.
+- Read-only и Codex Node (пункт 5): правило нужно и там — по замеру Ticket-а 37 имя read-only Node на 300 px
+  получало около 42 px, на 240 px — меньше нуля. Правило то же: Remove, Hide, Keep.
+- `docs/features/sessions.md`: абзац «The header of a Session Node».
+- Test-ы: unit — `test/unit/session-node-product.test.tsx`, `test/unit/session-node-remove.test.tsx` с подменой
+  Layout-а шапки (`test/unit/session-header-layout.tsx`); e2e — `test/e2e/session-archive.spec.ts` проверяет имя
+  не уже 64 px на 300, 340 и 240 px и пункты меню на 240 px, снимки `37-session-nodes-archive` и
+  `153-session-header-menu` в обеих темах. Спеки, которые жали кнопки шапки, ищут кнопку в шапке или в меню
+  (`test/e2e/session-header.ts`, `headerAction`): `new-session`, `external-session`, `browser-family`,
+  `session-restart`. `test/unit/canvas-zoom.test.tsx`: у SessionNode.tsx теперь одна размеченная шапка.
+
+**Решено без владельца.**
+- **Минимум имени — 64 px**, около девяти знаков 13 px semibold: «Session 1a2» по id, «Plan the ro…» по имени.
+  31 px (замер Ticket-а 37) давали «Pl…», которое Session не называет.
+- **Порядок ухода — по одной, с конца**: Remove, потом Hide, потом Keep, главное действие состояния (Interrupt и
+  Close, Continue или Resume) — последним. Так снаружи остаётся больше кнопок, чем при «все сразу».
+- **Главное действие на 240 px уходит в меню**, если иначе имени не хватает минимума: у законченной worfy Node на
+  240 px в меню все четыре кнопки (Resume тоже). Широкий chip «Interrupted by restart» оставляет мало места и на
+  340 px — там Continue может уйти в меню.
+- Когда все кнопки уже в меню, имя теряет минимум (сжимается, как раньше), а не обрезает кнопку «⋯»: так бывает только
+  при очень широком chip-е.
