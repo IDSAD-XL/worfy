@@ -54,9 +54,12 @@ afterEach(() => {
 const NO_HARNESS: HarnessStatusState = {
   status: undefined,
   busy: false,
+  busyText: 'Installing Harness…',
   failure: undefined,
   migration: false,
   onInstall: () => undefined,
+  onEnable: () => undefined,
+  enableFailure: undefined,
   onMigrate: undefined,
   onApproveHooks: () => undefined,
   harnessBehind: null,

@@ -316,6 +316,46 @@ describe('HarnessStatusView', () => {
     expect(rule).toMatch(/\bheight:\s*20px;/)
   })
 
+  describe('a Harness disabled in Claude Code (worfy-polish ticket 167)', () => {
+    const disabled: HarnessState = { kind: 'installed', version: '0.2.0+bbbbbbb', enabled: false }
+
+    it('offers Enable: an icon button with the accent and a dot whose tooltip names the command; a press calls onEnable, not the install', async () => {
+      const onInstall = vi.fn()
+      const onEnable = vi.fn()
+      render(<HarnessStatusView status={status(disabled, true)} busy={false} failure={undefined} onInstall={onInstall} onEnable={onEnable} />)
+      expect(screen.getByTestId('harness-text').textContent).toBe('Harness 0.2.0+bbbbbbb · disabled')
+      const enable = screen.getByRole('button', { name: 'Enable' })
+      expect(enable.getAttribute('data-testid')).toBe('harness-enable')
+      expect(enable.textContent).toBe('')
+      expect(enable.querySelector('svg')).not.toBeNull()
+      expect(enable.classList.contains('w-toolbar__icon-button--compact')).toBe(true)
+      expect(enable.classList.contains('w-toolbar__icon-button--accent')).toBe(true)
+      expect(enable.querySelector('.w-update-dot')).not.toBeNull()
+      expect(await tooltipOf(enable)).toBe('Enable the plugin worfy in Claude Code: claude plugin enable worfy@worfy-harness --scope user')
+      fireEvent.click(enable)
+      expect(onEnable).toHaveBeenCalledTimes(1)
+      expect(onInstall).not.toHaveBeenCalled()
+    })
+
+    it('no Enable where there is no Install either: a dev run without canInstall', () => {
+      render(<HarnessStatusView status={status(disabled, false)} busy={false} failure={undefined} onInstall={() => undefined} onEnable={() => undefined} />)
+      expect(screen.getByTestId('harness-text').textContent).toBe('Harness 0.2.0+bbbbbbb · disabled')
+      expect(screen.queryByRole('button', { name: 'Enable' })).toBeNull()
+    })
+
+    it('an enabled Harness has no Enable', () => {
+      render(<HarnessStatusView status={status({ ...disabled, enabled: true }, true)} busy={false} failure={undefined} onInstall={() => undefined} onEnable={() => undefined} />)
+      expect(screen.queryByRole('button', { name: 'Enable' })).toBeNull()
+    })
+
+    it('a failed enable stays on "disabled" and shows its error in the tooltips of the line and of Enable', async () => {
+      render(<HarnessStatusView status={status(disabled, true)} busy={false} failure={undefined} onInstall={() => undefined} onEnable={() => undefined} enableFailure="claude plugin enable worfy@worfy-harness --scope user exited with 1" />)
+      expect(screen.getByTestId('harness-text').textContent).toBe('Harness 0.2.0+bbbbbbb · disabled')
+      expect(screen.getByTestId('harness-text').getAttribute('title')).toBe('The plugin worfy is disabled in Claude Code\n\nEnable failed: claude plugin enable worfy@worfy-harness --scope user exited with 1')
+      expect(await tooltipOf(screen.getByRole('button', { name: 'Enable' }))).toContain('Enable failed: claude plugin enable worfy@worfy-harness --scope user exited with 1')
+    })
+  })
+
   it('the Harness lines carry no app version: the version chip of the footer has it (worfy-layout ticket 03)', () => {
     render(<HarnessStatusView status={status({ kind: 'installed', version: '0.3.0+e61cb1fe', enabled: true }, false)} busy={false} failure={undefined} onInstall={() => undefined} />)
     expect(screen.queryByTestId('app-version')).toBeNull()
@@ -412,6 +452,36 @@ describe('HarnessStatus (the item over IPC)', () => {
     await act(async () => answer({ ok: true, value: { outcome: 'done', status: installed } }))
     expect(screen.getByTestId('harness-text').textContent).toBe('Harness 0.2.0+bbbbbbb')
     expect(screen.queryByTestId('harness-action')).toBeNull()
+  })
+
+  it('Enable (worfy-polish ticket 167): "Enabling Harness…" until `harness.enable` answers, then the status it read again, without "disabled"', async () => {
+    let answer: (value: unknown) => void = () => undefined
+    const disabled = status({ kind: 'installed', version: '0.2.0+bbbbbbb', enabled: false }, true)
+    const main = fakeBridge({ 'harness.state': ok(disabled), 'harnessMigration.offer': ok({ offered: false }), 'harness.enable': () => new Promise((resolve) => (answer = resolve)) })
+    render(<HarnessStatus />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Enable' }))
+    expect(main.calls).toContain('harness.enable')
+    expect(main.calls).not.toContain('harness.install')
+    expect(screen.getByTestId('harness-status').textContent).toBe('Enabling Harness…')
+    await act(async () => answer({ ok: true, value: { status: installed, error: null } }))
+    expect(screen.getByTestId('harness-text').textContent).toBe('Harness 0.2.0+bbbbbbb')
+    expect(screen.queryByRole('button', { name: 'Enable' })).toBeNull()
+  })
+
+  it('Enable that fails keeps "disabled" and puts the error into the tooltip; a call that fails does too, not "Harness unavailable"', async () => {
+    const disabled = status({ kind: 'installed', version: '0.2.0+bbbbbbb', enabled: false }, true)
+    const answers: unknown[] = [
+      { ok: true, value: { status: disabled, error: 'claude plugin enable worfy@worfy-harness --scope user exited with 1' } },
+      { ok: false, error: 'a dev run does not install the Harness' },
+    ]
+    fakeBridge({ 'harness.state': ok(disabled), 'harnessMigration.offer': ok({ offered: false }), 'harness.enable': () => Promise.resolve(answers.shift()) })
+    render(<HarnessStatus />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Enable' }))
+    await waitFor(() => expect(screen.getByTestId('harness-text').getAttribute('title')).toContain('Enable failed: claude plugin enable worfy@worfy-harness --scope user exited with 1'))
+    expect(screen.getByTestId('harness-text').textContent).toBe('Harness 0.2.0+bbbbbbb · disabled')
+    fireEvent.click(screen.getByRole('button', { name: 'Enable' }))
+    await waitFor(() => expect(screen.getByTestId('harness-text').getAttribute('title')).toContain('Enable failed: a dev run does not install the Harness'))
+    expect(screen.getByTestId('harness-text').textContent).toBe('Harness 0.2.0+bbbbbbb · disabled')
   })
 
   it('an event that arrives before the first `harness.state` answer wins over that older answer', async () => {

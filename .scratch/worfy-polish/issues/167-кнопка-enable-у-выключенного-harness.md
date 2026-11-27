@@ -1,7 +1,8 @@
 # 167 — Кнопка Enable у выключенного Harness-а в строке статуса
 
 Type: feature
-Status: open
+Status: claimed 2026-11-27T08:03Z
+Branch: worfy-polish/167
 Blocked by: worfy-layout 03 (footer и chip версии: строка Harness переезжает в popover chip-а и в `src/renderer/harness/HarnessStatus.tsx`)
 Source: вопрос владельца 2026-11-26 о строке статуса у знакомого: «Harness 0.4.0+08d75598c · disabled · removed
 mattpocock-skills». Plugin worfy был выключен в Claude Code, а строка только говорит «disabled» и не даёт его включить.
@@ -24,10 +25,18 @@ mattpocock-skills». Plugin worfy был выключен в Claude Code, а с�
 
 ## Где в коде
 
-- После worfy-layout 03: строка `HarnessLine` в popover chip-а версии (`src/renderer/harness/HarnessStatus.tsx`) — кнопка
-  Enable рядом с другими её кнопками (Install, Update Harness, Retry…); до 03 это было
-  `src/renderer/shell/toolbar/HarnessStatus.tsx:214`. Выключенный plugin даёт chip-у янтарную точку.
-- Main-процесс, где выполняются Install и Update Harness-а (найти по `onInstall`): туда же — действие Enable.
+- `src/renderer/harness/HarnessStatus.tsx` — строка `HarnessLine` в popover chip-а версии: кнопка Enable
+  (`harness-enable`) рядом с Install, Update Harness, Retry; ошибка Enable — в tooltip-е текста и кнопки.
+  Прежний путь `src/renderer/shell/toolbar/HarnessStatus.tsx` ушёл с worfy-layout 03.
+- `src/renderer/harness/harness-lines.ts` — `harnessPart`: у `installed` с `enabled: false` кнопка Enable с accent,
+  отсюда янтарная точка chip-а (`src/renderer/shell/footer/version-dot.ts`).
+- `src/renderer/harness/useHarnessStatus.tsx` — `onEnable` через `harness.enable`, «Enabling Harness…», `enableFailure`.
+- `src/shared/ipc/harness.ts` — channel `harness.enable` и его ответ (`status`, `error`); шаг `enable`.
+- `src/main/harness/install.ts` — `HarnessInstaller.enable()`: `claude plugin enable worfy@worfy-harness --scope user`,
+  затем статус заново. `src/main/ipc/harness.ts` — handler и `harness.changed` всем окнам после удачного Enable.
+- Test-ы: `test/contract/harness-install.test.ts`, `test/contract/harness-changed.test.ts`,
+  `test/unit/harness-status.test.tsx`, `test/unit/version-dot.test.tsx`.
+- `docs/features/harness.md` — строка Disabled и абзац «Enable».
 
 ## Готово, когда
 
