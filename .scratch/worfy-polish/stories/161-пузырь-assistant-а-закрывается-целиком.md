@@ -188,3 +188,27 @@ Test-ы первого раунда были красными на коде orig
 3. Что увидит пользователь, обновившийся с 56 пунктами, среди которых один остановленный Run?
    - Ответ: не строку хвоста, а этот срочный пункт с пометкой Urgent и «55 more in Assistant»; × отметит все 56.
    - Строки: `src/renderer/assistant/speech.ts:30-33`
+
+## 9. Что нашёл review и что осталось
+
+> VERIFIED — worfy-polish 161 (the Assistant's speech card closes as a whole: × closes it over every waiting item, and so does Escape with the focus in the card or on the rail button; items stay in Waits and the badge is unchanged; the card speaks again only of a new event or a newly urgent item; the mark persists in assistant/window.json; a first backlog shows one line «N waiting in Assistant» unless an urgent item waits, which is shown), head f27af12d89c0611ee3c6d47a211aa6463ac1783a
+>
+> Gate (depth medium, two rounds):
+> - Round 1, reviewer (lens: correctness) — FIX, two med and one low.
+>   - med: the backlog line hid an urgent item, with no Urgent chip and no Open; Open and Snooze set no mark.
+>   - med: Escape was taken from Focus mode depending on handler registration order, and the same press also cleared the active Node.
+>   - low: cardClosed marked main's current event count, so an event merged between render and × was told unseen.
+>   - Checked fine: «new event» matches the attention core (a merged event returns seen to new) and the planner; window.json is read leniently, written atomically and pruned, and a rollback is harmless; 16 new tests fail on the old code; a mutation sending only the shown id was caught.
+> - Fix f27af12d8:
+>   - speech.ts:27-36: the first urgent item is shown with «N more»;
+>   - parts.tsx:46,:82: Open and Snooze mark the item;
+>   - AssistantSpeech.tsx:41-49: Escape only with the focus inside .w-asst-say or on the Assistant rail tab;
+>   - {id, events} pairs from the renderer (WindowItem.events, the assistant.cardClosed channel), and view.ts:325-341 marks with the shown count;
+>   - a vacuous round-1 test strengthened;
+>   - 16 tests red first.
+> - Round 2: the diff of speech.ts, AssistantSpeech.tsx and view.ts was read by the orchestrator; it closes the findings.
+> Evidence:
+> - 45 test files (926 tests) exit 0;
+> - lint 0, typecheck 0, story-check 0;
+> - gate fast green on 82dc17e5b after two red runs on unrelated tests under load average 20–40 (review-mode.test.tsx, then agents-text.test.sh); each passes alone.
+> Not verified: the real Electron card and Escape; the owner's manual item 5.
