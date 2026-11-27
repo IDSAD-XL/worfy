@@ -167,3 +167,26 @@ Code: `src/renderer/palette/commands.ts:404-414` · key lines: 404, 410, 412
    - Ответ: у неё свой `command.open`: он сначала возвращает Project-у вкладку Run history (`setRunsTab`), а кнопка
      Runs сохраняет выбор Work track.
    - Строки: `src/renderer/shell/views.tsx:148-158`
+
+## 8. Что нашёл review и что осталось
+
+> VERIFIED — worfy-layout 01 (one registry of the views, src/renderer/shell/views.tsx: name, tooltip, icon, needsProject, badge and palette row of each of the six View buttons; the header's segments and the Command palette's View rows are built from it, the palette rows in button order; the Pull requests and Acceptance buttons still switch the view as before, their palette rows call openPrInboxOf / openAcceptance — a staging the reviewer judged defensible, ticket 04 relies only on useBadge and VIEW_NAMES), head e8c4ef8388989c57a4027a874955a721af723d2d
+>
+> Gate (depth medium, two rounds):
+> - Round 1, reviewer (lens: correctness, the implementer's report, conformance to the spec) — REJECTED on 9e8f603de:
+>   - high: test/e2e/pipeline.spec.ts:204 checked each button's title against its name; the registry's new tooltips (Session view, Pipeline board, Run history, Pull requests of the open Project) would turn macOS e2e red;
+>   - med: the ticket and the Code story claimed e2e match buttons only by aria-label;
+>   - low (Noted): the red-first count «5 failed, 3 passed» is 8 of the file's 9 tests; the historic run cannot be repeated.
+>   - Checked fine: needsProject reasons and badges as before (acceptance-tab-count kept); palette ids, texts and search keys unchanged; no unit test pinned the old order; no conflict with origin/main (merge-tree exit 0).
+>   - Mutation: needsProject removed from Pull requests → view-registry and pr-inbox-view red.
+> - Fix e8c4ef838 (orchestrator): VIEW_TOOLTIPS map in pipeline.spec.ts:181-188 equal to the registry strings; ticket and story corrected.
+> - Round 2, reviewer (rework diff) — VERIFIED: every tooltip equals views.tsx:85,:103,:115,:135,:169,:196; the inactive alternatives match :142,:178; no other e2e expects an old tooltip; eslint exit 0; story-check exit 0.
+> Evidence: 9 unit files exit 0; gate fast green on 9e8f603de; pnpm typecheck exit 0 after the fix.
+> Not verified: e2e and screenshots in both themes (no Electron locally, owner rule — CI runs e2e).
+> Owner to confirm: the buttons of Pull requests and Acceptance keep switching the view (their open() only in the palette); the palette View rows in button order with «shown now» on Open Run history.
+
+Code: `test/e2e/pipeline.spec.ts:204-204` · key lines: 204
+
+```ts
+        .poll(async () => {
+```
