@@ -154,3 +154,33 @@ read-only Linked machine (`worfy-assistant` 09 и 18) не тронуты: пу�
    - Ответ: он идёт только объектом `outside-text` внутри JSON-блока, и сообщение говорит, что это данные, — так же,
      как память.
    - Строки: `src/main/assistant/session/runner.ts:78-90`
+
+## 8. Что нашёл review и что осталось
+
+> VERIFIED — worfy-polish 164 (items_list of worfy-app pages and filters the Assistant's items: ids, project, kind, state, limit 20 by default and at most 50, cursor and full; every answer carries total and nextCursor and stays under 20,000 characters, below Claude Code's 50,000-character persist threshold; the wake prompt carries compact records of up to 20 woken items, whose text appears only as outside-text objects), head 5c8a7aecf6a86cf1e47eddd2436f10e17a11a121
+>
+> Gate (depth medium, one round plus two low fixes):
+> - Round 1, reviewer (lens: correctness and the outside-text trust boundary, ADR-0114 boundary 2): MERGE, with three low findings:
+>   - the cursor is position-based and can skip an item if the list reorders between pages (left as is: the woken items arrive in the wake prompt);
+>   - `state` advertised snoozed, dismissed, closed and stale, but without ids it always answered 0;
+>   - titles were cut to 300 characters before redactSecrets, so a token split by the cut could leak its head.
+>   Checked fine:
+>   - outside text reaches the model only as an outside-text title; the author sits inside it; message.source is checked; PR titles and Session names are not in the record;
+>   - the page budget is measured on the serialized, redacted answer;
+>   - no other consumer of the old linked[].items remains;
+>   - all 7 new contract tests fail on the old code;
+>   - three mutations were caught: a title outside the outside-text object in the wake prompt (2 tests), a title without the wrapper (3 tests), and no page budget (the 200-item test);
+>   - rules-hooks passes.
+> - Fix 5c8a7aecf:
+>   - redact before cutting, in app-server.ts:315-322 and also in linked.ts:59-60;
+>   - a state other than open, all, new or seen is refused without ids, with a clear error (app-server.ts:345, :472-475);
+>   - the description is updated;
+>   - tests at worfy-app-tools.test.ts:416-431 and :443-457.
+>   The diff was read by the orchestrator and closes the two fixed findings.
+> Evidence: worfy-app-tools, assistant-session and assistant-two-machines exit 0 (633 passed); lint exit 0; typecheck exit 0; gate fast green; story-check exit 0.
+> Not verified:
+> - whether the redaction-order test was red before the fix;
+> - the 50,000 threshold, read from the Claude Code 2.1.323 binary only;
+> - a real Claude Code run;
+> - manual item 6 (a backlog of 50+ in Stable).
+> Owner to confirm: 20 woken items in the wake prompt and a 20,000-character page budget.
