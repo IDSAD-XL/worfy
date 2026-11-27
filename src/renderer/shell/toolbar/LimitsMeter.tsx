@@ -19,7 +19,7 @@ import { VendorBadge } from '../../session/VendorBadge'
 // `No limits reported`).
 //
 // With more than one section the panel is compact, so that it, the Project title with its branch line,
-// the Harness column and the search field stay whole in a 1280 px window (test/e2e/limits-vendors.spec.ts):
+// and the search field stay whole in a 1280 px window (test/e2e/limits-vendors.spec.ts):
 // no "Limits" heading (the group keeps it as its name), a thin line between the sections and smaller gaps.
 // With Claude's section alone the heading stays.
 //
@@ -32,7 +32,7 @@ import { VendorBadge } from '../../session/VendorBadge'
 // reset times (src/renderer/shell/shell.css): each bar shows its value, whose tooltip names the rest
 // (src/renderer/limits/LimitBar.tsx).
 
-// Before the Harness item (500), which carries the app version.
+// The toolbar's only item since the Harness and the app version moved to the footer (shell/footer/VersionChip.tsx).
 export const order = 100
 
 const GAP = 12

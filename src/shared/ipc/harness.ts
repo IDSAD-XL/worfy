@@ -2,7 +2,7 @@
 // the Harness of this build is installed as the Claude Code plugin `worfy`, with the plugins it
 // depends on, and the action that installs or updates them after the user agrees in a native dialog.
 // Main reads and writes through src/main/harness/install.ts, with one installer for the app
-// (appInstaller in src/main/ipc/harness.ts). The toolbar item (src/renderer/shell/toolbar/HarnessStatus.tsx)
+// (appInstaller in src/main/ipc/harness.ts). The version chip of the footer (src/renderer/harness/useHarnessStatus.tsx)
 // reads `harness.state` and installs through `harness.install`; the first-run screen installs
 // through its own `firstRun.run` (src/shared/ipc/first-run.ts), which calls the same installer.
 // Every install that answers `done`, from either place, reaches every window as `harness.changed`,
@@ -85,7 +85,7 @@ export const codexHarnessSchema = z.object({
   agentsDir: z.string(),
   /**
    * This run installed or updated the plugin in Codex, and no check since found its hooks approved:
-   * Codex keeps them off until the user approves them in Codex (`/hooks`). The toolbar then shows the
+   * Codex keeps them off until the user approves them in Codex (`/hooks`). The version chip then opens the
    * step "Approve the Harness hooks in Codex" (worfy-multi-vendor ticket 39).
    */
   hooksToApprove: z.boolean(),
@@ -98,7 +98,7 @@ export const codexHarnessSchema = z.object({
 export type CodexHarness = z.infer<typeof codexHarnessSchema>
 
 /**
- * What the dialog and the toolbar say of the agent files worfy does not write (codexAgentsDrift's
+ * What the dialog and the version chip say of the agent files worfy does not write (codexAgentsDrift's
  * `skipped`): a file of the user's own has the name, and worfy never writes over it.
  */
 export function skippedAgentsText(skipped: readonly string[], agentsDir: string): string {

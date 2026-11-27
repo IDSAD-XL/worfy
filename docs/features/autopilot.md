@@ -167,9 +167,11 @@ While a run goes on:
   starts, and the run stops with that reason in the journal (`session-error`). To approve them, start the Codex of
   this build in a terminal, type `/hooks` and approve the hooks of the plugin `worfy`; the step below shows the command
   to copy, as that Codex is not on PATH ([Harness, In Codex](harness.md#in-codex)). After an install or update in Codex the
-  toolbar shows the step "Approve the Harness hooks in Codex" with these instructions and a "Check again" button, in the
+  window shows the step "Approve the Harness hooks in Codex" with these instructions and a "Check again" button, in the
   windows open at that moment (a window opened later does not pop it up). Until a check finds them approved, the
-  Harness item says "Codex: approve hooks", and a click opens the step again. A run on Claude Code is not checked.
+  Codex line of the version chip's popover in the footer says "Codex: approve hooks", the chip has an amber dot, and a
+  click on that line opens the step again ([Harness, Installing from the app](harness.md#installing-from-the-app)). A
+  run on Claude Code is not checked.
 - A permission request, a question with answer options and a Card's `session.ask` are refused at once, because no one is
   there to answer. An approval Codex still asks for gets `decline`. Each refusal goes to the journal. When Claude Code gave a reason for a permission request, the model
   gets that reason so it can change the command.

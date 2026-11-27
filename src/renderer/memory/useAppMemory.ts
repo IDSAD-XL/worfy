@@ -1,4 +1,4 @@
-// worfy's own memory for the toolbar (worfy-ui ticket 20): while `enabled`, the window opens the
+// worfy's own memory for the version chip's popover (worfy-ui ticket 20): while `enabled`, the window opens the
 // figure in main (`memory.open`), follows `memory.changed`, and closes it (`memory.close`) when it
 // stops showing it — the setting turned off or the component gone — so main samples only for the
 // windows that show it (src/main/diagnostics/memory.ts).

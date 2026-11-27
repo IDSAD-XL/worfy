@@ -211,8 +211,8 @@ describe('MigrationFormView', () => {
   })
 
   it('without the plugin: the form names what is missing and Move is disabled', () => {
-    const { onMove } = renderForm({ plan: plan({ available: false, missing: ['the plugin worfy is not installed: install it first (Install in the toolbar)'] }) })
-    expect(screen.getByTestId('migration-missing').textContent).toBe('the plugin worfy is not installed: install it first (Install in the toolbar)')
+    const { onMove } = renderForm({ plan: plan({ available: false, missing: ['the plugin worfy is not installed: install it first from the version chip in the footer'] }) })
+    expect(screen.getByTestId('migration-missing').textContent).toBe('the plugin worfy is not installed: install it first from the version chip in the footer')
     const move = moveButton()
     expect(move.disabled).toBe(true)
     fireEvent.click(move)

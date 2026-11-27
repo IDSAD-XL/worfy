@@ -235,6 +235,26 @@ describe('the version chip and the Update', () => {
   })
 })
 
+describe('the version chip while the Harness installs (worfy-layout ticket 03, rework round 1)', () => {
+  // While its own install runs the Harness line says "Installing Harness…": the chip keeps no dot of the state
+  // read before it, so a not-installed Harness shows its red dot only once the install is not running.
+  const notInstalled = (busy: boolean): HarnessStatusState => ({
+    ...NO_HARNESS,
+    busy,
+    status: { state: { kind: 'not-installed' }, bundledVersion: '0.2.0+bbbbbbb', canInstall: true, pluginDir: '/Users/someone/.claude/worfy-harness/plugin', dependencies: [] },
+  })
+
+  it('busy with a not-installed Harness: no dot and no reason; idle again: the red dot of Install', () => {
+    const view = render(<VersionChipView version={{ version: '0.4.0' }} update={snapshot()} harness={notInstalled(true)} memoryShown={false} />)
+    expect(chip().hasAttribute('data-dot')).toBe(false)
+    expect(dot()).toBeNull()
+    expect(chip().getAttribute('aria-label')).toBe('worfy v0.4.0')
+    view.rerender(<VersionChipView version={{ version: '0.4.0' }} update={snapshot()} harness={notInstalled(false)} memoryShown={false} />)
+    expect(chip().getAttribute('data-dot')).toBe('red')
+    expect(chip().getAttribute('aria-label')).toBe('worfy v0.4.0 — Harness needs Install')
+  })
+})
+
 // worfy-update ticket 16: the build is seen without a hover. The chip names the step and its place,
 // the tooltip the time since the build began; a press answers at once ("Starting update…"), a
 // refusal comes as a toast, and a restart that began is "Restarting…".

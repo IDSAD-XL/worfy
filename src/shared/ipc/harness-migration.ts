@@ -3,9 +3,9 @@
 // disk (src/main/harness/migrate/plan.ts), the user picks "Remove" or "Keep" for each row, and main
 // moves, after a native consent dialog, with a backup and a one-command restore
 // (src/main/harness/migrate/apply.ts). The form is src/renderer/harness/MigrationForm.tsx, opened
-// from the Harness item of the toolbar and from the first-run screen. A move that answers `done`
-// reaches every window as `harnessMigration.changed` (worfy-harness ticket 40), so the toolbar drops
-// "Move old Harness…" wherever the form was opened.
+// from the Harness line of the version chip's popover in the footer and from the first-run screen. A
+// move that answers `done` reaches every window as `harnessMigration.changed` (worfy-harness ticket 40),
+// so the popover drops "Move old Harness…" wherever the form was opened.
 import { z } from 'zod'
 import { eventChannel, invokeChannel } from './channels'
 
@@ -120,7 +120,7 @@ export const migrationResultSchema = z.discriminatedUnion('outcome', [
 ])
 export type MigrationResult = z.infer<typeof migrationResultSchema>
 
-/** Whether the toolbar offers the form: this run may move, and something of the old Harness is in ~/.claude. Runs no `claude`. */
+/** Whether the version chip offers the form: this run may move, and something of the old Harness is in ~/.claude. Runs no `claude`. */
 export const harnessMigrationOffer = invokeChannel('harnessMigration.offer', z.void(), z.object({ offered: z.boolean() }), 'local')
 
 /** The rows of the form, read from disk; writes nothing. */

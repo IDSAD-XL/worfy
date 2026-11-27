@@ -41,7 +41,7 @@ const ticket = (num: number, stage: string, kind: string, passed: string[]) => (
   enteredAt: null,
 })
 
-/** This Machine's preload: the Pipeline editor's channels, the Stages, and the Harness item of the toolbar. */
+/** This Machine's preload: the Pipeline editor's channels, the Stages, and the Harness lines. */
 function preload(read: PipelineEditorRead): FakeMain {
   const main: FakeMain = { reads: 0, writes: [], read, write: { status: 'saved', fingerprint: NEW_FINGERPRINT, warning: null }, calls: [] }
   const answer = (value: unknown) => Promise.resolve({ ok: true, value } as never)
