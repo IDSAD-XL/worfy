@@ -310,7 +310,7 @@ read-only access`. Действия записи остаются на экра�
 виден под указателем и когда фокус клавиатуры на действии; Esc его прячет, а screen reader слышит его как описание действия. Node
 не двигаются и не меняют размер. Node с Terminal показывает замену, его shell не запускается, а его вывод не отправляется.
 
-**Acceptance.** Вкладка Acceptance окна на Linked machine показывает очередь Project-ов той Machine, как Pull requests
+**Acceptance.** Вид Acceptance окна на Linked machine показывает очередь Project-ов той Machine, как Pull requests
 показывает её pull request-ы ([Acceptance](acceptance.md)). При Read only Pass и Fail неактивны с tooltip-ом только для
 чтения, и та Machine всё равно отклонит решение. При Full access решение уходит Orchestrator-у Project-а на его Machine.
 «Checked in» начинается с платформы Machine окна, и решение называет commit сборки, которую та Machine запускает. Пункт, чья

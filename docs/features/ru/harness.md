@@ -14,30 +14,44 @@
 Каждая сборка worfy несёт копию Harness и ставит её как plugin Claude Code `worfy`, в user scope, а также в Codex, когда
 Codex есть на Machine (см. [In Codex](#in-codex)).
 Harness home это папка Harness на Machine, по умолчанию `worfy-harness` внутри Claude home, а копия ложится в её папку
-`plugin`. Установку предлагают три места: пункт Harness в toolbar, проверки [First run](onboarding.md) и Settings →
+`plugin`. Установку предлагают три места: строка Harness в version popover-е footer-а, проверки [First run](onboarding.md) и Settings →
 Pipeline, когда у Harness нет скрипта для редактора Pipeline. Все три используют один installer. Второй запрос во время
 установки получает тот же запуск, а установка, которая могла что-то изменить, доходит до каждого окна.
 
-**Пункт в toolbar.** Это последний пункт toolbar. Когда места в toolbar не остаётся и после того, как заголовок Project-а
-исчез, пункт сжимается: его строки заканчиваются многоточием, а строка Harness хранит весь свой текст в tooltip-е. Во
-второй его строке версия приложения и собственная память worfy ([Storage and diagnostics](storage-and-diagnostics.md)).
-Версия выглядит как `v<major>.<minor>.<N>` с номером сборки ([Settings → General → Version](app-shell.md#settings)), а её
-tooltip это версия сборки с commit-ом; сборка без номера показывает версию сборки `v<semver>+<short SHA>` без tooltip-а.
-В Stable copy версия — это version chip [Update](updates.md): пока Update ждёт, её tooltip называет Update, а версия
-сборки идёт следом второй строкой.
-Третья строка, под версией, — Harness в Codex, когда ему есть что сказать, например `Codex: approve hooks`
-(см. [In Codex](#in-codex) ниже).
+**Version chip.** Состояние Harness — в version chip-е на правом конце footer-а ([App shell](app-shell.md#footer)):
+версия приложения `v<major>.<minor>.<N>` с номером сборки ([Settings → General → Version](app-shell.md#settings)) или
+`v<semver>+<short SHA>` для сборки без номера, и одна точка. Точка красная, пока Harness нужен пользователь: "Harness
+unavailable", Harness не установлен или сломан и этот запуск может его установить (Install, Retry), или старый Harness
+нужно перенести. Точка янтарная, пока ждёт обновление: [Update](updates.md) worfy, "Update Harness", plugin, выключенный
+в Claude Code (Enable), или строка Codex с кнопкой или `Codex: approve hooks`. Красная идёт раньше янтарной; когда делать
+нечего, точки нет. Accessible name chip-а и первая строка его tooltip-а говорят, о чём точка, например
+`worfy v<version> — Harness needs Install`.
+Нажатие на chip открывает над ним popover; Esc или нажатие снаружи его закрывает. Строки popover-а: версия приложения с
+действиями Update, строка Harness с кнопками-иконками, строка Codex с её кнопкой, когда ей есть что сказать (см. [In
+Codex](#in-codex) ниже), и собственная память worfy, пока Settings → General её показывает ([Storage and
+diagnostics](storage-and-diagnostics.md)). Строка, слишком длинная для popover-а, кончается многоточием, а строка Harness
+хранит весь свой текст в tooltip-е. Диалог согласия, форма переноса и шаг "Approve the Harness hooks in Codex"
+открываются из popover-а, а шаг по-прежнему открывается сам, пока popover закрыт.
 
 | Состояние | Текст | Кнопка-иконка | Когда |
 |---|---|---|---|
 | Не установлен | `Harness not installed` | Install | Папки plugin нет, или Claude Code не показывает plugin в списке |
 | Установлен | `Harness <version>` | Нет | Копия и plugin в списке Claude Code имеют версию этой сборки |
-| Выключен | `Harness <version> · disabled` | Нет | То же, и plugin выключен в Claude Code |
+| Выключен | `Harness <version> · disabled` | Enable, с акцентом и точкой | То же, и plugin выключен в Claude Code. См. ниже |
 | Другая версия | `Harness <from>` | Update Harness, с акцентом и точкой | Установлена другая версия. Tooltip говорит `<from> → <to>` |
 | Та же версия | `Harness <from>` | Replace Harness | Тот же semver из другого commit-а, см. ниже. Когда GitHub говорит, что он отстаёт, строка — «Другая версия» |
 | Ошибка | `Harness error: <step>` | Retry | Шаг упал, Claude Code сообщает, что plugin сломан, или нет зависимости. Причина в tooltip |
 | Идёт установка | `Installing Harness…` | Нет | Во время установки, начатой из этого пункта |
+| Идёт включение | `Enabling Harness…` | Нет | Во время Enable, начатого из этого пункта |
 | Нет ответа | `Harness unavailable` | Нет | Вызов main process упал. Причина в tooltip |
+
+**Enable.** Plugin, который Claude Code показывает установленным, но выключенным (например, выключенный в `/plugin`),
+получает кнопку Enable. Нажатие запускает `claude plugin enable worfy@worfy-harness --scope user` с binary Claude Code
+этой сборки — ту же команду, за которой стоит `/plugin`. Так Claude Code пишет свои настройки сам, а worfy не пишет ни
+одного файла. Диалога нет: команда ничего не устанавливает. Пока она идёт, строка говорит `Enabling Harness…`. Потом
+состояние читается заново. Удачный Enable доходит до каждого окна. Упавшая команда оставляет строку на `· disabled`, а
+tooltip-ы строки и Enable кончаются на `Enable failed:` и вывод команды. Enable виден только там, где был бы Install, в
+запуске, которому можно устанавливать.
 
 Запуск, которому нельзя устанавливать, показывает состояние без кнопки, и две строки о другой версии тогда называют обе
 версии: `Harness <from> → <to>` и `Harness <from>, this build <to>`. Устанавливать может только упакованное приложение или
@@ -66,13 +80,13 @@ tooltip это версия сборки с commit-ом; сборка без н�
 
 **Plugin, который worfy поставил для старого Harness.** Старые версии Harness объявляли
 `mattpocock-skills@claude-plugins-official`, и worfy его ставил. После того как прошло обновление установленного `worfy`
-(Update Harness в toolbar или установка после Update приложения), worfy удаляет этот plugin командой
+(Update Harness в version popover-е или установка после Update приложения), worfy удаляет этот plugin командой
 `claude plugin uninstall mattpocock-skills@claude-plugins-official --scope user`, но только если его поставил worfy: так
 говорит собственная запись worfy, или Claude Code показывает plugin установленным не больше чем за 10 минут до
 `worfy@worfy-harness` и раньше него. Запись о plugin-е, которого уже нет или который Claude Code показывает установленным
 позже записи, отбрасывается. Plugin, который пользователь поставил в другое время, plugin без читаемого времени установки
 и plugin при первой установке остаются. Codex следует тому же правилу с `codex plugin remove <id>`; Codex не показывает
-время установки такого plugin-а, поэтому там его удаляет только запись worfy. Marketplace остаётся. Строка в toolbar
+время установки такого plugin-а, поэтому там его удаляет только запись worfy. Marketplace остаётся. Строка Harness
 затем показывает `· removed mattpocock-skills`, а её tooltip называет команду, которая возвращает plugin. Неудачное
 удаление показывает `· could not remove …` с выводом команды; Harness остаётся установленным, а следующий Update
 пробует снова.
@@ -112,7 +126,7 @@ tooltip это версия сборки с commit-ом; сборка без н�
 Harness этой копии. При первом старте новой копии worfy ставит её Harness, если установленный устарел или его нет, тем
 же installer-ом и теми же командами, что выше. Делает это один раз: запись о перезапуске сначала помечается как
 использованная, так что упавшая установка не повторяется, пока пользователь не нажмёт кнопку. Сбой — обычное состояние
-ошибки с Retry, и состояние Update отмечает его для уведомления. Установка, начатая в этот момент из toolbar, общая, и
+ошибки с Retry, и состояние Update отмечает его для уведомления. Установка, начатая в этот момент из version popover-а, общая, и
 Cancel в её диалоге оставляет Harness как был. Если стартовала не та копия, которую назвал перезапуск, потому что замена
 не случилась, ничего не ставится. Claude Code берёт новый Harness со следующей Session. Сам Update описан в
 [Updates](updates.md).
@@ -124,8 +138,8 @@ commit этой копии после commit-а установленного. Н
 Harness», toast «Harness out of date: <from> → <to>» и красная строка Health, см. [Updates](updates.md).
 
 **Перенос старого Harness.** До plugin-а Harness лежал прямо в `~/.claude`. Пока от него там что-то осталось, строка
-First run предлагает "Move…", а в запуске, которому можно устанавливать, toolbar ещё показывает иконку "Move old
-Harness…". В форме "Move the old Harness out of ~/.claude" по строке на каждую вещь:
+First run предлагает "Move…", а в запуске, которому можно устанавливать, строка Harness в version popover-е ещё
+показывает иконку "Move old Harness…", а у version chip-а красная точка. В форме "Move the old Harness out of ~/.claude" по строке на каждую вещь:
 
 | Группа | Выбор |
 |---|---|
@@ -171,7 +185,7 @@ Codex существует (`CODEX_HOME`, иначе `.codex` в домашне�
 Диалог согласия называет команды и файлы агентов Codex после части Claude Code, или одни их, когда у Claude Code уже
 Harness этой сборки, и говорит, что Codex держит hooks нового или обновлённого plugin-а выключенными, пока их не одобрят
 в `/hooks`. Сбой в части Claude Code оставляет Codex нетронутым. Сбой в Codex оставляет Claude Code установленным, а
-часть Codex в пункте toolbar показывает упавший шаг. Команде Codex даётся 120 с, а команде, которая добавляет marketplace
+строка Codex в version popover-е показывает упавший шаг. Команде Codex даётся 120 с, а команде, которая добавляет marketplace
 или зависимость, 600 с.
 
 **Агенты.** Каждый сделан из агента с тем же именем в plugin-е: его `description`, его текст как developer instructions
@@ -179,12 +193,11 @@ Harness этой сборки, и говорит, что Codex держит hook
 `inherit` или `sonnet`, не пишется, так что агент берёт модель Session, которая его запускает. Каждый файл, который
 пишет worfy, начинается строкой комментария, которая начинается с `# Written by worfy's Harness installer` и называет
 версию Harness. Файл `worfy-*.toml` без неё принадлежит пользователю: worfy его не переписывает и не удаляет. Когда у
-такого файла имя агента этой сборки, этот агент не пишется, и toolbar об этом говорит. Помеченный файл агента, которого
+такого файла имя агента этой сборки, этот агент не пишется, и строка Codex об этом говорит. Помеченный файл агента, которого
 в этой сборке нет, удаляется.
 
-**В toolbar.** Часть Codex это третья строка пункта toolbar, под версией приложения, с кнопкой в её конце, и только пока
-часть Claude Code установлена. С тремя строками пункт сохраняет высоту toolbar-а: строка Harness и кнопки-иконки — 16 px
-в высоту вместо 20, текст остаётся 11 px.
+**В version popover-е.** Часть Codex — отдельная строка version popover-а, под строкой Harness, с кнопкой в её конце, и
+только пока часть Claude Code установлена. Текст — 11 px.
 Состояние ждёт `codex plugin list --json` не больше 10 с, и тогда одна часть Codex показывает `Codex error: plugin list`.
 
 | Часть Codex | Кнопка | Когда |
@@ -214,7 +227,7 @@ in Codex" говорит, что делать: запустить Codex этой
 
 Диалог открывается сам в окнах, открытых в момент, когда установка или обновление в Codex оставили hooks для одобрения.
 После "Close" его открывает снова только "Codex: approve hooks". Этот флаг хранится только пока worfy работает: после
-перезапуска toolbar его не показывает, но Autopilot всё равно спрашивает Codex перед каждым run-ом.
+перезапуска строка Codex его не показывает, но Autopilot всё равно спрашивает Codex перед каждым run-ом.
 
 #### On Windows
 
@@ -275,7 +288,8 @@ Machine.
 | `src/main/harness/locate.ts` | Какой Harness на Machine (`plugin`, `legacy`, `none`), папки его скриптов и состояния Gate |
 | `src/main/ipc/harness.ts` | Единственный installer приложения и диалог согласия. Объявляет `harness.changed` |
 | `src/shared/ipc/harness.ts` | Каналы и состояния |
-| `src/renderer/shell/toolbar/HarnessStatus.tsx` | Пункт toolbar, который показывает и `src/renderer/settings/PipelineSection.tsx` |
+| `src/renderer/harness/HarnessStatus.tsx`, `src/renderer/harness/useHarnessStatus.tsx`, `src/renderer/harness/harness-lines.ts` | Строки Harness и Codex в version popover-е, которые показывает и `src/renderer/settings/PipelineSection.tsx` |
+| `src/renderer/shell/footer/VersionChip.tsx`, `src/renderer/shell/footer/version-dot.ts` | Version chip, его точка и его popover |
 | `src/main/first-run/actions.ts` | Запускает тот же installer из First run |
 | `src/main/harness/migrate/plan.ts` | Строки формы переноса, прочитанные с диска. Ничего не пишет |
 | `src/main/harness/migrate/apply.ts` | Перенос по шагам: backup, settings, `.claude.json`, CLAUDE.md, state, files, `bin/epic-status`, commit |
@@ -287,7 +301,8 @@ Machine.
 `.claude.json` единственный файл вне их.
 
 Главные test-ы: `test/contract/harness-install.test.ts`, с подставным Claude Code и сбоями, внесёнными в копирование и
-переименования. `test/e2e/harness-install.spec.ts` и `test/e2e/harness-migrate.spec.ts` идут через toolbar. Также
+переименования. `test/e2e/harness-install.spec.ts` и `test/e2e/harness-migrate.spec.ts` идут через version popover, а
+`test/e2e/footer.spec.ts` проверяет точку chip-а и popover. Также
 `test/contract/harness-changed.test.ts`, `test/contract/harness-migrate.test.ts`, `test/unit/harness-locate.test.ts`,
 `test/unit/harness-status.test.tsx`, `test/unit/harness-migration-form.test.tsx` и, для удаления зависимости, которая
 больше не нужна, `test/contract/harness-dependency-cleanup.test.ts`. В Codex:
@@ -359,6 +374,7 @@ Session и каждого Subagent-а (см. [Hooks](skills-agents-and-hooks.md#
 | `silent-check` | Ищет следы workflow в тексте или diff, см. [Full mode and Silent mode](projects.md) |
 | `review-draft-lint` | Проверяет черновик review до того, как его увидит человек: длину каждого комментария по его уровню, следы workflow в любом режиме, строки об авторстве AI, личные данные и запрещённые слова проекта. С `--skill` проверяет, что каждое правило сгенерированного skill-а review указывает на раздел его `research.md`. С `--reply` проверяет черновик ответов skill-а `pr-reply`: те же правила для каждого ответа, который ещё в черновике, с именем `items[<i>]`, пустой ответ, один предел длины для всех ответов (наибольший уровень из `--rules`, иначе из `lint.json` шаблона), и exit 2 для файла неправильной формы; `--reply -` читает черновик из stdin |
 | `pr-reply-draft` | Единственный автор черновика ответов skill-а `pr-reply`. Берёт ответы одного запуска из stdin, проверяет их через `review-draft-lint --reply` (с пределами team reviewer-а, когда он собран) и при находке ничего не пишет. Иначе сливает их в `<Profile folder>/state/pr-inbox/drafts/<owner>-<name>-<N>.json`: отправленные и отброшенные ответы остаются, ответ, который человек правил (`edited: true`), остаётся, пока его thread ждёт, черновики thread-ов, которые больше не ждут, становятся отброшенными, остальные заменяются. Session не может писать в папку Profile без запроса разрешения; скрипт может |
+| `pr-review-draft` | Единственный автор, который есть у Agent review для черновика review чужого pull request-а, `<Profile folder>/state/pr-review/<owner>-<name>-<N>.json`; этот файл worfy создаёт, когда запускает review. Команды: `comment <path> <line>` (с `--start-line` и `--side`), `summary`, `verdict` (вердикт, который предлагает агент; настоящий выбирает человек) и `done`. Меняет только то, что написал агент: комментарии человека никогда, summary только пока она пустая или написана агентом. Отказывает с exit 1, когда черновика нет, когда черновик отправляется или отправлен, и после Stop. Main process worfy пишет тот же файл: каждый автор держит lock `<file>.lock` на время чтения и записи, потом переименовывает временный файл на место |
 | `review-history` | Читает историю review pull request-ов Project-а на GitHub через `gh api graphql`, сохраняет слова reviewer-ов команды в `<Profile folder>/state/human-review/` и говорит, сколько их, с оценкой в токенах: это вход skill-а team reviewer. Модель в нём не запускается |
 | `shortcut-ledger` | Перечисляет комментарии `shortcut:` рабочего дерева, по строке на каждый |
 | `verdict` | Печатает ответ reviewer-а начиная с его строки вердикта: первой строки, которая начинается с `VERIFIED` или `REJECTED` (в том числе после `NARROW:`, жирного шрифта, знака заголовка или обратной кавычки; никогда внутри fenced-блока кода), без предложения над ней и без разметки. Exit 1, когда ни одна строка не несёт вердикта; ничего не угадывается. Skill `epic-wave` записывает через него вердикт verifier-а, и приложение читает вердикты по тому же правилу |
@@ -462,8 +478,8 @@ Eval-ы делают платные вызовы модели, и CI с Gate и�
 `harness/evals-outcome/` держит задачи для `pnpm eval:outcome`. `test/contract/harness-evals.test.ts` бесплатно
 проверяет, что каждый случай полон.
 Случай `compaction-state` несёт тег `alone` и запускается только командой `pnpm eval:harness -- --case compaction-state`:
-только его вызов получает `CLAUDE_CODE_AUTO_COMPACT_WINDOW=100000` и `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=5` — переменные,
-с которыми Claude Code сжимает историю (compaction) до первого ответа, а каждый другой вызов идёт без них, даже когда их
+только его вызов получает `CLAUDE_CODE_AUTO_COMPACT_WINDOW=100000` и `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=50` — переменные,
+с которыми Claude Code сжимает историю (compaction) один раз, до первого ответа, а каждый другой вызов идёт без них, даже когда их
 задаёт shell. Общий запуск и `--changed` пропускают этот случай и печатают, как его запустить. Его запуск без hook-а
 compaction и без инструкций —
 `HARNESS_DIR="$(node harness/evals/compaction-state/baseline.mjs)" pnpm eval:harness -- --case compaction-state`

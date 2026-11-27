@@ -403,7 +403,7 @@ that every Stage will be computed again. A change is never blocked by Tickets in
 - "Reset to default", which removes the Project's own Pipeline.
 
 A Pipeline changed elsewhere since the read saves nothing and offers Reload. Another write in progress offers "Try again". A
-Harness without the editor's script shows the Harness item with its Update. A commit that failed in the Harness home's git
+Harness without the editor's script shows the Harness line with its Update, as the version popover of the footer does. A commit that failed in the Harness home's git
 leaves the write in place, with a warning.
 
 **A notification** comes when a Ticket starts to wait for a person, that is, its `Waits:` is `owner` or a Machine's name, and no worfy window of the Machine that shows it has focus. Its

@@ -119,10 +119,10 @@ tooltip говорит, что остальные команды Codex рабо�
 Binding не даёт, как у Claude Code. Skills и Subagent-ы Session Codex сигналов не дают. Правило «ticket done» автоматического
 Archive доходит до Session Codex так же.
 
-**Harness в Codex.** Единственный installer Harness — тот, что в toolbar и в First run, — ставит его и в Codex, как plugin
+**Harness в Codex.** Единственный installer Harness — тот, что в popover-е версии и в First run, — ставит его и в Codex, как plugin
 Codex, и пишет три его агента, `worfy-implementer`, `worfy-reviewer` и `worfy-scout`, в папку агентов Codex. Codex держит
-hook-и нового или обновлённого plugin-а выключенными, пока пользователь не подтвердит их в `/hooks`, и toolbar показывает,
-как это сделать. Установка, подтверждение и то, как каждая гарантия workflow держится на Codex, — на странице
+hook-и нового или обновлённого plugin-а выключенными, пока пользователь не подтвердит их в `/hooks`, и строка Codex
+popover-а версии показывает, как это сделать. Установка, подтверждение и то, как каждая гарантия workflow держится на Codex, — на странице
 [Harness](harness.md#in-codex).
 
 **Чего у Session Codex нет.** worfy не эмулирует то, чего у Vendor-а нет. Capability `hooks` у Codex выключена, с причиной

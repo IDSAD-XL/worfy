@@ -1,7 +1,7 @@
 // The Harness of the new copy at the first start after an Update or a roll back (worfy-update
 // ticket 05; spec R5, R8; ADR-0089 point 5). The press of "Restart now" or "Roll back" was the
 // consent to the Harness of that copy too, so it is installed without a second dialog; "Update
-// Harness" in the toolbar stays for every other case. Claude Code takes the new Harness from the next
+// Harness" in the version popover stays for every other case. Claude Code takes the new Harness from the next
 // Session on.
 //
 // `update/restart.json` (src/main/update/restart.ts) says that the last run ended in such a restart
@@ -24,7 +24,7 @@ import { changeUpdateState } from './state'
  * What the start did: no restart.json or one taken already (`none`), one for another copy
  * (`other-copy`), the Harness of this copy there already or in a state an install does not mend
  * (`current`), installed, failed, or `declined`: the install joined one the user started from the
- * toolbar meanwhile, and Cancel in its dialog answered for both.
+ * version popover meanwhile, and Cancel in its dialog answered for both.
  */
 export type AfterUpdateOutcome = 'none' | 'other-copy' | 'current' | 'installed' | 'failed' | 'declined'
 
@@ -84,7 +84,7 @@ function takeRecord(dir: string): RestartRecord | undefined {
 /**
  * At the start, after the result of the last restart is settled: installs the Harness of this copy
  * when restart.json names it and the installed one is outdated or missing. A failure is the Harness
- * state `error`, as any install's (Health and the toolbar's Retry), and `harnessAfterUpdate: 'failed'`
+ * state `error`, as any install's (Health and the Retry of the version popover), and `harnessAfterUpdate: 'failed'`
  * in the Update state for the toast. Never rejects.
  */
 export async function installHarnessAfterUpdate({ dir, stateFile, bundled, installer, onChange }: AfterUpdateOptions): Promise<AfterUpdateOutcome> {
@@ -96,7 +96,7 @@ export async function installHarnessAfterUpdate({ dir, stateFile, bundled, insta
   try {
     const before = await installer.status()
     if (before.state.kind !== 'outdated' && before.state.kind !== 'not-installed') return 'current'
-    // No dialog: the press of the restart was the consent (spec R5). An install the toolbar or the
+    // No dialog: the press of the restart was the consent (spec R5). An install the version popover or the
     // first-run screen started meanwhile is joined: its answer, its dialog's included, is this one's.
     const result = await installer.install(() => Promise.resolve(true))
     if (result.outcome === 'declined') {

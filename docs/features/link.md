@@ -311,7 +311,7 @@ anyway. The tooltip shows under the pointer and when the keyboard focuses the ac
 reader hears it as the action's description. Nodes do not move and do not resize. A Terminal Node shows a stand-in, its shell does not start, and its
 output is not sent.
 
-**Acceptance.** The Acceptance tab of a window on a Linked machine shows the queue of that Machine's Projects, as Pull
+**Acceptance.** The Acceptance view of a window on a Linked machine shows the queue of that Machine's Projects, as Pull
 requests shows its pull requests ([Acceptance](acceptance.md)). With Read only, Pass and Fail are inactive with the
 read-only tooltip, and that Machine refuses the decision anyway. With Full access, a decision goes to the Orchestrator
 of the Project on its Machine. "Checked in" starts at the platform of the window's Machine, and the decision names the

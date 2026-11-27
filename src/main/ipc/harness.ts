@@ -17,7 +17,7 @@
 // src/main/harness/codex-install.ts), with the Codex binary this build pins, or WORFY_CODEX_CLI when
 // set (a stand-in in tests); under WORFY_CODEX=fake or absent and under vitest there is none.
 //
-// After an install or update in Codex the toolbar shows the step "Approve the Harness hooks in Codex"
+// After an install or update in Codex the version chip shows the step "Approve the Harness hooks in Codex"
 // (worfy-multi-vendor ticket 39). Its "Check again" is `harness.codexHooks`: Codex's `hooks/list`
 // through the `harnessHooks` part of the Codex driver (src/main/vendors/codex/harness-hooks.ts), the fake
 // under WORFY_CODEX=fake. Once the hooks are approved the Codex part no longer has hooks to approve, and every
@@ -113,7 +113,7 @@ let installer: HarnessInstaller | null = null
 let codexHarness: CodexHarness | null = null
 
 /**
- * The app's one installer: the toolbar and the first-run screen (ticket 19) share it, so two installs
+ * The app's one installer: the version popover and the first-run screen (ticket 19) share it, so two installs
  * never run at once, and each install that answers `done` reaches every window as `harness.changed`.
  */
 export function appInstaller(): HarnessInstaller {

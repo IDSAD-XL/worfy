@@ -3,7 +3,7 @@
 **Acceptance** is the list of checks that wait for the owner in every Project of the Machine: the manual items of
 Tickets that nobody has proved yet, and the Tickets that wait for the owner's decision. worfy keeps this queue in the
 main process, in groups, with the Evidence of each item, the line that says whether the change is in the owner's Stable
-copy, and a "Sent" mark for a decision that is on its way. The **Acceptance** tab of the window shows it, and the owner
+copy, and a "Sent" mark for a decision that is on its way. The **Acceptance** view of the window shows it, and the owner
 passes or fails each item there. The decision goes to the Project's Orchestrator as the text of "Record owner check";
 the Harness's skill `owner-check` writes the `owner-check` Evidence line, ticks the item on Pass and files a rework
 Ticket on Fail ([Evidence](evidence.md), "Who writes which line"). worfy itself writes nothing into a Ticket
@@ -95,7 +95,7 @@ view says "Reading the Tickets…"; with no row in any group it says "No check w
 
 #### On a Linked machine
 
-The Acceptance tab of a window on a Linked machine shows the queue of that Machine's Projects, as Pull requests shows
+The Acceptance view of a window on a Linked machine shows the queue of that Machine's Projects, as Pull requests shows
 its pull requests. With Read only, Pass and Fail are inactive with the read-only tooltip, and that Machine refuses the
 decision anyway. With Full access, a decision goes to the Orchestrator of the Project on that Machine. "Checked in"
 starts at that Machine's platform, and the commit is the one of the build it runs, from its `hello`. The Stable copy line
@@ -112,7 +112,7 @@ over the link, as on [Evidence](evidence.md). See [Link](link.md), "On a Linked 
 
 ### How it works
 
-The window reads the queue once with `acceptance.get` and then takes every `acceptance.changed`; the tab's count and the
+The window reads the queue once with `acceptance.get` and then takes every `acceptance.changed`; the View button's count and the
 sidebar section read the same copy, so the window asks main once whatever shows it. The view only draws: the groups,
 the Stable copy line and the Sent marks come from main. What the window keeps itself is the selection, which groups are
 open, the decisions main has not answered yet, and those it answered before the queue marks them Sent. Whether Autopilot
@@ -143,7 +143,7 @@ platform.
   there, and "Update worfy on <name>".
 - The decision in main: `actions.ownerCheck` (`src/shared/ipc/actions.ts`), handled by `ActionLauncher.ownerCheck`
   (`src/main/actions/launch.ts`), the template and its placeholders in `src/shared/projects/action-templates.ts`.
-- Tests: `test/unit/acceptance-view.test.tsx` (the groups, the tab, ↑ ↓, every kind of Stable copy line, Fail without a
+- Tests: `test/unit/acceptance-view.test.tsx` (the groups, the View button, ↑ ↓, every kind of Stable copy line, Fail without a
   comment, Autopilot, Pass, Sent and Not recorded yet, a refusal, Waits for you, a window on a Linked machine),
   `test/unit/acceptance-section.test.tsx` (counts by Project, the rail badge, a click), the "where a Manual check row
   leads" cases of `test/unit/palette-manual-check-row.test.tsx`, `test/unit/notification-ticket-click.test.tsx` (the

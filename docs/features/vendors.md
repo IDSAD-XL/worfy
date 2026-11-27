@@ -118,10 +118,10 @@ them runs, the window asks for the tree again every 5 seconds, and each ask star
 now. An edit of a Ticket's file binds nothing, as for Claude Code. Skills and Subagents of a Codex Session give no
 signal. The "ticket done" rule of the automatic Archive reaches a Codex Session the same way.
 
-**The Harness in Codex.** The one installer of the Harness, the toolbar's and First run's, also installs it into Codex
+**The Harness in Codex.** The one installer of the Harness, the version popover's and First run's, also installs it into Codex
 as a Codex plugin, and writes its three agents `worfy-implementer`, `worfy-reviewer` and `worfy-scout` into Codex's agents
-folder. Codex keeps the hooks of a new or updated plugin off until the user approves them in `/hooks`, and the toolbar
-shows how. The install, the approval and how each guarantee of the workflow holds on Codex are on
+folder. Codex keeps the hooks of a new or updated plugin off until the user approves them in `/hooks`, and the Codex line of
+the version popover shows how. The install, the approval and how each guarantee of the workflow holds on Codex are on
 [Harness](harness.md#in-codex).
 
 **What a Codex Session does not have.** worfy emulates nothing a Vendor lacks. The capability `hooks` is off for Codex,

@@ -782,8 +782,8 @@ function worfyUpdate(update: NonNullable<CheckDeps['update']>, machine: Machine)
     if (missing.length > 0) return noFirstRun(row('fail', `${missing.join(', ')} not found`, 'Updates need git, node and pnpm', missing.map((tool) => updateToolCommand(machine, tool)).join('; ')))
     return noFirstRun(row('fail', 'update failed', build.log === undefined ? '' : lastLineOf(build.log), null, [action('update-log', 'Show log')]))
   }
-  // The versions numbered as the toolbar shows them (ticket 14), the build version where a number is not known.
-  if (available !== null && !available.quiet) return noFirstRun(row('fail', `${numberedVersion(available.version, available.number)} available`, 'Update worfy from the toolbar or Settings → General'))
+  // The versions numbered as the version chip shows them (ticket 14), the build version where a number is not known.
+  if (available !== null && !available.quiet) return noFirstRun(row('fail', `${numberedVersion(available.version, available.number)} available`, 'Update worfy from the version chip in the footer or Settings → General'))
   return noFirstRun(row('ok', `${numberedVersion(version, number)}, up to date`))
 }
 

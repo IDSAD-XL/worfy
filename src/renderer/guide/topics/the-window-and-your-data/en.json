@@ -62,7 +62,7 @@
         "target": "NotificationTarget",
         "targetNote": "opens what a click names",
         "figure": "Memory figure",
-        "figureNote": "in the toolbar",
+        "figureNote": "in the version popover",
         "store": "Settings store",
         "storeNote": "writes only a real change",
         "sessions": "SessionRegistry",

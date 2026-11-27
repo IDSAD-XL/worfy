@@ -79,7 +79,7 @@ more and builds the head it finds; a newer commit found then waits its own 20 mi
 once, after the last of them. The head's commit time comes with GitHub's answer about `main`; when the answer has
 none, the head is built at once. "Update worfy" never waits. The toast
 "available" does not come then: the chip shows the build, and the toast "ready" comes at its end. Off, nothing is built
-until the user presses "Update worfy" in the chip menu, Settings or the Command palette, or "Update" in the toast. In
+until the user presses "Update worfy" in the version popover, Settings or the Command palette, or "Update" in the toast. In
 both cases a build never restarts worfy: the restart is always a press of its own.
 
 **The build.** worfy builds in its own clone in its data folder (see [Storage and
@@ -122,7 +122,7 @@ failed build like any other, with its log: there is no check of free space befor
 again by itself: the next new commit of `main` is built as usual, and "Update worfy" builds the same one again.
 
 **The restart.** A built Update is installed only by a press of "Restart now" or "Restart when idle", in the toast, the
-chip menu, Settings or the Command palette. "Restart now" is always offered; while something works, "Restart when idle"
+version popover, Settings or the Command palette. "Restart now" is always offered; while something works, "Restart when idle"
 stands next to it. Nothing works when no Session is in a turn (busy or waiting for a permission), no Session has a
 background task, and no Autopilot run is at work. A run that waits for the Limits, the budget or the Start window is not
 at work: the restart suspends it, and after the start it goes on with the same wait. A run with a Wave in work, one that
@@ -197,9 +197,9 @@ new copy did not start, or was rolled back by hand", and the commit rolled back 
 A new copy that failed later has read that already: then the commit is not quiet, and "Update automatically" builds it
 again; turn the setting off until a newer commit is on `main`.
 
-**What's new.** "What's new" in the chip menu opens a popover under the chip: "What's new in worfy <version>", a line
-"<PR title> #<number>" for each PR merged between the copy that runs and the new version, newest first, and the chip's
-first menu item as its button. The new version is the build that runs or is ready, else the Available update. The lines
+**What's new.** "What's new" in the version popover opens a popover by the chip, in its place: "What's new in worfy <version>", a line
+"<PR title> #<number>" for each PR merged between the copy that runs and the new version, newest first, and the first
+action of the popover's worfy row as its button. The new version is the build that runs or is ready, else the Available update. The lines
 come from one comparison on GitHub: the first line of each commit that ends with `(#<number>)`, as a squash merge writes
 it. A commit pushed to `main` without a PR is not listed. A comparison lists 250 commits at most; with 250 the last line
 is "…and more on GitHub", a link to the comparison page. The numbers and that link open in the system's browser. While

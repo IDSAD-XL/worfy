@@ -788,7 +788,7 @@ describe('the worfy version row and the Harness behind this build (worfy-update 
     expect(await updateRow({ available: { sha: '2222222', version: NEWER, quiet: false } })).toMatchObject({
       status: 'fail',
       detail: `${NEWER} available`,
-      hint: 'Update worfy from the toolbar or Settings → General',
+      hint: 'Update worfy from the version chip in the footer or Settings → General',
       command: null,
       actions: [],
     })

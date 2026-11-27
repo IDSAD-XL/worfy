@@ -170,9 +170,10 @@ tooltip «⋯». Идущую очередь меняет только чело�
   новая Session не стартует, и run останавливается с этой причиной в journal (`session-error`). Чтобы их одобрить,
   запустите Codex этой сборки в терминале, наберите `/hooks` и одобрите hook-и plugin-а `worfy`; шаг ниже показывает
   команду для копирования, потому что этого Codex нет в PATH ([Harness, In Codex](harness.md#in-codex)). После установки
-  или обновления в Codex toolbar показывает шаг «Approve the Harness hooks in Codex» с этими инструкциями и кнопкой
+  или обновления в Codex окно показывает шаг «Approve the Harness hooks in Codex» с этими инструкциями и кнопкой
   «Check again» в окнах, открытых в этот момент (окно, открытое позже, его не показывает). Пока проверка не найдёт их
-  одобренными, пункт Harness говорит «Codex: approve hooks», и клик снова открывает шаг. Run на Claude Code не
+  одобренными, строка Codex в popover-е chip-а версии в footer-е говорит «Codex: approve hooks», у chip-а янтарная точка,
+и клик по этой строке снова открывает шаг ([Harness, Installing from the app](harness.md#installing-from-the-app)). Run на Claude Code не
   проверяется.
 - Запрос разрешения, вопрос с вариантами ответа и `session.ask` от Card сразу получают отказ: отвечать некому. Approval,
   о котором Codex всё же спрашивает, получает `decline`. Каждый отказ идёт в journal. Если Claude Code назвал причину

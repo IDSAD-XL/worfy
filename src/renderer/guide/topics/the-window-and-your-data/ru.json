@@ -62,7 +62,7 @@
         "target": "NotificationTarget",
         "targetNote": "открывает то, что назвал клик",
         "figure": "Счётчик памяти",
-        "figureNote": "в toolbar",
+        "figureNote": "в popover-е версии",
         "store": "Хранилище настроек",
         "storeNote": "пишет только настоящее изменение",
         "sessions": "SessionRegistry",

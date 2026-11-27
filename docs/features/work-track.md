@@ -2,7 +2,7 @@
 
 Work track shows all the work of a Project on this Machine over a Day, a Week or a Month on one time axis: Autopilot
 runs and their Waves, Waves sent by hand, the turns of every Session and their Subagents, gate runs and merged PRs,
-and above them how many hours went to each Epic. It is the second half of the **Runs** tab, beside Run history, which
+and above them how many hours went to each Epic. It is the second half of the **Runs** view, beside Run history, which
 shows one Autopilot run in detail ([Flight Recorder](flight-recorder.md)). Like Run history, it is computed from the
 sources each time it is read and stores nothing of its own. New to the terms: start with [Concepts](concepts.md).
 
@@ -12,8 +12,8 @@ sources each time it is read and stores nothing of its own. New to the terms: st
 
 #### Opening the view
 
-The **Runs** View button (in the footer by default, [App shell](app-shell.md)) opens the Runs tab. Over it is the switch `Run history | Work track`. A
-Project shows Run history until Work track is chosen for it; then the tab shows Work track for that Project while the
+The **Runs** View button (in the footer by default, [App shell](app-shell.md)) opens the Runs view. Over it is the switch `Run history | Work track`. A
+Project shows Run history until Work track is chosen for it; then the view shows Work track for that Project while the
 app runs. The choice is kept per Project and only in the memory of the window. The Command palette's **Open Run
 history** always shows Run history, and makes it the Project's choice again. An entry that names a run or an Epic shows
 Run history whatever was chosen: the stop toast, **History** by the Autopilot status line, **Run history** in the "⋯"
@@ -23,7 +23,7 @@ menu of an Epic, and **Open Run** of the Span panel below.
 field takes it. Choosing another Project in the sidebar goes back to the Canvas too.
 
 The view reads the Work track each time it opens and each time the period changes. It does not follow the work while
-it is open: the switch, the tab or another period reads it anew.
+it is open: the switch, the View button or another period reads it anew.
 
 #### The controls
 
@@ -235,7 +235,7 @@ first 15 lines of a file going to another state. Its time comes from the value w
 | `src/main/work-track/harness-state.ts` | The gate runs and the Wave markers in the Harness home. |
 | `src/main/work-track/ticket-status.ts` | The Ticket status changes from git. |
 | `src/main/ipc/work-track.ts`, `src/shared/ipc/work-track.ts` | The channel `workTrack.read` and the shape of its answer. |
-| `src/renderer/flight-recorder/RunsView.tsx` | The Runs tab: the switch `Run history \| Work track` and which half each Project shows. |
+| `src/renderer/flight-recorder/RunsView.tsx` | The Runs view: the switch `Run history \| Work track` and which half each Project shows. |
 | `src/renderer/work-track/WorkTrackView.tsx` | The view: the controls, the summary, the lanes, the panel, the legend. |
 | `src/renderer/work-track/Lanes.tsx` | The axis, the rows of CI runs and status changes, the names of the lanes and their bars, the gaps. |
 | `src/renderer/work-track/MonthGrid.tsx` | The Month: the days and their cells. |
@@ -274,7 +274,7 @@ is a stand-in named by `WORFY_GH` (`test/fixtures/work-track/gh/gh-work-track.mj
 | `test/contract/work-track-github.test.ts` | The weekly and daily reads, the answer kept for a minute, the stop on the first failure. |
 | `test/contract/work-track-ticket-status.test.ts` | The status changes of a branch squashed into the main branch and of the main branch alone, their times. |
 | `test/contract/work-track-service.test.ts` | Every source together, a Wave sent by hand, the gate gap, GitHub not answering, and that nothing is written. |
-| `test/unit/work-track-view.test.tsx` | The switch of the Runs tab, the periods and `‹ ›`, the lanes, the marks of CI runs and status changes, the gaps, the Month, the slow sources, Retry. |
+| `test/unit/work-track-view.test.tsx` | The switch of the Runs view, the periods and `‹ ›`, the lanes, the marks of CI runs and status changes, the gaps, the Month, the slow sources, Retry. |
 | `test/unit/work-track-panel.test.tsx` | The summary and the Span panel with its buttons and Esc, for a CI run and a status change too. |
 | `test/unit/palette-commands.test.tsx` | **Open Run history** shows Run history after Work track was chosen. |
 | `test/e2e/work-track.spec.ts` | The built app: the Week, a Day, the Month, the summary, Open Run into Run history, a CI run's mark into its panel, the GitHub and git gaps, and the palette's Open Run history after Work track. |

@@ -5,7 +5,7 @@
 **Acceptance** — список проверок, которые ждут владельца во всех Project-ах Machine: ручные пункты Ticket-ов, которые ещё
 никто не доказал, и Ticket-ы, которые ждут решения владельца. worfy держит эту очередь в main process, по группам, с Evidence
 каждого пункта, строкой о том, есть ли изменение в Stable copy владельца, и отметкой «Sent» для решения, которое в пути.
-Вкладка **Acceptance** окна её показывает, и владелец там ставит каждому пункту Pass или Fail. Решение уходит
+Вид **Acceptance** окна её показывает, и владелец там ставит каждому пункту Pass или Fail. Решение уходит
 Orchestrator-у Project-а текстом «Record owner check»; skill `owner-check` Harness-а пишет строку Evidence `owner-check`,
 при Pass отмечает пункт, при Fail заводит Ticket доработки ([Evidence](evidence.md), «Кто пишет какую строку»). Сам worfy в
 Ticket ничего не пишет ([ADR-0002](../../adr/0002-worfy-is-a-view-over-the-workflow.md)). Acceptance — не Stage Human review
@@ -18,9 +18,10 @@ Ticket ничего не пишет ([ADR-0002](../../adr/0002-worfy-is-a-view-o
 
 **Где открывается.**
 
-- **Acceptance** — шестая вкладка toolbar-а, после Pull requests. На ней счёт пунктов Ready to check без отметки Sent
-  (пункт, чьё решение «Not recorded yet», снова считается), а её tooltip — «Checks that wait for you». Она работает и без
-  открытого Project-а: вид — по всем Project-ам Machine.
+- **View button Acceptance**, по умолчанию на rail-е sidebar-а ([App shell](app-shell.md)). В toolbar и в footer-е на нём
+  счёт пунктов Ready to check без отметки Sent (пункт, чьё решение «Not recorded yet», снова считается); на rail-е этот
+  счёт несёт секция Acceptance рядом с ним. Его tooltip — «Checks that wait for you». Он работает и без открытого
+  Project-а: вид — по всем Project-ам Machine.
 - Секция **Acceptance** sidebar-а считает очередь по Project-ам, а её кнопка на rail несёт счёт Ready to check
   ([App shell](app-shell.md#sidebar)). Клик по строке открывает вид на первой строке этой группы у этого Project-а.
 - В Command palette есть **Acceptance** в группе View. Строка Manual check палитры (находится только при вводе) открывает
@@ -91,7 +92,7 @@ Tickets…»; когда ни в одной группе нет строки —
 
 #### On a Linked machine
 
-Вкладка Acceptance окна на Linked machine показывает очередь Project-ов той Machine, как Pull requests показывает её pull
+Вид Acceptance окна на Linked machine показывает очередь Project-ов той Machine, как Pull requests показывает её pull
 request-ы. При Read only Pass и Fail неактивны с tooltip-ом только для чтения, и та Machine всё равно отклонит решение. При
 Full access решение уходит Orchestrator-у Project-а на той Machine. «Checked in» начинается с платформы той Machine, а
 commit — commit сборки, которую она запускает, из её `hello`. Строка Stable copy — тоже её: в Update first она пишет «Update
@@ -107,7 +108,7 @@ worfy on <name>» вместо кнопки Update worfy, которая обн�
 
 ### How it works
 
-Окно читает очередь один раз через `acceptance.get`, а потом принимает каждое `acceptance.changed`; счёт вкладки и секция
+Окно читает очередь один раз через `acceptance.get`, а потом принимает каждое `acceptance.changed`; счёт View button-а и секция
 sidebar-а читают ту же копию, поэтому окно спрашивает main один раз, что бы её ни показывало. Вид только рисует: группы,
 строка Stable copy и отметки Sent приходят из main. Само окно держит выбор, какие группы открыты, решения, на которые main
 ещё не ответил, и те, на которые он ответил раньше, чем очередь пометила их Sent. Работает ли Autopilot — из
@@ -127,8 +128,8 @@ main держит, пока соединение открыто, и отдаёт
 - `src/renderer/acceptance/AcceptanceView.tsx`: вид, две его панели и строка решения.
 - `src/renderer/acceptance/useAcceptance.ts`: очередь в окне, выбор, `sendDecision`.
 - `src/renderer/acceptance/open.ts`: открытие вида на строке, Open Ticket и Open Orchestrator.
-- `src/renderer/acceptance/acceptance.css`; вкладка — в `src/renderer/shell/Toolbar.tsx`, вид смонтирован в
-  `src/renderer/shell/AppShell.tsx`.
+- `src/renderer/acceptance/acceptance.css`; View button — в `src/renderer/shell/views.tsx`, в его зоне его рисует
+  `src/renderer/shell/ViewZone.tsx`, а вид смонтирован в `src/renderer/shell/AppShell.tsx`.
 - Входы: `src/renderer/shell/sidebar/AcceptanceSection.tsx` (секция и badge её rail),
   `src/renderer/palette/commands.ts` (Acceptance и строки Manual check),
   `src/renderer/canvas/overlays/NotificationTarget.tsx` (клик по уведомлению «is waiting for you»).
@@ -136,7 +137,7 @@ main держит, пока соединение открыто, и отдаёт
   worfy on <name>».
 - Решение в main: `actions.ownerCheck` (`src/shared/ipc/actions.ts`), его обрабатывает `ActionLauncher.ownerCheck`
   (`src/main/actions/launch.ts`), шаблон и его подстановки — в `src/shared/projects/action-templates.ts`.
-- Test-ы: `test/unit/acceptance-view.test.tsx` (группы, вкладка, ↑ ↓, каждый вид строки Stable copy, Fail без комментария,
+- Test-ы: `test/unit/acceptance-view.test.tsx` (группы, View button, ↑ ↓, каждый вид строки Stable copy, Fail без комментария,
   Autopilot, Pass, Sent и Not recorded yet, отказ, Waits for you, окно на Linked machine),
   `test/unit/acceptance-section.test.tsx` (счёт по Project-ам, badge rail, клик), случаи «куда ведёт строка Manual check»
   в `test/unit/palette-manual-check-row.test.tsx`, `test/unit/notification-ticket-click.test.tsx` (клик по уведомлению «is
@@ -255,7 +256,11 @@ Stable copy есть только у Project-а, чей репозиторий �
   раз на влитый PR, только для пунктов Ready to check и Update first, и ответ хранится до конца запуска: merge commit влитого
   PR не меняется. Ответ, который ещё может измениться (не влит, нет в checkout-е, отказ), спрашивается снова примерно через
   5 минут.
-- Есть ли изменение: `git merge-base --is-ancestor <merge> <Stable copy commit>` в checkout-е Project-а. Номера версий — из
+- Есть ли изменение: `git merge-base --is-ancestor <merge> <Stable copy commit>` в checkout-е Project-а.
+  Ответ да или нет хранится до конца запуска. Да общее для всех worktree репозитория, нет — только для своего
+  checkout-а, потому что в shallow clone может не быть истории между двумя commit-ами, которые в нём есть. Checkout-у,
+  в котором нет commit-а Stable copy, задаётся только этот вопрос (`git cat-file -e`), а не по вопросу на каждый merge.
+  Эти команды git идут не больше трёх одновременно. Номера версий — из
   `git rev-list --count` и `package.json` commit-а, в shallow clone — никаких.
 - Есть ли изменение в Available update: по номерам сборок, когда оба известны, иначе через
   `git merge-base --is-ancestor <merge> <its commit>`; Update worfy предлагается, только когда одно из них говорит да. Когда
@@ -268,6 +273,9 @@ Stable copy есть только у Project-а, чей репозиторий �
 - `src/main/acceptance/stable-line.ts`: строка Stable copy (`StableLine`), её вопросы к gh и git и сохранённые ответы;
   `src/main/ipc/acceptance.ts` даёт ей gh трекера PR и Available update службы Update.
 - Файл рядом со Stable copy: `src/main/update/stable-copy.ts`; текст версии — `src/shared/version-number.ts`.
-- Test-ы: `test/unit/acceptance-stable-line.test.ts` (текст строки, версии, merge-и блокеров, один вызов gh на влитый PR),
+- `src/main/workflow/git-ancestry.ts`: ответы `merge-base --is-ancestor`, которые хранятся до конца запуска, один вопрос
+  на пару за раз и предел в три процесса git.
+- Test-ы: `test/unit/acceptance-stable-line.test.ts` (текст строки, версии, merge-и блокеров, один вызов gh на влитый PR,
+  ни одного процесса git во втором цикле, не больше трёх одновременно), `test/unit/git-ancestry.test.ts`,
   `test/contract/acceptance-stable-copy.test.ts` (временный репозиторий worfy и Stable copy: в копии, не в ней, commit не в
   checkout-е и нет второго вызова gh для более позднего снимка).

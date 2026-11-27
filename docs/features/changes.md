@@ -135,7 +135,7 @@ shows a pull request: the toolbar and the sidebar stay, the Canvas is hidden und
 **Open changes** in the Command palette does the same for a Ticket with a branch or in work, and a click on the path of
 a comment on code in the chat opens the view on that line ([Send](#send)).
 
-The view has no tab in the toolbar: without a Ticket it has nothing to show. **← Canvas** at the left of its title goes
+The view has no [View button](app-shell.md#view-buttons): without a Ticket it has nothing to show. **← Canvas** at the left of its title goes
 back to the Canvas, and so does Esc, unless a menu or a popover is open (Esc closes that first) or the focus is in a
 text field. Opened from a message in the Session view, the button reads **← Session** and goes back there. Picking
 another Project in the sidebar goes back to the Canvas.
@@ -402,7 +402,7 @@ and «uncommitted» in the message).
 ### Behaviour
 
 The subject of Changes may be a pull request: its repository `owner/name`, its number, its head commit and its base
-commit. [Review mode](pr-inbox.md#review-mode) of the Pull requests tab opens it: the same tree and diff as the
+commit. [Review mode](pr-inbox.md#review-mode) of the Pull requests view opens it: the same tree and diff as the
 Changes view, which shows a Ticket. A row of the PR inbox without its head or base commit opens no diff.
 
 - **Read locally when it can be.** When the PR's repository is the `origin` of a checkout of the Project and both its

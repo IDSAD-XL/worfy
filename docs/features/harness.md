@@ -17,7 +17,7 @@ run](onboarding.md) checks, and Settings → Pipeline when the Harness has no sc
 use one installer. A second request during an install gets the same run, and an install that may have changed something
 reaches every window.
 
-**The version chip.** The Harness has no place in the toolbar. Its state is in the version chip at the right end of the
+**The version chip.** The state of the Harness is in the version chip at the right end of the
 footer ([App shell](app-shell.md#footer)): the app version `v<major>.<minor>.<N>` with the build number ([Settings →
 General → Version](app-shell.md#settings)), or `v<semver>+<short SHA>` for a build without a number, and one dot. The dot
 is red while the Harness needs the user: "Harness unavailable", a Harness not installed or broken that this run may
@@ -27,10 +27,10 @@ there is no dot. The chip's accessible name and the first line of its tooltip sa
 `worfy v<version> — Harness needs Install`.
 A press on the chip opens a popover above it, and Esc or a press outside closes it. Its rows are the app version with
 the Update's actions, the Harness line with its icon buttons, the Codex line with its button when it has something to
-say (see [In Codex](#in-codex) below), and worfy's own memory ([Storage and diagnostics](storage-and-diagnostics.md)).
+say (see [In Codex](#in-codex) below), and worfy's own memory while Settings → General shows it ([Storage and diagnostics](storage-and-diagnostics.md)).
 A line too long for the popover ends with an ellipsis, and the Harness line keeps its whole text as its tooltip. The
-consent dialog, the move form and the step "Approve the Harness hooks in Codex" open from the chip as they did from the
-toolbar, and the step still opens by itself while the popover is closed.
+consent dialog, the move form and the step "Approve the Harness hooks in Codex" open from the popover, and the step
+still opens by itself while the popover is closed.
 
 | State | Text | Icon button | When |
 |---|---|---|---|
