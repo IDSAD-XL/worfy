@@ -3,9 +3,11 @@
 // settings of this Machine, the default one here (Q1): Canvas and Session in the header, Pull requests and Acceptance on
 // the rail, Pipeline and Runs in the footer. In windows of 800×520 (the smallest), 1100, 1280 and 1600 px no zone
 // leaves the window, and each width is shot in both themes (test-results/e2e/snapshots/04-view-buttons-<width>/).
-// Moving buttons (the menu, the keys, a drag) is the spec of worfy-layout tickets 05 and 06.
+// Ticket 05 moves them: the menu of a View button (Move to, Reset layout), the same Reset layout in Settings → General,
+// and ⌥←; a second window of this Machine follows every change. A drag is the spec of ticket 06.
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { launchApp, smallestWindow, viewButton, type LaunchedApp } from './helpers'
+import { closeSettings, launchApp, openSecondWindow, smallestWindow, viewButton, type LaunchedApp } from './helpers'
+import { clickMenuItem } from './menu'
 import { snapshotThemes } from './snapshots'
 
 type Box = { x: number; y: number; width: number; height: number }
@@ -22,11 +24,16 @@ const pageSize = (window: Page): Promise<{ width: number; height: number }> =>
     return { width: view.innerWidth, height: view.innerHeight }
   })
 
+/**
+ * Sizes the content of the app's first window, the one `launched.window` shows. With a second window open the order of
+ * `getAllWindows()` names no first one: the lowest id is the window the app opened first (as menu.ts picks it).
+ */
 async function sizeWindow(launched: LaunchedApp, width: number): Promise<{ width: number; height: number }> {
   await expect
     .poll(async () => {
       const inner = await pageSize(launched.window)
-      if (inner.width !== width) await launched.app.evaluate(({ BrowserWindow }, wanted) => BrowserWindow.getAllWindows()[0]?.setContentSize(wanted, 800), width)
+      if (inner.width !== width)
+        await launched.app.evaluate(({ BrowserWindow }, wanted) => BrowserWindow.getAllWindows().sort((a, b) => a.id - b.id)[0]?.setContentSize(wanted, 800), width)
       return inner.width
     })
     .toBe(width)
@@ -129,6 +136,91 @@ test('with the sidebar hidden the rail buttons stand at the end of the header af
     }
     const shots = await snapshotThemes(window, '04-view-buttons-sidebar-hidden')
     console.log(`view buttons, sidebar hidden: ${shots.light} ${shots.dark}`)
+  } finally {
+    await launched.close()
+  }
+})
+
+/** The labels of a zone's View buttons, in order: their accessible names, whether their labels show or not. */
+const namesIn = (zone: Locator): Promise<(string | null)[]> => zone.locator('[data-view-button]').evaluateAll((all) => all.map((each) => each.getAttribute('aria-label')))
+
+test('the menu of a View button moves it to the end of another zone, ⌥← moves it within its zone, Reset layout from the menu and from Settings brings the default back; a second window follows each change', async () => {
+  const launched = await launchApp()
+  try {
+    const { window } = launched
+    await expect(window.getByTestId('app-shell')).toBeVisible()
+    const second = await openSecondWindow(launched)
+    await expect(second.getByTestId('app-shell')).toBeVisible()
+    // The first window takes the system focus back: a menu of the kit closes when its window loses it.
+    await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().sort((a, b) => a.id - b.id)[0]?.focus())
+
+    // A right click on Pipeline in the footer: Move to with the footer checked and inactive, Reset layout inactive.
+    await viewButton(window, 'pipeline').click({ button: 'right' })
+    const menu = window.getByRole('menu', { name: 'Pipeline View button' })
+    await expect(menu).toBeVisible()
+    await expect(menu.getByRole('menuitemradio')).toHaveText(['Header', 'Sidebar', 'Footer'])
+    await expect(menu.getByRole('menuitemradio', { name: 'Footer' })).toHaveAttribute('aria-checked', 'true')
+    await expect(menu.getByRole('menuitemradio', { name: 'Footer' })).toHaveAttribute('aria-disabled', 'true')
+    await expect(menu.getByRole('menuitem', { name: 'Reset layout' })).toHaveAttribute('aria-disabled', 'true')
+    await menu.getByRole('menuitemradio', { name: 'Header' }).click()
+    await expect(menu).toHaveCount(0)
+    // At the end of the header, focused there; the second window of this Machine shows the same.
+    await expect.poll(() => namesIn(header(window))).toEqual(['Canvas', 'Session', 'Pipeline'])
+    await expect(viewButton(window, 'pipeline')).toHaveAttribute('data-zone', 'header')
+    await expect(viewButton(window, 'pipeline')).toBeFocused()
+    expect(await namesIn(footerGroup(window))).toEqual(['Runs'])
+    await expect.poll(() => namesIn(header(second))).toEqual(['Canvas', 'Session', 'Pipeline'])
+
+    // ⌥← (Alt+← on Windows) moves it within the header and the focus stays on it; at the edge nothing happens.
+    await window.keyboard.press('Alt+ArrowLeft')
+    await expect.poll(() => namesIn(header(window))).toEqual(['Canvas', 'Pipeline', 'Session'])
+    await expect(viewButton(window, 'pipeline')).toBeFocused()
+    await expect.poll(() => namesIn(header(second))).toEqual(['Canvas', 'Pipeline', 'Session'])
+    await window.keyboard.press('Alt+ArrowLeft')
+    await expect.poll(() => namesIn(header(window))).toEqual(['Pipeline', 'Canvas', 'Session'])
+    await window.keyboard.press('Alt+ArrowLeft')
+    await expect(viewButton(window, 'pipeline')).toBeFocused()
+    expect(await namesIn(header(window))).toEqual(['Pipeline', 'Canvas', 'Session'])
+
+    // Shift+F10 on the focused Acceptance of the rail opens its menu: four buttons in the header now.
+    await viewButton(window, 'acceptance').focus()
+    await window.keyboard.press('Shift+F10')
+    const acceptanceMenu = window.getByRole('menu', { name: 'Acceptance View button' })
+    await expect(acceptanceMenu.getByRole('menuitemradio', { name: 'Sidebar' })).toHaveAttribute('aria-checked', 'true')
+    await acceptanceMenu.getByRole('menuitemradio', { name: 'Header' }).click()
+    await expect.poll(() => namesIn(header(window))).toEqual(['Pipeline', 'Canvas', 'Session', 'Acceptance'])
+    await expect(viewButton(window, 'acceptance')).toBeFocused()
+    // From four buttons on the header's labels give way under 1400 px, and are back above it (shell.css).
+    await sizeWindow(launched, 1280)
+    await expect(viewButton(window, 'session').locator('.w-segmented__label')).toBeHidden()
+    await expectZonesInside(window, '1280 px, four buttons in the header')
+    await sizeWindow(launched, 1600)
+    await expect(viewButton(window, 'session').locator('.w-segmented__label')).toBeVisible()
+
+    // Reset layout from the menu of any button: the default in both windows.
+    await viewButton(window, 'canvas').click({ button: 'right' })
+    const canvasMenu = window.getByRole('menu', { name: 'Canvas View button' })
+    await canvasMenu.getByRole('menuitem', { name: 'Reset layout' }).click()
+    await expect.poll(() => namesIn(header(window))).toEqual(['Canvas', 'Session'])
+    expect(await namesIn(railBlock(window))).toEqual(['Pull requests', 'Acceptance'])
+    expect(await namesIn(footerGroup(window))).toEqual(['Pipeline', 'Runs'])
+    await expect.poll(() => namesIn(footerGroup(second))).toEqual(['Pipeline', 'Runs'])
+
+    // Settings → General has the same Reset layout, inactive at the default.
+    await viewButton(window, 'session').click({ button: 'right' })
+    await window.getByRole('menu', { name: 'Session View button' }).getByRole('menuitemradio', { name: 'Footer' }).click()
+    await expect.poll(() => namesIn(footerGroup(window))).toEqual(['Pipeline', 'Runs', 'Session'])
+    await clickMenuItem(launched.app, 'app.settings')
+    const dialog = window.getByRole('dialog', { name: 'Settings' })
+    await expect(dialog).toBeVisible()
+    await dialog.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'General', exact: true }).click()
+    const reset = dialog.getByTestId('settings-view-buttons-row').getByRole('button', { name: 'Reset layout' })
+    await expect(reset).toBeEnabled()
+    await reset.click()
+    await expect(reset).toBeDisabled()
+    await closeSettings(window)
+    await expect.poll(() => namesIn(header(window))).toEqual(['Canvas', 'Session'])
+    await expect.poll(() => namesIn(footerGroup(second))).toEqual(['Pipeline', 'Runs'])
   } finally {
     await launched.close()
   }

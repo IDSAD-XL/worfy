@@ -21,6 +21,15 @@ is hidden, its buttons stand at the end of the toolbar's group after a thin line
 and of the footer are inert, as the toolbar is. Runs and Pull requests are inactive without a Project, and their tooltip
 then says to open one. Every view stays mounted while another one is shown, so switching back finds it as it was.
 
+A right click on a View button, a click with two fingers on a touchpad, or Shift+F10 on the focused button opens its
+menu: "Move to" with **Header**, **Sidebar** and **Footer** (the zone it stands in is checked and inactive), a line, and
+**Reset layout**, inactive while the layout is the default one. Move to puts the button at the end of that zone and the
+focus follows it there; while the sidebar is hidden, Sidebar puts it at the end of the rail, and it shows in the toolbar
+after the line. ⌥← and ⌥→ (Alt on Windows) in the toolbar and the footer, ⌥↑ and ⌥↓ on the rail, move the focused
+button within its zone, and the focus stays on it; at the edge of a zone the keys do nothing, only the menu moves a
+button to another zone. Reset layout puts every button back in its default zone; Settings → General has the same button
+in its row "View buttons". Every window of this computer follows each change at once. No button can be hidden.
+
 A part that fails to render stays a part: a sidebar section, a tab of the Assistant or a view shows "This section failed
 to render" (or "This tab…", "This view…") with the error's message and **Reload**, and the rest of the window keeps
 working. An error outside all of them shows the message and **Reload window** instead of a blank window.
@@ -506,7 +515,7 @@ they stay above the window.
 
 | Group | Section | What it holds |
 |---|---|---|
-| App | General | Interface scale; Memory in the version popover; Fold Epics without work after (the «Older» group of the Epics section, see [Workflow](workflow.md)); Version; Updates, where Update is on: see [Updates](updates.md) |
+| App | General | Interface scale; Memory in the version popover; Fold Epics without work after (the «Older» group of the Epics section, see [Workflow](workflow.md)); View buttons (Reset layout); Version; Updates, where Update is on: see [Updates](updates.md) |
 | App | Health | The First run checks with their actions and "Check again". Opening the section checks. A pressed button shows its work with a spinner and its own words ("Checking…", "Installing…", "Downloading…"), and its row says "Running…" (every row says "Checking…" while "Check again" runs); the other buttons are off, and their tooltip says another check is running. A long action (npm, qmd models, qmd collections, the Harness) names its step and the time it has taken under its row |
 | App | Shortcuts | The list of the Keyboard shortcuts window |
 | App | Machines | The switches of the link and the access level of each Linked machine: see [Link](link.md) |
