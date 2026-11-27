@@ -1,7 +1,8 @@
 # 01: Реестр видов и строки palette
 
 Type: task
-Status: claimed 2026-11-27T03:34Z
+Status: done 2026-11-27T05:03Z
+PR: #2310
 Branch: worfy-layout/01
 Blocked by: None — can start immediately
 Source: [spec.md](../spec.md), «Ticket-ы», 01; «Решения по реализации» («Реестр видов», «Бейджи», «Command palette»); «Решения по test-ам», Seam 1; «Волны», Wave 1
@@ -69,10 +70,13 @@ spec.md, раздел «Решения по реализации», «Реест
 - [ ] Реестр задаёт id, подпись, tooltip, иконку, причину неактивности, бейдж и действие у шести видов; `viewOptions`
       удалён; header выглядит как раньше (`toolbar.spec.ts`, `toolbar-runs`).
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/view-registry.test.tsx test/unit/toolbar-runs.test.tsx test/unit/pr-inbox-view.test.tsx test/unit/acceptance-view.test.tsx` exit 0 · mac - · 8058606cf7740f574319864096013c763711ca09
+  - evidence: review pass · PR #2310 · - - · e8c4ef8388989c57a4027a874955a721af723d2d
 - [ ] В Command palette есть строка у каждого из шести видов, `view:pipeline` открывает доску Pipeline.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/view-registry.test.tsx test/unit/palette-commands.test.tsx` exit 0 · mac - · 8058606cf7740f574319864096013c763711ca09
+  - evidence: review pass · PR #2310 · - - · e8c4ef8388989c57a4027a874955a721af723d2d
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 8058606cf7740f574319864096013c763711ca09
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45937525163/job/140322679343 · ci - · e8c4ef8388989c57a4027a874955a721af723d2d
 
 ## Итог
 
