@@ -2,6 +2,7 @@
 
 Type: feature
 Status: claimed 2026-11-27T08:03Z
+PR: #2317
 Branch: worfy-polish/167
 Blocked by: worfy-layout 03 (footer и chip версии: строка Harness переезжает в popover chip-а и в `src/renderer/harness/HarnessStatus.tsx`)
 Source: вопрос владельца 2026-11-26 о строке статуса у знакомого: «Harness 0.4.0+08d75598c · disabled · removed
