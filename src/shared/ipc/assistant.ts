@@ -78,6 +78,19 @@ export const assistantSend = invokeChannel('assistant.send', z.object({ text: z.
 export const assistantShown = invokeChannel('assistant.shown', z.object({ itemIds: z.array(id).max(500) }), z.object({}), 'local')
 
 /**
+ * The user closed the speech card (worfy-polish 161): these items, the ones it would tell of now, count as told by the
+ * card until something new comes on each. Each comes with the count of events the card showed of it, so an event that
+ * came after the card was drawn is not marked unseen as told. The items themselves stay as they are: in the list, in
+ * their state.
+ */
+export const assistantCardClosed = invokeChannel(
+  'assistant.cardClosed',
+  z.object({ items: z.array(z.object({ id, events: z.number().int().nonnegative().optional() })).max(5_000) }),
+  z.object({}),
+  'local',
+)
+
+/**
  * What waits in the Projects of this Machine, for a Linked machine (worfy-assistant ticket 18; ADR-0066): the Projects and
  * the items the section shows now, words and times only. Reading: it changes nothing, counts nothing as shown, and
  * carries nothing to act with.
@@ -156,6 +169,7 @@ declare module './channels' {
     'assistant.start': typeof assistantStart
     'assistant.send': typeof assistantSend
     'assistant.shown': typeof assistantShown
+    'assistant.cardClosed': typeof assistantCardClosed
     'assistant.waiting': typeof assistantWaiting
     'assistant.apply': typeof assistantApply
     'assistant.undo': typeof assistantUndo

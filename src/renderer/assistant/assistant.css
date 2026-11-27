@@ -908,6 +908,11 @@
 .w-asst-say__body {
   padding: 10px 12px 2px;
 }
+.w-asst-say__body--backlog {
+  padding: 8px 12px 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
 .w-asst-say > .w-asst-say__inner > .w-asst-actions {
   margin: 0;
   padding: 10px 10px 10px 12px;

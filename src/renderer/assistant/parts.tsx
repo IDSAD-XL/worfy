@@ -16,7 +16,9 @@ import { closeCard, itemAction, prepareItem, rate, snoozeItem, undoDislike, type
 export function RateButtons({ target, rating, item, from }: { target: RatingTarget; rating: Rating | null; item?: WindowItem; from?: 'say' }): ReactElement {
   const press = (next: Rating) => {
     void rate(target, rating === next ? null : next, item)
-    if (from === 'say' && item !== undefined && next === 'dislike') closeCard(item.id)
+    // On the card, like or dislike is the answer to it: main keeps the item as told by the card, and the card goes on to
+    // what is new since its last Close (worfy-polish 161).
+    if (from === 'say' && item !== undefined) closeCard([item])
   }
   return (
     <span className="w-asst-rate">
@@ -40,7 +42,8 @@ function SnoozeButton({ item, from }: { item: WindowItem; from?: 'say' }): React
   const [open, setOpen] = useState(false)
   const pick = (choice: SnoozeChoice) => {
     void snoozeItem(item.id, choice)
-    if (from === 'say') closeCard(item.id)
+    // Snooze on the card counts as seeing the item (review round 2): told by the card, so waking it tells no more.
+    if (from === 'say') closeCard([item])
   }
   return (
     <Menu
@@ -74,8 +77,9 @@ function SnoozeButton({ item, from }: { item: WindowItem; from?: 'say' }): React
 
 /** The buttons of an item: in the list, or on the speech card (`say`), which has no Dismiss and closes once used. */
 export function ItemActions({ item, from }: { item: WindowItem; from?: 'say' }): ReactElement {
+  // Open and Prepare on the card count as seeing the item: main keeps it as told by the card (worfy-polish 161).
   const used = () => {
-    if (from === 'say') closeCard(item.id)
+    if (from === 'say') closeCard([item])
   }
   return (
     <div className="w-asst-actions">

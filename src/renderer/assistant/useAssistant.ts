@@ -9,6 +9,7 @@ import type { RatingTarget } from '../../shared/ipc/assistant'
 import { hasPreloadBridge, invoke, readableReason, subscribe } from '../ipc'
 import { showSidebarSection } from '../shell/sidebar-scope'
 import { showToast } from '../toast/toasts'
+import { stillClosed } from './speech'
 
 /** The id of the Assistant's section (its file, src/renderer/shell/sidebar/AssistantSection.tsx). */
 export const ASSISTANT_SECTION = 'AssistantSection'
@@ -37,13 +38,21 @@ interface AssistantStore {
   tab: AssistantTab
   /** The item a click on a journal line brings into sight. */
   focus: string | null
-  /** The speech cards the user closed: their items stay in the list. */
+  /**
+   * The items the speech card stopped telling of after a click, until main's view does the same (speech.ts, stillClosed):
+   * their items stay in the list.
+   */
   closed: readonly string[]
   gone: readonly GoneItem[]
   prepare: PrepareRequest | null
 }
 
 export const useAssistant = create<AssistantStore>(() => ({ view: null, tab: 'waits', focus: null, closed: [], gone: [], prepare: null }))
+
+/** A fresh view of main: the card keeps off only what main's view does not take off already. */
+function takeView(view: AssistantView): void {
+  useAssistant.setState((state) => ({ view, closed: stillClosed(state.closed, view) }))
+}
 
 let followers = 0
 let stop: (() => void) | null = null
@@ -59,7 +68,7 @@ export function followAssistant(): () => void {
       stops.push(
         subscribe('assistant.changed', (view) => {
           heard = true
-          useAssistant.setState({ view })
+          takeView(view)
         }),
       )
       stops.push(subscribe('assistant.reveal', () => revealAssistant()))
@@ -69,7 +78,7 @@ export function followAssistant(): () => void {
     void invoke('assistant.open').then((result) => {
       if (!live) return
       if (!result.ok) return console.error('assistant.open failed:', result.error)
-      if (!heard) useAssistant.setState({ view: result.value.view })
+      if (!heard) takeView(result.value.view)
       if (result.value.reveal) revealAssistant()
     })
     stop = () => {
@@ -199,9 +208,19 @@ export function reportShown(itemIds: readonly string[]): void {
   })
 }
 
-/** Closes a speech card: its item stays in the list. */
-export function closeCard(itemId: string): void {
-  useAssistant.setState((state) => ({ closed: [...state.closed, itemId] }))
+/**
+ * The speech card stops telling of these items, as it showed them; they stay in the list as they are. Main keeps them as
+ * told by the card (`assistant.cardClosed`, worfy-polish 161) with the count of events the card showed, so the card is
+ * not shown for them again, after a restart too, until something new comes on one. This window keeps them off the card
+ * at once, until main's view does the same.
+ */
+export function closeCard(items: readonly Pick<WindowItem, 'id' | 'events'>[]): void {
+  if (items.length === 0) return
+  useAssistant.setState((state) => ({ closed: [...new Set([...state.closed, ...items.map((each) => each.id)])] }))
+  const told = items.map((each) => (each.events === undefined ? { id: each.id } : { id: each.id, events: each.events }))
+  void invoke('assistant.cardClosed', { items: told }).then((result) => {
+    if (!result.ok) refused('Close', result.error)
+  })
 }
 
 /** Opens Prepare: the exact text of the Session, read before Start. */

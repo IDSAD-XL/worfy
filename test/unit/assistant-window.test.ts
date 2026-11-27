@@ -22,7 +22,7 @@ import { ProposalBook } from '../../src/main/assistant/proposals/book'
 import { applySettingsChange } from '../../src/main/assistant/settings/panel'
 import { AssistantNotices } from '../../src/main/assistant/window/notices'
 import { AssistantReveal, type RevealClient } from '../../src/main/assistant/window/reveal'
-import { memoryWindowState } from '../../src/main/assistant/window/store'
+import { memoryWindowState, windowStateFile, windowStatePath } from '../../src/main/assistant/window/store'
 import { ASSISTANT_OFF, AssistantWindow, ITEM_GONE, nextWorkHoursAfter, SETTINGS_UNDO_ACTION, type AssistantRunLike, type AssistantWindowDeps } from '../../src/main/assistant/window/view'
 import { removeTree } from '../../src/main/storage/remove'
 
@@ -208,6 +208,84 @@ describe('what waits', () => {
     expect(byTitle(view, 'Teammate A asks you to look at the rate-limit change before 15:00')!.open).toEqual({ kind: 'url', url: 'https://acme.slack.com/archives/C1/p1' })
     expect(byTitle(view, 'CI of main is red for 52 min')!.open).toEqual({ kind: 'pr', projectId: SHOP, repo: 'acme/shop', number: 212 })
     expect(byTitle(view, 'The Run of invoice-export stopped on a red gate')!.open).toEqual({ kind: 'pipeline', projectId: SHOP })
+  })
+})
+
+describe('the speech card closes as a whole (worfy-polish 161)', () => {
+  const asks = (i: number, at = T0 - HOUR): AttentionEvent =>
+    event({ source: 'session', id: `sess-${i}:question`, projectId: MOBILE, subject: { kind: 'session', id: `sess-${i}`, label: `checkout ${i}` }, kind: 'question', text: `Asks ${i}`, at })
+  const told = (view: AssistantView): string[] => view.items.filter((item) => item.cardSeen === true).map((item) => item.title)
+
+  it('until the first Close the view says the card has a backlog; Close of 56 counts all 56 as told and leaves them waiting', async () => {
+    const w = world()
+    for (let i = 1; i <= 56; i++) w.core.ingest(asks(i))
+    const before = w.window.view()
+    expect(before.cardBacklog).toBe(true)
+    expect(before.items).toHaveLength(56)
+    expect(told(before)).toEqual([])
+    w.window.cardClosed(before.items)
+    const after = await settled(w)
+    expect(after.cardBacklog).toBeUndefined()
+    expect(told(after)).toHaveLength(56)
+    // Close is not Dismiss: every item stays in the list, in its state, and its duty counts nothing.
+    expect(after.items.map((item) => item.state)).toEqual(before.items.map(() => 'new'))
+    expect(w.duties.look([]).duties.find((duty) => duty.id === 'waits-for-user')?.counters).toMatchObject({ shown: 0, accepted: 0, declined: 0 })
+  })
+
+  it('an item that comes after the Close is not told; nor is a told item a new event comes on', () => {
+    const w = world()
+    for (let i = 1; i <= 3; i++) w.core.ingest(asks(i))
+    w.window.cardClosed(w.window.view().items)
+    w.core.ingest(asks(4))
+    expect(told(w.window.view()).sort()).toEqual(['Asks 1', 'Asks 2', 'Asks 3'])
+    w.core.ingest({ ...asks(2), revision: '2', text: 'Asks 2 again' })
+    // The item waits on, with its new event, and is not told any more.
+    expect(w.window.view().items.map((item) => item.title).sort()).toEqual(['Asks 1', 'Asks 2 again', 'Asks 3', 'Asks 4'])
+    expect(told(w.window.view()).sort()).toEqual(['Asks 1', 'Asks 3'])
+  })
+
+  it('a told item that turns urgent is not told any more', () => {
+    const w = world()
+    w.core.ingest(slack())
+    const [item] = w.window.view().items
+    w.window.cardClosed([item!])
+    expect(told(w.window.view())).toHaveLength(1)
+    const urgent = slack('2')
+    w.core.ingest({ ...urgent, message: { ...urgent.message!, urgent: true } })
+    const view = w.window.view()
+    expect(view.items[0]?.urgent).toBe(true)
+    expect(told(view)).toEqual([])
+  })
+
+  it('a Close names only what it closed over: an item it did not name keeps its own mark, or none', () => {
+    const w = world()
+    for (let i = 1; i <= 3; i++) w.core.ingest(asks(i))
+    const [a, b] = w.window.view().items
+    w.window.cardClosed([a!])
+    w.window.cardClosed([b!])
+    expect(told(w.window.view()).sort()).toEqual([a!.title, b!.title].sort())
+  })
+
+  it('marks an item with the count of events the card showed: one that came between the render and the Close is not told (review round 2)', () => {
+    const w = world()
+    w.core.ingest(asks(1))
+    const [shown] = w.window.view().items
+    expect(shown?.events).toBe(1)
+    w.core.ingest({ ...asks(1), revision: '2', text: 'Asks 1 again' })
+    w.window.cardClosed([{ id: shown!.id, events: shown!.events }])
+    expect(w.window.view().items[0]?.events).toBe(2)
+    expect(told(w.window.view())).toEqual([])
+  })
+
+  it("what the card told of is in the section's own file: after a restart it stays told, and there is no backlog", () => {
+    const file = windowStatePath(join(temp, `restart-${++n}`))
+    const w = world({}, { store: windowStateFile(file) })
+    for (let i = 1; i <= 56; i++) w.core.ingest(asks(i))
+    w.window.cardClosed(w.window.view().items)
+    const again = world({}, { store: windowStateFile(file), core: () => w.core })
+    const view = again.window.view()
+    expect(view.cardBacklog).toBeUndefined()
+    expect(told(view)).toHaveLength(56)
   })
 })
 

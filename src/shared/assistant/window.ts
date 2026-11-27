@@ -72,6 +72,13 @@ export const windowItemSchema = z.object({
   rating: ratingSchema.nullable(),
   /** When it is snoozed: until when (ms), or null for «until something changes». */
   snoozedUntil: z.number().nullable().optional(),
+  /**
+   * The speech card already told of it (worfy-polish 161): the user closed the card while the item waited for it, and
+   * nothing came on the item since. The card tells only of what is not; the item stays in the list as it is.
+   */
+  cardSeen: z.boolean().optional(),
+  /** How many events are glued into the item: what the card showed of it, which its Close marks as told (worfy-polish 161). */
+  events: z.number().int().positive().optional(),
 })
 export type WindowItem = z.output<typeof windowItemSchema>
 
@@ -202,6 +209,11 @@ export const assistantViewSchema = z.object({
   linked: z.array(linkedMachineWaitsSchema),
   /** The one offer to turn the Assistant on (ticket 16): whether it stands, and whether its message for an updated user is owed. */
   offer: offerViewSchema,
+  /**
+   * The speech card was never closed on this Machine (worfy-polish 161): what waits is a backlog the card has not told
+   * of, and it says it in one line, «N waiting in Assistant», instead of telling of each item.
+   */
+  cardBacklog: z.boolean().optional(),
 })
 export type AssistantView = z.output<typeof assistantViewSchema>
 

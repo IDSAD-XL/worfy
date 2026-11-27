@@ -1,6 +1,6 @@
 // What the Assistant's section keeps of its own (worfy-assistant ticket 14): `<WORFY_DATA_DIR>/assistant/window.json`, in
 // worfy's own data folder (ADR-0005), outside every repository — the snoozes of items, the user's likes and dislikes of
-// the Assistant's messages, and the conversation. The items themselves, the duties and the proposals stay where their
+// the Assistant's messages, the conversation, and what the speech card told of when it was last closed. The items themselves, the duties and the proposals stay where their
 // tickets keep them (03, 07, 09); only main writes this file, through src/main/storage/json-file.ts.
 import { join } from 'node:path'
 import { z } from 'zod'
@@ -36,6 +36,12 @@ export const windowStateSchema = z.object({
     }),
   ),
   conversation: z.array(conversationMessageSchema),
+  /**
+   * What the speech card told of when the user last closed it (worfy-polish 161): the number of events of each item then
+   * (AttentionItem.events, as the wake planner keeps what it delivered), and whether it was urgent. An item counts as told
+   * while both are the same. Absent until the first close: the card then sums up the backlog in one line.
+   */
+  card: z.object({ told: z.record(z.string(), z.object({ events: z.number().int().nonnegative(), urgent: z.boolean() })) }).optional(),
 })
 export type WindowState = z.output<typeof windowStateSchema>
 

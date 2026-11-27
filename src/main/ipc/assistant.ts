@@ -8,6 +8,7 @@
 // ticket 18): it reads what waits here, and the link adapter answers it by the caller's access level.
 import {
   assistantApply,
+  assistantCardClosed,
   assistantChanged,
   assistantCheckNow,
   assistantConfigureDuty,
@@ -81,6 +82,10 @@ export function assistantHandlers(
     defineHandler(assistantStart, (request) => section().start(request)),
     defineHandler(assistantShown, ({ itemIds }) => {
       section().shown(itemIds)
+      return {}
+    }),
+    defineHandler(assistantCardClosed, ({ items }) => {
+      section().cardClosed(items)
       return {}
     }),
     defineHandler(assistantSend, ({ text }) => {
