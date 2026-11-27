@@ -1,7 +1,8 @@
 # 153 — Шапка законченной worfy Session Node: кнопки уходят в меню раньше, чем имя становится нечитаемым
 
 Type: bug
-Status: claimed 2026-11-27T09:24Z
+Status: done 2026-11-27T12:12Z
+PR: #2323
 Branch: worfy-polish/153
 Blocked by: —
 Source: решение владельца 2026-11-26 (раунд Q1–Q12 вечернего отчёта 2026-11-25), Q8; замер review
@@ -65,13 +66,19 @@ Session, не открыв её.
 
 - [ ] Unit test: узкая шапка — кнопки в меню «⋯», имя не уже минимума; пункты меню с теми же tooltip-ами и отключением.
   - evidence: test-run pass · `pnpm test` (test/unit/session-node-product.test.tsx, test/unit/session-node-remove.test.tsx) exit 0 · mac - · 7f86a025039654f45cbb92a1fbe7590739f8eade
+  - evidence: review pass · PR #2323 · - - · 037d148b23679b309ff6fd85a828a246c82a746b
 - [ ] e2e: законченная worfy Session Node на 340 px и 240 px держит имя не уже минимума; зелёный в `macos-e2e`.
+  - evidence: review pass · PR #2323 · - - · 037d148b23679b309ff6fd85a828a246c82a746b
 - [ ] Снимки шапки 340 px и 240 px в светлой и тёмной теме — в папке вывода test-а, в репозиторий не кладутся.
+  - evidence: review pass · PR #2323 · - - · 037d148b23679b309ff6fd85a828a246c82a746b
 - [ ] `docs/features/sessions.md` говорит о меню кнопок на узкой Node.
   - evidence: commit pass · worfy-polish/153: Session Node header buttons go into a "⋯" menu before the title gets unreadable · - - · 7f86a025039654f45cbb92a1fbe7590739f8eade
+  - evidence: review pass · PR #2323 · - - · 037d148b23679b309ff6fd85a828a246c82a746b
 - [ ] «Итог»: выбранный минимум и порядок ухода кнопок — в «Решено без владельца».
   - evidence: commit pass · worfy-polish/153: ticket result · - - · 7f86a025039654f45cbb92a1fbe7590739f8eade
+  - evidence: review pass · PR #2323 · - - · 037d148b23679b309ff6fd85a828a246c82a746b
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45981693003/job/140459504182 · ci - · 037d148b23679b309ff6fd85a828a246c82a746b
 
 ## Итог
 

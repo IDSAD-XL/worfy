@@ -189,3 +189,23 @@ Rework round 1: три новых unit test-а; первые два красны
    - Ответ: меряется сама шапка в пикселях Layout-а (`scrollWidth`, `clientWidth`), с настоящими шрифтом и chip-ом;
      transform zoom-а на них не влияет.
    - Строки: `src/renderer/canvas/nodes/SessionNode.tsx:377-378`
+
+## 8. Что нашёл review и что осталось
+
+> VERIFIED — worfy-polish 153 (in a narrow Session node the header buttons — Resume/Continue/Close/Interrupt, Keep, Hide, Remove — go one by one from the end into a «⋯» menu so the name keeps ≥64 px; the items keep their tooltips and disabled states, Keep is a menuitemcheckbox; one SessionHeader replaces two header markups), head 037d148b23679b309ff6fd85a828a246c82a746b
+>
+> Gate (depth medium, two rounds): worfy:reviewer, lens correctness.
+> Round 1 (129f75477) REJECTED: [med] SessionNode.tsx:372/:395 — the menu's open state survived the Menu unmounting, so it reappeared open without a click when a button went back in (reproduced by a probe unit test); [low] a key change reset the fit while the menu was open (focus to body); [low] read-only menu items untested (writeItem(null…) mutant survived).
+> Round 2 (037d148b2) VERIFIED: all three closed — open state in SessionHeader reset at SessionNode.tsx:505, fit frozen while open (:348-356) and re-measured on every close path, read-only test session-node-drop.test.tsx:590; mutants M1–M3 red. 4 unit files 79/79 EXIT=0, lint EXIT=0, typecheck EXIT=0, story-check EXIT=0; implementer gate fast green.
+> Consider: none
+> Noted: [low] SessionNode.tsx:353-354 — a key change while the menu is open, then Esc: the «⋯» button is re-created and focus goes to BODY (docstring :340-341 promises no focus loss). [low] test/unit/session-node-product.test.tsx:273 — mutant «no re-fit after close» survives; a «close, then widen the header» unit case would pin it.
+> Dismissed: none
+> Not verified: e2e at 340/240 px and both-theme snapshots — CI is the proof; focus in real Chromium (jsdom only).
+> Review depth: medium — owner rule
+> Review tokens: 95954 + 61818
+
+Code: `test/unit/session-node-product.test.tsx:273-273` · key lines: 273
+
+```tsx
+  it('an open menu stays open, the same menu, when a button\'s name changes (Keep to Kept)', async () => {
+```
