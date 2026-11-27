@@ -6,11 +6,25 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { openRunHistory, readyCount } = vi.hoisted(() => ({ openRunHistory: vi.fn(() => Promise.resolve()), readyCount: { value: 0 } }))
+const { openRunHistory, readyCount, prCounts, tickets } = vi.hoisted(() => ({
+  openRunHistory: vi.fn(() => Promise.resolve()),
+  readyCount: { value: 0 },
+  prCounts: { value: [] as { group: string; count: number }[] },
+  tickets: { value: [] as { kind: string; blocked: unknown; waits: string | null }[] },
+}))
 vi.mock('../../src/renderer/flight-recorder/open', () => ({ openRunHistory }))
 vi.mock('../../src/renderer/acceptance/useAcceptance', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/renderer/acceptance/useAcceptance')>()),
   useReadyCount: () => readyCount.value,
+}))
+// The sources the Pull requests and Pipeline views read: the badges count from them, not from the sections.
+vi.mock('../../src/renderer/pr-inbox/usePrInbox', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/renderer/pr-inbox/usePrInbox')>()),
+  groupCounts: () => prCounts.value,
+}))
+vi.mock('../../src/renderer/pipeline/usePipeline', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/renderer/pipeline/usePipeline')>()),
+  usePipeline: () => ({ snapshot: tickets.value.length === 0 ? undefined : { tickets: tickets.value }, error: undefined }),
 }))
 
 import type { ViewButtons } from '../../src/shared/layout/view-buttons'
@@ -47,6 +61,8 @@ afterEach(() => {
   cleanup()
   act(() => setFocusActive(false))
   readyCount.value = 0
+  prCounts.value = []
+  tickets.value = []
   openRunHistory.mockClear()
 })
 
@@ -166,6 +182,31 @@ describe('the badges', () => {
     useLayout({ header: ['canvas'], rail: [], footer: ['session', 'pipeline', 'history', 'pull-requests', 'acceptance'] })
     expect(within(footer()).getByTestId('acceptance-tab-count').textContent).toBe('2')
     expect(within(footer()).getByRole('button', { name: 'Acceptance' }).getAttribute('aria-description')).toBe('2 checks ready to check')
+  })
+
+  it('Pull requests counts the pull requests that need you, Pipeline has a dot while a Ticket waits for a person, in the footer and in the header', () => {
+    prCounts.value = [
+      { group: 'needs-review', count: 2 },
+      { group: 'needs-fix', count: 1 },
+      { group: 'yours', count: 5 },
+    ]
+    tickets.value = [
+      { kind: 'implementing', blocked: null, waits: 'owner' },
+      { kind: 'done', blocked: { reason: 'old' }, waits: null },
+    ]
+    useLayout({ header: ['canvas', 'pull-requests'], rail: [], footer: ['session', 'pipeline', 'history', 'acceptance'] })
+    render(<AppShell project={PROJECT} />)
+    const pulls = within(header()).getByRole('button', { name: 'Pull requests' })
+    expect(within(pulls).getByTestId('view-button-badge').textContent).toBe('3')
+    expect(pulls.getAttribute('aria-description')).toBe('3 pull requests need you')
+    const pipeline = within(footer()).getByRole('button', { name: 'Pipeline' })
+    expect(within(pipeline).getByTestId('view-button-badge').textContent).toBe('')
+    expect(pipeline.getAttribute('aria-description')).toBe('1 Ticket waits')
+    // An agent's Ticket calls nobody: no dot.
+    tickets.value = [{ kind: 'implementing', blocked: null, waits: 'agent' }]
+    useLayout({ header: ['canvas', 'pipeline'], rail: [], footer: ['session', 'pull-requests', 'history', 'acceptance'] })
+    expect(within(within(header()).getByRole('button', { name: 'Pipeline' })).queryByTestId('view-button-badge')).toBeNull()
+    expect(within(within(footer()).getByRole('button', { name: 'Pull requests' })).getByTestId('view-button-badge').textContent).toBe('3')
   })
 
   it('on the rail a View button has no badge while its namesake section stands there with its own', () => {
