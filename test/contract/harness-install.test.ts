@@ -1420,14 +1420,30 @@ describe('enabling a disabled Harness (worfy-polish ticket 167)', () => {
 
   it('during an install it waits for the install, then reads the state the install left', async () => {
     const subject = installer(makeBundle(join(sb.root, 'bundle-v1'), V1))
-    let agree: (yes: boolean) => void = () => undefined
-    const install = subject.install(() => new Promise((resolve) => (agree = resolve)))
-    await vi.waitFor(() => expect(commands()).toEqual([LIST, MARKETPLACES]))
+    // The install stops at its dialog, and the test answers only once the dialog is up. Not on the stub's
+    // record of `plugin marketplace list`: the stub writes it when it starts, before the installer has its
+    // answer and asks, so an answer then would reach no dialog and the install would wait forever.
+    let asked: (agree: (yes: boolean) => void) => void = () => undefined
+    const dialog = new Promise<(yes: boolean) => void>((resolve) => (asked = resolve))
+    const install = subject.install(() => new Promise((resolve) => asked(resolve)))
+    const agree = await dialog
+    expect(commands()).toEqual([LIST, MARKETPLACES])
     const enable = subject.enable()
     agree(true)
     await install
     expect((await enable).status.state).toEqual({ kind: 'installed', version: V1, enabled: true })
     expect(commands()).not.toContain(ENABLE_WORFY)
+  })
+
+  it('an install started during an enable waits for it, so `plugin install` never runs next to `plugin enable`', async () => {
+    const subject = await installedThenDisabled()
+    const enable = subject.enable()
+    const install = subject.install(yes)
+    expect((await enable).status.state).toEqual({ kind: 'installed', version: V1, enabled: true })
+    expect((await install).status.state).toEqual({ kind: 'installed', version: V1, enabled: true })
+    // The enable's read, its command and its read again come first; the install reads only after them.
+    expect(commands().slice(0, 3)).toEqual([LIST, ENABLE_WORFY, LIST])
+    expect(commands().slice(3)[0]).toBe(LIST)
   })
 
   it('a dev run without the offer refuses it before any command', async () => {

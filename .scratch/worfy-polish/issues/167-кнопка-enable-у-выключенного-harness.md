@@ -56,3 +56,18 @@ mattpocock-skills». Plugin worfy был выключен в Claude Code, а с�
 ## Откат 2026-11-27
 
 PR #2317 откачен: после merge contract test `test/contract/harness-install.test.ts:1421` («enabling a disabled Harness (worfy-polish ticket 167) > during an install it waits for the install, then reads the state the install left») висел 90 s на обеих попытках в push run-ах main на macOS, Linux и Windows (run 45970580081 и 45972473732), хотя CI PR-а был зелёным. Main стоял красным больше часа (правило: fix forward 1 h, затем revert). Переделка — заново с этого Ticket-а.
+
+### Причина зависания и переделка
+
+Root cause — в test-е, не в коде приложения. Test ждал записи `plugin marketplace list` в журнале stub-а
+(`vi.waitFor(() => expect(commands()).toEqual([LIST, MARKETPLACES]))`) и сразу отвечал «да» диалогу установки. Stub
+пишет эту строку в самом начале своего запуска, а установщик зовёт диалог позже: после выхода stub-а, разбора его
+ответа и плана. Если `vi.waitFor` успевал увидеть строку раньше, `agree(true)` звал пустую функцию — диалог ещё не
+открылся, ответ на него не приходил никогда, и `await install` висел до timeout-а. Без нагрузки test проходил по
+удаче: временный повтор старого test-а 21 раз (`repeats: 20`) локально дал зависание; проба на 41 запуск показала,
+что `vi.waitFor` срабатывал раньше диалога в 35 случаях из 41.
+
+Переделка (ветка `worfy-polish/167-redo`): cherry-pick #2317, test отвечает только после того, как установщик
+действительно спросил (promise диалога), и проверяет, что к этому моменту выполнены ровно два чтения. Заодно закрыт
+[low] ревью: `runInstall` ждёт идущего `enabling`, чтобы Install из другого окна не запускал `plugin install` рядом
+с `plugin enable` (новый contract test, красный без правки).

@@ -12,7 +12,7 @@ Kind: pr · Epic: worfy-polish · Ticket: 167 · PR: - · Language: ru
 
 ## 2. Main: enable() запускает `claude plugin enable` и читает статус заново
 
-Code: `src/main/harness/install.ts:581-593` · key lines: 582, 584, 587, 592
+Code: `src/main/harness/install.ts:582-594` · key lines: 583, 585, 588, 593
 
 ```ts
   private async runEnable(): Promise<HarnessEnableResult> {
@@ -183,26 +183,87 @@ Code: `test/contract/harness-install.test.ts:1385-1393` · key lines: 1387, 1389
 - Требование: [Готово, когда, п. 2](../issues/167-кнопка-enable-у-выключенного-harness.md#готово-когда)
 - Риски и пробелы test-ов: stub, не настоящий Claude Code.
 
-## 8. Что сознательно не меняли
+## 8. Откат #2324: test отвечает диалогу только после того, как установщик спросил
+
+Code: `test/contract/harness-install.test.ts:1421-1436` · key lines: 1426, 1427, 1428, 1429, 1430
+
+```ts
+  it('during an install it waits for the install, then reads the state the install left', async () => {
+    const subject = installer(makeBundle(join(sb.root, 'bundle-v1'), V1))
+    // The install stops at its dialog, and the test answers only once the dialog is up. Not on the stub's
+    // record of `plugin marketplace list`: the stub writes it when it starts, before the installer has its
+    // answer and asks, so an answer then would reach no dialog and the install would wait forever.
+    let asked: (agree: (yes: boolean) => void) => void = () => undefined
+    const dialog = new Promise<(yes: boolean) => void>((resolve) => (asked = resolve))
+    const install = subject.install(() => new Promise((resolve) => asked(resolve)))
+    const agree = await dialog
+    expect(commands()).toEqual([LIST, MARKETPLACES])
+    const enable = subject.enable()
+    agree(true)
+    await install
+    expect((await enable).status.state).toEqual({ kind: 'installed', version: V1, enabled: true })
+    expect(commands()).not.toContain(ENABLE_WORFY)
+  })
+```
+
+- Что делает: test ждёт promise, который резолвит сам вызов диалога установки, и только тогда отвечает «да»;
+  перед ответом проверяет, что выполнены ровно два чтения (`plugin list`, `plugin marketplace list`).
+- Почему здесь: первая версия этого test-а (#2317) висела 90 s на обеих попытках в push run-ах `main` на macOS,
+  Linux и Windows, и #2317 откатили (#2324). Root cause: test ждал строки `plugin marketplace list` в журнале
+  stub-а, а stub пишет её в начале запуска, раньше, чем установщик разобрал ответ и открыл диалог. `agree(true)`
+  звал пустую функцию, диалог потом ждал ответа вечно. Раздел Ticket-а «Откат 2026-11-27» записывает разбор.
+- Без него: test зависает, когда `vi.waitFor` видит строку журнала раньше диалога; локально старый test завис уже
+  при 21 повторе.
+- Требование: [Откат 2026-11-27](../issues/167-кнопка-enable-у-выключенного-harness.md#откат-2026-11-27)
+- Риски и пробелы test-ов: код приложения тут ни при чём — Enable ждёт установку, пока человек отвечает диалогу,
+  и это поведение не менялось.
+
+## 9. Install ждёт идущий Enable
+
+Code: `src/main/harness/install.ts:596-598` · key lines: 598
+
+```ts
+  private async runInstall(confirm: (plan: InstallPlan) => Promise<boolean>): Promise<{ outcome: InstallOutcome; status: HarnessStatus }> {
+    // An Enable from another window: its result does not matter here, the facts are read after it.
+    await this.enabling?.catch(() => undefined)
+```
+
+- Что делает: установка, начатая во время Enable (например, Install из другого окна), сначала ждёт его конца и
+  только потом читает состояние; результат Enable ей не важен.
+- Почему здесь: замечание [low] ревью #2317: `enable()` ждал `this.running`, а `install()` не ждал
+  `this.enabling`, так что `plugin install` мог идти рядом с `plugin enable`. Бриф переделки просит закрыть его.
+- Без него: две команды `claude plugin` одновременно правят настройки Claude Code.
+- Требование: [Откат 2026-11-27](../issues/167-кнопка-enable-у-выключенного-harness.md#откат-2026-11-27)
+- Риски и пробелы test-ов: новый contract test («an install started during an enable waits for it…») красный без
+  правки; порядок команд проверен на stub-е, не на настоящем Claude Code.
+
+## 10. Что сознательно не меняли
 
 Первый запуск (`src/main/first-run/checks.ts`) по-прежнему советует команду `claude plugin enable` текстом, без
 кнопки; `src/main/projects/connect.ts` отсылает к первому запуску. Popover после Enable не закрывается, как и после
 Install. Перевод `docs/features/ru/` не правился (ADR-0088).
 
-## 9. Как проверено
+## 11. Как проверено
 
 До правки 17 новых test-ов красные (`pnpm test` четырёх файлов — exit 1), после — exit 0. `pnpm lint`,
 `pnpm typecheck`, `pnpm test` — exit 0; gate fast — exit 0. e2e и Electron локально не запускали (правило владельца).
+Переделка после отката: файл `test/contract/harness-install.test.ts` — 3 запуска подряд и 3 с `--sequence.shuffle`,
+ещё один shuffle под нагрузкой на все ядра — exit 0; оба test-а ожидания — по 51 повтору под нагрузкой — exit 0;
+`pnpm test test/contract` — exit 0.
 
 ## Проверить себя
 
 1. Почему у Enable нет диалога согласия, а у Install есть?
    - Ответ: Enable ничего не устанавливает и не копирует: он только включает уже установленный plugin командой
      Claude Code; нажатие на кнопку и есть согласие.
-   - Строки: `src/main/harness/install.ts:587`
+   - Строки: `src/main/harness/install.ts:588`
 2. Почему неудачный Enable не рассылается окнам?
    - Ответ: он ничего не изменил, а событие, пришедшее после ответа, стёрло бы ошибку из tooltip-а.
    - Строки: `src/main/ipc/harness.ts:98-99`
 3. Откуда у chip-а янтарная точка при выключенном plugin-е?
    - Ответ: `harnessPart` даёт кнопке Enable accent, а точка chip-а читает тот же `harnessPart`.
    - Строки: `src/renderer/harness/harness-lines.ts:45`
+4. Почему первая версия test-а ожидания установки висела только в полном наборе, и что теперь служит сигналом ответить?
+   - Ответ: stub пишет команду в журнал в начале своего запуска, раньше, чем установщик открыл диалог; ответ,
+     данный по журналу, уходил в пустую функцию. Под нагрузкой это окно шире. Теперь сигнал — сам вызов диалога.
+   - Строки: `test/contract/harness-install.test.ts:1426-1429`

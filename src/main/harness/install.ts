@@ -547,7 +547,8 @@ export class HarnessInstaller {
   /**
    * Installs or updates after `confirm` said yes. Without anything to do there is no dialog; with
    * `confirm` saying no nothing is written and `claude` ran only its two reads (`plugin list`,
-   * `plugin marketplace list`). A second call while one runs gets the same result.
+   * `plugin marketplace list`). A second call while one runs gets the same result. It waits for an
+   * enable that runs (worfy-polish ticket 167), so `plugin install` never runs next to `plugin enable`.
    */
   install(confirm: (plan: InstallPlan) => Promise<boolean>): Promise<{ outcome: InstallOutcome; status: HarnessStatus }> {
     if (!this.options.canInstall) {
@@ -593,6 +594,8 @@ export class HarnessInstaller {
   }
 
   private async runInstall(confirm: (plan: InstallPlan) => Promise<boolean>): Promise<{ outcome: InstallOutcome; status: HarnessStatus }> {
+    // An Enable from another window: its result does not matter here, the facts are read after it.
+    await this.enabling?.catch(() => undefined)
     let facts: Facts
     try {
       // Also without the plugin folder: what is installed already decides what the dialog names.
