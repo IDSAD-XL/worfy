@@ -2,7 +2,7 @@
 
 Type: feature
 Status: open
-Blocked by: —
+Blocked by: worfy-layout 03 (footer и chip версии: строка Harness переезжает в popover chip-а и в `src/renderer/harness/HarnessStatus.tsx`)
 Source: вопрос владельца 2026-11-26 о строке статуса у знакомого: «Harness 0.4.0+08d75598c · disabled · removed
 mattpocock-skills». Plugin worfy был выключен в Claude Code, а строка только говорит «disabled» и не даёт его включить.
 Решение владельца 2026-11-27 (раунд вопросов, Q5): «да» — завести ticket на кнопку Enable.
@@ -24,7 +24,9 @@ mattpocock-skills». Plugin worfy был выключен в Claude Code, а с�
 
 ## Где в коде
 
-- `src/renderer/shell/toolbar/HarnessStatus.tsx:214` — состояние `installed`, строка «· disabled».
+- После worfy-layout 03: строка `HarnessLine` в popover chip-а версии (`src/renderer/harness/HarnessStatus.tsx`) — кнопка
+  Enable рядом с другими её кнопками (Install, Update Harness, Retry…); до 03 это было
+  `src/renderer/shell/toolbar/HarnessStatus.tsx:214`. Выключенный plugin даёт chip-у янтарную точку.
 - Main-процесс, где выполняются Install и Update Harness-а (найти по `onInstall`): туда же — действие Enable.
 
 ## Готово, когда
