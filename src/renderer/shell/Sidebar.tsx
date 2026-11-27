@@ -7,6 +7,7 @@ import { hasPreloadBridge, invoke, showSubscribeError, subscribe } from '../ipc'
 import { openHealthCheck, openSettings } from '../settings/settings-window'
 import { label } from '../shortcuts/match'
 import { Tooltip } from '../theme/kit/Tooltip'
+import { ErrorBoundary } from './ErrorBoundary'
 import { useFirstRun } from './first-run-store'
 import { ProjectSwitcher } from './ProjectSwitcher'
 import { collectExtensions, type ShellExtension } from './registry'
@@ -284,7 +285,10 @@ export function SidebarView({ sections, onToggle, resizable = false }: SidebarVi
         <div className="w-sidebar__sections">
           {ordered.map(({ id, Component }) => (
             <div key={id} className="w-sidebar__section" data-section={id} role="tabpanel" id={panelId(id)} aria-labelledby={tabId(id)} hidden={id !== active}>
-              <Component />
+              {/* A throw inside one section stays in it: the rail and the other sections keep working (worfy-polish 163). */}
+              <ErrorBoundary scope="section" name={id}>
+                <Component />
+              </ErrorBoundary>
             </div>
           ))}
         </div>

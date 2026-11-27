@@ -5,6 +5,7 @@
 // card of the first setup of its introduction follows the message that hands it over.
 import { Fragment, useEffect, useRef, useState, type KeyboardEvent, type ReactElement } from 'react'
 import type { AssistantView, JournalRow, WindowItem, WindowProposal } from '../../shared/assistant/window'
+import { ErrorBoundary } from '../shell/ErrorBoundary'
 import { shortTime } from './format'
 import { Icon, Spark } from './icons'
 import { OfferCard } from './Offer'
@@ -493,7 +494,10 @@ export function AssistantPanel({ view }: { view: AssistantView }): ReactElement 
       </div>
       <div ref={body} className="w-asst-body" role="tabpanel">
         {view.offer.owed ? <OfferCard /> : null}
-        {tab === 'waits' ? <Waits view={view} /> : tab === 'summary' ? <Summary view={view} /> : tab === 'journal' ? <Journal view={view} /> : <Chat view={view} />}
+        {/* A throw in one tab stays in it (worfy-polish 163); the key gives each tab its own boundary. */}
+        <ErrorBoundary key={tab} scope="tab" name={`assistant-${tab}`}>
+          {tab === 'waits' ? <Waits view={view} /> : tab === 'summary' ? <Summary view={view} /> : tab === 'journal' ? <Journal view={view} /> : <Chat view={view} />}
+        </ErrorBoundary>
       </div>
       <UsageLine view={view} />
       <Composer on={view.on} />
