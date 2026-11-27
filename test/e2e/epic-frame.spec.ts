@@ -4,6 +4,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { gzipSync } from 'node:zlib'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { codeSection } from '../../src/main/workflow/reader'
 import ELK from 'elkjs/lib/elk.bundled.js'
@@ -1214,6 +1215,15 @@ async function printStartProfile(launched: LaunchedApp, label: string, interacti
   console.log(`auberge-stage ${label} children (what, page ms, ran, sync): ${JSON.stringify(stopped.children.map(([w, at, ran, sync]) => [w, (at as number) + stopped.loadedAt - page.origin, ran, sync]).filter(([, at]) => (at as number) <= interactiveMs + 200))}`)
   console.log(`auberge-stage ${label} main cpu: ${profileTops(stopped.main, interactiveMs - shift)}`)
   console.log(`auberge-stage ${label} renderer cpu: ${profileTops(stopped.renderer, interactiveMs - shift)}`)
+  // The raw profiles, gzip and base64 in lines of 60000 characters, for an analysis off the runner.
+  if (label === 'auberge' || label === 'reference 3') {
+    for (const [kind, json] of [['renderer', stopped.renderer], ['main', stopped.main]] as const) {
+      if (json === null) continue
+      const packed = gzipSync(Buffer.from(json)).toString('base64')
+      const parts = Math.ceil(packed.length / 60_000)
+      for (let at = 0; at < parts; at += 1) console.log(`auberge-raw ${label.replace(' ', '-')} ${kind} ${at + 1}/${parts} ${packed.slice(at * 60_000, (at + 1) * 60_000)}`)
+    }
+  }
 }
 
 const launchProfiled = (): Promise<LaunchedApp> => launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_START_PROFILE: '1' } })

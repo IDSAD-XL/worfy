@@ -792,7 +792,12 @@ function useEpicNodes({ projectId, layout }: NodeSourceContext): readonly Canvas
     // TEMPORARY (worfy-polish 152): [at, ms, nodes, answers] of each build, for the start profile.
     const t0 = performance.now()
     const built = buildEpicNodes(projectId, root, model, layout, doneExpanded, derived, answers, cards)
-    ;((globalThis as unknown as { __worfyBuilds?: number[][] }).__worfyBuilds ??= []).push([Math.round(t0), Math.round(performance.now() - t0), built.length, Object.keys(answers ?? {}).length])
+    const g = globalThis as unknown as { __worfyBuilds?: unknown[][]; __worfyBuildDeps?: unknown[] }
+    const deps = [projectId, root, model, layout, doneExpanded, derived, answers, cards]
+    const names = ['projectId', 'root', 'model', 'layout', 'doneExpanded', 'derived', 'answers', 'cards']
+    const changed = g.__worfyBuildDeps === undefined ? ['first'] : names.filter((_, at) => g.__worfyBuildDeps![at] !== deps[at])
+    g.__worfyBuildDeps = deps
+    ;(g.__worfyBuilds ??= []).push([Math.round(t0), Math.round(performance.now() - t0), built.length, Object.keys(answers ?? {}).length, changed.join('+')])
     return built
   }, [projectId, root, model, layout, doneExpanded, derived, answers, cards])
   // After the build, so a request goes out for the inputs the Canvas shows.
