@@ -170,7 +170,31 @@ Code: `src/renderer/shell/shell.css:957-962` · key lines: 959, 960, 961
 - Риски и пробелы test-ов: e2e шлёт drag через Playwright (CDP), а не через окно ОС; поведение настоящей мыши у края
   header — ручной пункт приёмки.
 
-## 7. Долг review Ticket-а 05: два ⌥→ до ответа main
+## 7. Неактивная кнопка — `aria-disabled`, а не `disabled`
+
+Code: `src/renderer/shell/ViewButton.tsx:98-101` · key lines: 101
+
+```tsx
+      // Inactive is `aria-disabled`, not native `disabled`: Chromium starts no drag on a disabled button, and an inactive
+      // one is dragged too (worfy-layout ticket 06). It stays a Tab stop; a press opens nothing, as openView (views.tsx)
+      // opens no view that needs a Project without one.
+      aria-disabled={inactive ? true : undefined}
+```
+
+- Что делает: Runs и Pull requests без Project помечены `aria-disabled="true"` вместо native `disabled`. Вид прежний
+  (прозрачность 0.5 и курсор «нельзя» — `shell.css` и общее правило `tokens.css`), кнопка остаётся в порядке Tab, нажатие
+  ничего не открывает: `openView` без Project для такого вида возвращается сразу.
+- Почему здесь: spec, «Drag»: «Неактивная кнопка (нужен Project) тоже тянется». Первый CI run этого PR (46003066639)
+  показал, что drag Runs в e2e не начинается: `data-view-drag` не появился на Windows. Тот же отказ повторён локально на
+  собранном renderer-е в headless Chromium из кэша Playwright (не Electron): с native `disabled` у Runs `dragstart` не
+  приходит, у Pipeline приходит; с `aria-disabled` приходит и у Runs.
+- Без него: неактивную кнопку нельзя было бы перетащить, а e2e Ticket-а, где Runs без Project, не прошёл бы.
+- Требование: [Решения](../issues/06-drag.md#решения)
+- Риски и пробелы test-ов: неактивная кнопка теперь получает фокус, и ⌥-стрелки и меню работают и на ней — расстановка от
+  Project-а не зависит. Unit-test-ы Ticket-ов 01 и 04 (`toolbar-runs`, `view-registry`, `pr-inbox-view`, `view-zones`)
+  проверяли `.disabled` и переписаны на `aria-disabled`.
+
+## 8. Долг review Ticket-а 05: два ⌥→ до ответа main
 
 Code: `src/renderer/shell/ViewZone.tsx:86-106` · key lines: 91, 94, 99, 101
 
@@ -207,7 +231,7 @@ function place(next: ViewButtons | null, id: ViewButtonId): void {
 - Риски и пробелы test-ов: это долг review, не пункт «Готово, когда». Перемещение из другого окна, пришедшее, пока ответы ещё ждут, не учитывается в шаге — последняя
   запись всё равно побеждает в main. Drop считает от нарисованной расстановки: промежуток взят с экрана.
 
-## 8. Долг review Ticket-а 05: «Not saved» после сброса из другого окна
+## 9. Долг review Ticket-а 05: «Not saved» после сброса из другого окна
 
 Code: `src/renderer/settings/GeneralSection.tsx:175-181` · key lines: 176, 180, 181
 
@@ -228,22 +252,23 @@ function ViewButtonsRow() {
 - Требование: не записано
 - Риски и пробелы test-ов: это долг review, не пункт «Готово, когда». Сравнение по ссылке на объект: store настроек заменяет объект при каждом принятом изменении.
 
-## 9. Что сознательно не меняли
+## 10. Что сознательно не меняли
 
-Неактивная кнопка (нужен Project) остаётся native `disabled`: в Chromium такая кнопка начинает drag (проверено отдельным
-пробным запуском headless Chromium из кэша Playwright, не Electron). Перевод ru и тексты Guide — Ticket 07: правлена только
+Перевод ru и тексты Guide — Ticket 07: правлена только
 английская `docs/features/app-shell.md`. `AppShell.tsx` не тронут: атрибут `data-view-drag` ставит модуль drag.
 ADR не нужен: в «Готово, когда» его нет. `shell.css` перешёл 1000 строк (956 → 1040), gate предупреждает, но не
 краснеет.
 
-## 10. Как проверено
+## 11. Как проверено
 
 Сначала красный test: на старом коде `test/unit/view-zones.test.tsx` — exit 1 (8 новых test-ов упали),
 `test/unit/settings-reset-layout.test.tsx` — exit 1 (1 новый упал). С кодом оба зелёные. `pnpm lint`, `pnpm typecheck`,
 `pnpm test` — exit 0; gate fast — exit 0, `[gate] green (fast)`. В e2e `view-buttons.spec.ts` новый случай: drag Runs из
 footer над левой половиной Session, в середине drag — `data-view-drag`, три зоны с `data-drop-zone`, маркер перед Session
-шириной 2 px, снимки обеих тем; после отпускания header — Canvas, Runs, Session. E2e локально не запускали (правило
-владельца), его проверит CI.
+шириной 2 px, снимки обеих тем; после отпускания header — Canvas, Runs, Session. Playwright шлёт drag-события на ход
+мыши позже, поэтому test двигает курсор внутри левой половины Session, пока туда не придёт первый `dragover`. E2e
+локально не запускали (правило владельца), его проверит CI; первый run (46003066639) упал на Windows: drag
+неактивной Runs не начался — исправлено шагом 7.
 
 ## Проверить себя
 
