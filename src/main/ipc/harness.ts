@@ -7,8 +7,7 @@
 // sandbox) `claude` gets CLAUDE_CONFIG_DIR and HOME inside the same folder (claudeCommandEnv), so
 // worfy and Claude Code see one ~/.claude; without it the user's environment is left as it is.
 //
-// Every install whose answer is `done` reaches every window as `harness.changed` (ticket 40), and so
-// does every Enable of a disabled plugin that went in (`harness.enable`, worfy-polish ticket 167). It is
+// Every install whose answer is `done` reaches every window as `harness.changed` (ticket 40). It is
 // sent from the app's one installer, not from the `harness.install` handler: the first-run screen
 // installs through `firstRun.run` (src/main/ipc/first-run.ts), and every caller of appInstaller()
 // is covered without remembering to announce.
@@ -32,7 +31,7 @@
 // as the Harness of this repository declares none.
 import { join } from 'node:path'
 import { app, BrowserWindow, dialog } from 'electron'
-import { harnessChanged, harnessCodexBinary, harnessCodexHooks, harnessEnable, harnessInstall, harnessState, type HarnessEnableResult, type HarnessHooksTrust, type HarnessStatus } from '../../shared/ipc/harness'
+import { harnessChanged, harnessCodexBinary, harnessCodexHooks, harnessInstall, harnessState, type HarnessHooksTrust, type HarnessStatus } from '../../shared/ipc/harness'
 import { toEveryWindow } from '../broadcast'
 import { bundledHarnessDir } from '../harness/bundled'
 import { CodexHarness, codexInstallBinary } from '../harness/codex-install'
@@ -60,7 +59,7 @@ export function onHarnessInstalled(listener: (status: InstallResult['status']) =
 /** The installer that tells every window what each install ended with. */
 class AnnouncingInstaller extends HarnessInstaller {
   /** The runs already announced: a second call during a run gets the same promise, and the run is announced once. */
-  private readonly announced = new WeakSet<Promise<InstallResult | HarnessEnableResult>>()
+  private readonly announced = new WeakSet<Promise<InstallResult>>()
 
   override install(confirm: (plan: InstallPlan) => Promise<boolean>): Promise<InstallResult> {
     const run = super.install(confirm)
@@ -79,24 +78,6 @@ class AnnouncingInstaller extends HarnessInstaller {
               console.error('[harness] a listener of the install failed', error)
             }
           }
-        },
-        () => undefined,
-      )
-    }
-    return run
-  }
-
-  /**
-   * An enable that went in (no `error`) reaches every window too, once per run (worfy-polish ticket 167);
-   * a failed one changed nothing, and one that throws reaches its caller only.
-   */
-  override enable(): Promise<HarnessEnableResult> {
-    const run = super.enable()
-    if (!this.announced.has(run)) {
-      this.announced.add(run)
-      run.then(
-        (result) => {
-          if (result.error === null) toEveryWindow((client) => emit(client, harnessChanged, result.status))
         },
         () => undefined,
       )
@@ -186,5 +167,4 @@ export default [
   defineHandler(harnessCodexHooks, () => checkCodexHooks()),
   defineHandler(harnessCodexBinary, () => ({ path: codexInstallBinary(process.env, appRuntime()) ?? null, windows: process.platform === 'win32' })),
   defineHandler(harnessInstall, (_input, { event }) => appInstaller().install((plan) => confirmInstall(BrowserWindow.fromWebContents(event.sender), plan))),
-  defineHandler(harnessEnable, () => appInstaller().enable()),
 ] satisfies HandlerModule

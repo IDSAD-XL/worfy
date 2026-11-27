@@ -1,9 +1,7 @@
 # 167 — Кнопка Enable у выключенного Harness-а в строке статуса
 
 Type: feature
-Status: done 2026-11-27T09:03Z
-PR: #2317
-Branch: worfy-polish/167
+Status: open
 Blocked by: worfy-layout 03 (footer и chip версии: строка Harness переезжает в popover chip-а и в `src/renderer/harness/HarnessStatus.tsx`)
 Source: вопрос владельца 2026-11-26 о строке статуса у знакомого: «Harness 0.4.0+08d75598c · disabled · removed
 mattpocock-skills». Plugin worfy был выключен в Claude Code, а строка только говорит «disabled» и не даёт его включить.
@@ -26,32 +24,21 @@ mattpocock-skills». Plugin worfy был выключен в Claude Code, а с�
 
 ## Где в коде
 
-- `src/renderer/harness/HarnessStatus.tsx` — строка `HarnessLine` в popover chip-а версии: кнопка Enable
-  (`harness-enable`) рядом с Install, Update Harness, Retry; ошибка Enable — в tooltip-е текста и кнопки.
-  Прежний путь `src/renderer/shell/toolbar/HarnessStatus.tsx` ушёл с worfy-layout 03.
-- `src/renderer/harness/harness-lines.ts` — `harnessPart`: у `installed` с `enabled: false` кнопка Enable с accent,
-  отсюда янтарная точка chip-а (`src/renderer/shell/footer/version-dot.ts`).
-- `src/renderer/harness/useHarnessStatus.tsx` — `onEnable` через `harness.enable`, «Enabling Harness…», `enableFailure`.
-- `src/shared/ipc/harness.ts` — channel `harness.enable` и его ответ (`status`, `error`); шаг `enable`.
-- `src/main/harness/install.ts` — `HarnessInstaller.enable()`: `claude plugin enable worfy@worfy-harness --scope user`,
-  затем статус заново. `src/main/ipc/harness.ts` — handler и `harness.changed` всем окнам после удачного Enable.
-- Test-ы: `test/contract/harness-install.test.ts`, `test/contract/harness-changed.test.ts`,
-  `test/unit/harness-status.test.tsx`, `test/unit/version-dot.test.tsx`.
-- `docs/features/harness.md` — строка Disabled и абзац «Enable».
+- После worfy-layout 03: строка `HarnessLine` в popover chip-а версии (`src/renderer/harness/HarnessStatus.tsx`) — кнопка
+  Enable рядом с другими её кнопками (Install, Update Harness, Retry…); до 03 это было
+  `src/renderer/shell/toolbar/HarnessStatus.tsx:214`. Выключенный plugin даёт chip-у янтарную точку.
+- Main-процесс, где выполняются Install и Update Harness-а (найти по `onInstall`): туда же — действие Enable.
 
 ## Готово, когда
 
 - [ ] При выключенном plugin-е строка показывает кнопку Enable; после нажатия статус перечитан и строка без
       «disabled»; ошибка включения видна в tooltip-е.
-  - evidence: test-run pass · `pnpm test test/contract/harness-install.test.ts test/contract/harness-changed.test.ts test/unit/harness-status.test.tsx test/unit/version-dot.test.tsx` exit 0 · mac - · cc476fac0478366d40b7f75d6d9b8592ad8b6bd1
-  - evidence: review pass · PR #2317 · - - · 69a492c7fe8ac481698a143f8350dcdff625f32e
 - [ ] Unit- и contract-test-ы на действие Enable и на строку; test-ы красные до правки.
-  - evidence: test-run pass · `pnpm test` exit 0, 17 new tests red before the change · mac - · cc476fac0478366d40b7f75d6d9b8592ad8b6bd1
-  - evidence: review pass · PR #2317 · - - · 69a492c7fe8ac481698a143f8350dcdff625f32e
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast зелёный; `ci-ok` зелёный на head PR.
-  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · cc476fac0478366d40b7f75d6d9b8592ad8b6bd1
-  - evidence: gate pass · `gate fast` exit 0 · mac - · cc476fac0478366d40b7f75d6d9b8592ad8b6bd1
-  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45966667871/job/140408615079 · ci - · 69a492c7fe8ac481698a143f8350dcdff625f32e
 - [ ] (вручную) Сделай: в Claude Code выключи plugin worfy (`/plugin`), в Stable worfy нажми Enable в строке
       Harness → Должно быть: строка без «disabled», в Claude Code plugin worfy снова включён.
   - needs: mac stable
+
+## Откат 2026-11-27
+
+PR #2317 откачен: после merge contract test `test/contract/harness-install.test.ts:1421` («enabling a disabled Harness (worfy-polish ticket 167) > during an install it waits for the install, then reads the state the install left») висел 90 s на обеих попытках в push run-ах main на macOS, Linux и Windows (run 45970580081 и 45972473732), хотя CI PR-а был зелёным. Main стоял красным больше часа (правило: fix forward 1 h, затем revert). Переделка — заново с этого Ticket-а.

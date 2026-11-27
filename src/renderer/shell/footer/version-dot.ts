@@ -8,8 +8,7 @@ import { updateSignal, updateText } from '../../update/update-signal'
 // - red: the Harness needs the user — "Harness unavailable", a Harness not installed or broken while this
 //   run may install it (Install, Retry), or an old Harness to move ("Move old Harness…");
 // - amber: an update waits — the Update of worfy where its chip had the dot (a quiet Available update has
-//   none), a Harness to update ("Update Harness" with the accent), a Harness disabled in Claude Code
-//   ("Enable", with the accent too: worfy-polish ticket 167), or a Codex line with a button or
+//   none), a Harness to update ("Update Harness" with the accent), or a Codex line with a button or
 //   "Codex: approve hooks";
 // - none otherwise. "Replace Harness" (the same semver from another commit) is no signal, as its button
 //   carries no accent; a dev run without `canInstall` offers no button, so no dot either.

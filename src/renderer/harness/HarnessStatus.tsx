@@ -21,11 +21,7 @@ import { useHarnessStatus } from './useHarnessStatus'
 // "Codex: approve hooks" on the Codex line opens it again (worfy-polish ticket 93: its own line, with its
 // own button — Install in Codex, Update Harness in Codex, Retry).
 // The actions are icon buttons with a tooltip and an aria-label: Install, Update Harness,
-// Retry, Enable and "Move old Harness…" — a plain list after the line's text, so one more fits.
-// worfy-polish ticket 167: a plugin installed but disabled in Claude Code offers Enable, with the accent
-// (the chip's amber dot), where Install would show (`canInstall`). It runs `claude plugin enable` in main
-// (`harness.enable`, no dialog), and the line reads the status that answers; a failure keeps
-// "disabled" and is said in the tooltips of the line and of Enable.
+// Retry and "Move old Harness…" — a plain list after the line's text, so one more fits.
 //
 // worfy-update ticket 06: a Harness to update is a signal, as an Update of worfy is: an outdated
 // Harness of an older semver, or one of the same semver that main found behind this copy
@@ -64,13 +60,6 @@ const ICONS: Record<IconName, ReactNode> = {
       <path d="M13 2.5v3h-3" />
     </svg>
   ),
-  /** A power symbol: Enable of a disabled plugin (worfy-polish ticket 167). */
-  enable: (
-    <svg {...iconProps}>
-      <path d="M8 2v5.5" />
-      <path d="M4.75 4.25a5 5 0 1 0 6.5 0" />
-    </svg>
-  ),
   /** A box with an arrow out of it. */
   migrate: (
     <svg {...iconProps}>
@@ -107,15 +96,9 @@ function IconButton({ icon, label, title, onClick, testId, accent = false }: Ico
 export interface HarnessStatusViewProps {
   status: Status | undefined
   busy: boolean
-  /** What the line says while `busy`: "Installing Harness…" unless given ("Enabling Harness…" during Enable). */
-  busyText?: string | undefined
   /** The last call that failed, shown instead of the state. */
   failure: string | undefined
   onInstall: () => void
-  /** Enables the plugin disabled in Claude Code (worfy-polish ticket 167); without it the line offers no Enable. */
-  onEnable?: (() => void) | undefined
-  /** What the last Enable failed with: the line stays "disabled", and its tooltip and Enable's say why. */
-  enableFailure?: string | undefined
   /** Opens the move form; the button shows only when given (main offers a move: harnessMigration.offer). */
   onMigrate?: (() => void) | undefined
   /**
@@ -164,7 +147,7 @@ export function CodexLine({ status, busy, failure, onInstall, onApproveHooks }: 
 }
 
 /** The Harness line: its text, what an update removed, and its buttons — the action, then "Move old Harness…". */
-export function HarnessLine({ status, busy, busyText = 'Installing Harness…', failure, onInstall, onEnable, enableFailure, onMigrate, harnessBehind = null }: HarnessStatusViewProps) {
+export function HarnessLine({ status, busy, failure, onInstall, onMigrate, harnessBehind = null }: HarnessStatusViewProps) {
   if (failure !== undefined) {
     return (
       <span style={{ ...textStyle, color: 'var(--blocked-text)' }} title={failure} data-testid="harness-status">
@@ -176,20 +159,15 @@ export function HarnessLine({ status, busy, busyText = 'Installing Harness…', 
   if (busy) {
     return (
       <span style={textStyle} data-testid="harness-status">
-        {busyText}
+        Installing Harness…
       </span>
     )
   }
-  const part = harnessPart(status, harnessBehind)
-  const { text, tone } = part
-  // Enable shows only with its action; its failure goes into both tooltips, and the line keeps "disabled".
-  const button = part.button?.action === 'enable' && onEnable === undefined ? null : part.button
-  const failed = button?.action === 'enable' && enableFailure !== undefined ? `\n\nEnable failed: ${enableFailure}` : ''
-  const title = `${part.title ?? text}${failed}`
+  const { text, title, tone, button } = harnessPart(status, harnessBehind)
   const cleanup = cleanupPart(status.cleanup ?? [])
   return (
     <span role="group" aria-label="Harness" style={{ display: 'inline-flex', alignItems: 'center', gap: 2, maxWidth: '100%' }} data-testid="harness-status" data-state={status.state.kind}>
-      <span style={{ ...textStyle, color: tone }} title={title} data-testid="harness-text">
+      <span style={{ ...textStyle, color: tone }} title={title ?? text} data-testid="harness-text">
         {text}
       </span>
       {cleanup === null ? null : (
@@ -197,11 +175,7 @@ export function HarnessLine({ status, busy, busyText = 'Installing Harness…', 
           · {cleanup.text}
         </span>
       )}
-      {button === null ? null : button.action === 'enable' ? (
-        <IconButton icon={button.icon} label={button.label} title={`${button.title}${failed}`} onClick={() => onEnable?.()} testId="harness-enable" accent={button.accent} />
-      ) : (
-        <IconButton icon={button.icon} label={button.label} title={button.title} onClick={onInstall} testId="harness-action" accent={button.accent} />
-      )}
+      {button === null ? null : <IconButton icon={button.icon} label={button.label} title={button.title} onClick={onInstall} testId="harness-action" accent={button.accent} />}
       {onMigrate === undefined ? null : <IconButton icon="migrate" label="Move old Harness…" onClick={onMigrate} testId="harness-migrate" />}
     </span>
   )

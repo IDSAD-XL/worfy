@@ -10,15 +10,9 @@ import MigrationForm from './MigrationForm'
 export interface HarnessStatusState {
   status: Status | undefined
   busy: boolean
-  /** What the line says while `busy`: "Installing Harness…" or "Enabling Harness…". */
-  busyText: string
   /** The last call that failed, shown instead of the state. */
   failure: string | undefined
   onInstall: () => void
-  /** Enables the plugin disabled in Claude Code through `harness.enable` (worfy-polish ticket 167). */
-  onEnable: () => void
-  /** What the last Enable failed with; cleared by the next status from main or the next action. */
-  enableFailure: string | undefined
   /** Opens the step "Approve the Harness hooks in Codex". */
   onApproveHooks: () => void
   /** Main offers to move the old Harness (`harnessMigration.offer`). */
@@ -30,8 +24,8 @@ export interface HarnessStatusState {
 }
 
 /**
- * The Harness state from main (`harness.state`, then `harness.changed`), the move offer, the install
- * through `harness.install`, and Enable of a disabled plugin through `harness.enable`. The version chip of the footer and Settings → Pipeline each hold one. Only the
+ * The Harness state from main (`harness.state`, then `harness.changed`), the move offer, and the install
+ * through `harness.install`. The version chip of the footer and Settings → Pipeline each hold one. Only the
  * chip opens the Codex hooks step by itself (`opensHooksStep`): both hear the same `harness.changed`, and two
  * steps opened in one commit would be two windows of the kit, the keys in the one drawn under the other
  * (worfy-ui-kit ticket 07).
@@ -40,8 +34,6 @@ export function useHarnessStatus({ opensHooksStep = false }: { opensHooksStep?: 
   const [status, setStatus] = useState<Status>()
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string>()
-  const [busyText, setBusyText] = useState('Installing Harness…')
-  const [enableFailure, setEnableFailure] = useState<string>()
   const [migration, setMigration] = useState(false)
   const [formOpen, setFormOpen] = useState(false)
   const [hooksStep, setHooksStep] = useState(false)
@@ -75,7 +67,6 @@ export function useHarnessStatus({ opensHooksStep = false }: { opensHooksStep?: 
       stopState = subscribe('harness.changed', (next) => {
         heard = true
         setFailure(undefined)
-        setEnableFailure(undefined)
         setStatus(next)
       })
     } catch (error) {
@@ -112,31 +103,12 @@ export function useHarnessStatus({ opensHooksStep = false }: { opensHooksStep?: 
 
   const onInstall = (): void => {
     setBusy(true)
-    setBusyText('Installing Harness…')
-    setEnableFailure(undefined)
     void invoke('harness.install').then((result) => {
       setBusy(false)
       if (result.ok) {
         setFailure(undefined)
         setStatus(result.value.status)
       } else setFailure(result.error)
-    })
-  }
-
-  // Enable (worfy-polish ticket 167): the line says "Enabling Harness…" until main answers with the status it read
-  // again. A failure, of `plugin enable` or of the call itself, keeps the line on that status and goes into its
-  // tooltip: the Harness was read, so "Harness unavailable" would say less than the line does.
-  const onEnable = (): void => {
-    setBusy(true)
-    setBusyText('Enabling Harness…')
-    setEnableFailure(undefined)
-    void invoke('harness.enable').then((result) => {
-      setBusy(false)
-      if (result.ok) {
-        setFailure(undefined)
-        setStatus(result.value.status)
-        setEnableFailure(result.value.error ?? undefined)
-      } else setEnableFailure(result.error)
     })
   }
 
@@ -166,12 +138,9 @@ export function useHarnessStatus({ opensHooksStep = false }: { opensHooksStep?: 
   return {
     status,
     busy,
-    busyText,
     failure,
     migration,
     onInstall,
-    onEnable,
-    enableFailure,
     onMigrate: migration ? () => setFormOpen(true) : undefined,
     onApproveHooks: () => setHooksStep(true),
     harnessBehind: update?.enabled ? update.harnessBehind : null,
