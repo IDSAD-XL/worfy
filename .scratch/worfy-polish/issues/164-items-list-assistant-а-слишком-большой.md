@@ -1,7 +1,7 @@
 # 164 — `items_list` Assistant-а слишком большой: Claude Code прячет ответ в файл, а Read у Assistant-а нет
 
 Type: bug
-Status: claimed 2026-11-26T21:25Z
+Status: done 2026-11-27T00:21Z
 PR: #2295
 Branch: worfy-polish/164
 Blocked by: —
@@ -75,15 +75,20 @@ Source: отчёт владельца 2026-11-26 (снимок чата Assistan
 - [ ] `items_list` фильтрует по `ids`, `project`, `kind`, `state`, отдаёт страницы с `total` и `nextCursor`;
       компактные пункты по умолчанию, `full: true` с `ids` — целиком.
   - evidence: test-run pass · `pnpm test test/contract/worfy-app-tools.test.ts test/contract/assistant-two-machines.test.ts` exit 0 · mac - · e773cf5bad41d53e0aeb22ce9c47c2df8a377966
+  - evidence: review pass · PR #2295 · - - · 5c8a7aecf6a86cf1e47eddd2436f10e17a11a121
 - [ ] 200 больших пунктов по умолчанию — ответ `items_list` меньше порога Claude Code (50 000 знаков); порог и его
       источник названы в «Итог».
   - evidence: test-run pass · `pnpm test test/contract/worfy-app-tools.test.ts` exit 0 · mac - · e773cf5bad41d53e0aeb22ce9c47c2df8a377966
+  - evidence: review pass · PR #2295 · - - · 5c8a7aecf6a86cf1e47eddd2436f10e17a11a121
 - [ ] Первое сообщение Session несёт компактные записи переданных пунктов; test это проверяет.
   - evidence: test-run pass · `pnpm test test/unit/assistant-session.test.ts` exit 0 · mac - · e773cf5bad41d53e0aeb22ce9c47c2df8a377966
+  - evidence: review pass · PR #2295 · - - · 5c8a7aecf6a86cf1e47eddd2436f10e17a11a121
 - [ ] Описания tool-ов, инструкции Assistant-а и `docs/features/assistant.md` говорят о фильтрах и страницах.
   - evidence: commit pass · worfy-polish/164: WIP instructions and the feature page on items_list pages · - - · e773cf5bad41d53e0aeb22ce9c47c2df8a377966
+  - evidence: review pass · PR #2295 · - - · 5c8a7aecf6a86cf1e47eddd2436f10e17a11a121
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast зелёный; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · e773cf5bad41d53e0aeb22ce9c47c2df8a377966
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45904220733/job/140211313351 · ci - · 5c8a7aecf6a86cf1e47eddd2436f10e17a11a121
 - [ ] (вручную) Сделай: в Stable worfy с накопившимися 50+ пунктами (Waits) дождись wake Assistant-а или напиши ему
       «Что ждёт меня?» → Должно быть: Assistant называет пункты, ради которых его разбудили, их Project и что в них, и
       не пишет, что ответ слишком большой или сохранён в файл.
