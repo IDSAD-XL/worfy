@@ -1,12 +1,19 @@
 // The registry of the views of the main area (worfy-layout ticket 01): one list for all eight ShellView values. The
-// toolbar's View switch draws its six buttons from it (Toolbar.tsx), and the View rows of the Command palette are built
-// from it (palette/commands.ts), so a view's name, icon, tooltip and what opens it are written here once.
+// View buttons of the three zones — header, rail and footer — are drawn from it (ViewZone.tsx, worfy-layout ticket 04),
+// and the View rows of the Command palette are built from it (palette/commands.ts), so a view's name, icon, tooltip and
+// what opens it are written here once.
 // `story` (a Code story) and `changes` (the Changes of a Ticket) have no button: they open from their Ticket.
 import type { ComponentType, ReactNode } from 'react'
 import { openAcceptance } from '../acceptance/open'
+import { PR_NEED_YOU } from '../../shared/ipc/pr-inbox'
+import { waitsForPerson } from '../../shared/ipc/project-pulse'
 import { useReadyCount } from '../acceptance/useAcceptance'
 import { openRunHistory } from '../flight-recorder/open'
+import { inWork } from '../pipeline/board'
+import { usePipeline } from '../pipeline/usePipeline'
 import { openPrInboxOf } from '../pr-inbox/open'
+import { groupCounts, usePrInbox } from '../pr-inbox/usePrInbox'
+import { activeProject, useProjects } from '../projects/useProjects'
 import { setView } from '../session/navigation'
 import { setRunsTab } from '../work-track/store'
 import type { RailBadge } from './sidebar-scope'
@@ -61,9 +68,28 @@ export interface ViewEntry {
 
 const noBadge = (): RailBadge | undefined => undefined
 
+// The badges count what the view itself shows (spec, the section on badges), from the source the view reads: every view stays mounted
+// (AppShell.tsx), so a badge asks main nothing new. The sections' rail badges (useRailBadge) cannot serve: the sections
+// are unmounted while the sidebar is hidden.
+
+/** Acceptance: the checks Ready to check in every Project, as its view lists them. */
 function useReadyBadge(): RailBadge | undefined {
   const ready = useReadyCount()
   return ready > 0 ? { tone: 'working', count: ready, label: ready === 1 ? '1 check ready to check' : `${ready} checks ready to check` } : undefined
+}
+
+/** Pull requests: the pull requests of the open Project that need you — the groups the section counts (PR_NEED_YOU). */
+function useNeedYouBadge(): RailBadge | undefined {
+  const { snapshot } = usePrInbox(activeProject(useProjects())?.id)
+  const needYou = groupCounts(snapshot).reduce((sum, { group, count }) => sum + (PR_NEED_YOU.has(group) ? count : 0), 0)
+  return needYou > 0 ? { tone: 'blocked', count: needYou, label: needYou === 1 ? '1 pull request needs you' : `${needYou} pull requests need you` } : undefined
+}
+
+/** Pipeline: a dot while a Ticket of the open Project is blocked or waits for a person — the section's rule. */
+function useWaitingBadge(): RailBadge | undefined {
+  const { snapshot } = usePipeline(activeProject(useProjects())?.path)
+  const waits = snapshot?.tickets.filter((ticket) => inWork(ticket) && waitsForPerson(ticket)).length ?? 0
+  return waits > 0 ? { tone: 'blocked', label: waits === 1 ? '1 Ticket waits' : `${waits} Tickets wait` } : undefined
 }
 
 function icon(paths: ReactNode): ComponentType {
@@ -120,7 +146,7 @@ export const VIEWS: readonly ViewEntry[] = [
           <rect x="10.8" y="2.5" width="3.2" height="4.5" rx="1" />
         </>,
       ),
-      useBadge: noBadge,
+      useBadge: useWaitingBadge,
       command: { id: 'view:pipeline', title: 'Pipeline board', keys: ['pipeline', 'pipeline board', 'board', 'stages'] },
     },
   },
@@ -176,7 +202,7 @@ export const VIEWS: readonly ViewEntry[] = [
         </>,
       ),
       needsProject: 'Open a Project to see its pull requests',
-      useBadge: noBadge,
+      useBadge: useNeedYouBadge,
       command: {
         id: 'view:pull-requests',
         title: 'Pull requests',
@@ -218,14 +244,27 @@ export const VIEWS: readonly ViewEntry[] = [
   { id: 'changes', area: 'Changes' },
 ]
 
-/** The six views with a View button, in the order of the toolbar. */
-export const VIEW_BUTTONS = VIEWS.filter((entry): entry is ViewEntry & { button: ViewButton } => entry.button !== undefined)
+/** A view with a View button. */
+export type ViewButtonEntry = ViewEntry & { button: ViewButton }
+
+/** The six views with a View button, in the order of the registry: the order of the palette rows. Where each button sits is the layout (ViewZone.tsx). */
+export const VIEW_BUTTONS = VIEWS.filter((entry): entry is ViewButtonEntry => entry.button !== undefined)
+
+/** The View button of view `id`; undefined for a view without one. */
+export function viewButtonOf(id: ShellView): ViewButtonEntry | undefined {
+  return VIEW_BUTTONS.find((entry) => entry.id === id)
+}
+
+/** The name of the main area while it shows `view` (its `aria-label`). */
+export function areaOf(view: ShellView): string {
+  return VIEWS.find((entry) => entry.id === view)?.area ?? view
+}
 
 /**
  * Opens the view of a View button for the open Project. A button without an `open` of its own switches the main area
  * through `switchTo` — the shell's switch in the toolbar, the window's view (session/navigation.ts) elsewhere.
  */
-export function openView(entry: ViewEntry & { button: ViewButton }, project: ViewProject | undefined, switchTo: (view: ShellView) => void = setView): ViewOpened {
+export function openView(entry: ViewButtonEntry, project: ViewProject | undefined, switchTo: (view: ShellView) => void = setView): ViewOpened {
   if (entry.button.needsProject !== undefined && project === undefined) return undefined
   if (entry.button.open !== undefined) return entry.button.open(project)
   switchTo(entry.id)

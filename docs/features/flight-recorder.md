@@ -15,10 +15,10 @@ work of a Project over a Day, a Week or a Month. New to the terms: start with [C
 Run history takes the whole main area of the window, in place of the Canvas. It opens
 from five places:
 
-- **Runs** in the View switch of the toolbar, after Canvas, Session and Pipeline: the screen at the newest run of the
-  active Project, with the runs of all its Epics in the list. The tab is the selected one while the screen is open, and
-  any other tab leaves it. A Project without runs has the tab too, and the screen shows its empty state. Without a
-  Project the tab is inactive, with the tooltip "Open a Project to see its Runs".
+- The **Runs** View button, in the footer by default ([App shell](app-shell.md)): the screen at the newest run of the
+  active Project, with the runs of all its Epics in the list. The button is the pressed one while the screen is open,
+  and any other View button leaves it. A Project without runs has the button too, and the screen shows its empty state.
+  Without a Project the button is inactive, with the tooltip "Open a Project to see its Runs".
 
 - **The stop toast.** When a run stops, for any reason, a toast says `Run stopped: <reason> · N done, M blocked ·
   <duration>` with the button **Open history**, which opens the screen at that run. The toast does not go away by
@@ -324,7 +324,7 @@ is over is read whole, once per computation, and kept nowhere.
 | `src/renderer/flight-recorder/open.ts` | `openRunHistory`, which every entry calls. |
 | `src/renderer/canvas/actions/AutopilotAction.tsx` | "History" by the status line and "Run history" in "⋯". |
 | `src/renderer/palette/commands.ts` | "Open Run history". |
-| `src/renderer/shell/Toolbar.tsx` | The **Runs** tab of the View switch. |
+| `src/renderer/shell/views.tsx` | The **Runs** View button; `src/renderer/shell/ViewZone.tsx` draws it in its zone. |
 | `src/renderer/theme/tokens.css` | The `--span-*` colours of both themes. |
 
 #### Data flow

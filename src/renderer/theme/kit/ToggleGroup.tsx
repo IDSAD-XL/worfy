@@ -20,6 +20,8 @@ export interface ToggleGroupProps<T extends string> extends Omit<HTMLAttributes<
    * The caller decides what that second press means (keep it pressed, or press none).
    */
   onValueChange: (value: T | null) => void
+  /** The arrows that move the focus: ← and → (the default), or ↑ and ↓ for a column (the View buttons of the rail). */
+  orientation?: 'horizontal' | 'vertical'
   children: ReactNode
 }
 

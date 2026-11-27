@@ -4,7 +4,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { launchApp, showSidebarSection, type LaunchedApp } from './helpers'
+import { launchApp, showSidebarSection, viewButton, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { catScript } from '../harness-node'
 import { ms } from '../time-scale'
@@ -237,9 +237,9 @@ test('the toolbar, the sidebar and the palette open the view; a click and ↑ / 
 
     // The toolbar: the fifth tab opens the view of the active Project.
     const views = window.getByRole('group', { name: 'View', exact: true })
-    await expect(views.getByRole('button')).toHaveText(['Canvas', 'Session', 'Pipeline', 'Runs', 'Pull requests', 'Acceptance'])
-    await views.getByRole('button', { name: 'Pull requests' }).click()
-    await expect(views.getByRole('button', { name: 'Pull requests' })).toHaveAttribute('aria-pressed', 'true')
+    await expect(views.getByRole('button')).toHaveText(['Canvas', 'Session'])
+    await viewButton(window, 'pull-requests').click()
+    await expect(viewButton(window, 'pull-requests')).toHaveAttribute('aria-pressed', 'true')
     await expect(window.getByRole('main', { name: 'Pull requests' })).toBeVisible()
     await expect(view(window)).toHaveAttribute('data-project', WEB)
     // The list holds the groups that have a PR; the view selects the one that waits for an answer by itself.
@@ -342,7 +342,7 @@ test('opening the view reads GitHub at once: a review comment left after the las
     }, 60_000)
 
     const views = window.getByRole('group', { name: 'View', exact: true })
-    await views.getByRole('button', { name: 'Pull requests' }).click()
+    await viewButton(window, 'pull-requests').click()
     await expect(pane(window)).toHaveAttribute('data-number', '118')
     // Well within the reader's next look (30 s) and its next search (5 min): only the read on opening brings it.
     await expect(pane(window).getByTestId('pr-inbox-comment').last()).toContainText('Rename tries to attempts', { timeout: ms(10_000) })
@@ -353,7 +353,7 @@ test('opening the view reads GitHub at once: a review comment left after the las
 
     // Away and back at once: the read on opening is under 30 s old, so main reads nothing.
     await views.getByRole('button', { name: 'Canvas' }).click()
-    await views.getByRole('button', { name: 'Pull requests' }).click()
+    await viewButton(window, 'pull-requests').click()
     await expect(view(window).getByTestId('pr-inbox-next')).toBeVisible()
     await window.waitForTimeout(ms(1_000))
     expect(searchCalls()).toBe(searched + 1)
@@ -410,8 +410,7 @@ test('the switch of Project settings: off, main runs no gh for the Project; on, 
   try {
     const { window } = launched
     await showSidebarSection(window, 'Pull requests')
-    const views = window.getByRole('group', { name: 'View', exact: true })
-    await views.getByRole('button', { name: 'Pull requests' }).click()
+    await viewButton(window, 'pull-requests').click()
     await expect(view(window).getByTestId('pr-inbox-off')).toBeVisible({ timeout: ms(15_000) })
     await expect(section(window).getByTestId('pr-inbox-section-empty')).toBeVisible()
     const shots = await snapshotThemes(window, 'pr-inbox-off')
@@ -505,9 +504,8 @@ test('a draft reply under its thread in the pane: nothing is posted on selecting
   try {
     const { window } = launched
     await showSidebarSection(window, 'Pull requests')
-    const views = window.getByRole('group', { name: 'View', exact: true })
     await expect(sectionRow(window, WEB, 'needs-answer')).toBeVisible({ timeout: ms(30_000) })
-    await views.getByRole('button', { name: 'Pull requests' }).click()
+    await viewButton(window, 'pull-requests').click()
     // Another PR selected: its pane has no draft.
     await prRow(window, WEB_REPO, 41).getByRole('button').click()
     await expect(pane(window)).toHaveAttribute('data-number', '41')
@@ -579,9 +577,8 @@ test('two panes at 1280 and 1600 px in both themes: three PRs with a draft, one 
   try {
     const { window } = launched
     await showSidebarSection(window, 'Pull requests')
-    const views = window.getByRole('group', { name: 'View', exact: true })
     await expect(sectionRow(window, WEB, 'needs-answer')).toBeVisible({ timeout: ms(30_000) })
-    await views.getByRole('button', { name: 'Pull requests' }).click()
+    await viewButton(window, 'pull-requests').click()
     await expect(pane(window).getByTestId('pr-draft-field').first()).toBeVisible({ timeout: ms(15_000) })
     // The strip's main button of a PR with two drafts: Send all (2) opens the dialog with every text; Cancel posts nothing.
     const sendAll = pane(window).getByTestId('pr-inbox-next-step').getByTestId('pr-inbox-next-step-action')
@@ -670,9 +667,8 @@ test('a long repository name at 1280 px: the list never scrolls sideways, only t
     const { window } = launched
     await showSidebarSection(window, 'Pull requests')
     await window.setViewportSize({ width: 1280, height: 800 })
-    const views = window.getByRole('group', { name: 'View', exact: true })
     await expect(sectionRow(window, BILLING, 'needs-fix')).toBeVisible({ timeout: ms(30_000) })
-    await views.getByRole('button', { name: 'Pull requests' }).click()
+    await viewButton(window, 'pull-requests').click()
     const failing = prRow(window, LONG_REPO, 1207)
     await expect(failing.getByTestId('pr-inbox-ticket')).toHaveText('demo 07', { timeout: ms(30_000) })
     await expect(failing.getByTestId('pr-inbox-ref')).toHaveText('customer-billing-platform-integration-services#1207')
@@ -743,9 +739,8 @@ test('a long Epic name in the Ticket chip at 1280 px: #N stays whole and uncover
     const { window } = launched
     await showSidebarSection(window, 'Pull requests')
     await window.setViewportSize({ width: 1280, height: 800 })
-    const views = window.getByRole('group', { name: 'View', exact: true })
     await expect(sectionRow(window, APP, 'needs-fix')).toBeVisible({ timeout: ms(30_000) })
-    await views.getByRole('button', { name: 'Pull requests' }).click()
+    await viewButton(window, 'pull-requests').click()
     const row = prRow(window, 'example/app', 842)
     const chip = row.getByTestId('pr-inbox-ticket')
     await expect(chip).toHaveText(`${LONG_EPIC} 21`, { timeout: ms(30_000) })
@@ -833,7 +828,7 @@ test('Fix checks in the strip of a red PR: a new Session Node gets /worfy:pr-fix
     await showSidebarSection(window, 'Pull requests')
     await expect(sectionRow(window, WEB, 'needs-fix')).toContainText('Needs a fix1', { timeout: ms(30_000) })
     const views = window.getByRole('group', { name: 'View', exact: true })
-    await views.getByRole('button', { name: 'Pull requests' }).click()
+    await viewButton(window, 'pull-requests').click()
     await expect(pane(window)).toHaveAttribute('data-number', '118')
     const strip = pane(window).getByTestId('pr-inbox-next-step')
     await expect(strip.getByTestId('pr-inbox-next-step-title')).toHaveText('CI failing')
@@ -877,8 +872,7 @@ test('a sign-in GitHub refused in the PR inbox: the line names it with «Open He
     const button = nav.getByRole('button', { name: 'Health check', exact: true })
 
     await showSidebarSection(window, 'Pull requests')
-    const views = window.getByRole('group', { name: 'View', exact: true })
-    await views.getByRole('button', { name: 'Pull requests' }).click()
+    await viewButton(window, 'pull-requests').click()
     const error = view(window).getByTestId('pr-inbox-error')
     await expect(error).toHaveAttribute('data-sign-in', 'true', { timeout: ms(30_000) })
     await expect(error).toContainText('GitHub refused the sign-in')
@@ -957,7 +951,7 @@ test('the approvals chip in each row and the Approvals cell with its reviewers, 
     await window.setViewportSize({ width: 1280, height: 800 })
     await showSidebarSection(window, 'Pull requests')
     await expect(sectionRow(window, WEB, 'needs-review')).toBeVisible({ timeout: ms(30_000) })
-    await window.getByRole('group', { name: 'View', exact: true }).getByRole('button', { name: 'Pull requests' }).click()
+    await viewButton(window, 'pull-requests').click()
     const chipOf = (number: number): Locator => prRow(window, WEB_REPO, number).getByTestId('approvals-chip')
     await expect(chipOf(118)).toHaveText('✕ 1/2', { timeout: ms(30_000) })
     await expect(chipOf(118)).toHaveAttribute('aria-label', '1 of 2 required approvals, changes requested')

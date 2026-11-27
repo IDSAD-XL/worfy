@@ -12,7 +12,7 @@ sources each time it is read and stores nothing of its own. New to the terms: st
 
 #### Opening the view
 
-**Runs** in the View switch of the toolbar opens the Runs tab. Over it is the switch `Run history | Work track`. A
+The **Runs** View button (in the footer by default, [App shell](app-shell.md)) opens the Runs tab. Over it is the switch `Run history | Work track`. A
 Project shows Run history until Work track is chosen for it; then the tab shows Work track for that Project while the
 app runs. The choice is kept per Project and only in the memory of the window. The Command palette's **Open Run
 history** always shows Run history, and makes it the Project's choice again. An entry that names a run or an Epic shows

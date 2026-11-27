@@ -4,7 +4,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { launchApp, type LaunchedApp } from './helpers'
+import { launchApp, viewButton, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { ms } from '../time-scale'
 
@@ -176,7 +176,7 @@ const pane = (window: Page): Locator => window.getByTestId('pr-inbox-pane')
 const resultRows = (window: Page): Locator => window.getByTestId('pr-search-results').getByTestId('pr-inbox-row')
 
 async function openView(window: Page): Promise<void> {
-  await window.getByRole('group', { name: 'View', exact: true }).getByRole('button', { name: 'Pull requests' }).click()
+  await viewButton(window, 'pull-requests').click()
   await expect(window.getByTestId('pr-inbox-group').first()).toBeVisible({ timeout: ms(45_000) })
 }
 

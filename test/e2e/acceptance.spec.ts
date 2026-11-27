@@ -185,8 +185,12 @@ test('the Acceptance tab: groups, an item with its screenshot and clip, ↑ ↓,
     const set = await bridgeCall(window, 'projects.settings.set', { id: PROJECT, settings: { ...settings, actionTemplates: { ...settings.actionTemplates, ownerCheck: TEMPLATE } } })
     expect(set.ok, set.error).toBe(true)
 
-    // The tab counts Ready to check and opens the view.
+    // The View button counts Ready to check and opens the view. It stands on the rail by default, where it shows no count
+    // next to the Acceptance section that has its own (worfy-layout ticket 04): moved to the footer, it shows the count.
+    const moved = await bridgeCall(window, 'appSettings.set', { viewButtons: { header: ['canvas', 'session'], rail: ['pull-requests'], footer: ['pipeline', 'history', 'acceptance'] } })
+    expect(moved.ok, moved.error).toBe(true)
     const tab = window.getByTestId('acceptance-tab')
+    await expect(tab).toHaveAttribute('data-zone', 'footer')
     await expect(tab).toHaveAttribute('title', 'Checks that wait for you')
     await expect(tab.getByTestId('acceptance-tab-count')).toHaveText('2', { timeout: ms(30_000) })
     await tab.click()

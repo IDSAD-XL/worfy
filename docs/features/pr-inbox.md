@@ -16,8 +16,8 @@ anything there. Terms are explained in [Concepts](concepts.md); the PR and CI ba
 
 **Where it opens.**
 
-- **Pull requests** in the View switch of the toolbar, the fifth tab after Canvas, Session, Pipeline and Runs. Without a
-  Project the tab is inactive, and its tooltip says to open one.
+- The **Pull requests** View button, on the sidebar's rail by default ([App shell](app-shell.md)). Without a Project the
+  button is inactive, and its tooltip says to open one.
 - The **Pull requests** row of the Command palette, group View, with a Project.
 - A group of the **Pull requests** section of the sidebar: the view of that row's Project, scrolled to that group, its
   heading marked and its first PR selected (not marked seen). A row of another Project selects that Project first.
@@ -367,7 +367,7 @@ Before the first answer the view says "Reading pull requests…". A Project that
 in Project settings, or none of its repositories is on GitHub — shows one line saying so and no panes. A read without a
 single PR shows, instead of the panes, a calm note: "No open pull requests and no review requests."
 
-**Reading on opening.** Each time the view is shown — its toolbar tab, the palette command, a group of the sidebar
+**Reading on opening.** Each time the view is shown — its View button, the palette command, a group of the sidebar
 section, a notification or another entry, or another Project while the view is shown — main reads that Project from
 GitHub at once instead of waiting for the next search, so a review comment left a minute ago is there without waiting
 for the timer. While that read runs, the status line says "Reading pull requests…" and "Last read 3m ago" (the time of
@@ -467,7 +467,7 @@ draft: Start review is inactive there, and Review mode opens read only through *
 | The renderer's copy of the inbox; the texts of a row; the Ticket of a PR; what to do next, the merge state and the size | `src/renderer/pr-inbox/usePrInbox.ts` |
 | Opening the view, on one PR or one group | `src/renderer/pr-inbox/open.ts` |
 | The sidebar section | `src/renderer/shell/sidebar/PullRequestsSection.tsx` |
-| The tab and the view in the shell | `src/renderer/shell/Toolbar.tsx`, `src/renderer/shell/AppShell.tsx` |
+| The View button and the view in the shell | `src/renderer/shell/views.tsx`, `src/renderer/shell/ViewZone.tsx`, `src/renderer/shell/AppShell.tsx` |
 | The palette row | `src/renderer/palette/commands.ts` |
 | The switch | `src/renderer/shell/ProjectSettings.tsx`; the `prInbox` field of `src/shared/projects/action-templates.ts` |
 | The channels `prInbox.get`, `prInbox.markSeen`, `prInbox.changed`, `prInbox.drafts`, `prInbox.saveDraft`, `prInbox.discard`, `prInbox.send` | `src/shared/ipc/pr-inbox.ts`, `src/main/ipc/pr-inbox.ts` |

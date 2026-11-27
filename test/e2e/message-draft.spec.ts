@@ -3,7 +3,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { canvasReady, launchApp, newSessionOn } from './helpers'
+import { canvasReady, launchApp, newSessionOn, viewButton } from './helpers'
 
 // The draft of a chat input field (worfy-polish ticket 95) against the built app, on the fake agent
 // (test/fixtures/agent-scripts/turn.jsonl): a text typed and not sent stays in the Session view's
@@ -83,12 +83,12 @@ test('a draft stays across views, another Session and a restart; Send clears it 
     await field.fill(DRAFT)
 
     // Other views and back.
-    const tabs = tabsOf(window)
-    for (const name of ['Pipeline', 'Runs', 'Canvas']) {
-      await tabs.getByRole('button', { name, exact: true }).click()
-      await expect(tabs.getByRole('button', { name, exact: true })).toHaveAttribute('aria-pressed', 'true')
+    // Pipeline and Runs stand in the footer, Canvas and Session in the header (worfy-layout ticket 04).
+    for (const id of ['pipeline', 'history', 'canvas']) {
+      await viewButton(window, id).click()
+      await expect(viewButton(window, id)).toHaveAttribute('aria-pressed', 'true')
     }
-    await tabs.getByRole('button', { name: 'Session', exact: true }).click()
+    await tabsOf(window).getByRole('button', { name: 'Session', exact: true }).click()
     await expect(field).toHaveValue(DRAFT)
 
     // Another Session in the picker — its own field, empty — and back.
@@ -122,7 +122,7 @@ test('a draft stays across views, another Session and a restart; Send clears it 
     await field.press('Enter')
     await expect(field).toHaveValue('')
     await expect(view.getByTestId('transcript-text').last()).toContainText('Hello from the fake agent')
-    await tabsOf(window).getByRole('button', { name: 'Pipeline', exact: true }).click()
+    await viewButton(window, 'pipeline').click()
     await tabsOf(window).getByRole('button', { name: 'Session', exact: true }).click()
     await expect(field).toHaveValue('')
     await expect.poll(async () => Object.values(await storedDrafts(window))).toEqual([NODE_DRAFT])

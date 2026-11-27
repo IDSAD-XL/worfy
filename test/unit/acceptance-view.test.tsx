@@ -22,6 +22,9 @@ import type { IpcResult, WorfyBridge } from '../../src/shared/ipc/channels'
 import type { ProjectsState } from '../../src/shared/ipc/projects'
 import type { EvidenceItem } from '../../src/shared/workflow/types'
 import { ms } from '../time-scale'
+import { VIEW_BUTTON_IDS } from '../../src/shared/layout/view-buttons'
+// The registry's six buttons all in the header (worfy-layout ticket 04 puts them in three zones; test/unit/view-zones.test.tsx).
+const ALL_IN_HEADER = { header: [...VIEW_BUTTON_IDS], rail: [], footer: [] }
 
 const DEMO = 'demo-0000000d'
 const PROJECTS: ProjectsState = { projects: [{ id: DEMO, name: 'demo', path: '/projects/demo', branch: 'main' }], activeId: null, revision: 1 }
@@ -235,7 +238,7 @@ describe('the groups of the queue', () => {
     preload(FULL)
     const { ToolbarView } = await import('../../src/renderer/shell/Toolbar')
     const onViewChange = vi.fn()
-    render(<ToolbarView items={[]} view="canvas" onViewChange={onViewChange} sidebarVisible onToggleSidebar={() => {}} />)
+    render(<ToolbarView items={[]} view="canvas" onViewChange={onViewChange} sidebarVisible onToggleSidebar={() => {}} layout={ALL_IN_HEADER} />)
     const tab = screen.getByTestId('acceptance-tab')
     await waitFor(() => expect(textOf(within(tab).getByTestId('acceptance-tab-count'))).toContain('2'))
     expect(attrOf(tab, 'title')).toBe('Checks that wait for you')
@@ -424,7 +427,7 @@ describe('review round 1', () => {
     const sent = { ...ROWS.cart, sent: { verdict: 'pass' as const, at: '2026-11-20T10:00:00.000Z', state: 'sent' as const } }
     preload(queue({ ready: [sent, ROWS.search] }))
     const { ToolbarView } = await import('../../src/renderer/shell/Toolbar')
-    render(<ToolbarView items={[]} view="canvas" onViewChange={() => {}} sidebarVisible onToggleSidebar={() => {}} />)
+    render(<ToolbarView items={[]} view="canvas" onViewChange={() => {}} sidebarVisible onToggleSidebar={() => {}} layout={ALL_IN_HEADER} />)
     await waitFor(() => expect(textOf(screen.queryByTestId('acceptance-tab-count'))).toBe('1'))
   })
 
@@ -459,7 +462,7 @@ describe('review round 2', () => {
     const sent = { ...ROWS.search, sent: { verdict: 'pass' as const, at, state: 'sent' as const } }
     preload(queue({ ready: [lost, sent] }))
     const { ToolbarView } = await import('../../src/renderer/shell/Toolbar')
-    render(<ToolbarView items={[]} view="canvas" onViewChange={() => {}} sidebarVisible onToggleSidebar={() => {}} />)
+    render(<ToolbarView items={[]} view="canvas" onViewChange={() => {}} sidebarVisible onToggleSidebar={() => {}} layout={ALL_IN_HEADER} />)
     await waitFor(() => expect(textOf(screen.queryByTestId('acceptance-tab-count'))).toBe('1'))
   })
 })

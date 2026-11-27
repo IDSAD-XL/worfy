@@ -8,7 +8,7 @@ import { projectDirName } from '../../src/main/claude-home/registry'
 import { formatJournalLine, makeRunId, type JournalEvent } from '../../src/shared/autopilot/journal'
 import { catScript } from '../harness-node'
 import { ms } from '../time-scale'
-import { launchApp, type LaunchedApp } from './helpers'
+import { launchApp, viewButton, type LaunchedApp } from './helpers'
 import { relocatedJsonText } from './relocate-fixture'
 
 // The Run history screen (worfy-flight-recorder ticket 18) in the built app on the fake agent.
@@ -267,8 +267,8 @@ test('openRunHistory shows a Run over the whole main area: header, zoom, rows, l
     await expect(window.getByTestId('run-history-stage-card')).toHaveCount(3)
     // The keyboard is on the screen at once: the focus is on the Run picker.
     await expect(window.getByTestId('run-history-choose')).toBeFocused()
-    // The `Runs` tab of the toolbar is the one pressed (worfy-flight-recorder ticket 28).
-    await expect(window.locator('.w-toolbar [role="group"][aria-label="View"] [aria-pressed="true"]')).toHaveText('Runs')
+    // The `Runs` View button is the one pressed (worfy-flight-recorder ticket 28), in the footer by default (worfy-layout ticket 04).
+    await expect(window.locator('[data-view-button][aria-pressed="true"]')).toHaveAttribute('data-view-button', 'history')
     expect(await expectLabelsClear(window)).toBeGreaterThan(0)
     await snapshots(window, 'night-run')
 
@@ -405,24 +405,24 @@ test('openRunHistory shows a Run over the whole main area: header, zoom, rows, l
   }
 })
 
-test('the Runs tab of the header opens the Run history of the active Project, the Canvas tab leaves it', async () => {
+test('the Runs View button (in the footer by default) opens the Run history of the active Project, the Canvas button leaves it', async () => {
   test.setTimeout(ms(120_000))
   const { env } = prepareNight()
   const launched = await launchApp({ env })
   try {
     const { window } = launched
     const tabs = window.locator('.w-toolbar [role="group"][aria-label="View"]')
-    await expect(tabs.getByRole('button')).toHaveText(['Canvas', 'Session', 'Pipeline', 'Runs', 'Pull requests', 'Acceptance'])
+    await expect(tabs.getByRole('button')).toHaveText(['Canvas', 'Session'])
     await expect(tabs.getByRole('button', { name: 'Canvas' })).toHaveAttribute('aria-pressed', 'true')
     const view = window.locator('.w-shell__view[data-view="history"]')
     await expect(view).toBeHidden()
 
     // The tab opens the screen at the newest Run of the Project: the Run of the Start window.
-    await tabs.getByRole('button', { name: 'Runs' }).click()
+    await viewButton(window, 'history').click()
     await expect(view).toBeVisible()
     await expect(window.getByTestId('run-history-epic')).toHaveText('demo-plan')
     await expect(window.getByTestId('run-history-choose')).toHaveValue(PLAN_RUN)
-    await expect(tabs.getByRole('button', { name: 'Runs' })).toHaveAttribute('aria-pressed', 'true')
+    await expect(viewButton(window, 'history')).toHaveAttribute('aria-pressed', 'true')
     await expect(tabs.getByRole('button', { name: 'Canvas' })).toHaveAttribute('aria-pressed', 'false')
 
     // The Canvas tab: the screen closes.

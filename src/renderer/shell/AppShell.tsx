@@ -1,4 +1,5 @@
 import { Component, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { DEFAULT_VIEW_BUTTONS } from '../../shared/layout/view-buttons'
 import { AcceptanceView } from '../acceptance/AcceptanceView'
 import { AssistantSpeech } from '../assistant/AssistantSpeech'
 import { StartAutopilotModal } from '../autopilot/StartAutopilotModal'
@@ -10,6 +11,7 @@ import { GuideHost } from '../guide/GuideHost'
 import { MachineDialogs } from '../machines/MachineDialogs'
 import { PullRequestsView } from '../pr-inbox/PrInboxView'
 import { useInterfaceScale } from '../settings/interface-scale'
+import { useAppSettings } from '../settings/useAppSettings'
 import { SettingsDialog } from '../settings/SettingsDialog'
 import { ShortcutsOverlay } from '../shortcuts/ShortcutsOverlay'
 import { StoryScreen } from '../stories/StoryView'
@@ -20,6 +22,8 @@ import { Sidebar } from './Sidebar'
 import { followSidebarCommand, SIDEBAR_TOGGLE_SELECTOR, useSidebarVisibility } from './sidebar-visibility'
 import { useSidebarWidthVariable } from './sidebar-width'
 import { Toolbar, type ShellView, type ToolbarProject } from './Toolbar'
+import type { ViewSwitch } from './ViewZone'
+import { areaOf } from './views'
 import './shell.css'
 
 export interface AppShellProps {
@@ -80,18 +84,6 @@ class SidebarFocusKeeper extends Component<{ visible: boolean; shell: RefObject<
   }
 }
 
-/** The name of the main area for each view, as its tab in the toolbar says it (Run history, Code story and Changes have no tab). */
-const VIEW_NAMES: Record<ShellView, string> = {
-  canvas: 'Canvas',
-  session: 'Session',
-  pipeline: 'Pipeline',
-  history: 'Run history',
-  'pull-requests': 'Pull requests',
-  acceptance: 'Acceptance',
-  story: 'Code story',
-  changes: 'Changes',
-}
-
 /** The window of design F: sidebar, unified toolbar and the main area under it, and the footer across the bottom. */
 export function AppShell({ project, canvas, session, pipeline, history, view: controlledView, onViewChange }: AppShellProps) {
   const [ownView, setOwnView] = useState<ShellView>('canvas')
@@ -114,18 +106,22 @@ export function AppShell({ project, canvas, session, pipeline, history, view: co
   // The width the person dragged the sidebar's edge to, kept while the sidebar is hidden too (sidebar-width.ts).
   useSidebarWidthVariable()
   const shell = useRef<HTMLDivElement>(null)
+  // The View buttons of the three zones, where the layout of this Machine puts them (ViewZone.tsx, worfy-layout ticket 04):
+  // the one the person made, else the default — viewButtonsOf of the app settings, without a fresh copy per render.
+  const layout = useAppSettings((settings) => settings.viewButtons) ?? DEFAULT_VIEW_BUTTONS
+  const views: ViewSwitch = { layout, view, project, onViewChange: setView }
 
   return (
     <div ref={shell} className="w-shell" data-testid="app-shell" data-sidebar={sidebarVisible ? 'visible' : 'hidden'}>
       {/* The window is a column (worfy-layout ticket 03): the row of the sidebar and the main area, and the footer under it. */}
       <div className="w-shell__body">
         {/* The button that hides it is in its own strip at the top; while it is hidden, the toolbar has the button that shows it. */}
-        {sidebarVisible ? <Sidebar onToggle={toggleSidebar} /> : null}
+        {sidebarVisible ? <Sidebar onToggle={toggleSidebar} views={views} /> : null}
         {/* Focus mode draws its layer in the main area (focus/focus-state.ts): over the toolbar and the
             view, next to the sidebar. */}
         <div ref={setFocusSlot} className="w-shell__main">
-          <Toolbar project={project} view={view} onViewChange={setView} sidebarVisible={sidebarVisible} onToggleSidebar={toggleSidebar} />
-          <main className={`w-shell__content w-shell__content--${view}`} aria-label={VIEW_NAMES[view]}>
+          <Toolbar project={project} view={view} onViewChange={setView} sidebarVisible={sidebarVisible} onToggleSidebar={toggleSidebar} layout={views.layout} />
+          <main className={`w-shell__content w-shell__content--${view}`} aria-label={areaOf(view)}>
             {/* Both views stay mounted and the inactive one is only hidden: switching must not
                 destroy what a view keeps in memory (the React Flow instance, xterm terminals). A throw
                 inside one view stays in it: the sidebar and the toolbar keep working (worfy-polish 163). */}
@@ -177,7 +173,7 @@ export function AppShell({ project, canvas, session, pipeline, history, view: co
         </div>
       </div>
       {/* Across the whole window, outside focus mode's layer: it stays on screen in focus mode, and its version chip keeps working. */}
-      <Footer />
+      <Footer views={views} />
       <SidebarFocusKeeper visible={sidebarVisible} shell={shell} />
       {/* The Assistant's speech card at its rail icon, its badge and Prepare (worfy-assistant ticket 14); mounted while the sidebar is hidden too. */}
       <AssistantSpeech sidebarVisible={sidebarVisible} />

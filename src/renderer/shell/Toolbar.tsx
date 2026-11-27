@@ -1,24 +1,25 @@
+import { DEFAULT_VIEW_BUTTONS } from '../../shared/layout/view-buttons'
 import { collectExtensions, type ShellExtension } from './registry'
-import { SegmentedControl, type SegmentOption } from '../theme/primitives'
 import { CommandPalette } from '../palette/CommandPalette'
 import { SidebarToggle } from './sidebar-visibility'
-import { openView, VIEW_BUTTONS, type ViewButton } from './views'
+import { ViewZone, type ViewLayout } from './ViewZone'
 
 // Each toolbar item is its own file, src/renderer/shell/toolbar/<Name>.tsx, with a
-// default-exported component and `export const order = <number>`. Items sit between the view
-// switch and the command palette field; this file never changes when an item is added.
+// default-exported component and `export const order = <number>`. Items sit between the View
+// buttons of the header and the command palette field; this file never changes when an item is added.
 const items = collectExtensions(import.meta.glob('./toolbar/*.tsx', { eager: true }))
 
 /**
- * The views of the main area; their names, buttons and palette rows are in the registry (views.tsx). `history` — the Run history of Flight Recorder
- * (flight-recorder/RunHistoryView.tsx) — has the `Runs` tab here, which opens it at the active
+ * The views of the main area; their names, buttons and palette rows are in the registry (views.tsx), and which zone
+ * each View button stands in is the layout (ViewZone.tsx). `history` — the Run history of Flight Recorder
+ * (flight-recorder/RunHistoryView.tsx) — has the `Runs` button, which opens it at the active
  * Project's newest Run (openRunHistory); its other entries open it too, Esc leaves it.
- * `pull-requests` — the PR inbox of the active Project (pr-inbox/PrInboxView.tsx) — is the fifth tab.
- * `acceptance` — the checks that wait for the owner in every Project (acceptance/AcceptanceView.tsx) — is the sixth,
- * with the count of Ready to check; it needs no open Project.
- * `story` — a Code story (stories/StoryView.tsx) — has no tab: openStory (stories/open.ts) opens it, Esc leaves it.
- * `changes` — the Changes of a Ticket (changes/ChangesView.tsx) — has no tab either: without a Ticket it has nothing to
- * show; openChanges (changes/open.ts) opens it, its button back and Esc leave it.
+ * `pull-requests` — the PR inbox of the active Project (pr-inbox/PrInboxView.tsx).
+ * `acceptance` — the checks that wait for the owner in every Project (acceptance/AcceptanceView.tsx) — has the count
+ * of Ready to check; it needs no open Project.
+ * `story` — a Code story (stories/StoryView.tsx) — has no button: openStory (stories/open.ts) opens it, Esc leaves it.
+ * `changes` — the Changes of a Ticket (changes/ChangesView.tsx) — has no button either: without a Ticket it has nothing
+ * to show; openChanges (changes/open.ts) opens it, its button back and Esc leave it.
  */
 export type ShellView = 'canvas' | 'session' | 'pipeline' | 'history' | 'pull-requests' | 'acceptance' | 'story' | 'changes'
 
@@ -30,39 +31,6 @@ export interface ToolbarProject {
   branch: string
 }
 
-/** The icon of a View button, with its badge after the label (views.tsx). */
-function ViewIcon({ button }: { button: ViewButton }) {
-  const badge = button.useBadge()
-  const { Icon } = button
-  if (badge === undefined) return <Icon />
-  // The wrapper of the icon lets the count out (acceptance.css places it): it follows the label, and with the label
-  // hidden in a narrow window it stays next to the icon. Only Acceptance has a badge yet.
-  return (
-    <span className="w-acc-tab">
-      <Icon />
-      {badge.count !== undefined ? (
-        <span className="w-acc-tab__count" data-testid={button.testId === undefined ? undefined : `${button.testId}-count`}>
-          {badge.count}
-        </span>
-      ) : null}
-    </span>
-  )
-}
-
-function viewSegments(project: ToolbarProject | undefined): readonly SegmentOption<ShellView>[] {
-  return VIEW_BUTTONS.map(({ id, button }) => {
-    const inactive = button.needsProject !== undefined && project === undefined
-    return {
-      value: id,
-      label: button.label,
-      icon: <ViewIcon button={button} />,
-      disabled: inactive,
-      title: inactive ? button.needsProject : button.title,
-      ...(button.testId === undefined ? {} : { testId: button.testId }),
-    }
-  })
-}
-
 export interface ToolbarViewProps {
   items: readonly ShellExtension[]
   project?: ToolbarProject
@@ -70,9 +38,11 @@ export interface ToolbarViewProps {
   onViewChange: (view: ShellView) => void
   sidebarVisible: boolean
   onToggleSidebar: () => void
+  /** Which View buttons stand in the header, and on the rail (drawn here while the sidebar is hidden); the default without it. */
+  layout?: ViewLayout
 }
 
-export function ToolbarView({ items, project, view, onViewChange, sidebarVisible, onToggleSidebar }: ToolbarViewProps) {
+export function ToolbarView({ items, project, view, onViewChange, sidebarVisible, onToggleSidebar, layout = DEFAULT_VIEW_BUTTONS }: ToolbarViewProps) {
   // The sidebar's strip carries the wordmark «worfy» (worfy-polish ticket 94): next to it the title names the Project
   // alone, so «worfy» is not said twice side by side. With the sidebar hidden the title says it, as before.
   const title = sidebarVisible ? (project?.name ?? 'No Project open') : project ? `worfy — ${project.name}` : 'worfy'
@@ -105,17 +75,8 @@ export function ToolbarView({ items, project, view, onViewChange, sidebarVisible
         </span>
       </div>
 
-      <SegmentedControl
-        label="View"
-        options={viewSegments(project)}
-        value={view}
-        // A press opens the view as its entry says (views.tsx): Runs at the newest Run through the Run history entry;
-        // the others switch the shell's view.
-        onChange={(next) => {
-          const entry = VIEW_BUTTONS.find((each) => each.id === next)
-          if (entry !== undefined) void openView(entry, project, onViewChange)
-        }}
-      />
+      {/* The View buttons of the Header zone; with the sidebar hidden, the rail's after a line (ViewZone.tsx). */}
+      <ViewZone zone="header" views={{ layout, view, project, onViewChange }} withRail={!sidebarVisible} />
 
       <div className="w-toolbar__spacer" />
 

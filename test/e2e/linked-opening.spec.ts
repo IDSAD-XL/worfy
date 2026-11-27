@@ -10,14 +10,15 @@
 // are attached to the test as `linked-opening.json`. With WORFY_LINKED_PROFILE=<folder> the run
 // also writes A's renderer CPU profile there (`linked-opening.cpuprofile`, opened in Chrome
 // DevTools, Performance) with the same numbers beside it. The renderer counts the updates of
-// `useWorkflowStore` and `useElkAnswers` only because the recorder turns the count on.
+// `useWorkflowStore` and `useElkAnswers` only because the recorder turns the count on. The window on
+// B's Project shows the View button layout of A (worfy-layout ticket 04, Q13), B's own window its own.
 import { execFileSync } from 'node:child_process'
 import { chmodSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
-import { canvasReady, chooseLevel, closeSettings, launchApp, linkThroughUi, machineIdOf, openMachinesSettings, PROJECTS_ACCESS_LABEL, showSidebarSection, type LaunchedApp } from './helpers'
+import { canvasReady, chooseLevel, closeSettings, launchApp, linkThroughUi, machineIdOf, openMachinesSettings, PROJECTS_ACCESS_LABEL, showSidebarSection, viewButton, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { loginProfileWithNode } from '../harness-node'
 import { MANY_EPICS, manyEpicsStatus, writeSessionHistory } from './many-epics'
@@ -180,6 +181,15 @@ test('the first opening of a Project of a Linked machine: the loading line from 
     b = await launchApp({ env: bEnv })
     await canvasReady(b, { size: SIZE })
     await canvasReady(a, { size: SIZE })
+    // The View button layout is A's (worfy-layout ticket 04, Q13): Runs in the header on A, B keeps the default.
+    const moved = await a.window.evaluate((viewButtons) => (globalThis as unknown as { worfy: { invoke(channel: string, input: unknown): Promise<{ ok: boolean; error?: string }> } }).worfy.invoke('appSettings.set', { viewButtons }), {
+      header: ['canvas', 'session', 'history'],
+      rail: ['pull-requests', 'acceptance'],
+      footer: ['pipeline'],
+    })
+    expect(moved.ok, moved.error).toBe(true)
+    await expect(viewButton(a.window, 'history')).toHaveAttribute('data-zone', 'header')
+    await expect(viewButton(b.window, 'history')).toHaveAttribute('data-zone', 'footer')
     await linkThroughUi(a.window, b.window)
     const aId = await machineIdOf(a.window)
     const bId = await machineIdOf(b.window)
@@ -277,6 +287,13 @@ test('the first opening of a Project of a Linked machine: the loading line from 
     expect(measure.storeUpdates.useWorkflowStore?.count).toBeGreaterThanOrEqual(1)
     await expect(a.window.getByTestId('canvas-loading')).toHaveCount(0)
     await expect(a.window.getByTestId('canvas-loading-status')).toHaveText('Project loaded')
+
+    // The window on B's Project shows the layout of this computer, A (Q13): the app settings channels are `local`.
+    // B's own window keeps B's, the default: Runs in the footer.
+    await expect(a.window.getByRole('banner').getByRole('group', { name: 'View', exact: true }).getByRole('button')).toHaveText(['Canvas', 'Session', 'Runs'])
+    await expect(viewButton(a.window, 'history')).toHaveAttribute('data-zone', 'header')
+    await expect(viewButton(a.window, 'pipeline')).toHaveAttribute('data-zone', 'footer')
+    await expect(viewButton(b.window, 'history')).toHaveAttribute('data-zone', 'footer')
   } finally {
     await a.close()
     await b?.close()

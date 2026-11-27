@@ -17,9 +17,10 @@ manual items, usually after it. Terms are explained in [Concepts](concepts.md).
 
 **Where it opens.**
 
-- **Acceptance** is the sixth tab of the toolbar, after Pull requests. It carries the count of the items of Ready to
-  check that are not Sent (an item whose decision is "Not recorded yet" counts again), and its tooltip says "Checks that
-  wait for you". It works without an open Project: the view is over every Project of the Machine.
+- The **Acceptance** View button, on the sidebar's rail by default ([App shell](app-shell.md)). It carries the count of
+  the items of Ready to check that are not Sent (an item whose decision is "Not recorded yet" counts again) in the
+  toolbar and the footer — on the rail the Acceptance section next to it carries that count — and its tooltip says
+  "Checks that wait for you". It works without an open Project: the view is over every Project of the Machine.
 - The **Acceptance** section of the sidebar counts the queue by Project, and its rail button carries the count of Ready
   to check ([App shell](app-shell.md#sidebar)). A click on a row opens the view on that Project's first row of that
   group.
@@ -133,8 +134,8 @@ platform.
 - `src/renderer/acceptance/AcceptanceView.tsx`: the view, its two panes and the decision row.
 - `src/renderer/acceptance/useAcceptance.ts`: the queue in the window, the selection, `sendDecision`.
 - `src/renderer/acceptance/open.ts`: opening the view on a row, Open Ticket and Open Orchestrator.
-- `src/renderer/acceptance/acceptance.css`; the tab is in `src/renderer/shell/Toolbar.tsx`, the view is mounted in
-  `src/renderer/shell/AppShell.tsx`.
+- `src/renderer/acceptance/acceptance.css`; the View button is in `src/renderer/shell/views.tsx`, drawn in its zone by
+  `src/renderer/shell/ViewZone.tsx`, and the view is mounted in `src/renderer/shell/AppShell.tsx`.
 - The ways in: `src/renderer/shell/sidebar/AcceptanceSection.tsx` (the section and its rail badge),
   `src/renderer/palette/commands.ts` (Acceptance and the Manual check rows),
   `src/renderer/canvas/overlays/NotificationTarget.tsx` (the click on an "is waiting for you" notification).
