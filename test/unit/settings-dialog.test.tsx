@@ -158,6 +158,24 @@ describe('Settings window: groups and icons', () => {
     expect(document.activeElement).toBe(rows()[1])
   })
 
+  it('the arrows follow the order on screen even when the sections come in mixed', () => {
+    const one = (file: string, title: string, group: string, icon: string) =>
+      collectSections({ [`./${file}Section.tsx`]: { default: section(`${title} body`), order: 1, title, group, icon } })
+    // Given out of group order: the list still shows App (One, Two), Agents (Three), Workspace (Four).
+    const mixed = [...one('Three', 'Three', 'Agents', 'terminal'), ...one('One', 'One', 'App', 'sliders'), ...one('Four', 'Four', 'Workspace', 'globe'), ...one('Two', 'Two', 'App', 'heart')]
+    render(<SettingsDialogView sections={mixed} />)
+    act(() => openSettings())
+    expect(rows().map((row) => row.textContent)).toEqual(['One', 'Two', 'Three', 'Four'])
+    fireEvent.click(rows()[0]!)
+    rows()[0]!.focus()
+    fireEvent.keyDown(rows()[0]!, { key: 'ArrowDown' })
+    expect(shownTitle()).toBe('Two')
+    fireEvent.click(rows()[2]!)
+    rows()[2]!.focus()
+    fireEvent.keyDown(rows()[2]!, { key: 'ArrowDown' })
+    expect(shownTitle()).toBe('Four')
+  })
+
   it('openSettings(id) selects a section of a later group', () => {
     render(<SettingsDialogView sections={grouped()} />)
     act(() => openSettings('ThreeSection'))

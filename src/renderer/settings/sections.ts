@@ -17,7 +17,7 @@ export type SettingsIconName = (typeof SETTINGS_ICONS)[number]
  * default-exports a component and exports a numeric `order`, a string `title`, its `group` (one of
  * SETTINGS_GROUPS) and its `icon` (one of SETTINGS_ICONS). The list shows the groups in their order and,
  * inside a group, lower orders first: General 10, Health 20, Shortcuts 30, Machines 40, the sections
- * of other Epics from 50. Adding a file is all it takes: the window finds the files with import.meta.glob.
+ * of other Epics from 45, numbered so each group keeps the owner's order (worfy-polish 166). Adding a file is all it takes: the window finds the files with import.meta.glob.
  */
 export interface SettingsSection extends ShellExtension {
   /** The heading of the section and its row in the list, e.g. "General". */
