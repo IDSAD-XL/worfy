@@ -471,17 +471,17 @@ they stay above the window.
 | App | Health | The First run checks with their actions and "Check again". Opening the section checks. A pressed button shows its work with a spinner and its own words ("Checking…", "Installing…", "Downloading…"), and its row says "Running…" (every row says "Checking…" while "Check again" runs); the other buttons are off, and their tooltip says another check is running. A long action (npm, qmd models, qmd collections, the Harness) names its step and the time it has taken under its row |
 | App | Shortcuts | The list of the Keyboard shortcuts window |
 | App | Machines | The switches of the link and the access level of each Linked machine: see [Link](link.md) |
-| Agents | Terminal AI | The switches and models of Terminal AI: see [Terminal](terminal.md) |
 | Agents | Assistant | The Assistant on this Machine: its switch, work hours, checks of sources and notifications, its duties, usage and limits, and the rules it remembers: see [Assistant](assistant.md) |
+| Agents | Terminal AI | The switches and models of Terminal AI: see [Terminal](terminal.md) |
 | Agents | Vendors | One row per Vendor this build runs, with its account or a sign-in: see [Vendors](vendors.md) |
 | Agents | Sessions | The autocompact window of Sessions |
-| Workflow | Pull requests | The notifications and the morning digest of the PR inbox, both on by default: see [Notifications](notifications.md#the-morning-digest) |
 | Workflow | Autopilot | The default Run mode, the Start window and the daily budget of the Limits: see [Run planning](run-planning.md#settings--autopilot) |
 | Workflow | Plan | The plan Claude Code is signed in with, and for Pro a preset with an Apply button |
 | Workflow | Pipeline | The Pipeline of the active Project: see [Workflow](workflow.md) |
-| Workspace | Integrations | Every Integration of the Machine, its status and the Projects that use it, with Sign in, Sign out, Remove and Clean up: see [Integrations](integrations.md#settings--integrations) |
+| Workflow | Pull requests | The notifications and the morning digest of the PR inbox, both on by default: see [Notifications](notifications.md#the-morning-digest) |
 | Workspace | Canvas | The automatic archive of finished Sessions |
 | Workspace | Browser | When a Live Browser goes to sleep |
+| Workspace | Integrations | Every Integration of the Machine, its status and the Projects that use it, with Sign in, Sign out, Remove and Clean up: see [Integrations](integrations.md#settings--integrations) |
 
 A change reaches every window of the Machine at once. When main cannot save it, the section says so with the reason, and the
 setting stays as it was. Most sections word it "Not saved: …".

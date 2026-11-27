@@ -11,7 +11,7 @@ import { SettingRow, SettingSwitch } from './controls'
 import { setAppSettings, useAppSettings } from './useAppSettings'
 import type { SettingsGroup, SettingsIconName } from './sections'
 
-export const order = 66
+export const order = 71
 export const title = 'Pull requests'
 export const group: SettingsGroup = 'Workflow'
 export const icon: SettingsIconName = 'pr'

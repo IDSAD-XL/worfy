@@ -106,9 +106,9 @@ describe('collectSections', () => {
     const { settingsSections: real } = await vi.importActual<typeof import('../../src/renderer/settings/sections')>('../../src/renderer/settings/sections')
     expect(groupSections(real).map(({ group, sections: inGroup }) => [group, inGroup.map(({ title }) => title)])).toEqual([
       ['App', ['General', 'Health', 'Shortcuts', 'Machines']],
-      ['Agents', ['Terminal AI', 'Assistant', 'Vendors', 'Sessions']],
-      ['Workflow', ['Pull requests', 'Autopilot', 'Plan', 'Pipeline']],
-      ['Workspace', ['Integrations', 'Canvas', 'Browser']],
+      ['Agents', ['Assistant', 'Terminal AI', 'Vendors', 'Sessions']],
+      ['Workflow', ['Autopilot', 'Plan', 'Pipeline', 'Pull requests']],
+      ['Workspace', ['Canvas', 'Browser', 'Integrations']],
     ])
   })
 })

@@ -15,7 +15,7 @@ import { Button } from '../theme/Button'
 import '../integrations/integrations.css'
 import type { SettingsGroup, SettingsIconName } from './sections'
 
-export const order = 64
+export const order = 72
 export const title = 'Integrations'
 export const group: SettingsGroup = 'Workspace'
 export const icon: SettingsIconName = 'plug'

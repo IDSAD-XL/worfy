@@ -31,7 +31,7 @@ import { failureLine, onSinceText, timeText, tokensText } from './assistant-sett
 import { checkNow, configureDuty, resumeDuty, setPauseAfter, useAssistantSettings } from './useAssistantSettings'
 import type { SettingsGroup, SettingsIconName } from './sections'
 
-export const order = 55
+export const order = 45
 export const title = 'Assistant'
 export const group: SettingsGroup = 'Agents'
 export const icon: SettingsIconName = 'spark'
