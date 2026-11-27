@@ -1,7 +1,7 @@
 # 162 — Markdown в чате Assistant-а
 
 Type: bug
-Status: claimed 2026-11-26T21:14Z
+Status: done 2026-11-27T00:32Z
 PR: #2293
 Branch: worfy-polish/162
 Blocked by: —
@@ -71,14 +71,17 @@ Summary (`<p className="w-asst-text">`) — так же. Session view рисуе
   - evidence: commit pass · worfy-polish/162: render the Assistant's messages as Markdown · - - · 2dafea8531b5a460626445e6d579795f87bada50
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-panel.test.tsx` exit 0 · mac - · 12d8a0e0ed908985899da2c9627df2cec57aa368
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-panel.test.tsx test/unit/markdown.test.tsx` exit 0 · mac - · 28b9e05954dbd38169a0ed72e8f33b837a191522
+  - evidence: review pass · PR #2293 · - - · 5c83102c9163b5bbd7d90968da7b0dfd89c46797
 - [ ] Unit test-ы в `test/unit/assistant-panel.test.tsx` проверяют разметку, безопасность сырого HTML и чужого текста и
       правила стилей; красные до правки.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-panel.test.tsx` exit 0 · mac - · 12d8a0e0ed908985899da2c9627df2cec57aa368
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-panel.test.tsx test/unit/markdown.test.tsx` exit 0 · mac - · 28b9e05954dbd38169a0ed72e8f33b837a191522
+  - evidence: review pass · PR #2293 · - - · 5c83102c9163b5bbd7d90968da7b0dfd89c46797
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast зелёный; `ci-ok` на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 12d8a0e0ed908985899da2c9627df2cec57aa368
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 12d8a0e0ed908985899da2c9627df2cec57aa368
   - evidence: gate pass · `gate fast` exit 0 · mac - · 28b9e05954dbd38169a0ed72e8f33b837a191522
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45903466303/job/140208283820 · ci - · 5c83102c9163b5bbd7d90968da7b0dfd89c46797
 - [ ] (вручную) Владелец смотрит вкладку Chat раздела Assistant в Stable copy: утреннее сообщение с жирным, кодом и
       списком нарисовано как Markdown, блок кода не выходит за панель.
   - needs: mac stable
