@@ -48,4 +48,6 @@ spec.md, раздел «Решения по реализации», «Терми
 ## Готово, когда
 
 - [ ] Страницы en и ru говорят одно и то же; ни одна не называет колонку Harness в header или шесть вкладок.
+  - evidence: commit pass · docs: Russian feature pages follow the View buttons, the footer and the version chip · - - · 07070a6d1a961ac1122dae580048314416fac06c
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 07070a6d1a961ac1122dae580048314416fac06c
