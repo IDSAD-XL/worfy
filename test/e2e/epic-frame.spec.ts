@@ -1108,12 +1108,88 @@ async function interactiveAfter(window: Page, epic: string): Promise<number> {
   )
 }
 
+// ── TEMPORARY (worfy-polish 152): the stages of a start, from the start profile (WORFY_START_PROFILE=1) ──
+
+interface CpuProfile {
+  nodes: { id: number; callFrame: { functionName: string; url: string; lineNumber: number }; children?: number[] }[]
+  samples: number[]
+  timeDeltas: number[]
+}
+
+/** Self time in the first `windowMs` of a CPU profile, by function and by file, the biggest first. */
+function profileTops(json: string | null, windowMs: number): string {
+  if (json === null) return 'no profile'
+  const profile = JSON.parse(json) as CpuProfile
+  const byId = new Map(profile.nodes.map((node) => [node.id, node]))
+  const byFn = new Map<string, number>()
+  const byFile = new Map<string, number>()
+  let elapsed = 0
+  for (let i = 0; i < profile.samples.length; i += 1) {
+    const delta = (profile.timeDeltas[i + 1] ?? 0) / 1000
+    elapsed += (profile.timeDeltas[i] ?? 0) / 1000
+    if (elapsed > windowMs) break
+    const frame = byId.get(profile.samples[i]!)!.callFrame
+    const file = frame.url.replace(/^.*node_modules\/(\.pnpm\/)?/, 'nm:').replace(/^.*\//, '') || frame.functionName
+    const fn = `${frame.functionName || '(anon)'}@${file.slice(0, 40)}:${frame.lineNumber + 1}`
+    byFn.set(fn, (byFn.get(fn) ?? 0) + delta)
+    byFile.set(file.slice(0, 60), (byFile.get(file.slice(0, 60)) ?? 0) + delta)
+  }
+  const top = (map: Map<string, number>, n: number): string =>
+    [...map]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, n)
+      .map(([name, t]) => `${name} ${Math.round(t)}`)
+      .join(' | ')
+  return `files: ${top(byFile, 12)} ## functions: ${top(byFn, 25)}`
+}
+
+async function printStartProfile(launched: LaunchedApp, label: string, interactiveMs: number): Promise<void> {
+  const page = await launched.window.evaluate(() => {
+    const g = globalThis as unknown as {
+      performance: { timeOrigin: number; getEntriesByType(type: string): { name: string; startTime: number; responseEnd?: number; domInteractive?: number; domContentLoadedEventEnd?: number; duration: number }[] }
+      __worfyIpcTimes?: unknown[]
+      __worfyElk?: unknown[]
+    }
+    const nav = g.performance.getEntriesByType('navigation')[0]
+    return {
+      origin: g.performance.timeOrigin,
+      nav: nav ? [Math.round(nav.responseEnd ?? 0), Math.round(nav.domInteractive ?? 0), Math.round(nav.domContentLoadedEventEnd ?? 0)] : null,
+      res: g.performance.getEntriesByType('resource').map((r) => [r.name.split('/').pop()?.slice(0, 40), Math.round(r.startTime), Math.round(r.responseEnd ?? 0)]),
+      marks: g.performance.getEntriesByType('mark').map((m) => [m.name, Math.round(m.startTime)]),
+      longtasks: g.performance.getEntriesByType('longtask').map((t) => [Math.round(t.startTime), Math.round(t.duration)]),
+      ipc: g.__worfyIpcTimes ?? [],
+      elk: g.__worfyElk ?? [],
+    }
+  })
+  const stopped = (await launched.app.evaluate(async () => {
+    const g = globalThis as unknown as { __worfyStopStartProfiles?: () => Promise<unknown> }
+    return g.__worfyStopStartProfiles ? await g.__worfyStopStartProfiles() : null
+  })) as { main: string | null; renderer: string | null; mainLag: number[][]; mainIpc: [string, number, number, number][]; startedAt: number; children: unknown[][]; loadedAt: number } | null
+  const shift = stopped ? stopped.startedAt - page.origin : 0
+  const ipc = (page.ipc as [string, number, number][]).filter(([, at]) => at <= interactiveMs + 200).sort((a, b) => b[2] - a[2])
+  const elk = page.elk as [string, number, number, number, number][]
+  console.log(`auberge-stage ${label}: interactive ${interactiveMs} ms; main profile from page ms ${shift}; nav [responseEnd, domInteractive, dcl] ${JSON.stringify(page.nav)}; marks ${JSON.stringify(page.marks)}`)
+  console.log(`auberge-stage ${label} resources: ${JSON.stringify(page.res)}`)
+  console.log(`auberge-stage ${label} renderer ipc (channel, sent, took) slowest: ${JSON.stringify(ipc.slice(0, 25))}; count ${ipc.length}`)
+  console.log(`auberge-stage ${label} elk: ${elk.length} answers, first sent ${elk.length ? Math.min(...elk.map((e) => e[2])) : '-'}, last answered ${elk.length ? Math.max(...elk.map((e) => e[3])) : '-'}, setState total ${elk.reduce((a, e) => a + e[4], 0)} ms; ${JSON.stringify(elk.slice(0, 6))}`)
+  console.log(`auberge-stage ${label} longtasks: ${JSON.stringify(page.longtasks)}`)
+  if (stopped === null) return
+  const mainIpc = stopped.mainIpc.map(([name, at, handle, parse]) => [name, at - page.origin, handle, parse] as const).filter(([, at]) => at <= interactiveMs + 200).sort((a, b) => b[2] + b[3] - a[2] - a[3])
+  console.log(`auberge-stage ${label} main ipc (channel, at page ms, handle, output parse) slowest: ${JSON.stringify(mainIpc.slice(0, 25))}`)
+  console.log(`auberge-stage ${label} main lag >30 ms (page ms, gap): ${JSON.stringify(stopped.mainLag.map(([at, gap]) => [at! + shift, gap]).filter(([at]) => at! <= interactiveMs + 200))}`)
+  console.log(`auberge-stage ${label} children (what, page ms, ran, sync): ${JSON.stringify(stopped.children.map(([w, at, ran, sync]) => [w, (at as number) + stopped.loadedAt - page.origin, ran, sync]).filter(([, at]) => (at as number) <= interactiveMs + 200))}`)
+  console.log(`auberge-stage ${label} main cpu: ${profileTops(stopped.main, interactiveMs - shift)}`)
+  console.log(`auberge-stage ${label} renderer cpu: ${profileTops(stopped.renderer, interactiveMs - shift)}`)
+}
+
+const launchProfiled = (): Promise<LaunchedApp> => launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_START_PROFILE: '1' } })
+
 /** One-Ticket starts behind the reference on GitHub Actions: a single start on the runner varied from 909 to 1274 ms. */
 const REFERENCE_STARTS = 3
 
 // Quarantined (test/quarantine/epic-frame-auberge-start-macos-ci.json): flaky on the macOS runner, where the
 // 7300 ms cap, not the one-Ticket reference, sets the budget in most jobs; worfy-polish 151 fixes it.
-quarantined('epic-frame-auberge-start-macos-ci')('an Auberge-sized Project is interactive within 3 s and pans and zooms smoothly over its biggest Epic', async () => {
+test('an Auberge-sized Project is interactive within 3 s and pans and zooms smoothly over its biggest Epic', async () => {
   const answer = join(scratch, 'epic-status.json')
   makeClaudeHome(answer)
   // On GitHub Actions the budget is measured against the same start of a one-Ticket Project on the
@@ -1126,9 +1202,11 @@ quarantined('epic-frame-auberge-start-macos-ci')('an Auberge-sized Project is in
     })
     writeFileSync(answer, small!.json)
     for (let n = 0; n < REFERENCE_STARTS; n += 1) {
-      const reference = await launch()
+      const reference = await launchProfiled()
       try {
-        starts.push(await interactiveAfter(reference.window, small!.biggest))
+        const startMs = await interactiveAfter(reference.window, small!.biggest)
+        starts.push(startMs)
+        await printStartProfile(reference, `reference ${n + 1}`, startMs)
       } finally {
         await reference.close()
       }
@@ -1147,10 +1225,11 @@ quarantined('epic-frame-auberge-start-macos-ci')('an Auberge-sized Project is in
   writeFileSync(answer, generated!.json)
   const enforce = process.env.WORFY_PERF === '1'
 
-  const launched = await launch()
+  const launched = await launchProfiled()
   try {
     const { window } = launched
     const interactiveMs = await interactiveAfter(window, generated!.biggest)
+    await printStartProfile(launched, 'auberge', interactiveMs)
 
     // Center on the biggest Epic through the sidebar, then pan and zoom for 5 s while counting frames.
     await showSidebarSection(window, 'Epics')

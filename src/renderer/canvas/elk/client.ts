@@ -107,8 +107,14 @@ export function requestEpicLayout(projectId: string, epic: string, request: ElkR
   const input = { tickets: request.tickets, name: request.name, cards: request.cards }
   const folded = layoutEpicElk({ ...input, doneExpanded: false }, elk)
   const open = hasDone ? layoutEpicElk({ ...input, doneExpanded: true }, elk) : folded
-  const answer = (foldedLayout: EpicLayout, openLayout: EpicLayout) =>
+  // TEMPORARY (worfy-polish 152): ELK timings for the start profile.
+  const elkTimes = ((globalThis as unknown as { __worfyElk?: unknown[] }).__worfyElk ??= [])
+  const sentAt = performance.now()
+  const answer = (foldedLayout: EpicLayout, openLayout: EpicLayout): void => {
+    const t = performance.now()
     useElkAnswers.setState((state) => ({ ...state, [projectId]: { ...state[projectId], [epic]: { key: request.key, folded: foldedLayout, open: openLayout } } }))
+    elkTimes.push([epic, request.tickets.length, Math.round(sentAt), Math.round(t), Math.round(performance.now() - t)])
+  }
   Promise.all([folded, open]).then(
     ([foldedLayout, openLayout]) => {
       // A newer request for this Epic is out, or the engine was replaced: this answer is stale.

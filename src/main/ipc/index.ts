@@ -141,6 +141,9 @@ function wrap(handler: InvokeHandler, isTrustedSender: (url: string) => boolean)
       return { ok: false, error: `${channel.name}: call rejected, it came from an untrusted frame (${frameUrl ?? 'no frame'})` }
     }
 
+    // TEMPORARY (worfy-polish 152): handler timings for the start profile.
+    const timing = (globalThis as unknown as { __worfyMainIpc?: unknown[] }).__worfyMainIpc
+    const t0 = Date.now()
     const parsedInput = await channel.input.safeParseAsync(input)
     if (!parsedInput.success) {
       return { ok: false, error: `${channel.name}: invalid input\n${z.prettifyError(parsedInput.error)}` }
@@ -154,7 +157,9 @@ function wrap(handler: InvokeHandler, isTrustedSender: (url: string) => boolean)
       return { ok: false, error: handlerFailure(channel.name, messageOf(error)) }
     }
 
+    const t1 = Date.now()
     const parsedOutput = await channel.output.safeParseAsync(output)
+    timing?.push([channel.name, t0, t1 - t0, Date.now() - t1])
     if (!parsedOutput.success) {
       // The handler broke the contract: log the detail here, send nothing of the value.
       console.error(`[ipc] ${channel.name} returned an invalid output\n${z.prettifyError(parsedOutput.error)}`)

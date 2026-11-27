@@ -112,6 +112,7 @@ export function App() {
   )
 }
 
+performance.mark('worfy-entry-body') // TEMPORARY (worfy-polish 152): every import has run
 const container = document.getElementById('root')
 if (container) {
   // Before the first render: the styles and the key handlers read the system from <html>
@@ -140,6 +141,7 @@ if (container) {
   installPrInboxDigest()
   // A throw that no inner boundary caught shows what failed and «Reload window», not a blank window
   // (worfy-polish ticket 163): without a boundary React unmounts the whole tree.
+  performance.mark('worfy-render') // TEMPORARY (worfy-polish 152)
   createRoot(container).render(
     <StrictMode>
       <ErrorBoundary scope="window" name="app">

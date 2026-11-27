@@ -39,10 +39,15 @@ export interface IpcClient {
 export function createIpcClient(bridge: () => WorfyBridge): IpcClient {
   return {
     async invoke(channel, ...args) {
+      // TEMPORARY (worfy-polish 152): the start profile reads these timings.
+      const times = ((globalThis as unknown as { __worfyIpcTimes?: number[][] | unknown[] }).__worfyIpcTimes ??= []) as unknown[]
+      const t0 = performance.now()
       try {
         return (await bridge().invoke(channel, args[0])) as IpcResult<never>
       } catch (error) {
         return { ok: false, error: error instanceof Error ? error.message : String(error) }
+      } finally {
+        times.push([channel, Math.round(t0), Math.round(performance.now() - t0)])
       }
     },
     subscribe(channel, handler) {

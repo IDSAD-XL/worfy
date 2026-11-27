@@ -106,8 +106,11 @@ function acquire(root: string): void {
     if (!users.has(root)) return
     const pending = early.get(root) ?? []
     early.delete(root)
-    if (result.ok) setEntry(root, { model: pending.reduce(applyWorkflowDelta, result.value), error: undefined })
-    else {
+    performance.mark('worfy-workflow-answer') // TEMPORARY (worfy-polish 152)
+    if (result.ok) {
+      setEntry(root, { model: pending.reduce(applyWorkflowDelta, result.value), error: undefined })
+      performance.mark('worfy-workflow-set') // TEMPORARY (worfy-polish 152)
+    } else {
       console.error(`workflow.open ${root} failed:`, result.error)
       setEntry(root, { model: undefined, error: result.error })
     }
