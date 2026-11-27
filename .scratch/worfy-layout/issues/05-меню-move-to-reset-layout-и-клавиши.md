@@ -1,7 +1,7 @@
 # 05: Меню «Move to», Reset layout и клавиши
 
 Type: task
-Status: claimed 2026-11-27T09:24Z
+Status: done 2026-11-27T12:18Z
 PR: #2322
 Branch: worfy-layout/05
 Blocked by: 04
@@ -55,5 +55,7 @@ Q6:
 - [ ] «Move to» переносит кнопку в конец зоны, фокус на ней; Reset layout возвращает расстановку по умолчанию во всех
       окнах; ⌥←/⌥→ и ⌥↑/⌥↓ двигают кнопку внутри зоны.
   - evidence: test-run pass · `pnpm test` exit 0 (test/unit/view-zones.test.tsx, test/unit/settings-reset-layout.test.tsx) · mac - · a725881ce53fb5576136310f8472fb81feecd1be
+  - evidence: review pass · PR #2322 · - - · e44ec5c2714fbc8832ba99a2e85257fdd64d995d
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · a725881ce53fb5576136310f8472fb81feecd1be
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45983045890/job/140472961083 · ci - · e44ec5c2714fbc8832ba99a2e85257fdd64d995d
