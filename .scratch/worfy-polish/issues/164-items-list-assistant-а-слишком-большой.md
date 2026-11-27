@@ -89,10 +89,11 @@ Source: отчёт владельца 2026-11-26 (снимок чата Assistan
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast зелёный; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · e773cf5bad41d53e0aeb22ce9c47c2df8a377966
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45904220733/job/140211313351 · ci - · 5c8a7aecf6a86cf1e47eddd2436f10e17a11a121
-- [ ] (вручную) Сделай: в Stable worfy с накопившимися 50+ пунктами (Waits) дождись wake Assistant-а или напиши ему
+- [x] (вручную) Сделай: в Stable worfy с накопившимися 50+ пунктами (Waits) дождись wake Assistant-а или напиши ему
       «Что ждёт меня?» → Должно быть: Assistant называет пункты, ради которых его разбудили, их Project и что в них, и
       не пишет, что ответ слишком большой или сохранён в файл.
   - needs: mac stable
+  - evidence: owner-check pass · 2026-11-27: «4 +» — ответ на пункт 4 проверки после обновления Stable (Assistant с большим накоплением пунктов называет свои пункты) · mac stable · 2ca9be95e
 
 ## Итог
 

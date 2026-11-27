@@ -82,6 +82,7 @@ Summary (`<p className="w-asst-text">`) — так же. Session view рисуе
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 12d8a0e0ed908985899da2c9627df2cec57aa368
   - evidence: gate pass · `gate fast` exit 0 · mac - · 28b9e05954dbd38169a0ed72e8f33b837a191522
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45903466303/job/140208283820 · ci - · 5c83102c9163b5bbd7d90968da7b0dfd89c46797
-- [ ] (вручную) Владелец смотрит вкладку Chat раздела Assistant в Stable copy: утреннее сообщение с жирным, кодом и
+- [x] (вручную) Владелец смотрит вкладку Chat раздела Assistant в Stable copy: утреннее сообщение с жирным, кодом и
       списком нарисовано как Markdown, блок кода не выходит за панель.
   - needs: mac stable
+  - evidence: owner-check pass · 2026-11-27: «3 +» — ответ на пункт 3 проверки после обновления Stable (Markdown в чате Assistant-а) · mac stable · 2ca9be95e

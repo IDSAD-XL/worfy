@@ -68,6 +68,7 @@ jsdom не раскладывает страницу, поэтому test про
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast зелёный; `ci-ok` на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 511a6e8419e9521243737fc0a4e701e0a6b2ebd9
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45880256931/job/140130825769 · ci - · 2e3c92b78ac5fe5e9d45837617f95fea96df0112
-- [ ] (вручную) Владелец смотрит строку «Projects» обязанности «Work stands» в Stable copy: кнопки в одну строку текста,
+- [x] (вручную) Владелец смотрит строку «Projects» обязанности «Work stands» в Stable copy: кнопки в одну строку текста,
       ряд переносится, счётчики ниже ряда.
   - needs: mac stable
+  - evidence: owner-check pass · 2026-11-27: «5 +» — ответ на пункт 5 проверки после обновления Stable (кнопки Projects обязанности в Settings → Assistant) · mac stable · 2ca9be95e
