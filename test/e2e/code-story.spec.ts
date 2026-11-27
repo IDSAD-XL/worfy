@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import type { Story } from '../../src/shared/stories/schema'
-import { canvasReady, launchApp, type LaunchedApp } from './helpers'
+import { canvasReady, launchApp, viewButton, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { catScript } from '../harness-node'
 import { ms } from '../time-scale'
@@ -296,8 +296,7 @@ test('the entries into the Story view: the toast once its story.md comes, the Ep
     await seenThenEsc(window, 'pr')
 
     // Pull requests: the PR of Ticket 04 has "Code story" beside "Open on GitHub".
-    const views = window.getByRole('group', { name: 'View', exact: true })
-    await views.getByRole('button', { name: 'Pull requests' }).click()
+    await viewButton(window, 'pull-requests').click()
     const row = window.locator(`[data-testid="pr-inbox-row"][data-repo="${CART_REPO}"][data-number="212"]`)
     await expect(row).toBeVisible({ timeout: ms(40_000) })
     await row.getByRole('button').first().click()
@@ -564,8 +563,7 @@ test('Code story by the button: the Epic so far with its Tickets not ready marke
     await expect(view).toBeHidden()
 
     // Pull requests: PR #300 of an ordinary Session, no Ticket: "Code story" → the progress bar → the Story view.
-    const views = window.getByRole('group', { name: 'View', exact: true })
-    await views.getByRole('button', { name: 'Pull requests' }).click()
+    await viewButton(window, 'pull-requests').click()
     const row = window.locator(`[data-testid="pr-inbox-row"][data-repo="${CART_REPO}"][data-number="300"]`)
     await expect(row).toBeVisible({ timeout: ms(40_000) })
     await row.getByRole('button').first().click()
@@ -583,7 +581,7 @@ test('Code story by the button: the Epic so far with its Tickets not ready marke
     await expect(view).toBeHidden()
 
     // Again on that PR: the kept story, no new request; "Rebuild story" is there now.
-    await views.getByRole('button', { name: 'Pull requests' }).click()
+    await viewButton(window, 'pull-requests').click()
     await row.getByRole('button').first().click()
     await expect(pane.getByTestId('pr-inbox-code-story-rebuild')).toBeVisible()
     await pane.getByTestId('pr-inbox-code-story').click()
@@ -615,7 +613,6 @@ test('a story by the button builds on while another PR is open and after a reloa
   try {
     const { app, window } = launched
     await canvasReady(launched, { size: { width: 1600, height: 1000 }, visible: [window.locator('[data-testid="epic-frame"][data-epic="demo-cart"]')] })
-    const views = window.getByRole('group', { name: 'View', exact: true })
     const pane = window.getByTestId('pr-inbox-pane')
     const progress = pane.getByTestId('pr-inbox-code-story-progress')
     const rowOf = (number: number) => window.locator(`[data-testid="pr-inbox-row"][data-repo="${CART_REPO}"][data-number="${String(number)}"]`)
@@ -624,7 +621,7 @@ test('a story by the button builds on while another PR is open and after a reloa
       await rowOf(number).getByRole('button').first().click()
     }
 
-    await views.getByRole('button', { name: 'Pull requests' }).click()
+    await viewButton(window, 'pull-requests').click()
     await openPr(300)
     await pane.getByTestId('pr-inbox-code-story').click()
     await expect(progress.getByTestId('story-progress-lines')).toContainText('Grep cartTotal', { timeout: ms(20_000) })
@@ -641,7 +638,7 @@ test('a story by the button builds on while another PR is open and after a reloa
     // A reload of the window: main still builds, and A shows it again.
     await window.reload()
     await expect(window.getByTestId('app-shell')).toBeVisible({ timeout: ms(20_000) })
-    await views.getByRole('button', { name: 'Pull requests' }).click()
+    await viewButton(window, 'pull-requests').click()
     await openPr(300)
     await expect(progress.getByTestId('story-progress-lines')).toContainText('Grep cartTotal', { timeout: ms(20_000) })
 
@@ -654,7 +651,7 @@ test('a story by the button builds on while another PR is open and after a reloa
     await expect(view).toBeHidden()
 
     // The story is A's: kept under its key, so A has "Rebuild story" now.
-    await views.getByRole('button', { name: 'Pull requests' }).click()
+    await viewButton(window, 'pull-requests').click()
     await openPr(300)
     await expect(pane.getByTestId('pr-inbox-code-story-rebuild')).toBeVisible()
     expect(requestsIn(log)).toBe(1)

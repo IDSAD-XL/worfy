@@ -417,17 +417,17 @@
   border-bottom: 1px solid var(--toolbar-border);
   -webkit-app-region: drag;
 }
-/* In a window narrower than 1400 px the View switch shows its icons alone, so the switch, the toolbar
-   items and the search field stay whole next to a long Project name; each segment keeps its name as
-   aria-label and tooltip (SegmentedControl). Other segmented controls keep their labels. Each icon
-   segment is 6 px of padding on each side: five segments (Pull requests, worfy-pr-inbox ticket 03)
-   then take no more room than four did at 10 px, so the Project name keeps its width at 1280 px next
-   to two Vendors' Limits (test/e2e/limits-vendors.spec.ts). */
+/* In a window narrower than 1400 px the header's View buttons show their icons alone once there are four
+   or more of them (worfy-layout ticket 04, `data-count` of ViewZone.tsx), so the buttons, the toolbar
+   items and the search field stay whole next to a long Project name; one to three keep their labels
+   down to 1100 px. Each button keeps its name as aria-label and its tooltip. Each icon button is 6 px of
+   padding on each side, so six take no more room than four did at 10 px, and the Project name keeps
+   its width at 1280 px next to two Vendors' Limits (test/e2e/limits-vendors.spec.ts). */
 @media (max-width: 1400px) {
-  .w-toolbar .w-segmented__label {
+  .w-view-zone--header:is([data-count='4'], [data-count='5'], [data-count='6']) .w-segmented__label {
     display: none;
   }
-  .w-toolbar .w-segmented__item {
+  .w-view-zone--header:is([data-count='4'], [data-count='5'], [data-count='6']) .w-segmented__item {
     padding: 0 6px;
   }
 }
@@ -439,6 +439,15 @@
 @media (max-width: 1100px) {
   .w-toolbar {
     gap: var(--space-2);
+  }
+  /* At 1100 px and narrower the View buttons of the header and the footer show their icons and badges alone,
+     whatever their number; the label stays their name and is in the tooltip. */
+  .w-view-zone--header .w-segmented__label,
+  .w-view-zone--footer .w-view-button__label {
+    display: none;
+  }
+  .w-view-zone--header .w-segmented__item {
+    padding: 0 6px;
   }
   .w-toolbar .w-limits__heading,
   .w-toolbar .w-limit-bar__label,
@@ -809,4 +818,122 @@ html[data-platform='linux'] .w-sidebar__titlebar {
   height: 1px;
   margin: var(--space-1) 0;
   background: var(--border);
+}
+
+/*
+ * The View buttons (ViewZone.tsx, ViewButton.tsx; worfy-layout ticket 04). In the header they are the segments of the
+ * group the View switch was (theme/primitives.css); after the header's own, the rail's buttons follow a line while the
+ * sidebar is hidden.
+ */
+.w-view-zone__line {
+  flex: none;
+  align-self: center;
+  width: 1px;
+  height: 14px;
+  margin: 0 3px;
+  background: var(--border-strong);
+}
+/* The badge of a View button in the header and the footer: a count after the label (after the icon once the label
+   gives way), or a dot. On the rail it takes the look of a section's badge (.w-sidebar__rail-count). */
+.w-view-badge {
+  flex: none;
+  min-width: 16px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  border-radius: 8px;
+  background: var(--working-bg);
+  color: var(--working-text);
+  font-size: var(--text-11);
+  line-height: 16px;
+  font-weight: 600;
+  text-align: center;
+}
+.w-view-badge[data-tone='blocked'] {
+  background: var(--blocked-bg);
+  color: var(--blocked-text);
+}
+.w-view-badge--dot {
+  min-width: 0;
+  width: 6px;
+  height: 6px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--working-text);
+}
+.w-view-badge--dot[data-tone='blocked'] {
+  background: var(--blocked-text);
+}
+/* The block of the rail: under the tabs of the top, a thin line over it (Q9); a column the arrows walk. */
+.w-view-zone--rail {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  margin-top: 2px;
+  padding-top: var(--space-1);
+  border-top: 1px solid var(--border);
+}
+.w-view-button--rail > svg {
+  width: 18px;
+  height: 18px;
+}
+.w-view-button--rail[aria-pressed='true'] {
+  background: var(--selected);
+  color: var(--text);
+}
+.w-view-button--rail:disabled,
+.w-view-button--footer:disabled {
+  opacity: 0.5;
+}
+/* The «window» mark in the corner of the icon (owner's decision B): the view opens in the main area, not as a panel. */
+.w-view-button__window {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  display: inline-flex;
+  padding: 1px;
+  border-radius: 3px;
+  background: var(--sidebar);
+  color: var(--text-muted);
+  line-height: 0;
+}
+/* The footer's buttons: 22 px high, a 13 px icon, the label and the badge. */
+.w-view-zone--footer {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+.w-view-button--footer {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius-button);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--text-11);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.w-view-button--footer:hover:not(:disabled) {
+  background: var(--surface-raised);
+}
+.w-view-button--footer[aria-pressed='true'] {
+  background: var(--selected);
+  color: var(--text);
+  font-weight: 600;
+}
+.w-view-button--footer:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.w-view-button--rail:disabled:hover {
+  background: transparent;
+  color: var(--text-muted);
 }

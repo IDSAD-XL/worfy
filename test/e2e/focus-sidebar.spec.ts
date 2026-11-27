@@ -214,6 +214,10 @@ test('in focus mode the sidebar stays and works; the palette and a menu of the s
     expect(layer.y + layer.height).toBeCloseTo(footer.y, 0)
     await expect(window.locator('.w-toolbar')).toHaveAttribute('inert', '')
     expect(await onTop(window.locator('.w-toolbar'))).toBe(false)
+    // The View buttons of the footer and of the rail are inert too, as the header's under the layer (worfy-layout
+    // ticket 04): the view is not seen, so there is nothing to switch. The version chip next to them is not.
+    await expect(window.getByTestId('footer').locator('.w-view-zone--footer')).toHaveAttribute('inert', '')
+    await expect(sidebar.locator('.w-view-zone--rail')).toHaveAttribute('inert', '')
     // The version chip of the footer stays on screen in focus mode and opens its popover; a second press closes it.
     const chip = window.getByTestId('footer').getByTestId('app-version')
     expect(await onTop(chip)).toBe(true)

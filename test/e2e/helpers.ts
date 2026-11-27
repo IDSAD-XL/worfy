@@ -792,6 +792,13 @@ export async function openVersionPopover(window: Page): Promise<Locator> {
   return popover
 }
 /**
+ * The View button of view `id` (`canvas`, `session`, `pipeline`, `history` for Runs, `pull-requests`, `acceptance`) in
+ * whichever zone the layout puts it — header, rail or footer (src/renderer/shell/ViewZone.tsx, worfy-layout ticket 04).
+ * By default Canvas and Session stand in the header, Pull requests and Acceptance on the rail, Pipeline and Runs in the footer.
+ */
+export const viewButton = (window: Page, id: string): Locator => window.locator(`[data-view-button="${id}"]`)
+
+/**
  * Shows section `title` in the panel of the sidebar (worfy-polish ticket 94): a click on its tab of the
  * rail, which names it as its header does (Projects, Sessions, Pull requests, Pipeline, Epics, ADR,
  * Machines). The panel shows one section at a time; the others stay mounted, hidden. Does nothing when

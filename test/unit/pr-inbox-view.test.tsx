@@ -26,6 +26,9 @@ import type { PrInboxRow, PrInboxSnapshot, PrReplyDrafts, PrReplyItem } from '..
 import type { ProjectsState } from '../../src/shared/ipc/projects'
 import type { AppSettings } from '../../src/shared/settings/app-settings'
 import type { Ticket, WorkflowModel } from '../../src/shared/workflow/types'
+import { VIEW_BUTTON_IDS } from '../../src/shared/layout/view-buttons'
+// The registry's six buttons all in the header (worfy-layout ticket 04 puts them in three zones; test/unit/view-zones.test.tsx).
+const ALL_IN_HEADER = { header: [...VIEW_BUTTON_IDS], rail: [], footer: [] }
 
 const NOW = Date.parse('2026-11-10T12:00:00Z')
 const MIN = 60_000
@@ -1791,13 +1794,13 @@ describe('the entries of the view', () => {
   it('the toolbar has a fifth tab, Pull requests, inactive without a Project', async () => {
     const { ToolbarView } = await import('../../src/renderer/shell/Toolbar')
     const onViewChange = vi.fn()
-    render(<ToolbarView items={[]} project={{ id: 'web-00000001', name: 'web', branch: 'main' }} view="canvas" onViewChange={onViewChange} sidebarVisible onToggleSidebar={() => {}} />)
+    render(<ToolbarView items={[]} project={{ id: 'web-00000001', name: 'web', branch: 'main' }} view="canvas" onViewChange={onViewChange} sidebarVisible onToggleSidebar={() => {}} layout={ALL_IN_HEADER} />)
     const tabs = within(screen.getByRole('group', { name: 'View' }))
     expect(tabs.getAllByRole('button').map((tab) => tab.getAttribute('aria-label'))).toEqual(['Canvas', 'Session', 'Pipeline', 'Runs', 'Pull requests', 'Acceptance'])
     fireEvent.click(tabs.getByRole('button', { name: 'Pull requests' }))
     expect(onViewChange).toHaveBeenCalledWith('pull-requests')
     cleanup()
-    render(<ToolbarView items={[]} view="canvas" onViewChange={onViewChange} sidebarVisible onToggleSidebar={() => {}} />)
+    render(<ToolbarView items={[]} view="canvas" onViewChange={onViewChange} sidebarVisible onToggleSidebar={() => {}} layout={ALL_IN_HEADER} />)
     const none = within(screen.getByRole('group', { name: 'View' })).getByRole('button', { name: 'Pull requests' }) as HTMLButtonElement
     expect(none.disabled).toBe(true)
     expect(none.title).toBe('Open a Project to see its pull requests')

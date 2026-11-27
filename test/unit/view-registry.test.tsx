@@ -15,11 +15,14 @@ import { buildCommands, type CommandContext } from '../../src/renderer/palette/c
 import { useNavigation } from '../../src/renderer/session/navigation'
 import { ToolbarView, type ShellView } from '../../src/renderer/shell/Toolbar'
 import { VIEWS } from '../../src/renderer/shell/views'
+import { VIEW_BUTTON_IDS } from '../../src/shared/layout/view-buttons'
+// The registry's six buttons all in the header (worfy-layout ticket 04 puts them in three zones; test/unit/view-zones.test.tsx).
+const ALL_IN_HEADER = { header: [...VIEW_BUTTON_IDS], rail: [], footer: [] }
 
 const PROJECT = { id: 'auberge-00000001', name: 'auberge', branch: 'main' }
 
 function renderToolbar(props: { project?: typeof PROJECT; view?: ShellView; onViewChange?: (view: ShellView) => void }) {
-  render(<ToolbarView items={[]} view="canvas" onViewChange={() => {}} sidebarVisible onToggleSidebar={() => {}} {...props} />)
+  render(<ToolbarView items={[]} view="canvas" onViewChange={() => {}} sidebarVisible onToggleSidebar={() => {}} layout={ALL_IN_HEADER} {...props} />)
   return within(screen.getByRole('group', { name: 'View' }))
 }
 

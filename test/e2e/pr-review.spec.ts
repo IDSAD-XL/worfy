@@ -4,7 +4,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { canvasReady, chooseLevel, closeSettings, launchApp, linkThroughUi, machineIdOf, openMachinesSettings, PROJECTS_ACCESS_LABEL, showSidebarSection, type LaunchedApp } from './helpers'
+import { canvasReady, chooseLevel, closeSettings, launchApp, linkThroughUi, machineIdOf, openMachinesSettings, PROJECTS_ACCESS_LABEL, showSidebarSection, viewButton, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { ms } from '../time-scale'
 
@@ -238,7 +238,7 @@ const viewedBox = (window: Page, path: string): Locator => review(window).locato
 const treeFile = (window: Page, path: string): Locator => review(window).locator(`[data-testid="changes-tree-file"][data-path="${path}"]`)
 
 async function openView(window: Page): Promise<void> {
-  await window.getByRole('group', { name: 'View', exact: true }).getByRole('button', { name: 'Pull requests' }).click()
+  await viewButton(window, 'pull-requests').click()
   await expect(window.getByTestId('pr-inbox-group').first()).toBeVisible({ timeout: ms(45_000) })
 }
 
@@ -325,7 +325,7 @@ test('Start review → Review myself from the inbox and from the search: the tre
     // Another tab and back: still open, on the same file.
     const views = window.getByRole('group', { name: 'View', exact: true })
     await views.getByRole('button', { name: 'Canvas' }).click()
-    await views.getByRole('button', { name: 'Pull requests' }).click()
+    await viewButton(window, 'pull-requests').click()
     await expect(review(window)).toBeVisible()
     await expect(treeFile(window, 'src/net/backoff.ts')).toHaveAttribute('aria-current', 'true')
 

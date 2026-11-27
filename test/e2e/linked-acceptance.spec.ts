@@ -145,7 +145,11 @@ test("Acceptance in a window on a Linked machine: B's queue in A, Read only — 
     await shopRow.getByRole('button').click()
     await expect(a.window).toHaveURL(new RegExp(`[?&]machine=${bId}`))
 
-    // The Acceptance tab of A's window is B's queue.
+    // The Acceptance View button of A's window counts B's queue. In the footer (A's own layout: the window on B reads the
+    // app settings of A, worfy-layout ticket 04, Q13), as on the rail next to its namesake section it shows no count.
+    const moved = await bridgeCall(a.window, 'appSettings.set', { viewButtons: { header: ['canvas', 'session'], rail: ['pull-requests'], footer: ['pipeline', 'history', 'acceptance'] } })
+    expect(moved.ok, moved.error).toBe(true)
+    await expect(a.window.getByTestId('acceptance-tab')).toHaveAttribute('data-zone', 'footer')
     await expect(a.window.getByTestId('acceptance-tab').getByTestId('acceptance-tab-count')).toHaveText('1', { timeout: ms(30_000) })
     const view = await openAcceptance(a.window)
     await expect(view.getByTestId('acceptance-group-title')).toHaveText(['▾ Ready to check · 1'])

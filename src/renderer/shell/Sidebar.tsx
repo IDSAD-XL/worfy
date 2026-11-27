@@ -14,6 +14,7 @@ import { collectExtensions, type ShellExtension } from './registry'
 import { pickSection, showSidebarSection, useRailBadge, useSidebarScope } from './sidebar-scope'
 import { SidebarResizeHandle } from './SidebarResizeHandle'
 import { SidebarToggle } from './sidebar-visibility'
+import { ViewZone, type ViewSwitch } from './ViewZone'
 
 // Each sidebar section is its own file, src/renderer/shell/sidebar/<Name>Section.tsx, with a
 // default-exported component, `export const order = <number>` and, for its rail button, `railTitle`,
@@ -32,6 +33,8 @@ export interface SidebarViewProps {
   onToggle?: () => void
   /** The edge that changes the sidebar's width (worfy-polish ticket 158); without it (a unit test) there is none. */
   resizable?: boolean
+  /** The View buttons of the Sidebar zone, under the sections of the top (worfy-layout ticket 04); without it there are none. */
+  views?: ViewSwitch
 }
 
 /** The name of a section on the rail: its own, or the file name without "Section". */
@@ -211,7 +214,7 @@ const gearIcon = (
   </svg>
 )
 
-export function SidebarView({ sections, onToggle, resizable = false }: SidebarViewProps) {
+export function SidebarView({ sections, onToggle, resizable = false, views }: SidebarViewProps) {
   const base = useId()
   const saved = useSidebarScope((state) => state.section)
   // Focus mode has its own button for the sidebar in its bar (focus/FocusMode.tsx); one is enough.
@@ -275,6 +278,9 @@ export function SidebarView({ sections, onToggle, resizable = false }: SidebarVi
           <div ref={rail} role="tablist" aria-label="Sidebar sections" aria-orientation="vertical" className="w-sidebar__tabs">
             {ordered.map(tab)}
           </div>
+          {/* The View buttons of the Sidebar zone (ViewZone.tsx): a block of their own under a line, after the tabs of
+              the top and before Health check — not tabs, as a press switches the main area, not the panel. */}
+          {views === undefined ? null : <ViewZone zone="rail" views={views} sectionNames={new Set(ordered.map(railTitle))} />}
           <HealthRailButton />
           <Tooltip label={`Settings (${label(SHORTCUTS.settings)})`} side="right">
             <button type="button" className="w-sidebar__rail-button" aria-label="Settings" onClick={() => openSettings()}>
@@ -299,6 +305,6 @@ export function SidebarView({ sections, onToggle, resizable = false }: SidebarVi
   )
 }
 
-export function Sidebar({ onToggle }: { onToggle?: () => void }) {
-  return <SidebarView sections={sections} onToggle={onToggle} resizable />
+export function Sidebar({ onToggle, views }: { onToggle?: () => void; views?: ViewSwitch }) {
+  return <SidebarView sections={sections} onToggle={onToggle} resizable views={views} />
 }

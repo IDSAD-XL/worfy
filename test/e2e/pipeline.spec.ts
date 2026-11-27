@@ -4,7 +4,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { launchApp, showSidebarSection, type LaunchedApp } from './helpers'
+import { launchApp, showSidebarSection, viewButton, type LaunchedApp } from './helpers'
 import { snapshotThemes } from './snapshots'
 import { profileJsonScript } from '../harness-node'
 import { ms } from '../time-scale'
@@ -116,14 +116,15 @@ test('the Pipeline tab shows the board, a claim moves a card without a reload, a
   const launched = await launch()
   try {
     const { window } = launched
-    const views = window.getByRole('group', { name: 'View', exact: true })
-    await expect(views.getByRole('button')).toHaveText(['Canvas', 'Session', 'Pipeline', 'Runs', 'Pull requests', 'Acceptance'])
-    await expect(views.getByRole('button', { name: 'Canvas' })).toHaveAttribute('aria-pressed', 'true')
+    // Pipeline stands in the footer by default (worfy-layout ticket 04).
+    const pipeline = viewButton(window, 'pipeline')
+    await expect(pipeline).toHaveAttribute('data-zone', 'footer')
+    await expect(viewButton(window, 'canvas')).toHaveAttribute('aria-pressed', 'true')
     const board = window.getByTestId('pipeline-board')
     await expect(board).toBeHidden()
 
-    await views.getByRole('button', { name: 'Pipeline' }).click()
-    await expect(views.getByRole('button', { name: 'Pipeline' })).toHaveAttribute('aria-pressed', 'true')
+    await pipeline.click()
+    await expect(pipeline).toHaveAttribute('aria-pressed', 'true')
     await expect(window.getByRole('main', { name: 'Pipeline' })).toBeVisible()
     await expect(board).toBeVisible({ timeout: ms(15_000) })
     await expect(board.getByTestId('pipeline-column-title')).toHaveText(['Queued', 'Implementing', 'CI', 'Agent review', 'Check «windows»', 'Gate & merge', 'Deploy', 'Closing', 'Done'])
@@ -161,7 +162,7 @@ test('the Pipeline tab shows the board, a claim moves a card without a reload, a
 
     // A click on a card shows its Card on the Canvas.
     await card(window, 1).click()
-    await expect(views.getByRole('button', { name: 'Canvas' })).toHaveAttribute('aria-pressed', 'true')
+    await expect(viewButton(window, 'canvas')).toHaveAttribute('aria-pressed', 'true')
     await expect(board).toBeHidden()
 
     await showSidebarSection(window, 'Pipeline')
@@ -170,7 +171,7 @@ test('the Pipeline tab shows the board, a claim moves a card without a reload, a
 
     // A click on a row of the section opens the board.
     await row(window, 2).click()
-    await expect(views.getByRole('button', { name: 'Pipeline' })).toHaveAttribute('aria-pressed', 'true')
+    await expect(pipeline).toHaveAttribute('aria-pressed', 'true')
     await expect(board).toBeVisible()
   } finally {
     await launched.close()
@@ -179,24 +180,23 @@ test('the Pipeline tab shows the board, a claim moves a card without a reload, a
 
 /** The tooltips of the six View buttons, as the view registry (src/renderer/shell/views.tsx) gives them. */
 const VIEW_TOOLTIPS: Record<string, string> = {
-  Canvas: 'Canvas',
-  Session: 'Session view',
-  Pipeline: 'Pipeline board',
-  Runs: 'Run history',
-  'Pull requests': 'Pull requests of the open Project',
-  Acceptance: 'Checks that wait for you',
+  canvas: 'Canvas',
+  session: 'Session view',
+  pipeline: 'Pipeline board',
+  history: 'Run history',
+  'pull-requests': 'Pull requests of the open Project',
+  acceptance: 'Checks that wait for you',
 }
+const VIEW_NAMES: Record<string, string> = { canvas: 'Canvas', session: 'Session', pipeline: 'Pipeline', history: 'Runs', 'pull-requests': 'Pull requests', acceptance: 'Acceptance' }
 
-test('the View switch shows its icons alone in a window under 1400 px and keeps the names of its segments', async () => {
+test('the View buttons keep their names and tooltips in every zone; the header and the footer keep their labels in a window over 1100 px', async () => {
   const launched = await launch()
   try {
     const { app, window } = launched
-    const views = window.getByRole('group', { name: 'View', exact: true })
-    // Six segments: Pull requests (worfy-pr-inbox ticket 03), then Acceptance (worfy-acceptance ticket 05) last.
-    const names = ['Canvas', 'Session', 'Pipeline', 'Runs', 'Pull requests', 'Acceptance']
-    await expect(views.getByRole('button')).toHaveCount(names.length)
+    // The default layout (worfy-layout ticket 04): two buttons in the header, two on the rail, two in the footer.
+    const zones: Record<string, string> = { canvas: 'header', session: 'header', 'pull-requests': 'rail', acceptance: 'rail', pipeline: 'footer', history: 'footer' }
     const sizes = [
-      { width: 1280, labels: false },
+      { width: 1280, labels: true },
       { width: 1600, labels: true },
     ]
     for (const { width, labels } of sizes) {
@@ -207,12 +207,18 @@ test('the View switch shows its icons alone in a window under 1400 px and keeps 
           return inner
         })
         .toBe(width)
-      for (const name of names) {
-        const segment = views.getByRole('button', { name, exact: true })
-        await expect(segment).toHaveAttribute('aria-label', name)
+      for (const [id, zone] of Object.entries(zones)) {
+        const button = viewButton(window, id)
+        await expect(button).toHaveAttribute('data-zone', zone)
+        await expect(button).toHaveAttribute('aria-label', VIEW_NAMES[id] ?? id)
         // The tooltip is the view registry's (worfy-layout 01); Runs and Pull requests without a Project say to open one.
-        await expect(segment).toHaveAttribute('title', new RegExp(`^(?:${VIEW_TOOLTIPS[name]}|Open a Project to see its (?:Runs|pull requests))$`, 'u'))
-        await expect(segment.locator('.w-segmented__label'))[labels ? 'toBeVisible' : 'toBeHidden']()
+        // The header and the footer show it natively (`title`); the rail with the kit Tooltip, heard as the description.
+        const tooltip = new RegExp(`^(?:${VIEW_TOOLTIPS[id]}|Open a Project to see its (?:Runs|pull requests))$`, 'u')
+        if (zone === 'rail' && (await button.isEnabled())) await expect(button).toHaveAttribute('aria-description', tooltip)
+        else await expect(button).toHaveAttribute('title', tooltip)
+        // Labels in the header (one to three buttons) and the footer over 1100 px; the rail shows icons alone.
+        if (zone === 'header') await expect(button.locator('.w-segmented__label'))[labels ? 'toBeVisible' : 'toBeHidden']()
+        if (zone === 'footer') await expect(button.locator('.w-view-button__label'))[labels ? 'toBeVisible' : 'toBeHidden']()
       }
       for (const scheme of ['light', 'dark'] as const) {
         await window.emulateMedia({ colorScheme: scheme })

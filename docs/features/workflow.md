@@ -330,7 +330,7 @@ Implementing, CI, Agent review, Gate & merge, Closing, Done.
   the current Stage, its flags and who the Ticket waits for. When that does not fit one line, when the Ticket has the `Ready`
   chip or a repository chip, or on a card narrower than 240 pixels, it drops the dots and shows `N/M` instead. The tooltip
   has the whole picture in words.
-- **The board:** the "Pipeline" item of the View switch in the toolbar. A column per Stage of the active Project, with its
+- **The board:** the "Pipeline" View button, in the footer by default ([App shell](app-shell.md)). A column per Stage of the active Project, with its
   count, and a card per Ticket. Done is folded into `N done` until clicked. The board follows changes by itself, and a click
   on a card shows that Ticket on the Canvas, or its frame when the card is folded away. When facts are missing, a notice says
   "Some Stages may be short of facts" with the reason; a worktree branch that could not be read is one of them, by name,

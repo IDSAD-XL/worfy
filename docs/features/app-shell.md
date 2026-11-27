@@ -4,13 +4,22 @@ What surrounds the Canvas in every window, on every Project. Eight Features: the
 **Command palette**, **Shortcuts**, the **Menu**, **Settings**, the **worfy Guide** and the **Theme**. [Notifications](notifications.md), the ninth, has a page of its own. Terms are
 explained in [Concepts](concepts.md).
 
-The View switch of the toolbar picks what the main area shows: **Canvas**, **Session**, **Pipeline** (see
-[Workflow](workflow.md)), **Runs** (see [Flight Recorder](flight-recorder.md) and [Work track](work-track.md)) and **Pull
-requests** (see [Pull requests](pr-inbox.md)) and **Acceptance** (see [Acceptance](acceptance.md)). Their tooltips are
-"Canvas", "Session view", "Pipeline board", "Run history", "Pull requests of the open Project" and "Checks that wait for
-you". In a narrow window the tabs show their icons alone. Runs and Pull requests are inactive without a Project, and
-their tooltip then says to open one. Every view stays mounted while another one is shown,
-so switching back finds it as it was.
+Six View buttons pick what the main area shows: **Canvas**, **Session**, **Pipeline** (see [Workflow](workflow.md)),
+**Runs** (see [Flight Recorder](flight-recorder.md) and [Work track](work-track.md)), **Pull requests** (see
+[Pull requests](pr-inbox.md)) and **Acceptance** (see [Acceptance](acceptance.md)). Each stands in one of three zones,
+as the layout in the app settings of this computer says; by default Canvas and Session are in the toolbar, Pull requests
+and Acceptance on the sidebar's rail under a thin line, after the sections of the top, and Pipeline and Runs on the left
+of the footer. A window on a Linked machine's Project shows the layout of this computer. The button of the view on screen
+is pressed in whatever zone it stands. Their tooltips are "Canvas", "Session view", "Pipeline board", "Run history",
+"Pull requests of the open Project" and "Checks that wait for you". Pull requests counts the pull requests of the open
+Project that need you, Acceptance the checks Ready to check, and Pipeline has a dot while a Ticket of the open Project is
+blocked or waits for a person. On the rail a button shows no count while the section of the same name stands there with
+its own, and its icon carries a small window mark: it opens a view of the main area, not a section. In the toolbar the
+buttons show icons and labels, from four buttons on their icons alone in a window under 1400 pixels, and in any number
+at 1100 pixels or less; on the rail always their icons; in the footer their labels over 1100 pixels. While the sidebar
+is hidden, its buttons stand at the end of the toolbar's group after a thin line. In focus mode the buttons of the rail
+and of the footer are inert, as the toolbar is. Runs and Pull requests are inactive without a Project, and their tooltip
+then says to open one. Every view stays mounted while another one is shown, so switching back finds it as it was.
 
 A part that fails to render stays a part: a sidebar section, a tab of the Assistant or a view shows "This section failed
 to render" (or "This tab…", "This view…") with the error's message and **Reload**, and the rest of the window keeps
@@ -123,7 +132,7 @@ group that holds a check of that Project — Ready to check, Update first, Waits
 and Older have no row there. A click opens the Acceptance view on that Project's first row of that group; the view is
 over every Project, so the click opens no Project. With no row in any of those groups the section says "Nothing to
 check". Its rail badge is the number of Ready to check of the Projects the switcher shows: under "All Projects" it is
-the number on the toolbar tab.
+the number the Acceptance View button counts.
 
 In another Project's group, a Session shows the name Claude Code gives it, else "Session <id>", and "terminal" or
 "desktop". That Project's Canvas is not read, so its worfy Sessions are not marked "worfy" there. "New session", "Product
@@ -185,8 +194,9 @@ Main tests: `test/unit/sidebar-scope.test.tsx`, `test/unit/error-boundary.test.t
 ### Behaviour
 
 A strip 28 pixels high across the whole window, under the sidebar and the main area, at an interface scale of 100 %. It
-grows with the interface scale, as the rest of the window does: there are no window buttons under it. Its left part is
-for the View buttons of the footer, its middle stays empty, and the version chip stands at its right end. It is no area to
+grows with the interface scale, as the rest of the window does: there are no window buttons under it. Its left part
+holds the View buttons of the footer, 22 pixels high, its middle stays empty, and the version chip stands at its right
+end. It is no area to
 drag the window by, and toasts keep clear of it. In focus mode the footer stays on screen under the focus layer, and the
 chip keeps working.
 
@@ -201,9 +211,10 @@ it. While an Update builds, the chip shows its step; in a window 1100 pixels wid
 | What | Where |
 |---|---|
 | The strip | `src/renderer/shell/footer/Footer.tsx`, `src/renderer/shell/AppShell.tsx`, `src/renderer/shell/shell.css`, `--footer-height` in `src/renderer/theme/tokens.css` |
+| The View buttons of the three zones | `src/renderer/shell/ViewZone.tsx`, `src/renderer/shell/ViewButton.tsx`, the registry `src/renderer/shell/views.tsx`, the layout `src/shared/layout/view-buttons.ts` |
 | The version chip, its dot and its popover | `src/renderer/shell/footer/VersionChip.tsx`, `src/renderer/shell/footer/version-dot.ts` |
 
-Main tests: `test/unit/version-dot.test.tsx`, `test/unit/update-chip.test.tsx`, `test/e2e/footer.spec.ts`.
+Main tests: `test/unit/version-dot.test.tsx`, `test/unit/update-chip.test.tsx`, `test/unit/view-zones.test.tsx`, `test/e2e/footer.spec.ts`, `test/e2e/view-buttons.spec.ts`.
 
 ## Command palette
 

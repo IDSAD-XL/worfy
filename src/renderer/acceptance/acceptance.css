@@ -1,24 +1,6 @@
-/* The Acceptance view (AcceptanceView.tsx) and the count on its toolbar tab. Values come from tokens.css only, so
+/* The Acceptance view (AcceptanceView.tsx); the count on its View button is the common badge (shell.css). Values come from tokens.css only, so
    both themes come for free. Two panes as in Pull requests (pr-inbox.css): the groups on the left, the selected row on
    the right. */
-
-/* The tab: the wrapper of the icon is no box of its own, so the count lines up after the label. */
-.w-acc-tab {
-  display: contents;
-}
-.w-acc-tab__count {
-  order: 1;
-  min-width: 16px;
-  padding: 0 4px;
-  box-sizing: border-box;
-  border-radius: 8px;
-  background: var(--working-bg);
-  color: var(--working-text);
-  font-size: var(--text-11);
-  line-height: 16px;
-  font-weight: 600;
-  text-align: center;
-}
 
 .w-shell__content--acceptance {
   background: var(--bg);

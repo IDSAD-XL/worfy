@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test'
 import { formatJournalLine, makeRunId, type JournalEvent } from '../../src/shared/autopilot/journal'
-import { launchApp, pinWindowClock } from './helpers'
+import { launchApp, pinWindowClock, viewButton } from './helpers'
 
 // The Work track view (worfy-work-track ticket 09) in the built app: the Runs tab of the toolbar shows Run
 // history, the switch shows Work track — the Week by default — a day of its axis opens the Day, the Month
@@ -256,7 +256,7 @@ test('Runs → Work track: the Week, a day of it, the Month and a day of it; Run
     await pinWindowClock(window, PINNED)
 
     // The Runs tab shows Run history first, with the switch above it.
-    await window.locator('.w-toolbar [role="group"][aria-label="View"]').getByRole('button', { name: 'Runs' }).click()
+    await viewButton(window, 'history').click()
     await expect(window.getByTestId('run-history')).toBeVisible()
     await expect(pressed(window, 'Runs view')).toHaveText('Run history')
 
@@ -330,7 +330,7 @@ test('Work track: the summary of the period; a Wave of a Run → its panel → �
     await stubWorkTrack(app, run)
     await expect(window.getByTestId('app-shell')).toBeVisible()
 
-    await window.locator('.w-toolbar [role="group"][aria-label="View"]').getByRole('button', { name: 'Runs' }).click()
+    await viewButton(window, 'history').click()
     await window.getByRole('button', { name: 'Work track' }).click()
     const track = window.getByTestId('work-track')
     await expect(track).toBeVisible()
@@ -385,7 +385,7 @@ test('Work track: CI runs and Ticket status changes under the axis, GitHub and g
     await expect(window.getByTestId('app-shell')).toBeVisible()
     await pinWindowClock(window, PINNED)
 
-    await window.locator('.w-toolbar [role="group"][aria-label="View"]').getByRole('button', { name: 'Runs' }).click()
+    await viewButton(window, 'history').click()
     await window.getByRole('button', { name: 'Work track' }).click()
     const track = window.getByTestId('work-track')
     await expect(track).toBeVisible()
