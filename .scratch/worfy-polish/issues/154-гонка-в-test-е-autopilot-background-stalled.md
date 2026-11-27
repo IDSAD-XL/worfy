@@ -1,7 +1,8 @@
 # 154 — Гонка в contract test-е Autopilot background-stalled: ждать таймер, а не строку journal; снять Windows exception
 
 Type: bug
-Status: open
+Status: claimed 2026-11-27T14:24Z
+Branch: worfy-polish/154
 Blocked by: —
 Source: решение владельца 2026-11-26 (раунд Q1–Q12 вечернего отчёта 2026-11-25), Q9; запись Windows exception из
 [worfy-polish 143](143-windows-exception-трёх-contract-test-ов.md) (PR #2208),
