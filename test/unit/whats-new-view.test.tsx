@@ -57,7 +57,7 @@ afterEach(() => {
   delete globals.worfy
 })
 
-const NO_HARNESS: HarnessStatusState = { status: undefined, busy: false, failure: undefined, migration: false, onInstall: () => undefined, onMigrate: undefined, onApproveHooks: () => undefined, harnessBehind: null, dialogs: null }
+const NO_HARNESS: HarnessStatusState = { status: undefined, busy: false, busyText: 'Installing Harness…', failure: undefined, migration: false, onInstall: () => undefined, onEnable: () => undefined, enableFailure: undefined, onMigrate: undefined, onApproveHooks: () => undefined, harnessBehind: null, dialogs: null }
 
 /** The footer's version chip with the app version and the Update snapshot given, and no Harness. */
 function UpdateChip({ version, update }: { version: string; update: UpdateSnapshot | null }) {

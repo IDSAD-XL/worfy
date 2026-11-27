@@ -22,7 +22,7 @@ footer ([App shell](app-shell.md#footer)): the app version `v<major>.<minor>.<N>
 General → Version](app-shell.md#settings)), or `v<semver>+<short SHA>` for a build without a number, and one dot. The dot
 is red while the Harness needs the user: "Harness unavailable", a Harness not installed or broken that this run may
 install (Install, Retry), or an old Harness to move. It is amber while an update waits: an [Update](updates.md) of worfy,
-"Update Harness", or a Codex line with a button or `Codex: approve hooks`. Red comes before amber, and with nothing to do
+"Update Harness", a plugin disabled in Claude Code (Enable), or a Codex line with a button or `Codex: approve hooks`. Red comes before amber, and with nothing to do
 there is no dot. The chip's accessible name and the first line of its tooltip say what the dot is for, such as
 `worfy v<version> — Harness needs Install`.
 A press on the chip opens a popover above it, and Esc or a press outside closes it. Its rows are the app version with
@@ -36,12 +36,21 @@ toolbar, and the step still opens by itself while the popover is closed.
 |---|---|---|---|
 | Not installed | `Harness not installed` | Install | The plugin folder is missing, or Claude Code does not list the plugin |
 | Installed | `Harness <version>` | None | The copy and the plugin Claude Code lists carry this build's version |
-| Disabled | `Harness <version> · disabled` | None | The same, and the plugin is disabled in Claude Code |
+| Disabled | `Harness <version> · disabled` | Enable, with the accent and a dot | The same, and the plugin is disabled in Claude Code. See below |
 | Outdated | `Harness <from>` | Update Harness, with the accent and a dot | Another version is installed. The tooltip says `<from> → <to>` |
 | Same version | `Harness <from>` | Replace Harness | The same semver from another commit, see below. When GitHub says it is behind, the row is Outdated |
 | Error | `Harness error: <step>` | Retry | A step failed, Claude Code reports the plugin broken, or a dependency is missing. The tooltip holds the reason |
 | Installing | `Installing Harness…` | None | During an install started from this item |
+| Enabling | `Enabling Harness…` | None | During an Enable started from this item |
 | No answer | `Harness unavailable` | None | The call to the main process failed. The tooltip holds the reason |
+
+**Enable.** A plugin that Claude Code lists as installed but disabled, for example turned off in `/plugin`, gets the
+Enable button. A press runs `claude plugin enable worfy@worfy-harness --scope user` with the Claude Code binary of this
+build, the same command `/plugin` stands for, so Claude Code writes its own settings and worfy writes no file. There is
+no dialog, as the command installs nothing. While it runs the line says `Enabling Harness…`. Then the state is read
+again. An Enable that went in reaches every window. A failed command leaves the line on `· disabled`, and the tooltips of the line and of
+Enable end with `Enable failed:` and the command's output. Enable shows only where Install would, in a run that may
+install.
 
 A run that may not install shows the state without a button, and the two outdated lines then name both versions:
 `Harness <from> → <to>` and `Harness <from>, this build <to>`. Only a packaged app or a run with `WORFY_CLAUDE_HOME` may
