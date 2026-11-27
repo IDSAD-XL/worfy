@@ -91,7 +91,8 @@ worfy (main около 23a992a0c) пустое, тёмный фон, сразу 
   - evidence: gate pass · `gate fast` exit 0 · mac - · c3ac9c86f
   - evidence: gate pass · `gate fast` exit 0 · mac - · c4bc37317a98b866b2a2c6ff247e5e69591d6aec
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45904284294/job/140215779257 · ci - · 1ac047b3c8e73e5610d5124a0d3cb387273a2940
-- [ ] (вручную) Сделай: в Stable worfy открой раздел Assistant и нажми вкладку Journal, затем вид Runs → Work track
+- [x] (вручную) Сделай: в Stable worfy открой раздел Assistant и нажми вкладку Journal, затем вид Runs → Work track
       → Должно быть: окно не пустеет; если часть всё же падает — в ней «… failed to render» с текстом ошибки и
       Reload, а sidebar и toolbar работают. Текст ошибки, если он есть, — прислать.
   - needs: mac stable
+  - evidence: owner-check pass · 2026-11-27: «защитываем хендлинг ошибки, найди саму причину ошибки» — по снимку: вкладка Chat показала «This section failed to render — destroy_ is not a function — in Chat» с Reload, окно не опустело · mac stable · 2ca9be95e
