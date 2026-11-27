@@ -76,8 +76,11 @@ describe('every Node type marks its header row, or is a known exception', () => 
     'BindingAnchorNode.tsx': 'an invisible anchor of a Binding',
     'ImageNode.tsx': 'the image fills the card whole; there is no header row to keep clear of',
   }
-  /** Node types with more than one header: a live Session and a Session read from its transcript. */
-  const HEADERS: Record<string, number> = { 'SessionNode.tsx': 2 }
+  /**
+   * Node types with more than one header. None now: a live Session and a Session read from its
+   * transcript share one header component, SessionHeader (worfy-polish ticket 153).
+   */
+  const HEADERS: Record<string, number> = {}
   const folder = join(renderer, 'canvas/nodes')
   const files = readdirSync(folder).filter((name) => name.endsWith('Node.tsx'))
 

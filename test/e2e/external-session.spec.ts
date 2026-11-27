@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { launchApp, showSidebarSection } from './helpers'
+import { headerAction } from './session-header'
 import { settled } from './wait'
 import { ms } from '../time-scale'
 
@@ -232,7 +233,8 @@ test('a Session started in a terminal: its Node, its read-only transcript, its e
 
     // Hiding a Session Node leaves the Session live; its sidebar row shows the Node again, selected.
     const otherRow = window.locator(`[data-testid="sidebar-session"][data-session-id="${OTHER}"]`)
-    await other.getByRole('button', { name: 'Hide' }).click()
+    // Hide and Remove are buttons of the header, or items of its «⋯» menu where it is narrow (worfy-polish ticket 153).
+    await (await headerAction(window, other, 'Hide')).click()
     await expect(other).toBeHidden()
     await expect.poll(() => nodeHidden(window, `session:${OTHER}`)).toBe(true)
     await expect(window.getByTestId('sidebar-sessions-live')).toHaveText('2 live')
@@ -242,7 +244,7 @@ test('a Session started in a terminal: its Node, its read-only transcript, its e
     await expect(window.locator(`.react-flow__node.selected [data-testid="session-node"][data-session-id="${OTHER}"]`)).toHaveCount(1)
 
     // Removing a Session Node leaves the Session alone, and the Node does not come back.
-    await other.getByRole('button', { name: 'Remove' }).click()
+    await (await headerAction(window, other, 'Remove')).click()
     await expect(other).toHaveCount(0)
     // One more Session starts: its Node comes from a new look at all live Sessions, and that one
     // would bring the removed Node back if anything did.

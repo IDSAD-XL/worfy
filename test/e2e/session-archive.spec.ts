@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { canvasReady, closeSettings, launchApp, type LaunchedApp } from './helpers'
 import { clickMenuItem } from './menu'
+import { closeHeaderMenu, headerMenu, TITLE_MIN, titleWidth } from './session-header'
 import { snapshotThemes } from './snapshots'
 import { ms } from '../time-scale'
 
@@ -20,7 +21,9 @@ import { ms } from '../time-scale'
 // the person picks 24 h: the next run of the timer takes LIVE alone (the others were touched or kept).
 // PRODUCT, a finished Product Session as old, is never taken — not by the command, not by the timer
 // (worfy-product-session ticket 37). Its own Archive takes it off the Canvas, and Restore in the
-// Archive brings it back; LIVE's Archive is inactive while its Claude Code runs.
+// Archive brings it back; LIVE's Archive is inactive while its Claude Code runs. Every Node's title keeps
+// its minimum, the header's buttons going into its «⋯» menu where there is no room (worfy-polish ticket 153);
+// KEPT and FRESH are drawn wide enough that Keep stays a button of the header.
 
 const PROJECT_ID = 'archive-0000c008'
 const TICK_MS = 250
@@ -92,7 +95,7 @@ function makeProject(): void {
   // A Product Session's Node as main writes it (src/main/agent/node-sessions.ts); nothing runs it in this test.
   const product = { ...sessionNode(PRODUCT, 0), y: 300, w: 340, h: 220, data: { origin: 'worfy', vendor: 'claude', kind: 'product', sessionId: PRODUCT } }
   const narrow = { ...product, id: `session:${NARROW}`, x: 800, w: 240, data: { ...product.data, sessionId: NARROW } }
-  const nodes = [sessionNode(OLD_A, 0), sessionNode(OLD_B, 400), sessionNode(KEPT, 800, { keep: true }), sessionNode(FRESH, 1200), sessionNode(LIVE, 1600), product, narrow]
+  const nodes = [sessionNode(OLD_A, 0), sessionNode(OLD_B, 400), sessionNode(KEPT, 800, { keep: true, w: 360 }), sessionNode(FRESH, 1200, { w: 360 }), sessionNode(LIVE, 1600), product, narrow]
   writeFileSync(join(project, 'layout.json'), JSON.stringify({ nodes, viewport: { x: 40, y: 40, zoom: 0.6 } }))
 }
 
@@ -164,15 +167,22 @@ test('«Never» archives nothing on a fast timer; Settings → Canvas offers the
     }
     // At the default 340 px the source gives way first: the «Product Session» label is whole, not cut.
     expect(await nodeOf(window, PRODUCT).getByTestId('session-node-kind').evaluate((label) => label.scrollWidth <= label.clientWidth)).toBe(true)
-    // The title keeps its share of the header, which this PR leaves as on main: about 0.14 of a 300 px read-only
-    // Node (chip, Keep, Hide, Remove) and 0.09 of a 340 px finished worfy Node (Resume as well), measured on a
-    // Mac. Archive in the header once left a 300 px Codex Node's title none on Windows. At 240 px main's header
-    // already leaves a finished worfy Node's title nothing, so NARROW is not checked here.
-    const titleShare = async (id: string): Promise<number> =>
-      ((await nodeOf(window, id).getByTestId('session-node-title').boundingBox())?.width ?? 0) / ((await nodeOf(window, id).boundingBox())?.width ?? 1)
-    for (const id of [OLD_A, OLD_B, KEPT, FRESH, LIVE]) expect(await titleShare(id), `the share of ${id}'s width its title keeps`).toBeGreaterThan(0.08)
-    expect(await titleShare(PRODUCT), 'the share of the Product Session\'s width its title keeps').toBeGreaterThan(0.05)
+    // Every title keeps its minimum, TITLE_MIN px of the Node's own pixels (worfy-polish ticket 153): the read-only
+    // Nodes at 300 px, the finished worfy Nodes at 340 px (PRODUCT) and at the narrowest, 240 px (NARROW). Before,
+    // a 340 px finished worfy Node's header left its title 0.09 of its width («Pl…»), and a 240 px one none.
+    for (const id of [OLD_A, OLD_B, KEPT, FRESH, LIVE, PRODUCT, NARROW]) {
+      expect(await titleWidth(nodeOf(window, id)), `${id}: its title keeps its minimum`).toBeGreaterThanOrEqual(TITLE_MIN - 0.5)
+    }
+    // At 240 px Resume, Keep, Hide and Remove are items of the «⋯» menu, with the same names.
+    const narrowHeader = nodeOf(window, NARROW).getByTestId('session-node-header')
+    await expect(narrowHeader.getByRole('button', { name: 'Remove', exact: true })).toHaveCount(0)
+    await expect(narrowHeader.getByTestId('session-node-more')).toBeVisible()
     await snapshotThemes(window, '37-session-nodes-archive')
+    await narrowHeader.getByTestId('session-node-more').click()
+    await expect(headerMenu(window).locator('[role="menuitem"], [role="menuitemcheckbox"]')).toHaveText(['Resume', 'Keep', 'Hide', 'Remove'])
+    await snapshotThemes(window, '153-session-header-menu')
+    await closeHeaderMenu(window)
+    await expect(headerMenu(window)).toHaveCount(0)
     await expect(nodeOf(window, KEPT).getByTestId('session-node-keep')).toHaveAttribute('aria-pressed', 'true')
     await expect(nodeOf(window, FRESH).getByTestId('session-node-keep')).toHaveAttribute('aria-pressed', 'false')
     // Archive on a Node: inactive while its Session runs, saying why.
