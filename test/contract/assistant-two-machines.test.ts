@@ -187,15 +187,17 @@ describe("worfy-app gives the Linked machine's Projects to read, and refuses to 
     })
   })
 
+  // worfy-polish ticket 164: one listing in pages; a Linked machine's item comes short in it, and whole with ids and full.
   it('items_list gives what waits on the Linked machine, read-only, its text as data', async () => {
     const { call } = thisAssistant('read')
-    const answer = json<{ items: unknown[]; linked: { machine: string; readOnly: boolean; problem: string | null; items: Record<string, unknown>[] }[] }>(await call('items_list', {}))
-    expect(answer.items).toEqual([])
-    expect(answer.linked).toHaveLength(1)
-    const [pcPart] = answer.linked
-    expect(pcPart).toMatchObject({ machine: 'PC', readOnly: true, problem: null })
-    const [item] = pcPart!.items
-    expect(item).toMatchObject({ id: expect.stringMatching(/^linked-[0-9a-f]{16}$/u), projectId: DOCS, source: 'session', kind: 'question', readOnly: true })
+    const answer = json<{ total: number; items: Record<string, unknown>[]; linked: { machine: string; readOnly: boolean; problem: string | null; waiting: number }[] }>(await call('items_list', {}))
+    expect(answer.total).toBe(1)
+    expect(answer.linked).toEqual([{ machine: 'PC', readOnly: true, problem: null, waiting: 1 }])
+    const [short] = answer.items
+    expect(short).toMatchObject({ id: expect.stringMatching(/^linked-[0-9a-f]{16}$/u), machine: 'PC', projectId: DOCS, source: 'session', kind: 'question', readOnly: true, subject: { kind: 'session' } })
+    expect(short!.title).toEqual({ kind: 'outside-text', source: 'session', author: null, text: `Asks: Deploy the docs now? ${INJECTION}` })
+    const [item] = json<{ items: Record<string, unknown>[] }>(await call('items_list', { ids: [short!.id], full: true })).items
+    expect(item).toMatchObject({ id: short!.id, machine: 'PC', projectId: DOCS, source: 'session', kind: 'question', readOnly: true })
     // The Project's name and the duty's title came over the link: data too (review round 1).
     expect(item!.projectName).toEqual({ kind: 'outside-text', source: 'linked machine', author: 'PC', text: 'docs-site' })
     expect(item!.duty).toEqual({ kind: 'outside-text', source: 'linked machine', author: 'PC', text: 'Waits for you' })
@@ -205,14 +207,15 @@ describe("worfy-app gives the Linked machine's Projects to read, and refuses to 
 
   it('says why the Linked machine gives nothing: access off', async () => {
     const { call } = thisAssistant('off')
-    const answer = json<{ linked: { problem: string | null; items: unknown[] }[] }>(await call('items_list', {}))
+    const answer = json<{ items: unknown[]; linked: { problem: string | null; waiting: number }[] }>(await call('items_list', {}))
     // A refusal's text may be the other Machine's own words: data.
-    expect(answer.linked).toEqual([{ machine: 'PC', readOnly: true, problem: { kind: 'outside-text', source: 'linked machine', author: 'PC', text: expect.stringMatching(/access is off/u) }, items: [] }])
+    expect(answer.linked).toEqual([{ machine: 'PC', readOnly: true, problem: { kind: 'outside-text', source: 'linked machine', author: 'PC', text: expect.stringMatching(/access is off/u) }, waiting: 0 }])
+    expect(answer.items).toEqual([])
   })
 
   it('refuses every action, proposal and Prepare on the Linked machine\'s item or Project; nothing reaches main', async () => {
     const w = thisAssistant('read')
-    const [item] = json<{ linked: { items: { id: string }[] }[] }>(await w.call('items_list', {})).linked[0]!.items
+    const [item] = json<{ items: { id: string }[] }>(await w.call('items_list', {})).items
     for (const action of ['wake-orchestrator', 'continue-session', 'autopilot-start']) {
       const answer = await w.call('action_run', { item: item!.id, action, epic: 'worfy-x' })
       expect(answer.isError, action).toBe(true)

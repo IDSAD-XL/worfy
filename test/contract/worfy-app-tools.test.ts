@@ -19,7 +19,7 @@ import type { PrInboxSnapshot } from '../../src/shared/ipc/pr-inbox'
 import type { JournalEvent } from '../../src/shared/autopilot/journal'
 import type { WorkflowModel } from '../../src/shared/workflow/types'
 import type { McpToolResult } from '../../src/main/vendors/mcp'
-import type { AssistantActionEntry } from '../../src/main/mcp/app-server'
+import type { WorfyAppDeps } from '../../src/main/mcp/app-server'
 import type { AttentionFile } from '../../src/main/assistant/core/store'
 import type { AssistantMemory, SessionMemoryPart } from '../../src/main/assistant/duties/memory'
 import { memoryActionJournal } from '../../src/main/assistant/actions/journal'
@@ -306,7 +306,7 @@ async function world(options: { confirm?: 'cancel' | 'budget-aware'; language?: 
   }
   const config = (await claudeMcpServer(app.worfyAppServer(deps))) as unknown as ServerConfig
   /** The server over `deps` changed by `change`, connected. */
-  const rpcWith = async (change: { journal: (entry: AssistantActionEntry) => void }) => connectTo((await claudeMcpServer(app.worfyAppServer({ ...deps, ...change }))) as unknown as ServerConfig)
+  const rpcWith = async (change: Partial<WorfyAppDeps>) => connectTo((await claudeMcpServer(app.worfyAppServer({ ...deps, ...change }))) as unknown as ServerConfig)
   return { rpc: await connectTo(config), duties, core, itemOf, closedList, refuseClosed, journal, confirm, startFromChat, proposals, deps, app, rpcWith, memoryPart: () => kept }
 }
 
@@ -353,9 +353,9 @@ describe('worfy-app: the reading tools', () => {
     expect(items.find((item) => item.source === 'pr-inbox')!.actions).toEqual(expect.arrayContaining([expect.objectContaining({ action: 'pr-follow', mode: 'ask' })]))
   })
 
-  it('gives a message of Slack its source, author, time and link, and an id worfy made', async () => {
-    const { rpc } = await world()
-    const { items } = json<{ items: Record<string, unknown>[] }>(await rpc.call('items_list'))
+  it('gives a message of Slack its source, author, time and link, and an id worfy made, read whole with ids and full', async () => {
+    const { rpc, itemOf } = await world()
+    const { items } = json<{ items: Record<string, unknown>[] }>(await rpc.call('items_list', { ids: [itemOf('slack')], full: true }))
     const slack = items.find((item) => item.source === 'slack')!
     expect(slack.text).toEqual({ kind: 'outside-text', source: 'slack', author: 'carol', text: `Please look at the parser. ${INJECTION}` })
     expect(slack.message).toMatchObject({ at: '2026-11-25T09:40:00Z', url: { kind: 'outside-text', source: 'slack', author: 'carol', text: 'https://example.com/slack/1' }, concernsUser: true, urgent: false })
@@ -386,6 +386,183 @@ describe('worfy-app: the reading tools', () => {
     const runs = json<{ runs: { run: string; epic: string; events: { kind: string }[] }[] }>(await rpc.call('autopilot_runs_read', { projectId: PROJECT }))
     expect(runs.runs).toEqual([expect.objectContaining({ run: RUN, epic: 'worfy-x', events: [expect.objectContaining({ kind: 'run-started' }), expect.objectContaining({ kind: 'run-stopped' })] })])
     expect(json(await rpc.call('limits_read'))).toEqual({ windows: { five_hour: { utilization: 0.42, resetsAt: new Date(1_764_068_400_000).toISOString(), status: 'allowed' } } })
+  })
+})
+
+// worfy-polish ticket 164: items_list without arguments answered every item whole, 55 KB with some 56 items, and Claude
+// Code saved the answer to a file the Assistant, which has no Read, could not open.
+describe('worfy-app: items_list in pages of short records, below the size Claude Code saves to a file', () => {
+  interface Page {
+    total: number
+    nextCursor: string | null
+    items: Record<string, unknown>[]
+    missing?: string[]
+    linked: Record<string, unknown>[]
+  }
+
+  it('lists short records: no message, no link, no text of an action; the whole item with ids and full: true', async () => {
+    const { rpc, itemOf } = await world()
+    const page = json<Page>(await rpc.call('items_list'))
+    expect(page).toMatchObject({ total: 5, nextCursor: null })
+    const slack = page.items.find((item) => item.source === 'slack')!
+    expect(Object.keys(slack).sort()).toEqual(['actions', 'duty', 'id', 'kind', 'lastAt', 'projectId', 'source', 'startedAt', 'state', 'subject', 'title', 'urgent'])
+    expect(slack.title).toEqual({ kind: 'outside-text', source: 'slack', author: 'carol', text: `Please look at the parser. ${INJECTION}` })
+    for (const action of slack.actions as Record<string, unknown>[]) expect(Object.keys(action).sort()).toEqual(['action', 'mode'])
+    const whole = json<Page>(await rpc.call('items_list', { ids: [itemOf('slack')], full: true })).items[0]!
+    expect(whole).toHaveProperty('message')
+    expect((whole.actions as Record<string, unknown>[])[0]).toHaveProperty('text')
+  })
+
+  // Review of #2295: a title cut before its secrets are hidden splits a token, and the token's head no longer matches.
+  it('hides a secret before it cuts a title: a token across the cut leaves no fragment, in items_list, the first message and a Linked machine\'s item', async () => {
+    const [w, { linkedItemOf, LINKED_TITLE_MAX }] = await Promise.all([world(), import('../../src/shared/assistant/linked')])
+    const head = GH_TOKEN.slice(0, 16)
+    const text = `${'x'.repeat(w.app.ITEM_TITLE_MAX - 30)} ${GH_TOKEN} tail`
+    w.core.ingest({ source: 'session', id: 'sess-long:error', revision: 'r1', projectId: PROJECT, subject: { kind: 'session', id: 'sess-long', label: 'Implementer' }, kind: 'error', text })
+    const item = w.core.items(PROJECT).find((each) => each.subject.id === 'sess-long')!
+    const raw = textOf(await w.rpc.call('items_list', { ids: [w.app.publicItemId(item.id)] }))
+    expect(raw).toContain('[redacted]')
+    expect(raw).not.toContain(head)
+    expect(JSON.stringify(w.app.wakeItemRecord(item))).not.toContain(head)
+    const linked = linkedItemOf({ id: 'x', title: `${'y'.repeat(LINKED_TITLE_MAX - 30)} ${GH_TOKEN}`, source: 'session', sourceLabel: 'Session', subject: { kind: 'session', label: 'docs' }, kind: 'error', projectId: null, projectName: null, duty: null, urgent: false, startedAt: NOW, lastAt: NOW, outside: null } as never)
+    expect(linked.title).not.toContain(head)
+    expect(linked.title).toContain('[redacted]')
+  })
+
+  it('puts the urgent first, then the newest', async () => {
+    const { rpc } = await world()
+    const { items } = json<Page>(await rpc.call('items_list'))
+    expect(items[0]).toMatchObject({ source: 'autopilot', kind: 'run-stopped', urgent: true })
+    expect(items.slice(1).every((item) => item.urgent === false)).toBe(true)
+  })
+
+  it('filters by project, kind and state', async () => {
+    const { rpc, core, itemOf } = await world()
+    expect(json<Page>(await rpc.call('items_list', { kind: 'failing' })).items.map((item) => item.source)).toEqual(['pr-inbox'])
+    expect(json<Page>(await rpc.call('items_list', { project: 'beta-11223344' }))).toMatchObject({ total: 0, items: [] })
+    expect(json<Page>(await rpc.call('items_list', { project: PROJECT })).total).toBe(5)
+    expect(json<Page>(await rpc.call('items_list', { state: 'new' })).total).toBe(5)
+    // The duties show new and seen items only: another state without ids would always answer none, so it is refused.
+    for (const state of ['snoozed', 'dismissed', 'closed', 'stale']) {
+      const refused = await rpc.call('items_list', { state })
+      expect(refused.isError, state).toBe(true)
+      expect(textOf(refused), state).toMatch(new RegExp(`state ${state} reads only the items named by ids`, 'u'))
+    }
+    // With ids, any state filters the items named.
+    expect(json<Page>(await rpc.call('items_list', { ids: [itemOf('slack')], state: 'closed' })).total).toBe(0)
+    expect(json<Page>(await rpc.call('items_list', { ids: [itemOf('slack')], state: 'new' })).total).toBe(1)
+    expect(core.items(PROJECT).length).toBe(5)
+  })
+
+  it('pages: limit, total and nextCursor, the next page from the cursor, nothing twice', async () => {
+    const { rpc } = await world()
+    const first = json<Page>(await rpc.call('items_list', { limit: 2 }))
+    expect(first).toMatchObject({ total: 5, nextCursor: '2' })
+    expect(first.items).toHaveLength(2)
+    const second = json<Page>(await rpc.call('items_list', { limit: 2, cursor: first.nextCursor }))
+    const third = json<Page>(await rpc.call('items_list', { limit: 2, cursor: second.nextCursor }))
+    expect(third).toMatchObject({ total: 5, nextCursor: null })
+    const ids = [...first.items, ...second.items, ...third.items].map((item) => item.id)
+    expect(new Set(ids).size).toBe(5)
+    expect(json<Page>(await rpc.call('items_list', { cursor: '99' }))).toMatchObject({ total: 5, nextCursor: null, items: [] })
+  })
+
+  it('finds by ids also an item no duty shows, such as a Session that ended its turn, and names the ids it does not know', async () => {
+    const w = await world()
+    w.core.ingest({ source: 'session', id: 'sess-done:turn-end', revision: 'r1', projectId: PROJECT, subject: { kind: 'session', id: 'sess-done', label: 'Implementer' }, kind: 'turn-end', text: 'Finished its turn' })
+    const ended = w.core.items(PROJECT).find((item) => item.kind === 'turn-end')!
+    expect(ended.duty).toBeNull()
+    const id = w.app.publicItemId(ended.id)
+    expect(json<Page>(await w.rpc.call('items_list')).items.map((item) => item.id)).not.toContain(id)
+    const page = json<Page>(await w.rpc.call('items_list', { ids: [id, w.itemOf('slack'), 'item-0000000000000000'] }))
+    expect(page.items.map((item) => item.id).sort()).toEqual([id, w.itemOf('slack')].sort())
+    expect(page.items.find((item) => item.id === id)).toMatchObject({ kind: 'turn-end', duty: null, subject: { kind: 'session', id: 'sess-done' }, actions: [] })
+    expect(page.missing).toEqual(['item-0000000000000000'])
+  })
+
+  it('refuses full: true without ids, and arguments outside their bounds', async () => {
+    const { rpc } = await world()
+    const refused = await rpc.call('items_list', { full: true })
+    expect(refused.isError).toBe(true)
+    expect(textOf(refused)).toMatch(/full: true reads only the items named by ids/u)
+    expect((await rpc.call('items_list', { limit: 51 })).isError).toBe(true)
+    expect((await rpc.call('items_list', { ids: Array.from({ length: 51 }, (_, n) => `item-${n}`) })).isError).toBe(true)
+    expect((await rpc.call('items_list', { cursor: 'next' })).isError).toBe(true)
+  })
+
+  it('200 large items and 200 of a Linked machine: every page under the defaults stays well below the size Claude Code saves to a file', async () => {
+    const [w, tools] = await Promise.all([world(), import('../../src/shared/assistant/app-tools')])
+    const long = (n: number) => `Ж${INJECTION} `.repeat(Math.ceil(n / (INJECTION.length + 2))).slice(0, n)
+    const big: AttentionItem[] = Array.from({ length: 200 }, (_, n) => ({
+      id: `pr-inbox:acme/app#${n}:failing`,
+      source: 'pr-inbox',
+      projectId: PROJECT,
+      subject: { kind: 'pr', id: `acme/app#${n}`, label: long(2_000) },
+      kind: 'failing',
+      text: long(5_000),
+      startedAt: NOW - n * 60_000,
+      updatedAt: NOW,
+      revision: 'r1',
+      state: 'new',
+      duty: 'waits-for-user',
+      events: 1,
+      pr: { repo: 'acme/app', number: n + 1, title: long(1_000) },
+      message: { source: 'slack', id: `m-${n}`, author: 'carol', at: '2026-11-25T09:40:00Z', url: `https://example.com/${long(1_900)}`, concernsUser: true, urgent: false, project: long(500), ticket: long(500) },
+    }))
+    const linked = Array.from({ length: 200 }, (_, n) => ({
+      id: `pc-${n}`,
+      title: long(2_000),
+      source: 'slack',
+      sourceLabel: 'Slack',
+      subject: { kind: 'message', label: long(2_000) },
+      kind: 'message',
+      projectId: 'beta-11223344',
+      projectName: long(500),
+      duty: long(500),
+      urgent: false,
+      startedAt: NOW,
+      lastAt: NOW,
+      outside: { author: 'dave', at: '2026-11-25T09:40:00Z', url: long(2_000) },
+    }))
+    const duties = {
+      look: (items: readonly AttentionItem[]) => ({ duties: [], shown: items.map((item) => ({ item, duty: item.duty!, proposals: [{ action: 'open', mode: 'ask', text: `Open ${item.subject.label}` }] })) }),
+    } as unknown as WorfyAppDeps['duties']
+    const machines = () =>
+      Promise.resolve([
+        { id: 'mac', name: 'This Mac', thisMachine: true, projects: [{ id: PROJECT, name: 'alpha' }], items: [], problem: null },
+        { id: 'pc', name: 'PC', thisMachine: false, projects: [{ id: 'beta-11223344', name: 'beta' }], items: linked, problem: null },
+      ])
+    const rpc = await w.rpcWith({ items: () => big, duties, machines })
+    const bounded = (result: McpToolResult): Page => {
+      const raw = textOf(result)
+      expect(raw.length).toBeLessThanOrEqual(tools.ITEMS_LIST_ANSWER_MAX_CHARS)
+      expect(Buffer.byteLength(raw, 'utf8')).toBeLessThan(tools.CLAUDE_CODE_RESULT_TO_FILE_CHARS)
+      return json<Page>(result)
+    }
+    const first = bounded(await rpc.call('items_list'))
+    expect(first.total).toBe(400)
+    expect(first.items).toHaveLength(tools.ITEMS_LIST_LIMIT_DEFAULT)
+    expect(first.nextCursor).toBe(String(tools.ITEMS_LIST_LIMIT_DEFAULT))
+    // Walking every page reads each item once, the Linked machine's too, each page within the bound.
+    const seen: unknown[] = [...first.items.map((item) => item.id)]
+    let cursor = first.nextCursor
+    while (cursor !== null) {
+      const page = bounded(await rpc.call('items_list', { cursor, limit: tools.ITEMS_LIST_LIMIT_MAX }))
+      seen.push(...page.items.map((item) => item.id))
+      cursor = page.nextCursor
+    }
+    expect(new Set(seen).size).toBe(400)
+    // The whole items, by 50 ids: the page ends before its size and names the rest.
+    const ids = (seen as string[]).slice(0, tools.ITEMS_LIST_IDS_MAX)
+    const read: unknown[] = []
+    let next: string | null = '0'
+    while (next !== null) {
+      const page = bounded(await rpc.call('items_list', { ids, full: true, limit: tools.ITEMS_LIST_LIMIT_MAX, cursor: next }))
+      expect(page.items.length).toBeGreaterThan(0)
+      read.push(...page.items.map((item) => item.id))
+      next = page.nextCursor
+    }
+    expect(read).toEqual(ids)
   })
 })
 

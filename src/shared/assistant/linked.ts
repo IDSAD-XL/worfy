@@ -6,6 +6,7 @@
 // no target to open, no rating — so the reading side has nothing to act with. The reading side shows them beside its own,
 // read-only, and gives them to its Assistant as data (src/main/mcp/app-server.ts, items_list).
 import { z } from 'zod'
+import { redactSecrets } from '../terminal-ai/redact'
 import type { WindowItem } from './window'
 
 /** The most items one answer carries: the first of the section, urgent first. */
@@ -56,7 +57,8 @@ export const linkedMachineWaitsSchema = z.object({
 })
 export type LinkedMachineWaits = z.output<typeof linkedMachineWaitsSchema>
 
-const cut = (value: string, max: number): string => value.slice(0, max)
+/** `value` with its secrets hidden, then cut: hidden first, since a token the cut splits no longer matches redactSecrets. */
+const cut = (value: string, max: number): string => redactSecrets(value).slice(0, max)
 
 /**
  * An item of this Machine's section as a Linked machine reads it: words and times, nothing to act with. Long text is cut

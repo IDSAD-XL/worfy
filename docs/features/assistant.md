@@ -409,7 +409,16 @@ Project, without `CLAUDE.md` and without the settings of a Project or of the use
 tools are those of the MCP server `worfy-app`: reading what waits (Projects, items, the workflow, PR threads, the tail
 of a Session, Autopilot Runs, the Limits), searching and reading the feature pages, proposals, `action_run` for the
 closed list and Start Autopilot, and notes in its memory. Its first message, written by main, names the reason, the
-items by id, its memory and the user's message. Its memory is the duties as the user set them, the rules from dislikes,
+short record of each item handed over (at most 20; the others by id), its memory and the user's message.
+
+**Reading the items.** `items_list` answers one page at a time: 20 short records by default, at most 50, urgent first,
+then the newest, this Machine's items before the Linked machines'. A short record is the item's id, Project, source,
+kind, state, urgency, duty, times, its subject (a PR's number, a Session's id) and its title cut to 300 characters. Each
+answer carries `total` and `nextCursor`. The filters are `ids` (up to 50), `project`, `kind` and `state` (open by
+default). With `ids` and `full: true` it answers the whole items: their text, link and the text of each action; `ids`
+also finds an item no duty shows, such as a Session that ended its turn. An answer stays under 20 000 characters, well
+below the 50 000 characters over which Claude Code saves a tool's result to a file and shows the model only its start:
+the Assistant has no Read tool to open such a file. Its memory is the duties as the user set them, the rules from dislikes,
 the open proposals, its commitments and the user's answers. Every answer of `worfy-app` has secrets removed. The Harness
 gives this Session its own rules (`harness/hooks/rules/assistant.md`; [Skills, agents and
 hooks](skills-agents-and-hooks.md)). The Assistant runs on Claude Code only, not on Codex.

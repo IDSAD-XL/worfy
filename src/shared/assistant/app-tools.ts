@@ -8,6 +8,7 @@
 // Schemas are zod raw shapes, as the SDK's tool() takes them; the server (src/main/mcp/app-server.ts) parses the
 // arguments again with the same shapes.
 import { z } from 'zod'
+import { ATTENTION_STATES } from './attention'
 import { answerTopicSchema, ANSWER_TEXT_MAX, COMMITMENT_TEXT_MAX } from './memory'
 import { preparedSessionSchema, proposalTitleSchema, proposalWhySchema } from './proposals'
 import { settingsChangeSchema } from './settings-change'
@@ -30,12 +31,39 @@ export const AUTOPILOT_RUNS_MAX = 5
 /** The most feature pages one features_search answers. */
 export const FEATURES_SEARCH_MAX = 10
 
+/**
+ * Claude Code keeps a tool's result over this many characters out of the conversation: it saves the result to a file
+ * and shows the model a short preview (`<persisted-output>`). The Assistant's Session has no Read, so such a result is
+ * lost to it (worfy-polish ticket 164). The number is Claude Code's own default, `vE=50000` in its build 2.1.323, which
+ * caps every tool's `maxResultSizeChars` (an MCP tool declares 1e5); a remote setting of Claude Code may lower it per
+ * tool, so worfy-app keeps well below it.
+ */
+export const CLAUDE_CODE_RESULT_TO_FILE_CHARS = 50_000
+/** The most characters one answer of items_list carries: a page ends before it, and nextCursor names the rest. */
+export const ITEMS_LIST_ANSWER_MAX_CHARS = 20_000
+/** The items one page of items_list carries without a limit. */
+export const ITEMS_LIST_LIMIT_DEFAULT = 20
+/** The most items one page of items_list carries. */
+export const ITEMS_LIST_LIMIT_MAX = 50
+/** The most ids one call of items_list names. */
+export const ITEMS_LIST_IDS_MAX = 50
+/** The states items_list filters by: open (new, seen, snoozed; the default without ids), all, or one state. */
+export const ITEMS_LIST_STATES = ['open', 'all', ...ATTENTION_STATES] as const
+
 const id = z.string().min(1).max(200)
 const EPIC_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/u
 
 export const appToolShapes = {
   projects_list: {},
-  items_list: {},
+  items_list: {
+    ids: z.array(id).min(1).max(ITEMS_LIST_IDS_MAX).optional(),
+    project: id.optional(),
+    kind: z.string().min(1).max(200).optional(),
+    state: z.enum(ITEMS_LIST_STATES).optional(),
+    limit: z.number().int().min(1).max(ITEMS_LIST_LIMIT_MAX).optional(),
+    cursor: z.string().regex(/^\d{1,6}$/u).optional(),
+    full: z.boolean().optional(),
+  },
   workflow_read: { projectId: id, epic: z.string().regex(EPIC_NAME).optional() },
   pr_threads_read: { projectId: id, repo: z.string().regex(/^[^/\s]+\/[^/\s]+$/u), number: z.number().int().positive() },
   session_tail_read: { sessionId: id, lines: z.number().int().min(1).max(SESSION_TAIL_MAX).optional() },
@@ -77,7 +105,7 @@ export const appToolDescriptions: Record<AppToolName, string> = {
   projects_list:
     'This Machine and the Linked machines with their Projects. The Projects of a Linked machine are read-only: its own Assistant keeps them, and no action, proposal or Prepare names them; problem says why a Linked machine answered nothing (offline, access off).',
   items_list:
-    'The items of the attention core the duties show now, over every Project of this Machine: source, subject, kind, state, the duty that raised it and the mode of each action it takes. Under linked, what waits on each Linked machine, read-only (readOnly: true): tell the user of it; no action or proposal takes such an item.' +
+    'The items that wait, a page at a time: by default the open items the duties show now over every Project of this Machine, then what waits on each Linked machine (readOnly: true, machine: its name; tell the user of it, no action or proposal takes it), urgent first, then the newest. Filters: ids (up to 50: the items your first message handed over, also those no duty shows), project (a Project id), kind, state (open by default, all with ids; all, new, seen, snoozed, dismissed, closed, stale — without ids only open, all, new or seen, since the duties show only new and seen items: read a snoozed, dismissed, closed or stale one by its ids), limit (1-50, 20 by default), cursor (the nextCursor of the page before). Each answer: total (the items that match), nextCursor (null on the last page), the items, and under linked each Linked machine with its problem. Each item is short: id, Project, source, kind, state, urgent, duty, times, its subject (kind, id; pr: repo and number) and its title; actions: each action of its duty with its mode. With ids, full: true answers the whole of each item instead: its text, its message (link, author, time), the text of each action.' +
     DATA,
   workflow_read: 'The Epics and Tickets of a Project of this Machine: without epic, the Tickets not done; with epic, all of its Tickets.' + DATA,
   pr_threads_read: 'The review threads and the comments of an open PR of the Project\'s PR inbox.' + DATA,

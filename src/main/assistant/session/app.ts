@@ -9,7 +9,7 @@
 //
 // Under WORFY_AGENT=fake (the e2e runs) a Session does not start: it is refused and logged, so a test of the app never
 // reaches the model. The e2e scenario with the fake agent is tickets 14–16.
-import { publicItemId } from '../../mcp/app-server'
+import { publicItemId, wakeItemRecord } from '../../mcp/app-server'
 import { appNow } from '../../clock'
 import { dataRoot } from '../../storage/paths'
 import { claudeAssistantQuery, type AssistantQueryStarter } from '../../vendors/claude/assistant-session'
@@ -60,7 +60,7 @@ export function startAssistant(power: PowerEvents): (() => void) | null {
     start: appStarter(),
     memory: () => readMemoryView(file, publicItemId),
     ledger: appAssistantUsage(),
-    itemId: publicItemId,
+    itemRecord: wakeItemRecord,
   })
   const assistant = composeAssistant({
     sessions,

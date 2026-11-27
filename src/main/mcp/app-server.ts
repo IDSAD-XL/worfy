@@ -35,9 +35,22 @@ import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import type { AttentionItem } from '../../shared/assistant/attention'
 import type { LinkedItem } from '../../shared/assistant/linked'
-import { APP_TOOL_NAMES, appToolDescriptions, appToolShapes, parseAppToolArgs, WORFY_APP_SERVER_NAME, type AppAction, type AppToolArgs, type AppToolName } from '../../shared/assistant/app-tools'
+import { OPEN_STATES } from '../../shared/assistant/attention'
+import {
+  APP_TOOL_NAMES,
+  appToolDescriptions,
+  appToolShapes,
+  ITEMS_LIST_ANSWER_MAX_CHARS,
+  ITEMS_LIST_LIMIT_DEFAULT,
+  parseAppToolArgs,
+  WORFY_APP_SERVER_NAME,
+  type AppAction,
+  type AppToolArgs,
+  type AppToolName,
+} from '../../shared/assistant/app-tools'
 import type { ActionJournalLine } from '../../shared/assistant/actions'
 import { dutyActionModeAllowed, type DutyActionMode, type DutyLook } from '../../shared/assistant/duties'
+import { isUrgentItem } from '../../shared/assistant/window'
 import type { JournalEvent } from '../../shared/autopilot/journal'
 import type { LimitsState } from '../../shared/agent/limits'
 import type { PrInboxComment, PrInboxSnapshot } from '../../shared/ipc/pr-inbox'
@@ -296,6 +309,77 @@ function itemView(item: AttentionItem, actions: DutyLook['shown'][number]['propo
   }
 }
 
+/** The most characters of an item's title in its short record: the whole text is read with full: true. */
+export const ITEM_TITLE_MAX = 300
+
+/**
+ * `value` with its secrets hidden, then cut to `max`: hidden first, since a token the cut splits no longer matches
+ * redactSecrets, and its head would leave in the answer.
+ */
+const cut = (value: string, max: number): string => {
+  const clean = redactSecrets(value)
+  return clean.length <= max ? clean : `${clean.slice(0, max - 1)}…`
+}
+
+/**
+ * An item as items_list lists it and the first message of a Session names it (worfy-polish ticket 164): short, its
+ * title cut, no link, no text of its actions. `actions` — each action of its duty with its mode — when the caller knows
+ * them; the first message gives none.
+ */
+export function compactItemView(item: AttentionItem, actions?: DutyLook['shown'][number]['proposals']) {
+  return {
+    id: publicItemId(item.id),
+    projectId: item.projectId,
+    source: item.source,
+    kind: item.kind,
+    state: item.state,
+    urgent: isUrgentItem(item),
+    duty: item.duty,
+    startedAt: iso(item.startedAt),
+    lastAt: iso(item.lastAt ?? item.startedAt),
+    subject: { kind: item.subject.kind, id: subjectId(item.subject) },
+    ...(item.pr === undefined ? {} : { pr: { repo: item.pr.repo, number: item.pr.number } }),
+    title: outsideText(cut(item.text, ITEM_TITLE_MAX), item.message?.source ?? item.source, item.message?.author ?? null),
+    ...(actions === undefined ? {} : { actions: actions.map((each) => ({ action: each.action, mode: each.mode })) }),
+  }
+}
+
+/** The record of an item the first message of a Session carries: its short record, secrets hidden. */
+export const wakeItemRecord = (item: AttentionItem): { id: string } => redacted(compactItemView(item)) as { id: string }
+
+/** An item of a Linked machine, short: read-only, its title cut, as outside text. */
+function compactLinkedItemView(machine: AppMachine, item: LinkedItem) {
+  return {
+    id: linkedItemId(machine.id, item.id),
+    readOnly: true,
+    machine: machine.name,
+    projectId: item.projectId,
+    source: item.source,
+    kind: item.kind,
+    urgent: item.urgent,
+    startedAt: iso(item.startedAt),
+    lastAt: iso(item.lastAt),
+    subject: { kind: item.subject.kind },
+    title: outsideText(cut(item.title, ITEM_TITLE_MAX), item.source, item.outside?.author ?? null),
+  }
+}
+
+/** The states items_list takes without ids: the duties show new and seen items only. */
+const LISTED_STATES: ReadonlySet<string> = new Set(['open', 'all', 'new', 'seen'])
+
+/** One item of the listing of items_list: what its filters and its order read, and its two views. */
+interface ListedItem {
+  id: string
+  projectId: string | null
+  kind: string
+  /** null: an item of a Linked machine, which waits there, so it is open. */
+  state: AttentionItem['state'] | null
+  urgent: boolean
+  lastAt: number
+  compact(): unknown
+  full(): unknown
+}
+
 const commentView = (comment: PrInboxComment) => ({ author: comment.author, at: comment.createdAt, url: comment.url, body: outsideText(comment.body, 'github', comment.author) })
 
 type Handlers = { [Name in AppToolName]: (args: AppToolArgs[Name]) => Promise<unknown> | unknown }
@@ -381,10 +465,84 @@ function handlers(deps: WorfyAppDeps): Handlers {
     }),
 
     // The Assistant's reads count nothing as shown: only what the user saw does (worfy-assistant ticket 14, assistant.shown).
-    items_list: async () => ({
-      items: deps.duties.look(deps.items(), { countShown: false }).shown.map((shown) => itemView(shown.item, shown.proposals)),
-      linked: (await linkedMachines()).map((machine) => ({ machine: machine.name, readOnly: true, problem: machine.problem === null ? null : fromLinked(machine, machine.problem), items: machine.items.map((item) => linkedItemView(machine, item)) })),
-    }),
+    // One listing of this Machine's items and the Linked machines', in pages that stay well below the size Claude Code
+    // saves to a file (worfy-polish ticket 164, CLAUDE_CODE_RESULT_TO_FILE_CHARS).
+    items_list: async (args) => {
+      if (args.full === true && args.ids === undefined) throw new ToolError('full: true reads only the items named by ids: list them, then read the ones you need with ids and full: true.')
+      // Without ids the listing is what the duties show, new and seen items only: another state would always answer none.
+      if (args.ids === undefined && args.state !== undefined && !LISTED_STATES.has(args.state)) {
+        throw new ToolError(`state ${args.state} reads only the items named by ids: without ids the list holds what the duties show now, new and seen items. Use open, all, new or seen, or name the items by ids.`)
+      }
+      const wanted = args.ids === undefined ? null : new Set(args.ids)
+      const shown = deps.duties.look(deps.items(), { countShown: false }).shown
+      const shownOf = new Map(shown.map((each) => [each.item.id, each]))
+      // With ids, any item of the core: one a wake handed over may be one no duty shows (a Session that ended its turn).
+      const own = wanted === null ? shown.map((each) => each.item) : deps.items().filter((item) => wanted.has(publicItemId(item.id)))
+      const machines = await linkedMachines()
+      const listed: ListedItem[] = [
+        ...own.map((item): ListedItem => {
+          const actions = shownOf.get(item.id)?.proposals ?? []
+          return {
+            id: publicItemId(item.id),
+            projectId: item.projectId,
+            kind: item.kind,
+            state: item.state,
+            urgent: isUrgentItem(item),
+            lastAt: item.lastAt ?? item.startedAt,
+            compact: () => compactItemView(item, actions),
+            full: () => itemView(item, actions),
+          }
+        }),
+        ...machines.flatMap((machine) =>
+          machine.items
+            .filter((item) => wanted === null || wanted.has(linkedItemId(machine.id, item.id)))
+            .map(
+              (item): ListedItem => ({
+                id: linkedItemId(machine.id, item.id),
+                projectId: item.projectId,
+                kind: item.kind,
+                state: null,
+                urgent: item.urgent,
+                lastAt: item.lastAt,
+                compact: () => compactLinkedItemView(machine, item),
+                full: () => ({ ...linkedItemView(machine, item), machine: machine.name }),
+              }),
+            ),
+        ),
+      ]
+      const state = args.state ?? (wanted === null ? 'open' : 'all')
+      const stateMatches = (each: ListedItem): boolean => {
+        if (state === 'all') return true
+        if (each.state === null) return state === 'open'
+        return state === 'open' ? OPEN_STATES.includes(each.state) : each.state === state
+      }
+      const matching = listed
+        .filter((each) => stateMatches(each) && (args.project === undefined || each.projectId === args.project) && (args.kind === undefined || each.kind === args.kind))
+        // Urgent first, then the newest; the id keeps the order of the pages the same between calls.
+        .sort((a, b) => Number(b.urgent) - Number(a.urgent) || b.lastAt - a.lastAt || a.id.localeCompare(b.id))
+      const found = new Set(listed.map((each) => each.id))
+      const missing = args.ids?.filter((each) => !found.has(each)) ?? []
+      const answer = (items: unknown[], nextCursor: string | null) => ({
+        total: matching.length,
+        nextCursor,
+        items,
+        ...(missing.length === 0 ? {} : { missing }),
+        linked: machines.map((machine) => ({ machine: machine.name, readOnly: true, problem: machine.problem === null ? null : fromLinked(machine, machine.problem), waiting: machine.items.length })),
+      })
+      // A page ends at its limit, or before the answer would pass its size; it holds one item at least.
+      const start = Math.min(Number(args.cursor ?? '0'), matching.length)
+      const page: unknown[] = []
+      let size = JSON.stringify(redacted(answer([], String(matching.length)))).length
+      for (const each of matching.slice(start, start + (args.limit ?? ITEMS_LIST_LIMIT_DEFAULT))) {
+        const view = redacted(args.full === true ? each.full() : each.compact())
+        const more = JSON.stringify(view).length + 1
+        if (page.length > 0 && size + more > ITEMS_LIST_ANSWER_MAX_CHARS) break
+        page.push(view)
+        size += more
+      }
+      const end = start + page.length
+      return answer(page, end < matching.length ? String(end) : null)
+    },
 
     workflow_read: async ({ projectId, epic }) => {
       await readableProject(projectId)
