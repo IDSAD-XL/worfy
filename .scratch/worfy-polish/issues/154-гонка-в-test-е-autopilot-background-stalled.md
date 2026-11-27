@@ -1,7 +1,8 @@
 # 154 — Гонка в contract test-е Autopilot background-stalled: ждать таймер, а не строку journal; снять Windows exception
 
 Type: bug
-Status: open
+Status: claimed 2026-11-27T14:24Z
+Branch: worfy-polish/154
 Blocked by: —
 Source: решение владельца 2026-11-26 (раунд Q1–Q12 вечернего отчёта 2026-11-25), Q9; запись Windows exception из
 [worfy-polish 143](143-windows-exception-трёх-contract-test-ов.md) (PR #2208),
@@ -62,7 +63,11 @@ Contract test «the silence of a background implementer after the turn stays bac
 ## Готово, когда
 
 - [ ] Test ждёт взведённый таймер остановки, а не строку journal; mutant без этого ожидания — красный.
+  - evidence: test-run pass · `WFDELAY=1000 pnpm test <old copy> test/contract/autopilot-faults-ladder.test.ts -t background-stalled` exit 1: old copy timed out waiting for run 1 to stop, new passed; new alone with WFDELAY=3000 exit 0 · mac - · 00c947c67a910d4ce5c09e0f03318073eed2e194
 - [ ] Windows exception снят: запись удалена, test объявлен через `it`.
+  - evidence: commit pass · worfy-polish/154: wait for the armed stall timer before moving the clock in the background-stalled test · - - · 00c947c67a910d4ce5c09e0f03318073eed2e194
 - [ ] Предел `until`, timeout-ы и множитель не изменены.
+  - evidence: commit pass · worfy-polish/154: wait for the armed stall timer before moving the clock in the background-stalled test · - - · 00c947c67a910d4ce5c09e0f03318073eed2e194
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR, Windows job-ы с этим test-ом —
       зелёные с первой попытки.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 00c947c67a910d4ce5c09e0f03318073eed2e194

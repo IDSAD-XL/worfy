@@ -32,7 +32,6 @@ import { QUIET_MARK_MS } from '../../src/shared/agent/quiet'
 import { QUIET_HUNG_MS } from '../../src/shared/autopilot/cycle'
 import type { JournalEvent } from '../../src/shared/autopilot/journal'
 import { checkRecovery } from '../autopilot-invariants'
-import { quarantined } from '../quarantine'
 import { ms } from '../time-scale'
 import { AGENT_SCRIPTS, EPIC, EPIC_B, faultRun, PROJECT, START_MS, until, type FaultRun, type FaultScript } from './autopilot-faults-setup'
 
@@ -366,16 +365,22 @@ describe('a quiet turn of the Orchestrator (worfy-stuck-agents ticket 09)', () =
     expect(checkRecovery(h.recovery({ stop: 'turn-hung', waves: 1 }))).toEqual([])
   })
 
-  quarantined('autopilot-faults-background-stalled-not-turn-hung')('the silence of a background implementer after the turn stays background-stalled, not turn-hung', async () => {
+  it('the silence of a background implementer after the turn stays background-stalled, not turn-hung', async () => {
     // test/fixtures/agent-scripts/autopilot-background.jsonl: the Wave's turn ends with two implementers alive, which then say nothing.
-    const h = faultRun({ scripts: ['autopilot-background'], marks: 'claimed', quietHungMs: QUIET_HUNG_MS, prs: false, backgroundStallMs: 60 * 60_000 })
+    const stallMs = 60 * 60_000
+    const h = faultRun({ scripts: ['autopilot-background'], marks: 'claimed', quietHungMs: QUIET_HUNG_MS, prs: false, backgroundStallMs: stallMs })
     expect(await h.start()).toEqual({ refusal: null })
     await until(() => h.kinds(1).includes('background-tasks') && h.registry.list().every((each) => each.state !== 'busy'), 'the end of the Wave turn with live tasks')
+    // The journal line and the idle Sessions come before the run arms its limit of the tasks: it does so in its own
+    // queue, once its cycle has reached phase `tasks` after the turn's end (run.ts, tasksTimer). A move of the clock
+    // before that is lost to the timer, which a slow Windows runner then armed after the last move, so the run never
+    // stopped (worfy-polish ticket 154). Both moves wait for the timer itself.
+    await until(() => h.clock.pending().some((timer) => timer.ms === stallMs), 'the limit of the background tasks')
 
     h.clock.advance(QUIET_HUNG_MS + 60_000)
     await pause()
     expect(h.state().status).toBe('running')
-    h.clock.advance(60 * 60_000)
+    h.clock.advance(stallMs)
     await h.stopped(1)
     expect(h.state()).toMatchObject({ status: 'stopped', reason: 'background-stalled' })
     expect(checkRecovery(h.recovery({ stop: 'background-stalled', waves: 1 }))).toEqual([])
