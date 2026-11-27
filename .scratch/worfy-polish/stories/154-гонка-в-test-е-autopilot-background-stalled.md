@@ -75,3 +75,32 @@ journal кончается двумя `background-tasks`, как на CI; нов
    - Ответ: первый сдвиг проверяет, что тихая фоновая работа не стала `turn-hung`; смысл у этой проверки есть, только
      когда run уже ждёт фоновые задачи, а таймер, взведённый после первого сдвига, ещё и сдвигает свой срок.
    - Строки: `test/contract/autopilot-faults-ladder.test.ts:378-383`
+
+## 5. Что нашёл review и что осталось
+
+> VERIFIED — worfy-polish 154 (the race in the contract test «the silence of a background implementer after the turn stays background-stalled, not turn-hung»: it moved the test clock once the journal line and idle Sessions were there, before the run armed its background-tasks timer in its own queue; now it waits for the timer itself on the test clock before both moves; the Windows exception removed), head b8fce1630415e1103d2080d2f60860217ed6de1f
+>
+> Gate (depth medium, one round): orchestrator read of the code diff — one test file (+9/−4) and the deleted quarantine record; the wait `h.clock.pending().some((timer) => timer.ms === stallMs)` uses the existing until() (5000 ms, not raised); run.ts untouched (the run always arms the timer, later than the journal line). Implementer proof: with a 1000 ms delay in the workflow read the old test fails exactly as on CI («timed out waiting for run 1 to stop (15009 ms)»), the new one passes even at 3000 ms; on Mac the timer appeared 30–46 ms after the old condition in 6 of 6 probes; 22 autopilot contract files + quarantine unit 478 tests EXIT=0; full pnpm test EXIT=0; lint, typecheck EXIT=0; gate fast green (first run red only on test/contract/codex-session.test.ts:858, a wall-clock measure 941 < 950 in an untouched file — candidate flaky test); story-check EXIT=0. CI run 46019926768 green on the head: the test ran on windows (1/3) full-suite, green at the first attempt in 2159 ms, no FLAKY line.
+> Consider: none
+> Noted: similar pattern not checked at test/contract/autopilot-faults-github.test.ts:223,229 (clock moved after wave-started without waiting for the next read's timer); test/contract/codex-session.test.ts:858 wall-clock measure; test/contract/codex-account.test.ts:139 FLAKY on windows 3/3 of this run.
+> Dismissed: none
+> Review depth: medium — owner rule (test-only diff under ~20 lines, read by the orchestrator)
+> Review tokens: not measured
+
+Code: `test/contract/codex-session.test.ts:858-858` · key lines: 858
+
+```ts
+  it('output that never closes ends the events OUTPUT_AFTER_EXIT_MS after the exit', async () => {
+```
+
+Code: `test/contract/autopilot-faults-github.test.ts:223-223` · key lines: 223
+
+```ts
+    h.clock.advance(BASE_MS)
+```
+
+Code: `test/contract/codex-account.test.ts:139-139` · key lines: 139
+
+```ts
+  it('account-plus: the poll reads the account, then two windows, 5h and weekly, skipping the reset-credit details', async () => {
+```
