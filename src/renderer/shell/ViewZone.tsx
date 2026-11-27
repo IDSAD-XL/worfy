@@ -18,8 +18,20 @@
 // edge of the zone do nothing: only the menu takes a button to another zone. The rail's buttons drawn in the header move
 // within the rail with ⌥← and ⌥→. Each move is one `appSettings.set` of the whole layout, Reset layout one with `null`;
 // every window of this Machine hears it. The button keeps the focus after the zones are drawn again, in its new zone.
-import { useLayoutEffect, useState, type KeyboardEvent, type MouseEvent } from 'react'
-import { isDefault, moveToZone, moveWithin, VIEW_ZONES, type ViewButtonId, type ViewButtons, type ViewZone as Zone } from '../../shared/layout/view-buttons'
+// A key pressed again before main has answered steps on from the layout the last press asked for.
+//
+// A drag (worfy-layout ticket 06; spec, the section on the drag): native HTML5 drag and drop, as QueueList's rows
+// (src/renderer/autopilot/QueueList.tsx), no library. Every View button is draggable, an inactive one too: the layout
+// does not depend on the Project. While a drag goes `.w-shell` carries `data-view-drag`, every zone drawn is lit
+// (`data-drop-zone="on"`) and the one under the pointer more (`"over"`), with the marker of the gap the pointer is over:
+// before the button whose middle is past the pointer, or after the last one. An empty zone shows a place of one button,
+// «Drop here», and only then. A drop is one `appSettings.set`; Esc or letting go outside a zone ends the drag with no
+// drop, and `dragend` puts the zones out. The drag lives in this module, so a zone takes a drop only from a drag that
+// began in its own window. While the sidebar is hidden the rail's buttons at the end of the header are no drop place
+// (owner's decision A): past the header's own buttons is the end of the header.
+import { useLayoutEffect, useState, type DragEvent, type KeyboardEvent, type MouseEvent } from 'react'
+import { create } from 'zustand'
+import { defaultViewButtons, isDefault, moveToZone, moveWithin, sameViewButtons, VIEW_ZONES, type ViewButtonId, type ViewButtons, type ViewZone as Zone } from '../../shared/layout/view-buttons'
 import { useFocusState } from '../focus/focus-state'
 import { setAppSettings } from '../settings/useAppSettings'
 import { ContextMenu, ContextMenuSeparator, type ContextMenuPoint } from '../theme/kit/ContextMenu'
@@ -71,14 +83,70 @@ const STEPS: Record<Zone, Partial<Record<string, -1 | 1>>> = {
  */
 let focusAfterMove: ViewButtonId | null = null
 
+/**
+ * The layout the last move asked for, while main has not answered every move yet: a second ⌥→ pressed before the
+ * answer steps on from it, not from the layout still drawn. `setAppSettings` takes the answer into the settings before
+ * it resolves, so once the last one has, the layout drawn is the one to step from.
+ */
+let asked: { layout: ViewButtons; waiting: number } | null = null
+
+/** The layout a move starts from: the one the last move asked for while main has not answered, else the one drawn. */
+const startOf = (layout: ViewLayout): ViewLayout => asked?.layout ?? layout
+
 /** Asks main for the layout `next` (`null` — Reset layout) and has the button `id` keep the focus once it is drawn. */
 function place(next: ViewButtons | null, id: ViewButtonId): void {
   focusAfterMove = id
+  asked = { layout: next ?? defaultViewButtons(), waiting: (asked?.waiting ?? 0) + 1 }
   void setAppSettings({ viewButtons: next }).then((error) => {
+    if (asked !== null && --asked.waiting === 0) asked = null
     if (error === undefined) return
     if (focusAfterMove === id) focusAfterMove = null
     console.error('Moving a View button failed:', error)
   })
+}
+
+/** The type of the drag's data: the id of the View button. */
+const DRAG_TYPE = 'application/x-worfy-view-button'
+
+/** The drag of a View button in this window: which one, and the gap of the zone the pointer is over. */
+interface ViewDrag {
+  id: ViewButtonId
+  over: { zone: Zone; gap: number } | null
+}
+
+const useViewDrag = create<{ drag: ViewDrag | null }>(() => ({ drag: null }))
+
+function startDrag(id: ViewButtonId, source: HTMLElement): void {
+  useViewDrag.setState({ drag: { id, over: null } })
+  source.closest('.w-shell')?.setAttribute('data-view-drag', id)
+}
+
+/** Ends the drag, dropped or not: the zones go out and the header is the window's drag area again (shell.css). */
+function endDrag(): void {
+  if (useViewDrag.getState().drag !== null) useViewDrag.setState({ drag: null })
+  for (const shell of document.querySelectorAll('[data-view-drag]')) shell.removeAttribute('data-view-drag')
+}
+
+/** The pointer is over the gap `gap` of `zone`, or over no zone (`null`). */
+function overGap(over: ViewDrag['over']): void {
+  const { drag } = useViewDrag.getState()
+  if (drag === null || (drag.over?.zone === over?.zone && drag.over?.gap === over?.gap)) return
+  useViewDrag.setState({ drag: { ...drag, over } })
+}
+
+/**
+ * The gap of `zone` the pointer is over: the place of the first of its buttons whose middle is past the pointer, along
+ * the row (the column on the rail), as QueueList's `gapAt` halves a row; past them all, the end. Only the zone's own
+ * buttons count: the rail's drawn at the end of the header are not the header's.
+ */
+function gapAt(group: HTMLElement, zone: Zone, event: DragEvent<HTMLElement>): number {
+  const buttons = [...group.querySelectorAll<HTMLElement>(`[data-view-button][data-zone="${zone}"]`)]
+  const at = zone === 'rail' ? event.clientY : event.clientX
+  const gap = buttons.findIndex((button) => {
+    const box = button.getBoundingClientRect()
+    return at < (zone === 'rail' ? box.top + box.height / 2 : box.left + box.width / 2)
+  })
+  return gap === -1 ? buttons.length : gap
 }
 
 const check = (
@@ -118,15 +186,42 @@ export function ViewZone({ zone, views, withRail = false, sectionNames }: ViewZo
     if (document.activeElement !== moved) moved.focus()
   }, [layout])
 
+  const drag = useViewDrag((state) => state.drag)
   const own = entriesOf(layout[zone])
   const guests = zone === 'header' && withRail ? entriesOf(layout.rail) : []
   const placed = [...own, ...guests]
-  if (placed.length === 0) return null
+  if (placed.length === 0 && drag === null) return null
   const pressed = placed.some((entry) => entry.id === view) ? view : null
+  // The gap of this zone the pointer is over while a drag goes, else none.
+  const gap = drag?.over?.zone === zone ? drag.over.gap : null
 
   const openMenu = (entry: ViewButtonEntry, entryZone: Zone, opener: HTMLElement, at: ContextMenuPoint) => {
     const id = layout[entryZone].find((each) => each === entry.id)
     if (id !== undefined) setMenu({ id, label: entry.button.label, zone: entryZone, opener, at })
+  }
+  // A zone takes only a drag that began in this window: the drag of this module.
+  const onDragOver = (event: DragEvent<HTMLDivElement>) => {
+    if (useViewDrag.getState().drag === null) return
+    event.preventDefault()
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
+    overGap({ zone, gap: gapAt(event.currentTarget, zone, event) })
+  }
+  // A leave into a button of the zone is no leave: only a point outside the zone's box puts its marker out.
+  const onDragLeave = (event: DragEvent<HTMLDivElement>) => {
+    const box = event.currentTarget.getBoundingClientRect()
+    const inside = event.clientX >= box.left && event.clientX < box.right && event.clientY >= box.top && event.clientY < box.bottom
+    if (!inside && useViewDrag.getState().drag?.over?.zone === zone) overGap(null)
+  }
+  // The gap is counted on the layout drawn, as the marker is; the button goes there among the others of the zone.
+  const onDrop = (event: DragEvent<HTMLDivElement>) => {
+    const dragged = useViewDrag.getState().drag
+    if (dragged === null) return
+    event.preventDefault()
+    const at = gapAt(event.currentTarget, zone, event)
+    endDrag()
+    const from = layout[zone].indexOf(dragged.id)
+    const next = moveToZone(layout, dragged.id, zone, from !== -1 && from < at ? at - 1 : at)
+    if (!sameViewButtons(next, layout)) place(next, dragged.id)
   }
   const onContextMenu = (entry: ViewButtonEntry, entryZone: Zone) => (event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault()
@@ -146,15 +241,16 @@ export function ViewZone({ zone, views, withRail = false, sectionNames }: ViewZo
     if (step === undefined) return
     event.preventDefault()
     event.stopPropagation()
-    const buttons = layout[entryZone]
+    const start = startOf(layout)
+    const buttons = start[entryZone]
     const from = buttons.findIndex((each) => each === entry.id)
     const id = buttons[from]
     const to = from + step
     if (id === undefined || to < 0 || to >= buttons.length) return
-    place(moveWithin(layout, entryZone, from, to), id)
+    place(moveWithin(start, entryZone, from, to), id)
   }
 
-  const button = (entryZone: Zone) => (entry: ViewButtonEntry) => (
+  const button = (entryZone: Zone) => (entry: ViewButtonEntry, index: number) => (
     <ViewButton
       key={entry.id}
       entry={entry}
@@ -162,8 +258,17 @@ export function ViewZone({ zone, views, withRail = false, sectionNames }: ViewZo
       zone={entryZone}
       inactive={entry.button.needsProject !== undefined && project === undefined}
       badged={zone !== 'rail' || sectionNames?.has(entry.button.label) !== true}
+      marker={entryZone !== zone || gap === null ? undefined : gap === index ? 'before' : gap === index + 1 && index === own.length - 1 ? 'after' : undefined}
       onContextMenu={onContextMenu(entry, entryZone)}
       onKeyDown={onKeyDown(entry, entryZone)}
+      onDragStart={(event) => {
+        const id = layout[entryZone].find((each) => each === entry.id)
+        if (id === undefined) return
+        event.dataTransfer?.setData(DRAG_TYPE, id)
+        if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
+        startDrag(id, event.currentTarget)
+      }}
+      onDragEnd={endDrag}
     />
   )
   return (
@@ -175,7 +280,11 @@ export function ViewZone({ zone, views, withRail = false, sectionNames }: ViewZo
         data-zone={zone}
         // The header's labels give way at 1400 px from four buttons on (shell.css).
         data-count={placed.length}
+        data-drop-zone={drag === null ? undefined : gap === null ? 'on' : 'over'}
         inert={zone !== 'header' && focusMode}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
         value={pressed}
         // A press opens the view as its entry says (views.tsx): Runs at the newest Run, the others switch the main area. A
         // press on the pressed button opens its view again, as the View switch did.
@@ -185,6 +294,11 @@ export function ViewZone({ zone, views, withRail = false, sectionNames }: ViewZo
         }}
       >
         {own.map(button(zone))}
+        {own.length === 0 && drag !== null ? (
+          <span className="w-view-zone__drop-here" data-drop-marker={gap === null ? undefined : 'here'} aria-hidden="true">
+            Drop here
+          </span>
+        ) : null}
         {own.length > 0 && guests.length > 0 ? <span className="w-view-zone__line" aria-hidden="true" /> : null}
         {guests.map(button('rail'))}
       </ToggleGroup>
@@ -206,7 +320,7 @@ export function ViewZone({ zone, views, withRail = false, sectionNames }: ViewZo
                 closeOnClick
                 disabled={target === menu.zone}
                 data-zone={target}
-                onClick={() => place(moveToZone(layout, menu.id, target), menu.id)}
+                onClick={() => place(moveToZone(startOf(layout), menu.id, target), menu.id)}
               >
                 <span className="w-view-menu__check">{target === menu.zone ? check : null}</span>
                 {ZONE_NAMES[target]}

@@ -954,3 +954,87 @@ html[data-platform='linux'] .w-sidebar__titlebar {
 .w-view-menu .w-row[aria-disabled='true'] {
   color: var(--text-muted);
 }
+/* A drag of a View button (ViewZone.tsx, worfy-layout ticket 06). A drag area of the window gets no `dragover`, so while
+   a drag goes the header and the sidebar's top strip are none (the header's group is none always, above). */
+.w-shell[data-view-drag] .w-toolbar,
+.w-shell[data-view-drag] .w-sidebar__titlebar {
+  -webkit-app-region: no-drag;
+}
+/* Every zone drawn is lit while a drag goes, the one under the pointer more. */
+.w-view-zone[data-drop-zone] {
+  outline: 1px dashed var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-button);
+}
+.w-view-zone[data-drop-zone='over'] {
+  outline-width: 2px;
+  outline-style: solid;
+}
+/* The marker of the gap the pointer is over: a vertical line before or after a button of the header and the footer, a
+   horizontal one above or under a button of the rail. It takes no room, so the gaps do not move under the pointer. */
+.w-view-button {
+  position: relative;
+}
+.w-view-button[data-drop-marker]::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+  pointer-events: none;
+}
+.w-view-button[data-drop-marker='before']::after {
+  left: -2px;
+}
+.w-view-button[data-drop-marker='after']::after {
+  right: -2px;
+}
+.w-view-button--rail[data-drop-marker]::after {
+  top: auto;
+  bottom: auto;
+  left: 4px;
+  right: 4px;
+  width: auto;
+  height: 2px;
+}
+.w-view-button--rail[data-drop-marker='before']::after {
+  top: -3px;
+  left: 4px;
+}
+.w-view-button--rail[data-drop-marker='after']::after {
+  bottom: -3px;
+  right: 4px;
+}
+/* An empty zone during a drag: a place of one button, «Drop here»; the accent while the pointer is over it. */
+.w-view-zone__drop-here {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-button);
+  color: var(--text-muted);
+  font-size: var(--text-11);
+  white-space: nowrap;
+}
+.w-view-zone--header .w-view-zone__drop-here {
+  height: 24px;
+}
+.w-view-zone--rail .w-view-zone__drop-here {
+  width: 34px;
+  height: 34px;
+  padding: 0 2px;
+  font-size: 9px;
+  line-height: 1.1;
+  text-align: center;
+  white-space: normal;
+}
+.w-view-zone__drop-here[data-drop-marker] {
+  border-color: var(--accent);
+  color: var(--accent);
+}

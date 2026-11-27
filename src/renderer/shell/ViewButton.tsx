@@ -3,8 +3,9 @@
 // icon, the «window» mark in the corner of the icon and the tooltip on the right; a footer button 22 px high with a
 // 13 px icon, its label and badge. Its name, tooltip, icon, badge and why it is inactive come from the registry
 // (views.tsx). It is a button of a kit ToggleGroup (ViewZone.tsx): the group knows which one is pressed, and the zone
-// gives it its menu and its keys (worfy-layout ticket 05).
-import type { KeyboardEventHandler, MouseEventHandler } from 'react'
+// gives it its menu and its keys (worfy-layout ticket 05) and its drag (ticket 06): every button is draggable, an inactive
+// one too, as the layout does not depend on the Project.
+import type { DragEventHandler, KeyboardEventHandler, MouseEventHandler } from 'react'
 import type { ViewZone } from '../../shared/layout/view-buttons'
 import { ToggleGroupItem } from '../theme/kit/ToggleGroup'
 import { Tooltip } from '../theme/kit/Tooltip'
@@ -30,6 +31,11 @@ export interface ViewButtonProps {
   onContextMenu?: MouseEventHandler<HTMLButtonElement>
   /** Shift+F10 and the ⌥-arrows: the zone opens the menu or moves the button, before the group's own arrows. */
   onKeyDown?: KeyboardEventHandler<HTMLButtonElement>
+  /** While a drag goes, the marker of the gap the pointer is over: before this button, or after it as the zone's last. */
+  marker?: 'before' | 'after'
+  /** The start and the end of a drag of this button (worfy-layout ticket 06): the zone keeps the drag. */
+  onDragStart?: DragEventHandler<HTMLButtonElement>
+  onDragEnd?: DragEventHandler<HTMLButtonElement>
 }
 
 function Badge({ badge, look, testId }: { badge: RailBadge; look: ViewButtonLook; testId: string }) {
@@ -70,7 +76,7 @@ const CLASSES: Record<ViewButtonLook, string> = {
   footer: 'w-view-button w-view-button--footer',
 }
 
-export function ViewButton({ entry, look, zone, inactive, badged, onContextMenu, onKeyDown }: ViewButtonProps) {
+export function ViewButton({ entry, look, zone, inactive, badged, onContextMenu, onKeyDown, marker, onDragStart, onDragEnd }: ViewButtonProps) {
   const { button } = entry
   // Every button reads its badge, shown or not: a hook is called on every render.
   const read = button.useBadge()
@@ -93,8 +99,12 @@ export function ViewButton({ entry, look, zone, inactive, badged, onContextMenu,
       data-view-button={entry.id}
       data-zone={zone}
       data-testid={button.testId}
+      data-drop-marker={marker}
+      draggable
       onContextMenu={onContextMenu}
       onKeyDown={onKeyDown}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
     >
       <Icon />
       {look === 'rail' ? <WindowMark /> : <span className={look === 'header' ? 'w-segmented__label' : 'w-view-button__label'}>{button.label}</span>}

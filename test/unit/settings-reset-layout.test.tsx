@@ -82,4 +82,17 @@ describe('Settings → General, Reset layout of the View buttons', () => {
     expect(screen.getByTestId('settings-view-buttons-problem').textContent).toBe('Not saved: app-settings.json is read-only')
     expect(reset().disabled).toBe(false)
   })
+
+  it('the reason goes once the layout is the default again, as another window reset it: nothing is left unsaved', async () => {
+    const main = await mount(settings(1, MOVED))
+    await waitFor(() => expect(reset().disabled).toBe(false))
+    fireEvent.click(reset())
+    await act(async () => main.sets[0]!.answer({ ok: false, error: 'app-settings.json is read-only' }))
+    expect(screen.queryByTestId('settings-view-buttons-problem')).not.toBeNull()
+    // The change another window made, as `appSettings.changed` brings it.
+    const store = await import('../../src/renderer/settings/useAppSettings')
+    act(() => store.acceptAppSettings(settings(3)))
+    expect(reset().disabled).toBe(true)
+    expect(screen.queryByTestId('settings-view-buttons-problem')).toBeNull()
+  })
 })

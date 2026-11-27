@@ -173,8 +173,12 @@ function OlderEpicsRow() {
  * the app settings, and every window of this Machine follows at once.
  */
 function ViewButtonsRow() {
-  const moved = useAppSettings((settings) => settings.viewButtons !== undefined && !isDefault(settings.viewButtons))
-  const [problem, setProblem] = useState<string>()
+  const layout = useAppSettings((settings) => settings.viewButtons)
+  const moved = layout !== undefined && !isDefault(layout)
+  // The reason main refused, with the layout it refused to reset: once the layout changes (another window reset or moved
+  // it), the reason is of a layout no longer there, and it goes.
+  const [refused, setRefused] = useState<{ problem: string; layout: typeof layout }>()
+  const problem = refused !== undefined && refused.layout === layout ? refused.problem : undefined
   return (
     <SettingRow
       label="View buttons"
@@ -192,7 +196,7 @@ function ViewButtonsRow() {
       <Button
         disabled={!moved}
         onClick={() => {
-          void setAppSettings({ viewButtons: null }).then(setProblem)
+          void setAppSettings({ viewButtons: null }).then((error) => setRefused(error === undefined ? undefined : { problem: error, layout }))
         }}
         data-testid="settings-reset-layout"
       >

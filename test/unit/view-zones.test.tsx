@@ -2,8 +2,9 @@
 // header, the block of the rail under a line and the left of the footer draw the buttons the layout puts there, in its
 // order; the button of the view on screen is pressed in any zone; the badges come from the views' own sources; a zone
 // without buttons draws nothing; while the sidebar is hidden the rail's buttons stand at the end of the header; in focus
-// mode the rail's and the footer's buttons are inert.
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+// mode the rail's and the footer's buttons are inert. Ticket 05 moves a button with its menu and keys, ticket 06 with a
+// drag: native drag events with a stub of DataTransfer, as test/unit/queue-list.test.tsx sends them.
+import { act, cleanup, createEvent, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { openRunHistory, readyCount, prCounts, tickets } = vi.hoisted(() => ({
@@ -415,5 +416,184 @@ describe('the parts without a shell', () => {
     cleanup()
     render(<Footer />)
     expect(screen.queryByRole('group', { name: 'Views' })).toBeNull()
+  })
+})
+
+describe('a drag of a View button (ticket 06)', () => {
+  const answered = () => act(async () => {})
+  const transfer = () => ({ setData: vi.fn(), effectAllowed: 'all', dropEffect: 'none' })
+  const shell = () => screen.getByTestId('app-shell')
+  const zoneOf = (zone: string) => document.querySelector<HTMLElement>(`.w-view-zone[data-zone="${zone}"]`)
+  const viewButton = (id: string) => document.querySelector<HTMLButtonElement>(`[data-view-button="${id}"]`)!
+  /**
+   * jsdom lays nothing out: the buttons of a zone are given boxes side by side, 80 px wide (the rail's one above the
+   * other, 34 px high), in the order they are drawn.
+   */
+  function layOut(zone: string): void {
+    const buttons = [...document.querySelectorAll<HTMLElement>(`[data-view-button][data-zone="${zone}"]`)]
+    buttons.forEach((button, at) => {
+      const box = zone === 'rail' ? { left: 0, width: 34, top: at * 34, height: 34 } : { left: at * 80, width: 80, top: 0, height: 24 }
+      vi.spyOn(button, 'getBoundingClientRect').mockReturnValue({ ...box, right: box.left + box.width, bottom: box.top + box.height, x: box.left, y: box.top, toJSON: () => ({}) })
+    })
+  }
+  /** A drag event at a point (jsdom has no DragEvent, so the coordinates are set on the plain event). */
+  function dragAt(make: typeof createEvent.dragOver, target: HTMLElement, data: object, at: { x?: number; y?: number }): void {
+    const event = make(target, { dataTransfer: data })
+    Object.defineProperty(event, 'clientX', { value: at.x ?? 0 })
+    Object.defineProperty(event, 'clientY', { value: at.y ?? 0 })
+    fireEvent(target, event)
+  }
+
+  it('Runs dragged from the footer onto the left half of Session lands between Canvas and Session; while it goes every zone is lit and the marker stands before Session', async () => {
+    render(<AppShell project={PROJECT} />)
+    layOut('header')
+    const data = transfer()
+    fireEvent.dragStart(viewButton('history'), { dataTransfer: data })
+    expect(data.setData).toHaveBeenCalledWith('application/x-worfy-view-button', 'history')
+    expect(data.effectAllowed).toBe('move')
+    expect(shell().dataset.viewDrag).toBe('history')
+    expect(['header', 'rail', 'footer'].map((zone) => zoneOf(zone)?.dataset.dropZone)).toEqual(['on', 'on', 'on'])
+    dragAt(createEvent.dragOver, viewButton('session'), data, { x: 100 })
+    expect(['header', 'rail', 'footer'].map((zone) => zoneOf(zone)?.dataset.dropZone)).toEqual(['over', 'on', 'on'])
+    expect(viewButton('session').dataset.dropMarker).toBe('before')
+    expect(viewButton('canvas').dataset.dropMarker).toBeUndefined()
+    dragAt(createEvent.drop, viewButton('session'), data, { x: 100 })
+    fireEvent.dragEnd(viewButton('history'), { dataTransfer: data })
+    expect(patches).toEqual([{ viewButtons: { header: ['canvas', 'history', 'session'], rail: ['pull-requests', 'acceptance'], footer: ['pipeline'] } }])
+    expect(shell().dataset.viewDrag).toBeUndefined()
+    expect(document.querySelector('[data-drop-zone]')).toBeNull()
+    expect(document.querySelector('[data-drop-marker]')).toBeNull()
+    await answered()
+    expect(names(header())).toEqual(['Canvas', 'Runs', 'Session'])
+    expect(names(footer())).toEqual(['Pipeline'])
+  })
+
+  it('a drag that ends without a drop (Esc, or let go outside a zone) changes nothing and puts the zones out', async () => {
+    render(<AppShell project={PROJECT} />)
+    layOut('header')
+    const data = transfer()
+    fireEvent.dragStart(viewButton('pipeline'), { dataTransfer: data })
+    dragAt(createEvent.dragOver, viewButton('canvas'), data, { x: 10 })
+    expect(viewButton('canvas').dataset.dropMarker).toBe('before')
+    dragAt(createEvent.dragLeave, zoneOf('header')!, data, { x: 500, y: 300 })
+    expect(zoneOf('header')?.dataset.dropZone).toBe('on')
+    expect(document.querySelector('[data-drop-marker]')).toBeNull()
+    fireEvent.dragEnd(viewButton('pipeline'), { dataTransfer: data })
+    await answered()
+    expect(patches).toEqual([])
+    expect(shell().dataset.viewDrag).toBeUndefined()
+    expect(document.querySelector('[data-drop-zone]')).toBeNull()
+    expect(names(footer())).toEqual(['Pipeline', 'Runs'])
+  })
+
+  it('within a zone: Canvas over the right half of Session goes after it, under the marker after Session; dropped where it stands nothing is sent', async () => {
+    render(<AppShell project={PROJECT} />)
+    layOut('header')
+    const data = transfer()
+    fireEvent.dragStart(viewButton('canvas'), { dataTransfer: data })
+    dragAt(createEvent.dragOver, viewButton('session'), data, { x: 150 })
+    expect(viewButton('session').dataset.dropMarker).toBe('after')
+    dragAt(createEvent.drop, viewButton('session'), data, { x: 150 })
+    fireEvent.dragEnd(viewButton('canvas'), { dataTransfer: data })
+    expect(patches).toEqual([{ viewButtons: { header: ['session', 'canvas'], rail: ['pull-requests', 'acceptance'], footer: ['pipeline', 'history'] } }])
+    await answered()
+    expect(names(header())).toEqual(['Session', 'Canvas'])
+    layOut('header')
+    fireEvent.dragStart(viewButton('canvas'), { dataTransfer: data })
+    dragAt(createEvent.drop, viewButton('canvas'), data, { x: 100 })
+    fireEvent.dragEnd(viewButton('canvas'), { dataTransfer: data })
+    await answered()
+    expect(patches).toHaveLength(1)
+  })
+
+  it('on the rail the gap is counted along the column: Acceptance over the upper half of Pull requests goes first', async () => {
+    render(<AppShell project={PROJECT} />)
+    layOut('rail')
+    const data = transfer()
+    fireEvent.dragStart(viewButton('acceptance'), { dataTransfer: data })
+    dragAt(createEvent.dragOver, viewButton('pull-requests'), data, { x: 30, y: 10 })
+    expect(viewButton('pull-requests').dataset.dropMarker).toBe('before')
+    dragAt(createEvent.drop, viewButton('pull-requests'), data, { x: 30, y: 10 })
+    fireEvent.dragEnd(viewButton('acceptance'), { dataTransfer: data })
+    await answered()
+    expect(names(rail())).toEqual(['Acceptance', 'Pull requests'])
+  })
+
+  it('an empty zone shows a «Drop here» place only while a drag goes, and takes the button dropped there', async () => {
+    useLayout({ header: ['canvas', 'session', 'history'], rail: ['pull-requests', 'acceptance'], footer: ['pipeline'] })
+    render(<AppShell project={PROJECT} />)
+    const data = transfer()
+    fireEvent.dragStart(viewButton('pipeline'), { dataTransfer: data })
+    dragAt(createEvent.drop, viewButton('canvas'), data, { x: 10 })
+    fireEvent.dragEnd(viewButton('pipeline'), { dataTransfer: data })
+    await answered()
+    expect(within(screen.getByRole('contentinfo', { name: 'Footer' })).queryByRole('group', { name: 'Views' })).toBeNull()
+    expect(screen.queryByText('Drop here')).toBeNull()
+    fireEvent.dragStart(viewButton('session'), { dataTransfer: data })
+    const place = within(screen.getByRole('contentinfo', { name: 'Footer' })).getByText('Drop here')
+    expect(zoneOf('footer')?.dataset.dropZone).toBe('on')
+    dragAt(createEvent.dragOver, place, data, { x: 10 })
+    expect(zoneOf('footer')?.dataset.dropZone).toBe('over')
+    dragAt(createEvent.drop, place, data, { x: 10 })
+    fireEvent.dragEnd(viewButton('session'), { dataTransfer: data })
+    await answered()
+    expect(names(footer())).toEqual(['Session'])
+    expect(screen.queryByText('Drop here')).toBeNull()
+  })
+
+  it('an inactive button (no Project) is dragged too: the layout does not depend on the Project', async () => {
+    render(<AppShell />)
+    layOut('header')
+    expect(viewButton('history').disabled).toBe(true)
+    expect(viewButton('history').draggable).toBe(true)
+    const data = transfer()
+    fireEvent.dragStart(viewButton('history'), { dataTransfer: data })
+    dragAt(createEvent.drop, viewButton('canvas'), data, { x: 10 })
+    fireEvent.dragEnd(viewButton('history'), { dataTransfer: data })
+    await answered()
+    expect(names(header())).toEqual(['Runs', 'Canvas', 'Session'])
+  })
+
+  it('a drag that began elsewhere (another window, a file) is no drop: the zone does not take it', async () => {
+    render(<AppShell project={PROJECT} />)
+    const data = transfer()
+    const over = createEvent.dragOver(viewButton('canvas'), { dataTransfer: data })
+    fireEvent(viewButton('canvas'), over)
+    expect(over.defaultPrevented).toBe(false)
+    fireEvent.drop(viewButton('canvas'), { dataTransfer: data })
+    await answered()
+    expect(patches).toEqual([])
+    expect(document.querySelector('[data-drop-zone]')).toBeNull()
+  })
+
+  it('while the sidebar is hidden the rail buttons at the end of the header are no drop place: past the header\'s own buttons is the end of the header', async () => {
+    render(<AppShell project={PROJECT} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Hide sidebar' }))
+    layOut('header')
+    const data = transfer()
+    fireEvent.dragStart(viewButton('pipeline'), { dataTransfer: data })
+    expect(zoneOf('rail')).toBeNull()
+    dragAt(createEvent.dragOver, viewButton('acceptance'), data, { x: 400 })
+    expect(viewButton('session').dataset.dropMarker).toBe('after')
+    expect(viewButton('acceptance').dataset.dropMarker).toBeUndefined()
+    dragAt(createEvent.drop, viewButton('acceptance'), data, { x: 400 })
+    fireEvent.dragEnd(viewButton('pipeline'), { dataTransfer: data })
+    expect(patches).toEqual([{ viewButtons: { header: ['canvas', 'session', 'pipeline'], rail: ['pull-requests', 'acceptance'], footer: ['history'] } }])
+    await answered()
+    fireEvent.click(screen.getByRole('button', { name: 'Show sidebar' }))
+  })
+})
+
+describe('two key presses before main answers (ticket 05, review)', () => {
+  it('the second ⌥→ steps on from the layout the first asked for, not from the one still drawn', async () => {
+    useLayout({ header: ['canvas', 'session', 'pipeline'], rail: ['pull-requests', 'acceptance'], footer: ['history'] })
+    render(<AppShell project={PROJECT} />)
+    const canvas = within(header()).getByRole('button', { name: 'Canvas' })
+    canvas.focus()
+    fireEvent.keyDown(canvas, { key: 'ArrowRight', altKey: true })
+    fireEvent.keyDown(canvas, { key: 'ArrowRight', altKey: true })
+    expect(patches.at(-1)).toEqual({ viewButtons: { header: ['session', 'pipeline', 'canvas'], rail: ['pull-requests', 'acceptance'], footer: ['history'] } })
+    await act(async () => {})
+    expect(names(header())).toEqual(['Session', 'Pipeline', 'Canvas'])
   })
 })

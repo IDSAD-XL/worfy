@@ -1,7 +1,8 @@
 # 06: Drag
 
 Type: task
-Status: open
+Status: claimed 2026-11-27T12:25Z
+Branch: worfy-layout/06
 Blocked by: 05
 Source: [spec.md](../spec.md), «Ticket-ы», 06; «Решения по реализации» («Drag», «Sidebar спрятан»); «Набросок функции» («Во время drag»); «Решения по test-ам», Seam 3 и Seam 4; «Риски»; решения владельца Q3, Q4; «Волны», Wave 4
 
