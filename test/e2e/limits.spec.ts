@@ -188,12 +188,11 @@ test('rate_limit_event fills the toolbar bars, they survive a restart marked wit
       expect(Number(await bar.evaluate((node) => (node as unknown as { style: { opacity: string } }).style.opacity))).toBeLessThan(1)
     }
 
-    // The notes fit their bars: the text of the 5-hour note, the 7-day note, the app version and
-    // the search field do not overlap, and no note text is cut.
+    // The notes fit their bars: the text of the 5-hour note, the 7-day note and the search field do not
+    // overlap, and no note text is cut. The app version is in the footer since worfy-layout ticket 03.
     const boxes = await textBoxes(second.window, {
       fiveHour: fiveHour.getByTestId('limit-five_hour-note'),
       sevenDay: sevenDay.getByTestId('limit-seven_day-note'),
-      version: second.window.getByTestId('app-version'),
       search: second.window.locator('.w-toolbar__palette-hint'),
       // "limit reached" in place of a share: on the label's line, whole.
       sevenDayValue: sevenDay.getByTestId('limit-seven_day-value'),
@@ -201,7 +200,7 @@ test('rate_limit_event fills the toolbar bars, they survive a restart marked wit
     expect(boxes.sevenDayValue.cut, '"limit reached" is cut').toBe(false)
     expect(boxes.sevenDayValue.height, '"limit reached" is one line').toBeLessThan(20)
     const toolbar = await second.window.getByRole('banner').boundingBox()
-    for (const [a, b] of [['fiveHour', 'sevenDay'], ['sevenDay', 'version'], ['sevenDay', 'search'], ['fiveHour', 'version'], ['fiveHour', 'search']] as const) {
+    for (const [a, b] of [['fiveHour', 'sevenDay'], ['sevenDay', 'search'], ['fiveHour', 'search']] as const) {
       expect(overlap(boxes[a], boxes[b]), `${a} ${JSON.stringify(boxes[a])} and ${b} ${JSON.stringify(boxes[b])}`).toBe(false)
     }
     for (const name of ['fiveHour', 'sevenDay'] as const) {

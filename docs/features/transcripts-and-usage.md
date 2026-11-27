@@ -153,9 +153,9 @@ also passes the live Sessions to `liveSessionListeners`, which is how `src/main/
 
 ### Behaviour
 
-The toolbar shows how much memory worfy's own processes use, on the second line of the Harness column after the app version. It
+The popover of the version chip in the footer shows how much memory worfy's own processes use, on its last row. It
 reads `412 MB` below 1024 MB and `1.3 GB` above, and `…` before the first sample. The tooltip names the Feature and splits the sum:
-`Main … · Windows … · GPU … · Other …`. Terminal sessions are not counted. "Memory in the toolbar" in Settings → General turns it off
+`Main … · Windows … · GPU … · Other …`. Terminal sessions are not counted. "Memory in the version popover" in Settings → General turns it off
 in every window. It is on by default.
 
 #### On a Linked machine
@@ -174,7 +174,7 @@ opens a stopped sampler gets a sample at once. A reload drops the old page's ope
 | The sampler, every 5 seconds over `app.getAppMetrics()` | `src/main/diagnostics/memory.ts` |
 | Sum and formats | `src/shared/memory.ts` |
 | Handlers, channels | `src/main/ipc/memory.ts`, `src/shared/ipc/memory.ts` |
-| The figure | `src/renderer/memory/AppMemory.tsx`, `src/renderer/memory/useAppMemory.ts`, `src/renderer/shell/toolbar/HarnessStatus.tsx` |
+| The figure | `src/renderer/memory/AppMemory.tsx`, `src/renderer/memory/useAppMemory.ts`, `src/renderer/shell/footer/VersionChip.tsx` |
 | The setting | `src/renderer/settings/GeneralSection.tsx`, `src/shared/settings/app-settings.ts` |
 
 **Main tests.** `test/unit/memory.test.ts`, `test/contract/memory.test.ts`, `test/contract/memory-app.test.ts`,

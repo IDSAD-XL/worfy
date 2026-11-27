@@ -30,6 +30,9 @@
   --space-4: 16px;
   --row-height: 28px;
   --toolbar-height: 52px;
+  /* The footer across the bottom of the window (worfy-layout ticket 03, shell/footer/Footer.tsx). Unlike the
+     toolbar it has no window buttons beside it, so it grows with the interface scale: no division here. */
+  --footer-height: 28px;
   /* The default width: a width the person dragged the sidebar's edge to is written over it on <html> (shell/sidebar-width.ts). */
   --sidebar-width: 264px;
   /* Room on the left for the macOS traffic lights (src/main/window-frame.ts puts them at x 20; on

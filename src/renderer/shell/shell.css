@@ -1,8 +1,17 @@
-/* Layout of the window shell: sidebar on the left, toolbar and main area on the right. */
+/* Layout of the window shell: sidebar on the left, toolbar and main area on the right, and the footer
+   across the bottom of the window (worfy-layout ticket 03). */
 
 .w-shell {
   display: flex;
+  flex-direction: column;
   height: 100vh;
+  overflow: hidden;
+}
+/* The row of the sidebar and the main area: all the height the footer leaves. */
+.w-shell__body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
   overflow: hidden;
 }
 
@@ -426,8 +435,7 @@
    but spends less width on each, so that it stays inside the smallest window (800×520) with the
    sidebar open (test/e2e/toolbar.spec.ts): narrower gaps, the Limits show their values alone (the
    value's tooltip names the window and its reset, limits/LimitBar.tsx), and the search field its icon
-   and its shortcut (its name stays as aria-label). What is still too wide comes off the Harness
-   column, which ends with an ellipsis (below). */
+   and its shortcut (its name stays as aria-label). */
 @media (max-width: 1100px) {
   .w-toolbar {
     gap: var(--space-2);
@@ -493,21 +501,11 @@ html[data-platform='linux'] .w-sidebar__titlebar {
 .w-toolbar__icon-button:hover:where(:not(:disabled, [aria-disabled='true'])) {
   background: var(--surface-raised);
 }
-/* The icon buttons of a two-line toolbar item (the Harness line above the app version): smaller,
-   so both lines fit the toolbar. */
+/* The icon buttons of the Harness and Codex lines (harness/HarnessStatus.tsx): smaller than a toolbar's,
+   as high as the line of text beside them. */
 .w-toolbar__icon-button--compact {
   width: 20px;
   height: 20px;
-}
-/* A Harness column with the Codex part as its third line (worfy-polish ticket 93, toolbar/HarnessStatus.tsx):
-   the Harness line and the icon buttons are 16 px high, so 16 + 13 + 16 px fit the 52 px toolbar with
-   the font at 11 px. */
-.w-harness-column[data-lines='3'] {
-  --w-harness-line: 16px;
-}
-.w-harness-column[data-lines='3'] .w-toolbar__icon-button--compact {
-  width: 16px;
-  height: 16px;
 }
 /* A signal (worfy-update ticket 06): the Harness to update. The icon takes the accent, and a dot
    sits in its top right corner. */
@@ -520,45 +518,7 @@ html[data-platform='linux'] .w-sidebar__titlebar {
   top: 2px;
   right: 2px;
 }
-/* The app version, the second line of the Harness item: small and muted, 13px high, so the two
-   lines fit the toolbar. */
-.w-toolbar__version {
-  font-size: var(--text-11);
-  line-height: 13px;
-  /* The muted colour at full strength: at 80% it fell to 3.5:1 on the toolbar (axe, color-contrast). */
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-/* The step of an Update build on the version chip ("Updating · 2/3 Installing dependencies",
-   worfy-polish ticket 48): no wider than the Harness line above it, ending with an ellipsis; the whole
-   step is the first line of the chip's tooltip (update/UpdateChip.tsx). */
-.w-toolbar__version-step {
-  min-width: 0;
-  max-width: 16ch;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-/* The version chip (worfy-update ticket 06): the same line as a button with a menu while an Update
-   waits; its height stays 13px. */
-.w-toolbar__version-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  height: 13px;
-  line-height: 13px;
-  margin: 0 -3px;
-  padding: 0 3px;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  opacity: 1;
-  /* Gives way with the Harness column; the step inside it ends with an ellipsis. */
-  min-width: 0;
-}
-.w-toolbar__version-chip:hover {
-  background: var(--surface-raised);
-}
-/* The dot of a signal: on the version chip and on the Harness button. */
+/* The dot of a signal: on the Harness's Update button (the version chip has its own, below). */
 .w-update-dot {
   display: inline-block;
   flex: none;
@@ -591,9 +551,7 @@ html[data-platform='linux'] .w-sidebar__titlebar {
   }
 }
 /* The title shrinks first: a long Project name is cut with an ellipsis, the full name is in the title
-   attribute, and the controls to the right stay whole. Its shrink factor is a million times the
-   Harness column's, the one other item that shrinks: the column gives way (by less than a pixel's
-   fraction before) only once the title is gone. */
+   attribute, and the controls to the right stay whole. */
 .w-toolbar__title {
   display: flex;
   flex-direction: column;
@@ -634,13 +592,6 @@ html[data-platform='linux'] .w-sidebar__titlebar {
   display: flex;
   align-items: center;
   flex: none;
-}
-/* The Harness column (worfy-polish ticket 48) gives way too, but only once the title is gone: the
-   title's shrink factor is that much larger, so the column keeps its whole text while the title has
-   any width left. Its lines then end with an ellipsis (toolbar/HarnessStatus.tsx). */
-.w-toolbar__item[data-item='HarnessStatus'] {
-  flex: 0 1 auto;
-  min-width: 0;
 }
 /* The windows of one Vendor (worfy-polish ticket 93): one above the other, one line each, in a grid whose
    columns line up the labels, the shares (right-aligned) and the reset times; each window is a row of it
@@ -733,4 +684,129 @@ html[data-platform='linux'] .w-sidebar__titlebar {
 }
 .w-shell__view[hidden] {
   display: none;
+}
+
+/*
+ * The footer (worfy-layout ticket 03, footer/Footer.tsx): 28 px across the whole window under the sidebar and
+ * the main area. It grows with the interface scale (no division by --interface-scale, as no window buttons
+ * sit beside it), and it is no area to drag the window by. The View buttons go on its left (ticket 04), the
+ * version chip on its right.
+ */
+.w-footer {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  box-sizing: border-box;
+  height: var(--footer-height);
+  padding: 0 var(--space-2);
+  background: var(--toolbar);
+  border-top: 1px solid var(--toolbar-border);
+}
+.w-footer__buttons {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.w-footer__spacer {
+  flex: 1;
+  min-width: 0;
+}
+/* The version chip (footer/VersionChip.tsx): the version, small and muted, with its dot after it. */
+.w-footer__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  height: 20px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius-chip);
+  background: transparent;
+  font-size: var(--text-11);
+  /* The muted colour at full strength: at 80% it fell to 3.5:1 (axe, color-contrast). */
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.w-footer__chip:hover {
+  background: var(--surface-raised);
+}
+/* The step of an Update build on the chip ("Updating · 2/3 Installing dependencies", worfy-polish
+   ticket 48): it ends with an ellipsis, and the whole step is the first line of the chip's tooltip. */
+.w-footer__chip-step {
+  min-width: 0;
+  max-width: 28ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* In a window up to 1100 px wide the chip shows the version alone: the step of a build stays in its tooltip.
+   The version is drawn from the attribute, so the chip's text stays the step. */
+.w-footer__chip-narrow {
+  display: none;
+}
+.w-footer__chip-narrow::before {
+  content: attr(data-version);
+}
+@media (max-width: 1100px) {
+  .w-footer__chip-step {
+    display: none;
+  }
+  .w-footer__chip-narrow {
+    display: inline;
+  }
+}
+/* The dot of the chip (footer/version-dot.ts, owner's decision Q14): red — the Harness needs the user;
+   amber — an update waits. The colours of the Health check button's dot, each ≥ 3:1 against the footer;
+   the chip's tooltip and name say what it is for. */
+.w-version-dot {
+  display: inline-block;
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.w-version-dot--red {
+  background: var(--health-critical);
+}
+.w-version-dot--amber {
+  background: var(--health-warning);
+}
+/* The popover of the chip: its rows one under the other, a thin line between the groups. */
+.w-version-popover {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 280px;
+  max-width: min(440px, var(--available-width));
+}
+.w-version-popover__row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-height: 24px;
+  min-width: 0;
+}
+.w-version-popover__text {
+  min-width: 0;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.w-version-popover__buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+.w-version-popover__buttons .w-button {
+  --button-height: var(--button-height-m);
+  padding: 0 var(--space-2);
+  font-size: var(--text-12);
+}
+.w-version-popover__separator {
+  height: 1px;
+  margin: var(--space-1) 0;
+  background: var(--border);
 }

@@ -1,7 +1,8 @@
 # 03: Footer и chip версии
 
 Type: task
-Status: open
+Status: claimed 2026-11-27T05:09Z
+Branch: worfy-layout/03
 Blocked by: None — can start immediately
 Source: [spec.md](../spec.md), «Ticket-ы», 03; «Решения по реализации» («Footer», «Chip версии и popover», «Ширина окна»); «Решения по test-ам», Seam 1 и Seam 4; «Риски»; решения владельца Q7, Q10, Q14; «Волны», Wave 1
 

@@ -208,9 +208,22 @@ test('in focus mode the sidebar stays and works; the palette and a menu of the s
     expect(layer.x).toBeCloseTo(side.width, 0)
     expect(layer.y).toBe(0)
     expect(layer.x + layer.width).toBeCloseTo(size.width, 0)
-    expect(layer.height).toBeCloseTo(size.height, 0)
+    // Down to the footer, which stays across the whole window (worfy-layout ticket 03).
+    const footer = await box(window.getByTestId('footer'))
+    expect(layer.height).toBeCloseTo(size.height - footer.height, 0)
+    expect(layer.y + layer.height).toBeCloseTo(footer.y, 0)
     await expect(window.locator('.w-toolbar')).toHaveAttribute('inert', '')
     expect(await onTop(window.locator('.w-toolbar'))).toBe(false)
+    // The version chip of the footer stays on screen in focus mode and opens its popover; a second press closes it.
+    const chip = window.getByTestId('footer').getByTestId('app-version')
+    expect(await onTop(chip)).toBe(true)
+    const popover = window.getByRole('dialog', { name: 'worfy version' })
+    await chip.click()
+    await expect(popover).toBeVisible()
+    await expect(popover.getByTestId('version-app-line')).toBeVisible()
+    await chip.click()
+    await expect(popover).toHaveCount(0)
+    await expect(focus).toBeVisible()
     // No tile lies under the sidebar, and the sidebar is what is drawn in its own place.
     for (const tile of await focus.getByTestId('focus-tile').all()) expect((await box(tile)).x).toBeGreaterThanOrEqual(side.x + side.width)
     expect(await onTop(sidebar)).toBe(true)

@@ -4,9 +4,9 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { HarnessState, HarnessStatus as Status } from '../../src/shared/ipc/harness'
-import { HarnessStatus, HarnessStatusView } from '../../src/renderer/shell/toolbar/HarnessStatus'
+import { HarnessStatus, HarnessStatusView } from '../../src/renderer/harness/HarnessStatus'
 
-// worfy-harness ticket 13: the Harness item of the toolbar. A dev run on the real ~/.claude
+// worfy-harness ticket 13: the Harness lines (the version popover of the footer since worfy-layout ticket 03). A dev run on the real ~/.claude
 // (canInstall false) shows the state and offers no install; a run that may install shows the button.
 // Ticket 30: Retry installs a missing dependency itself, so its hint names no command to run by hand.
 // Ticket 40: the item follows `harness.changed` and `harnessMigration.changed` from main, so an install
@@ -99,36 +99,20 @@ describe('HarnessStatusView', () => {
       }
     })
 
-    // worfy-polish ticket 93: on the Harness line the Codex part cut that line off.
-    it('the Codex part is the third line of the column, under the app version, with its button; the Harness line keeps its own text', () => {
-      render(
-        <HarnessStatusView
-          status={withCodex(installed, { state: { kind: 'not-installed' }, agentsDir, hooksToApprove: false, skippedAgents: [] })}
-          busy={false}
-          failure={undefined}
-          onInstall={() => undefined}
-          version="0.3.0"
-          versionNumber={1826}
-        />,
-      )
-      const column = screen.getByTestId('harness-column')
-      expect([...column.children].map((child) => child.getAttribute('data-testid'))).toEqual(['harness-status', 'app-line', 'harness-codex-line'])
-      expect(column.dataset.lines).toBe('3')
+    // worfy-polish ticket 93: on the Harness line the Codex part cut that line off. Since worfy-layout ticket 03 both
+    // are rows of the version popover (footer/VersionChip.tsx) and of Settings → Pipeline.
+    it('the Codex part is its own line under the Harness line, with its button; the Harness line keeps its own text', () => {
+      render(<HarnessStatusView status={withCodex(installed, { state: { kind: 'not-installed' }, agentsDir, hooksToApprove: false, skippedAgents: [] })} busy={false} failure={undefined} onInstall={() => undefined} />)
+      const lines = screen.getByTestId('harness-lines')
+      expect([...lines.children].map((child) => child.getAttribute('data-testid'))).toEqual(['harness-status', 'harness-codex-line'])
       expect(screen.getByTestId('harness-status').textContent).toBe('Harness 0.2.0+bbbbbbb')
       const line = screen.getByRole('group', { name: 'Harness in Codex' })
       expect(line.textContent).toBe('Codex: not installed')
       expect(line.contains(screen.getByRole('button', { name: 'Install in Codex' }))).toBe(true)
       cleanup()
-      // Without a Codex part the column keeps its two lines.
-      render(<HarnessStatusView status={withCodex(installed, { state: { kind: 'installed', version: '0.2.0+bbbbbbb' }, agentsDir, hooksToApprove: false, skippedAgents: [] })} busy={false} failure={undefined} onInstall={() => undefined} version="0.3.0" />)
-      expect([...screen.getByTestId('harness-column').children].map((child) => child.getAttribute('data-testid'))).toEqual(['harness-status', 'app-line'])
-      expect(screen.getByTestId('harness-column').dataset.lines).toBeUndefined()
-    })
-
-    it('a three-line column keeps the 52 px toolbar: its Harness line and icon buttons are 16 px high (shell.css)', () => {
-      const css = readFileSync(join(import.meta.dirname, '../../src/renderer/shell/shell.css'), 'utf8')
-      expect(css).toMatch(/\.w-harness-column\[data-lines='3'\] \{\s*--w-harness-line: 16px;\s*\}/)
-      expect(css).toMatch(/\.w-harness-column\[data-lines='3'\] \.w-toolbar__icon-button--compact \{\s*width: 16px;\s*height: 16px;\s*\}/)
+      // Without a Codex part there is the Harness line alone.
+      render(<HarnessStatusView status={withCodex(installed, { state: { kind: 'installed', version: '0.2.0+bbbbbbb' }, agentsDir, hooksToApprove: false, skippedAgents: [] })} busy={false} failure={undefined} onInstall={() => undefined} />)
+      expect([...screen.getByTestId('harness-lines').children].map((child) => child.getAttribute('data-testid'))).toEqual(['harness-status'])
     })
 
     it('an error in Codex carries its reason in the tooltip', () => {
@@ -312,7 +296,7 @@ describe('HarnessStatusView', () => {
     expect(onMigrate).toHaveBeenCalledTimes(1)
   })
 
-  it('every icon button of the item is compact, 20 by 20, so the Harness line and the app version fit the toolbar', () => {
+  it('every icon button of the lines is compact, 20 by 20, as high as the line beside it', () => {
     let checked = 0
     for (const state of STATES) {
       render(<HarnessStatusView status={status(state, true)} busy={false} failure={undefined} onInstall={() => undefined} onMigrate={() => undefined} />)
@@ -332,24 +316,10 @@ describe('HarnessStatusView', () => {
     expect(rule).toMatch(/\bheight:\s*20px;/)
   })
 
-  it('the app version is the second line, under the Harness line, in one column', () => {
-    render(<HarnessStatusView status={status({ kind: 'installed', version: '0.3.0+e61cb1fe', enabled: true }, false)} busy={false} failure={undefined} onInstall={() => undefined} version="0.3.0+e61cb1fe" />)
-    const column = screen.getByTestId('harness-column')
-    expect(column.style.flexDirection).toBe('column')
-    // The second line holds the version, then worfy's memory when it is on (worfy-ui ticket 20).
-    expect([...column.children].map((child) => child.getAttribute('data-testid'))).toEqual(['harness-status', 'app-line'])
-    expect(screen.getByTestId('app-version').parentElement).toBe(screen.getByTestId('app-line'))
-    expect(screen.getByTestId('app-version').textContent).toBe('v0.3.0+e61cb1fe')
-    // The Harness line itself carries no version of the app.
-    expect(screen.getByTestId('harness-status').textContent).toBe('Harness 0.3.0+e61cb1fe')
-  })
-
-  it('the app version shows also before the Harness state arrives, and not before its own answer', () => {
-    const { rerender } = render(<HarnessStatusView status={undefined} busy={false} failure={undefined} onInstall={() => undefined} />)
+  it('the Harness lines carry no app version: the version chip of the footer has it (worfy-layout ticket 03)', () => {
+    render(<HarnessStatusView status={status({ kind: 'installed', version: '0.3.0+e61cb1fe', enabled: true }, false)} busy={false} failure={undefined} onInstall={() => undefined} />)
     expect(screen.queryByTestId('app-version')).toBeNull()
-    rerender(<HarnessStatusView status={undefined} busy={false} failure={undefined} onInstall={() => undefined} version="0.3.0" />)
-    expect(screen.getByTestId('app-version').textContent).toBe('v0.3.0')
-    expect(screen.queryByTestId('harness-status')).toBeNull()
+    expect(screen.getByTestId('harness-status').textContent).toBe('Harness 0.3.0+e61cb1fe')
   })
 })
 
@@ -500,7 +470,7 @@ describe('HarnessStatus (the item over IPC)', () => {
     }
   })
 
-  it('with no bridge at all (the preload did not run) the item renders "Harness unavailable" instead of taking the toolbar down', async () => {
+  it('with no bridge at all (the preload did not run) the lines render "Harness unavailable" instead of taking the window down', async () => {
     const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     try {
       render(<HarnessStatus />)

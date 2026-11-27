@@ -6,13 +6,16 @@ import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import { updateSnapshotSchema, type UpdateSnapshot } from '../../src/shared/ipc/update'
 import { pressToastAction, resetToasts, toasts } from '../../src/renderer/toast/toasts'
 import { INSTALL_REFUSED_KEY, useUpdateStore } from '../../src/renderer/update/store'
-import UpdateChip from '../../src/renderer/update/UpdateChip'
+import type { HarnessStatusState } from '../../src/renderer/harness/useHarnessStatus'
+import { VersionChipView } from '../../src/renderer/shell/footer/VersionChip'
 
-// worfy-update ticket 06: the version chip of the toolbar. The app version is the same small line
-// as before; an Available update, a build that runs, is ready or failed puts an accent dot on it and
-// makes it a button with a menu: "Update worfy" (or "Restart now" / "Restart when idle" once built,
-// an inactive "Building worfy <version>…" while it builds), "What's new" (ticket 10,
-// test/unit/whats-new-view.test.tsx) and "Later". Texts: the draft texts of the spec.
+// worfy-update ticket 06, moved to the footer by worfy-layout ticket 03: the version chip. It is a button
+// with the app version; an Available update that is not quiet, a build that runs, is ready or failed puts
+// the amber dot on it (src/renderer/shell/footer/version-dot.ts, test/unit/version-dot.test.tsx). Its
+// popover's first row has the Update's actions the chip's menu had: "Update worfy" (or "Restart now" /
+// "Restart when idle" once built, an inactive "Building worfy <version>…" while it builds) and "What's new"
+// (ticket 10, test/unit/whats-new-view.test.tsx); Esc closes the popover, so "Later" is gone. Texts: the
+// draft texts of the spec.
 
 const SHA = 'b'.repeat(40)
 const NEW = '0.5.0+bbbbbbb'
@@ -47,103 +50,120 @@ afterEach(() => {
   useUpdateStore.setState({ snapshot: null, starting: false })
 })
 
-const chip = (): HTMLElement => screen.getByTestId('app-version')
-const dot = (): Element | null => chip().querySelector('.w-update-dot')
-const items = (): string[] => screen.getAllByRole('menuitem').map((item) => item.textContent ?? '')
+/** No Harness state yet: the popover has the app row alone. */
+const NO_HARNESS: HarnessStatusState = {
+  status: undefined,
+  busy: false,
+  failure: undefined,
+  migration: false,
+  onInstall: () => undefined,
+  onMigrate: undefined,
+  onApproveHooks: () => undefined,
+  harnessBehind: null,
+  dialogs: null,
+}
 
-describe('UpdateChip', () => {
-  it('without Update (off in this copy, or before main answered) is the plain version line: no dot, no button', () => {
+/** The chip with the app version and the Update snapshot given, and no Harness. */
+function UpdateChip({ version, update, now }: { version: string; update: UpdateSnapshot | null; now?: () => number }) {
+  return <VersionChipView version={{ version }} update={update} harness={NO_HARNESS} memoryShown={false} {...(now === undefined ? {} : { now })} />
+}
+
+const chip = (): HTMLElement => screen.getByTestId('app-version')
+const dot = (): Element | null => chip().querySelector('.w-version-dot')
+const popover = (): HTMLElement | null => screen.queryByRole('dialog', { name: 'worfy version' })
+/** The buttons of the popover's app row. */
+const items = (): string[] => [...screen.getByTestId('version-app-line').querySelectorAll('button')].map((item) => item.textContent ?? '')
+const step = (): string | undefined => chip().querySelector('.w-footer__chip-step')?.textContent ?? undefined
+
+describe('the version chip and the Update', () => {
+  it('without Update (off in this copy, or before main answered): the version, no dot, and a popover row without buttons', () => {
     for (const update of [null, { ...snapshot({ available: available() }), enabled: false }]) {
       render(<UpdateChip version="0.4.0+aaaaaaa" update={update} />)
-      expect(chip().tagName).toBe('SMALL')
+      expect(chip().tagName).toBe('BUTTON')
       expect(chip().textContent).toBe('v0.4.0+aaaaaaa')
+      expect(chip().getAttribute('aria-label')).toBe('worfy v0.4.0+aaaaaaa')
       expect(dot()).toBeNull()
-      expect(screen.queryByRole('button')).toBeNull()
+      fireEvent.click(chip())
+      expect(screen.getByTestId('version-app-line').textContent).toBe('worfy v0.4.0+aaaaaaa')
+      expect(items()).toEqual([])
       cleanup()
     }
   })
 
-  it('with Update on and nothing to install: the plain line, no dot, no button', () => {
+  it('with Update on and nothing to install: no dot, no Update action', () => {
     render(<UpdateChip version="0.4.0+aaaaaaa" update={snapshot()} />)
-    expect(chip().tagName).toBe('SMALL')
     expect(dot()).toBeNull()
-    expect(screen.queryByRole('button')).toBeNull()
+    fireEvent.click(chip())
+    expect(items()).toEqual([])
   })
 
-  it(`an Available update: a dot and its tooltip; the menu has "Update worfy", "What's new" and "Later", and "Update worfy" calls update.install`, async () => {
+  it(`an Available update: the amber dot and its reason; the popover has "Update worfy" and "What's new", and "Update worfy" calls update.install`, async () => {
     const calls = fakeBridge()
     render(<UpdateChip version="0.4.0+aaaaaaa" update={snapshot({ available: available() })} />)
-    expect(chip().tagName).toBe('BUTTON')
     // The text stays the version alone: the dot is a mark, not a character.
     expect(chip().textContent).toBe('v0.4.0+aaaaaaa')
-    expect(dot()).not.toBeNull()
-    expect(chip().getAttribute('title')).toBe(`worfy ${NEW} is available`)
-    expect(chip().getAttribute('aria-haspopup')).toBe('menu')
-    expect(screen.queryByRole('menu')).toBeNull()
+    expect(dot()?.classList.contains('w-version-dot--amber')).toBe(true)
+    expect(chip().getAttribute('title')).toBe(`worfy v0.4.0+aaaaaaa — worfy ${NEW} is available`)
+    expect(chip().getAttribute('aria-label')).toBe(`worfy v0.4.0+aaaaaaa — worfy ${NEW} is available`)
+    expect(chip().getAttribute('aria-haspopup')).toBe('dialog')
+    expect(popover()).toBeNull()
     fireEvent.click(chip())
     expect(chip().getAttribute('aria-expanded')).toBe('true')
-    expect(items()).toEqual(['Update worfy', "What's new", 'Later'])
+    expect(screen.getByTestId('version-app-line').textContent).toContain(`worfy v0.4.0+aaaaaaa · update ${NEW} available`)
+    expect(items()).toEqual(['Update worfy', "What's new"])
     await act(async () => {
-      fireEvent.click(screen.getByRole('menuitem', { name: 'Update worfy' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Update worfy' }))
       await Promise.resolve()
     })
     expect(calls).toEqual([{ channel: 'update.install', input: undefined }])
-    // The press closes the menu.
-    expect(screen.queryByRole('menu')).toBeNull()
   })
 
-  it('"Later" only closes the menu: nothing is called, the dot stays (spec R12)', () => {
-    const calls = fakeBridge()
-    render(<UpdateChip version="0.4.0+aaaaaaa" update={snapshot({ available: available() })} />)
-    fireEvent.click(chip())
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Later' }))
-    expect(screen.queryByRole('menu')).toBeNull()
-    expect(calls).toEqual([])
-    expect(dot()).not.toBeNull()
-  })
-
-  it('Escape and a click outside close the menu', () => {
+  it('Escape and a click outside close the popover', () => {
     fakeBridge()
     render(<UpdateChip version="0.4.0+aaaaaaa" update={snapshot({ available: available() })} />)
     fireEvent.click(chip())
-    fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' })
-    expect(screen.queryByRole('menu')).toBeNull()
+    expect(popover()).not.toBeNull()
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Update worfy' }), { key: 'Escape' })
+    expect(popover()).toBeNull()
     fireEvent.click(chip())
+    expect(popover()).not.toBeNull()
     fireEvent.mouseDown(document.body)
-    expect(screen.queryByRole('menu')).toBeNull()
+    fireEvent.click(document.body)
+    expect(popover()).toBeNull()
   })
 
-  it('an open menu goes with the signal, and does not open again by itself when a signal comes back', () => {
+  it('the actions of an open popover go with the signal, and a signal that comes back does not open it by itself', () => {
     fakeBridge()
     const { rerender } = render(<UpdateChip version="0.4.0+aaaaaaa" update={snapshot({ available: available() })} />)
     fireEvent.click(chip())
-    expect(screen.queryByRole('menu')).not.toBeNull()
-    // Installed elsewhere (Settings, another window): nothing to install, the plain line.
+    expect(items()).toEqual(['Update worfy', "What's new"])
+    // Installed elsewhere (Settings, another window): nothing to install, the row has the version alone.
     rerender(<UpdateChip version="0.4.0+aaaaaaa" update={snapshot()} />)
-    expect(screen.queryByRole('menu')).toBeNull()
-    // A newer Update arrives: the dot, the menu stays closed until a press.
+    expect(items()).toEqual([])
+    fireEvent.keyDown(screen.getByTestId('version-app-line'), { key: 'Escape' })
+    // A newer Update arrives: the dot, the popover stays closed until a press.
     rerender(<UpdateChip version="0.4.0+aaaaaaa" update={snapshot({ available: available() })} />)
     expect(dot()).not.toBeNull()
-    expect(screen.queryByRole('menu')).toBeNull()
+    expect(popover()).toBeNull()
     expect(chip().getAttribute('aria-expanded')).toBe('false')
   })
 
-  it('a quiet Available update (the commit rolled back from): no dot, but still a button with the menu', () => {
+  it('a quiet Available update (the commit rolled back from): no dot, but the actions are in the popover', () => {
     fakeBridge()
     render(<UpdateChip version="0.4.0+aaaaaaa" update={snapshot({ available: available(true) })} />)
     expect(dot()).toBeNull()
     fireEvent.click(chip())
-    expect(items()).toEqual(['Update worfy', "What's new", 'Later'])
+    expect(items()).toEqual(['Update worfy', "What's new"])
   })
 
-  it('while it builds: the spinner (ticket 16), "Building worfy <version>…" as the tooltip and as an inactive item that calls nothing', () => {
+  it('while it builds: the spinner (ticket 16), "Building worfy <version>…" in the tooltip and as an inactive button that calls nothing', () => {
     const calls = fakeBridge()
     render(<UpdateChip version="0.4.0+aaaaaaa" update={snapshot({ available: available(), build: { phase: 'building', sha: SHA, version: NEW } })} />)
     expect(chip().querySelector('.w-update-spinner')).not.toBeNull()
-    expect(chip().getAttribute('title')).toBe(`Starting update…\nBuilding worfy ${NEW}…`)
+    expect(chip().getAttribute('title')).toBe(`worfy v0.4.0+aaaaaaa — Building worfy ${NEW}…\nStarting update…`)
     fireEvent.click(chip())
-    expect(items()).toEqual([`Building worfy ${NEW}…`, "What's new", 'Later'])
-    const building = screen.getByRole('menuitem', { name: `Building worfy ${NEW}…` })
+    expect(items()).toEqual([`Building worfy ${NEW}…`, "What's new"])
+    const building = screen.getByRole('button', { name: `Building worfy ${NEW}…` })
     expect(building.getAttribute('aria-disabled')).toBe('true')
     fireEvent.click(building)
     expect(calls).toEqual([])
@@ -153,11 +173,11 @@ describe('UpdateChip', () => {
     const calls = fakeBridge()
     render(<UpdateChip version="0.4.0+aaaaaaa" update={snapshot({ available: available(), idle: true, build: { phase: 'ready', sha: SHA, version: NEW } })} />)
     expect(dot()).not.toBeNull()
-    expect(chip().getAttribute('title')).toBe(`worfy ${NEW} is ready — restart to update`)
+    expect(chip().getAttribute('title')).toBe(`worfy v0.4.0+aaaaaaa — worfy ${NEW} is ready — restart to update`)
     fireEvent.click(chip())
-    expect(items()).toEqual(['Restart now', "What's new", 'Later'])
+    expect(items()).toEqual(['Restart now', "What's new"])
     await act(async () => {
-      fireEvent.click(screen.getByRole('menuitem', { name: 'Restart now' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Restart now' }))
       await Promise.resolve()
     })
     expect(calls).toEqual([{ channel: 'update.restart', input: { when: 'now' } }])
@@ -167,9 +187,9 @@ describe('UpdateChip', () => {
     const calls = fakeBridge()
     render(<UpdateChip version="0.4.0+aaaaaaa" update={snapshot({ available: available(), idle: false, build: { phase: 'ready', sha: SHA, version: NEW } })} />)
     fireEvent.click(chip())
-    expect(items()).toEqual(['Restart when idle', 'Restart now', "What's new", 'Later'])
+    expect(items()).toEqual(['Restart when idle', 'Restart now', "What's new"])
     await act(async () => {
-      fireEvent.click(screen.getByRole('menuitem', { name: 'Restart when idle' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Restart when idle' }))
       await Promise.resolve()
     })
     expect(calls).toEqual([{ channel: 'update.restart', input: { when: 'idle' } }])
@@ -180,26 +200,26 @@ describe('UpdateChip', () => {
     render(<UpdateChip version="0.4.0+aaaaaaa" update={snapshot({ available: available(), idle: false, build: { phase: 'ready', sha: SHA, version: NEW } })} />)
     fireEvent.click(chip())
     await act(async () => {
-      fireEvent.click(screen.getByRole('menuitem', { name: 'Restart now' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Restart now' }))
       await Promise.resolve()
     })
     expect(calls).toEqual([{ channel: 'update.restart', input: { when: 'now' } }])
   })
 
-  it('a failed build: the dot, the failure tooltip, and "Update worfy" builds again', async () => {
+  it('a failed build: the dot, the failure in the tooltip, and "Update worfy" builds again', async () => {
     const calls = fakeBridge()
     render(<UpdateChip version="0.4.0+aaaaaaa" update={snapshot({ available: available(), build: { phase: 'failed', sha: SHA, version: NEW } })} />)
     expect(dot()).not.toBeNull()
-    expect(chip().getAttribute('title')).toBe(`The update to ${NEW} failed — see Settings → Health`)
+    expect(chip().getAttribute('title')).toBe(`worfy v0.4.0+aaaaaaa — The update to ${NEW} failed — see Settings → Health`)
     fireEvent.click(chip())
     await act(async () => {
-      fireEvent.click(screen.getByRole('menuitem', { name: 'Update worfy' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Update worfy' }))
       await Promise.resolve()
     })
     expect(calls).toEqual([{ channel: 'update.install', input: undefined }])
   })
 
-  it('the dot is drawn in the accent colour of the theme, and the chip keeps the 13px line of the version', () => {
+  it('the dots are drawn in the colours of the Health check button: red critical, amber warning', () => {
     // jsdom loads no stylesheet: the rules are read from the file itself.
     const css = readFileSync(join(import.meta.dirname, '../../src/renderer/shell/shell.css'), 'utf8')
     const rule = (selector: string): string => {
@@ -208,15 +228,17 @@ describe('UpdateChip', () => {
       expect(start, selector).toBeGreaterThanOrEqual(0)
       return css.slice(start, css.indexOf('}', start))
     }
+    expect(rule('.w-version-dot--red')).toMatch(/background:\s*var\(--health-critical\);/)
+    expect(rule('.w-version-dot--amber')).toMatch(/background:\s*var\(--health-warning\);/)
+    // The Harness's own Update button keeps the accent dot.
     expect(rule('.w-update-dot')).toMatch(/background:\s*var\(--accent\);/)
-    expect(rule('.w-toolbar__version-chip')).toMatch(/line-height:\s*13px;/)
   })
 })
 
 // worfy-update ticket 16: the build is seen without a hover. The chip names the step and its place,
 // the tooltip the time since the build began; a press answers at once ("Starting update…"), a
 // refusal comes as a toast, and a restart that began is "Restarting…".
-describe('UpdateChip while an update is under way (ticket 16)', () => {
+describe('the version chip while an update is under way (ticket 16)', () => {
   const STARTED = '2026-11-01T10:00:00.000Z'
   /** 3 min 12 s after the build began. */
   const later = (): number => Date.parse(STARTED) + 192_000
@@ -234,7 +256,7 @@ describe('UpdateChip while an update is under way (ticket 16)', () => {
     ]
     for (const [build, text] of cases) {
       render(<UpdateChip version="0.4.0+aaaaaaa" update={building(build)} now={later} />)
-      expect(chip().textContent).toBe(text)
+      expect(step()).toBe(text)
       expect(chip().getAttribute('data-update')).toBe('building')
       expect(spinner()).not.toBeNull()
       expect(dot()).toBeNull()
@@ -244,7 +266,7 @@ describe('UpdateChip while an update is under way (ticket 16)', () => {
 
   it('a build that has not reached its first step yet is "Starting update…"', () => {
     render(<UpdateChip version="0.4.0+aaaaaaa" update={building({})} now={later} />)
-    expect(chip().textContent).toBe('Starting update…')
+    expect(step()).toBe('Starting update…')
     expect(spinner()).not.toBeNull()
   })
 
@@ -252,54 +274,48 @@ describe('UpdateChip while an update is under way (ticket 16)', () => {
     vi.useFakeTimers()
     let now = later()
     render(<UpdateChip version="0.4.0+aaaaaaa" update={building({ step: 'install', steps: 3 })} now={() => now} />)
-    expect(chip().getAttribute('title')).toBe(`Updating · 2/3 Installing dependencies\nBuilding worfy ${NEW}… 3:12`)
+    expect(chip().getAttribute('title')).toBe(`worfy v0.4.0+aaaaaaa — Building worfy ${NEW}…\nUpdating · 2/3 Installing dependencies\nBuilding worfy ${NEW}… 3:12`)
     fireEvent.mouseEnter(chip())
     act(() => {
       now += 1000
       vi.advanceTimersByTime(1000)
     })
-    expect(chip().getAttribute('title')).toBe(`Updating · 2/3 Installing dependencies\nBuilding worfy ${NEW}… 3:13`)
+    expect(chip().getAttribute('title')).toContain(`Updating · 2/3 Installing dependencies\nBuilding worfy ${NEW}… 3:13`)
     act(() => {
       now += 3600_000
       vi.advanceTimersByTime(1000)
     })
-    expect(chip().getAttribute('title')).toBe(`Updating · 2/3 Installing dependencies\nBuilding worfy ${NEW}… 1:03:13`)
+    expect(chip().getAttribute('title')).toContain(`Updating · 2/3 Installing dependencies\nBuilding worfy ${NEW}… 1:03:13`)
     // The pointer gone, nothing ticks.
     fireEvent.mouseLeave(chip())
     expect(vi.getTimerCount()).toBe(0)
   })
 
-  // worfy-polish ticket 48: a button that is gone sends no mouseleave or blur.
-  it('the pointer and the focus on the chip are forgotten when the button gives way to the plain line: a later build does not tick unpointed', () => {
+  // worfy-polish ticket 48 kept a pointer from counting on after its button was gone; the footer's chip stays one button.
+  it('the chip stays one button while an Update restarts and builds again: its mouseleave and blur stop the count', () => {
     vi.useFakeTimers()
     const version = '0.4.0+aaaaaaa'
     const view = render(<UpdateChip version={version} update={building({ step: 'install', steps: 3 })} now={later} />)
     fireEvent.mouseEnter(chip())
     fireEvent.focus(chip())
     expect(vi.getTimerCount()).toBe(1)
-    // Restarting: the button is a <small> now, and nothing ticks.
+    // Restarting: still the same button, and nothing ticks.
     view.rerender(<UpdateChip version={version} update={{ ...snapshot({ available: available(), idle: true, build: { phase: 'ready', sha: SHA, version: NEW } }), restarting: true }} now={later} />)
-    expect(chip().tagName).toBe('SMALL')
-    // The restart did not happen and a build runs again: no one points at the new button.
-    view.rerender(<UpdateChip version={version} update={building({ step: 'fetch', steps: 3 })} now={later} />)
     expect(chip().tagName).toBe('BUTTON')
     expect(vi.getTimerCount()).toBe(0)
-    // The same after the plain version line.
-    fireEvent.mouseEnter(chip())
-    expect(vi.getTimerCount()).toBe(1)
-    view.rerender(<UpdateChip version={version} update={snapshot()} now={later} />)
-    expect(chip().tagName).toBe('SMALL')
+    fireEvent.mouseLeave(chip())
+    fireEvent.blur(chip())
+    // The restart did not happen and a build runs again: no one points at the chip.
     view.rerender(<UpdateChip version={version} update={building({ step: 'fetch', steps: 3 })} now={later} />)
     expect(vi.getTimerCount()).toBe(0)
   })
 
-  it('the step is cut with an ellipsis on the chip (shell.css), and is the first line of the tooltip', () => {
+  it('the step is cut with an ellipsis on the chip (shell.css), and is the first line of the tooltip after the chip\'s name', () => {
     render(<UpdateChip version="0.4.0+aaaaaaa" update={building({ step: 'install', steps: 3 })} now={later} />)
-    const step = chip().querySelector('.w-toolbar__version-step')
-    expect(step?.textContent).toBe('Updating · 2/3 Installing dependencies')
-    expect(chip().getAttribute('title')).toBe(`Updating · 2/3 Installing dependencies\nBuilding worfy ${NEW}… 3:12`)
+    expect(step()).toBe('Updating · 2/3 Installing dependencies')
+    expect(chip().getAttribute('title')?.split('\n').slice(1)).toEqual(['Updating · 2/3 Installing dependencies', `Building worfy ${NEW}… 3:12`])
     const css = readFileSync(join(import.meta.dirname, '../../src/renderer/shell/shell.css'), 'utf8')
-    const start = css.indexOf('\n.w-toolbar__version-step {')
+    const start = css.indexOf('\n.w-footer__chip-step {')
     expect(start).toBeGreaterThanOrEqual(0)
     const rule = css.slice(start, css.indexOf('}', start))
     expect(rule).toMatch(/max-width:\s*\d+ch;/)
@@ -316,8 +332,8 @@ describe('UpdateChip while an update is under way (ticket 16)', () => {
     } as unknown as WorfyBridge
     render(<UpdateChip version="0.4.0+aaaaaaa" update={snapshot({ available: available() })} now={later} />)
     fireEvent.click(chip())
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Update worfy' }))
-    expect(chip().textContent).toBe('Starting update…')
+    fireEvent.click(screen.getByRole('button', { name: 'Update worfy' }))
+    expect(step()).toBe('Starting update…')
     expect(spinner()).not.toBeNull()
     await act(async () => {
       answer({ ok: true, value: building({ step: 'fetch', steps: 3 }) })
@@ -340,7 +356,7 @@ describe('UpdateChip while an update is under way (ticket 16)', () => {
     render(<UpdateChip version="0.4.0+aaaaaaa" update={failed} />)
     fireEvent.click(chip())
     await act(async () => {
-      fireEvent.click(screen.getByRole('menuitem', { name: 'Update worfy' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Update worfy' }))
       await Promise.resolve()
       await Promise.resolve()
     })
@@ -362,7 +378,7 @@ describe('UpdateChip while an update is under way (ticket 16)', () => {
     render(<UpdateChip version="0.4.0+aaaaaaa" update={snapshot({ available: available() })} />)
     fireEvent.click(chip())
     await act(async () => {
-      fireEvent.click(screen.getByRole('menuitem', { name: 'Update worfy' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Update worfy' }))
       await Promise.resolve()
       await Promise.resolve()
     })
@@ -371,15 +387,18 @@ describe('UpdateChip while an update is under way (ticket 16)', () => {
     ])
   })
 
-  it('a restart that began is "Restarting…" with the spinner, and no longer a button with a menu', () => {
+  it('a restart that began is "Restarting…" with the spinner, and the popover offers no Update action', () => {
     render(<UpdateChip version="0.4.0+aaaaaaa" update={{ ...snapshot({ available: available(), idle: true, build: { phase: 'ready', sha: SHA, version: NEW } }), restarting: true }} />)
     expect(chip().textContent).toBe('Restarting…')
-    expect(chip().tagName).not.toBe('BUTTON')
     expect(chip().getAttribute('data-update')).toBe('restarting')
     expect(spinner()).not.toBeNull()
+    expect(dot()).toBeNull()
+    fireEvent.click(chip())
+    expect(screen.getByTestId('version-app-line').textContent).toBe('worfy v0.4.0+aaaaaaa · restarting…')
+    expect(items()).toEqual([])
   })
 
-  it('the spinner turns, and stands still with reduced motion; its text keeps the 13px line', () => {
+  it('the spinner turns, and stands still with reduced motion', () => {
     const css = readFileSync(join(import.meta.dirname, '../../src/renderer/shell/shell.css'), 'utf8')
     const start = css.indexOf('\n.w-update-spinner {')
     expect(start).toBeGreaterThanOrEqual(0)

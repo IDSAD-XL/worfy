@@ -778,6 +778,19 @@ export async function machineIdOf(window: Page): Promise<string> {
   return id
 }
 
+
+/**
+ * Opens the popover of the version chip in the footer (worfy-layout ticket 03, src/renderer/shell/footer/VersionChip.tsx)
+ * and returns it: the app version and the Update, the Harness line, the Codex line and worfy's memory are its rows,
+ * where the Harness column of the toolbar was. A popover already open stays open. It closes on Esc, a press outside,
+ * the focus going elsewhere and a blur of its window: a spec that clicks elsewhere opens it again before reading it.
+ */
+export async function openVersionPopover(window: Page): Promise<Locator> {
+  const popover = window.getByRole('dialog', { name: 'worfy version' })
+  if (!(await popover.isVisible())) await window.getByTestId('app-version').click()
+  await expect(popover).toBeVisible()
+  return popover
+}
 /**
  * Shows section `title` in the panel of the sidebar (worfy-polish ticket 94): a click on its tab of the
  * rail, which names it as its header does (Projects, Sessions, Pull requests, Pipeline, Epics, ADR,

@@ -4,7 +4,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import { codexHooksCommand, type HarnessHooksTrust, type HarnessStatus as Status } from '../../src/shared/ipc/harness'
 import CodexHooksStep from '../../src/renderer/harness/CodexHooksStep'
-import { HarnessStatus } from '../../src/renderer/shell/toolbar/HarnessStatus'
+import { HarnessStatus } from '../../src/renderer/harness/HarnessStatus'
+import { VersionChip } from '../../src/renderer/shell/footer/VersionChip'
 import { expectFocusKeptIn, flush } from './kit-window'
 
 // worfy-multi-vendor ticket 39: the step "Approve the Harness hooks in Codex". It says what to open in
@@ -162,30 +163,39 @@ describe('codexHooksCommand', () => {
   })
 })
 
-describe('the step from the toolbar Harness item', () => {
-  it('opens by itself when an install in Codex leaves hooks to approve, and once approved the item no longer asks', async () => {
+// worfy-layout ticket 03: the Harness left the toolbar. The footer's version chip, mounted for the life of the
+// window, holds the state and opens the step by itself, while its popover — where "Codex: approve hooks" is — is closed.
+describe('the step from the version chip of the footer', () => {
+  const VERSION = ok({ version: '0.4.0+aaaaaaa' })
+  const chip = (): HTMLElement => screen.getByTestId('app-version')
+  const openPopover = () => fireEvent.click(chip())
+
+  it('opens by itself, the popover closed, when an install in Codex leaves hooks to approve; once approved the chip no longer asks', async () => {
     const main = fakeBridge({
+      'app.version': VERSION,
       'harness.state': ok(withCodex(false)),
       'harnessMigration.offer': ok({ offered: false }),
       'harness.codexHooks': ok({ trust: 'approved', status: withCodex(false) }),
     })
-    render(<HarnessStatus opensHooksStep />)
-    await screen.findByTestId('harness-text')
+    render(<VersionChip />)
+    await screen.findByTestId('app-version')
+    await flush()
     expect(screen.queryByTestId('codex-hooks-step')).toBeNull()
+    expect(screen.queryByRole('dialog', { name: 'worfy version' })).toBeNull()
     // An install from this window, another one or the first-run screen: `harness.changed`.
     act(() => main.emit('harness.changed', withCodex(true)))
     expect(screen.getByTestId('codex-hooks-step')).toBeTruthy()
-    expect(screen.getByTestId('harness-codex').textContent).toBe('Codex: approve hooks')
+    expect(chip().getAttribute('aria-label')).toBe('worfy v0.4.0+aaaaaaa — Codex: approve hooks')
     fireEvent.click(screen.getByRole('button', { name: 'Check again' }))
-    await vi.waitFor(() => expect(screen.queryByTestId('harness-codex')).toBeNull())
+    await vi.waitFor(() => expect(chip().getAttribute('aria-label')).toBe('worfy v0.4.0+aaaaaaa'))
     fireEvent.click(screen.getByRole('button', { name: 'Done' }))
     expect(screen.queryByTestId('codex-hooks-step')).toBeNull()
   })
 
-  it('a window that opens while hooks wait does not open the step; "Codex: approve hooks" does, and closed, a status that still asks does not reopen it', async () => {
-    const main = fakeBridge({ 'harness.state': ok(withCodex(true)), 'harnessMigration.offer': ok({ offered: false }) })
-    render(<HarnessStatus opensHooksStep />)
-    await screen.findByTestId('harness-codex')
+  it('a window that opens while hooks wait does not open the step; "Codex: approve hooks" in the popover does, and closed, a status that still asks does not reopen it', async () => {
+    const main = fakeBridge({ 'app.version': VERSION, 'harness.state': ok(withCodex(true)), 'harnessMigration.offer': ok({ offered: false }) })
+    render(<VersionChip />)
+    await vi.waitFor(() => expect(chip().getAttribute('aria-label')).toBe('worfy v0.4.0+aaaaaaa — Codex: approve hooks'))
     // The first status only seeds the window: a new window, a reload or another screen opens no dialog.
     await act(async () => {
       await new Promise((done) => setTimeout(done, 20))
@@ -193,32 +203,36 @@ describe('the step from the toolbar Harness item', () => {
     expect(screen.queryByTestId('codex-hooks-step')).toBeNull()
     act(() => main.emit('harness.changed', withCodex(true)))
     expect(screen.queryByTestId('codex-hooks-step')).toBeNull()
+    openPopover()
     fireEvent.click(screen.getByTestId('harness-codex'))
+    // The popover gives way to the step.
     expect(screen.getByTestId('codex-hooks-step')).toBeTruthy()
+    expect(screen.queryByRole('dialog', { name: 'worfy version' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Close' }))
     expect(screen.queryByTestId('codex-hooks-step')).toBeNull()
     act(() => main.emit('harness.changed', withCodex(true)))
     expect(screen.queryByTestId('codex-hooks-step')).toBeNull()
+    await flush()
+    openPopover()
     fireEvent.click(screen.getByTestId('harness-codex'))
     expect(screen.getByTestId('codex-hooks-step')).toBeTruthy()
   })
 
-  // worfy-ui-kit ticket 07, review round 1: the toolbar's item and the one of Settings → Pipeline both
-  // hear `harness.changed`. Both opened the step in one commit: two windows of the kit, the focus in the
-  // one drawn under the other, and Esc closed that hidden one. Only the toolbar's item opens it by itself.
-  it('two Harness items, one change of the state: exactly one step opens, the toolbar\'s; the focus is in it and Esc closes it', async () => {
-    const main = fakeBridge({ 'harness.state': ok(withCodex(false)), 'harnessMigration.offer': ok({ offered: false }) })
+  // worfy-ui-kit ticket 07, review round 1: the chip and the Harness lines of Settings → Pipeline both hear
+  // `harness.changed`. Both opened the step in one commit: two windows of the kit, the focus in the one
+  // drawn under the other, and Esc closed that hidden one. Only the chip opens it by itself.
+  it('the chip and the lines of Settings → Pipeline, one change of the state: exactly one step opens, the chip\'s; the focus is in it and Esc closes it', async () => {
+    const main = fakeBridge({ 'app.version': VERSION, 'harness.state': ok(withCodex(false)), 'harnessMigration.offer': ok({ offered: false }) })
     render(
       <>
-        <div data-testid="toolbar-item">
-          <HarnessStatus opensHooksStep />
-        </div>
+        <VersionChip />
         <div data-testid="pipeline-item">
           <HarnessStatus />
         </div>
       </>,
     )
-    await vi.waitFor(() => expect(screen.getAllByTestId('harness-text')).toHaveLength(2))
+    await screen.findByTestId('app-version')
+    await vi.waitFor(() => expect(within(screen.getByTestId('pipeline-item')).getByTestId('harness-text')).toBeTruthy())
     act(() => main.emit('harness.changed', withCodex(true)))
     await flush()
     const steps = screen.getAllByTestId('codex-hooks-step')
@@ -227,7 +241,7 @@ describe('the step from the toolbar Harness item', () => {
     fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
     await flush()
     expect(screen.queryAllByTestId('codex-hooks-step')).toHaveLength(0)
-    // The item of Pipeline still opens the step on a click of "Codex: approve hooks".
+    // The lines of Pipeline still open the step on a click of "Codex: approve hooks".
     fireEvent.click(within(screen.getByTestId('pipeline-item')).getByTestId('harness-codex'))
     expect(screen.getAllByTestId('codex-hooks-step')).toHaveLength(1)
   })

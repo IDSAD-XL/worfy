@@ -19,12 +19,12 @@
 import { useEffect, useState, type CSSProperties } from 'react'
 import type { PipelineEditorRead } from '../../shared/ipc/pipeline'
 import { DEFAULT_PIPELINE, pipelineSchema, pipelineStageSchema, stageId, stageLabel, STAGE_KINDS, type PipelineStage, type StageKind } from '../../shared/workflow/pipeline'
+import { HarnessStatus } from '../harness/HarnessStatus'
 import { invoke, readableReason, windowMachine } from '../ipc'
 import { useMachineName } from '../machines/useMachines'
 import { inWork } from '../pipeline/board'
 import { usePipeline } from '../pipeline/usePipeline'
 import { activeProject, useProjects } from '../projects/useProjects'
-import { HarnessStatus } from '../shell/toolbar/HarnessStatus'
 import { Select, type SelectOption } from '../theme/Select'
 import type { SettingsGroup, SettingsIconName } from './sections'
 

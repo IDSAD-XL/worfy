@@ -2,7 +2,7 @@
 
 Two Features. The **data folder** is where worfy keeps its own state on a Machine. **Diagnostics** are what worfy
 records and shows about itself when something goes wrong: the error window of a failed start, the record of a process
-that ended, the stack of an uncaught exception, the stacks of a hung app, and the memory figure in the toolbar. Terms
+that ended, the stack of an uncaught exception, the stacks of a hung app, and the memory figure in the version popover. Terms
 are explained in [Concepts](concepts.md).
 
 ## Data folder
@@ -231,7 +231,7 @@ The subfolder of a Project:
 | A renderer or helper process ended | One line in a log file in the data folder |
 | An uncaught exception in main | The stack on stderr, then Electron's error box |
 | worfy stopped answering (macOS) | Thread stacks in files, from a script run by hand |
-| How much memory worfy uses | A figure in the toolbar |
+| How much memory worfy uses | A figure in the popover of the version chip in the footer |
 
 worfy has no general log file. Console output goes to the stdout and stderr of the process. Two Features keep files of
 their own: the [Autopilot](autopilot.md) journal, and the `[link]` lines of [Link](link.md), which rotate at 1 MiB and
@@ -319,8 +319,8 @@ whether to restore the windows and waits for an answer ([lessons](../lessons/age
 
 #### The memory figure
 
-The toolbar shows how much memory worfy's own processes use, on the second line of the Harness column, after the app
-version. It reads "412 MB" below 1024 MB, "1.3 GB" from there, and "…" until the first sample. Its tooltip gives the
+The popover of the version chip in the footer shows how much memory worfy's own processes use, on its last row, under
+the app version and the Harness. It reads "412 MB" below 1024 MB, "1.3 GB" from there, and "…" until the first sample. Its tooltip gives the
 split:
 
 ```text
@@ -328,10 +328,11 @@ Memory used by worfy's own processes (not counting terminal sessions)
 Main 180 MB · Windows 200 MB · GPU 20 MB · Other 12 MB
 ```
 
-The figure is the sum of the working sets of Electron's processes, and a new sample comes every 5 seconds. A failed read
+The figure is the sum of the working sets of Electron's processes, and a new sample comes every 5 seconds while a version
+popover is open. A failed read
 keeps the last value, with one warning until a read succeeds.
 
-"Memory in the toolbar" in Settings → General turns it off, in every open window at once and without a reload. It is on
+"Memory in the version popover" in Settings → General turns it off, in every open window at once and without a reload. It is on
 by default, also with a settings file written before the setting existed. While it is off, nothing is sampled.
 
 #### Windows

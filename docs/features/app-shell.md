@@ -1,7 +1,7 @@
 # App shell
 
-What surrounds the Canvas in every window, on every Project. Seven Features: the **Sidebar**, the **Command palette**,
-**Shortcuts**, the **Menu**, **Settings**, the **worfy Guide** and the **Theme**. [Notifications](notifications.md), the eighth, has a page of its own. Terms are
+What surrounds the Canvas in every window, on every Project. Eight Features: the **Sidebar**, the **Footer**, the
+**Command palette**, **Shortcuts**, the **Menu**, **Settings**, the **worfy Guide** and the **Theme**. [Notifications](notifications.md), the ninth, has a page of its own. Terms are
 explained in [Concepts](concepts.md).
 
 The View switch of the toolbar picks what the main area shows: **Canvas**, **Session**, **Pipeline** (see
@@ -179,6 +179,31 @@ watcher. Only the open Project's documents are watched.
 
 Main tests: `test/unit/sidebar-scope.test.tsx`, `test/unit/error-boundary.test.tsx`, `test/unit/sidebar-resize.test.tsx`, `test/e2e/sidebar-resize.spec.ts`, `test/unit/assistant-window.test.ts`, `test/unit/assistant-panel.test.tsx`, `test/unit/assistant-speech.test.tsx`, `test/unit/assistant-intro.test.ts`, `test/unit/assistant-offer.test.tsx`, `test/e2e/assistant.spec.ts`, `test/unit/sidebar-section.test.tsx`, `test/unit/health-rail-button.test.tsx`, `test/unit/acceptance-section.test.tsx`, `test/e2e/sidebar-rail.spec.ts`,
 `test/e2e/sidebar-sections.spec.ts`.
+
+## Footer
+
+### Behaviour
+
+A strip 28 pixels high across the whole window, under the sidebar and the main area, at an interface scale of 100 %. It
+grows with the interface scale, as the rest of the window does: there are no window buttons under it. Its left part is
+for the View buttons of the footer, its middle stays empty, and the version chip stands at its right end. It is no area to
+drag the window by, and toasts keep clear of it. In focus mode the footer stays on screen under the focus layer, and the
+chip keeps working.
+
+The version chip is the app version, `v<major>.<minor>.<N>`, with one dot: red while the Harness needs the user, amber
+while an update waits, none otherwise ([Harness](harness.md), [Updates](updates.md)). Its accessible name and the first
+line of its tooltip say what the dot is for. A press opens a popover above it with the app version and the Update's
+actions, the Harness line, the Codex line and worfy's memory; Esc, a press outside or a second press on the chip closes
+it. While an Update builds, the chip shows its step; in a window 1100 pixels wide or less, the version alone.
+
+### Implementation
+
+| What | Where |
+|---|---|
+| The strip | `src/renderer/shell/footer/Footer.tsx`, `src/renderer/shell/AppShell.tsx`, `src/renderer/shell/shell.css`, `--footer-height` in `src/renderer/theme/tokens.css` |
+| The version chip, its dot and its popover | `src/renderer/shell/footer/VersionChip.tsx`, `src/renderer/shell/footer/version-dot.ts` |
+
+Main tests: `test/unit/version-dot.test.tsx`, `test/unit/update-chip.test.tsx`, `test/e2e/footer.spec.ts`.
 
 ## Command palette
 
@@ -470,7 +495,7 @@ they stay above the window.
 
 | Group | Section | What it holds |
 |---|---|---|
-| App | General | Interface scale; Memory in the toolbar; Fold Epics without work after (the «Older» group of the Epics section, see [Workflow](workflow.md)); Version; Updates, where Update is on: see [Updates](updates.md) |
+| App | General | Interface scale; Memory in the version popover; Fold Epics without work after (the «Older» group of the Epics section, see [Workflow](workflow.md)); Version; Updates, where Update is on: see [Updates](updates.md) |
 | App | Health | The First run checks with their actions and "Check again". Opening the section checks. A pressed button shows its work with a spinner and its own words ("Checking…", "Installing…", "Downloading…"), and its row says "Running…" (every row says "Checking…" while "Check again" runs); the other buttons are off, and their tooltip says another check is running. A long action (npm, qmd models, qmd collections, the Harness) names its step and the time it has taken under its row |
 | App | Shortcuts | The list of the Keyboard shortcuts window |
 | App | Machines | The switches of the link and the access level of each Linked machine: see [Link](link.md) |
@@ -494,7 +519,7 @@ setting stays as it was. Most sections word it "Not saved: …".
 | Setting | Values | Default |
 |---|---|---|
 | Interface scale | 80–150 % by 10 % | 100 % |
-| Memory in the toolbar | on, off | on |
+| Memory in the version popover | on, off | on |
 | Sessions: Orchestrator | 100K–1M tokens by 10K, or Claude Code default | 400K |
 | Sessions: Other Sessions | 100K–1M tokens by 10K, or Claude Code default | 500K |
 | Archive finished sessions after | Never, 6 h, 24 h, 3 days, 7 days | 24 h |
@@ -514,9 +539,10 @@ setting stays as it was. Most sections word it "Not saved: …".
 - **Interface scale.** The whole window zooms: text, Canvas, Terminal, Cards. While the thumb is dragged, only the value next
   to the slider changes. The scale applies when the thumb is let go or a key makes a step. View ▸ Bigger, Smaller and Actual
   size change the same setting.
-- **Memory in the toolbar** shows how much memory worfy's own processes use. Terminal sessions are not counted. Main samples
-  the memory only while the setting is on.
-- **Version** is the build number, `<major>.<minor>.<N>`, as the toolbar shows it: N counts the commits from the start of
+- **Memory in the version popover** shows how much memory worfy's own processes use, on the last row of the popover of
+  the version chip in the footer. Terminal sessions are not counted. Main samples the memory only while the setting is on
+  and a version popover is open.
+- **Version** is the build number, `<major>.<minor>.<N>`, as the version chip of the footer shows it: N counts the commits from the start of
   the history to the commit worfy was built from (`git rev-list --count HEAD`), so a newer build of `main` has a bigger
   number, and one commit gives one number on every Machine. Next to it, in brackets, is the build version
   `<semver>+<short SHA>`, which names the commit. A build with uncommitted changes ends in `.dirty`: it does not match its
@@ -569,7 +595,7 @@ settings are applied in worfy on the Machine of the Project.
   archive settings at every run of the archive, the sleep settings at every check of the rules, and the budget before every Wave.
 - **The strips around the window buttons keep their size.** The scale zooms the whole window, but the macOS window buttons stay
   where they are in window pixels. So `--toolbar-height` is 52 pixels of the window at any scale, and what is inside it still
-  scales. Each load of a page gets the scale again, because Chromium keeps a zoom per origin of its own.
+  scales. The footer has no window buttons, so its `--footer-height` scales with the rest. Each load of a page gets the scale again, because Chromium keeps a zoom per origin of its own.
 
 ### Implementation
 

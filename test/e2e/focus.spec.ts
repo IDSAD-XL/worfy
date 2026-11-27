@@ -122,21 +122,26 @@ test('three selected Nodes fill the window as tiles; presets, dividers and drags
     await expect(tile('n3').getByRole('textbox', { name: 'Note text' })).toHaveValue('three')
     await expect(tile('n4')).toHaveCount(0)
 
-    // The layer covers the main area of the window, toolbar included, and leaves the sidebar: its
-    // left edge is the sidebar's right edge.
+    // The layer covers the main area of the window, toolbar included, and leaves the sidebar and the
+    // footer: its left edge is the sidebar's right edge, its bottom the footer's top.
     const windowSize = await window.evaluate(() => {
       const view = globalThis as unknown as { innerWidth: number; innerHeight: number }
       return { width: view.innerWidth, height: view.innerHeight }
     })
     const sidebar = window.getByRole('navigation', { name: 'Sidebar' })
+    // The footer stays under both, across the whole window (worfy-layout ticket 03).
+    const footer = await box(window.getByTestId('footer'))
+    expect(footer).toMatchObject({ x: 0, width: windowSize.width })
+    expect(footer.y + footer.height).toBeCloseTo(windowSize.height, 0)
+    const above = windowSize.height - footer.height
     const side = await box(sidebar)
-    expect(side).toMatchObject({ x: 0, y: 0, height: windowSize.height })
+    expect(side).toMatchObject({ x: 0, y: 0, height: above })
     expect(side.width).toBeGreaterThan(0)
-    expect(await box(focus)).toEqual({ x: side.width, y: 0, width: windowSize.width - side.width, height: windowSize.height })
-    // With the sidebar hidden (the button of the focus mode bar) it is the whole window.
+    expect(await box(focus)).toEqual({ x: side.width, y: 0, width: windowSize.width - side.width, height: above })
+    // With the sidebar hidden (the button of the focus mode bar) it is the whole window above the footer.
     await focus.getByRole('button', { name: 'Hide sidebar' }).click()
     await expect(sidebar).toHaveCount(0)
-    expect(await box(focus)).toEqual({ x: 0, y: 0, ...windowSize })
+    expect(await box(focus)).toEqual({ x: 0, y: 0, width: windowSize.width, height: above })
     await focus.getByRole('button', { name: 'Show sidebar' }).click()
     await expect(sidebar).toBeVisible()
     expect((await box(focus)).x).toBe(side.width)

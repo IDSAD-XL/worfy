@@ -4,13 +4,14 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { buildVersionTooltip } from '../../src/shared/version-number'
+import { buildVersionTooltip, numberedVersion } from '../../src/shared/version-number'
 import { putElectron } from '../fixtures/update/electron.mjs'
 import { startUpdateStub, type UpdateStub } from '../update-stub'
 import { launchApp, smallestWindow, type LaunchedApp } from './helpers'
 import { E2E_SHELL } from './launch-env'
 
-// worfy-update ticket 06: the version chip of the toolbar in the built app, and its "What's new"
+// worfy-update ticket 06: the version chip in the built app — in the footer since worfy-layout ticket 03, its
+// Update actions on the first row of its popover — and its "What's new"
 // (ticket 10): the PR titles main reads from the stub's comparison. Update is on through
 // WORFY_UPDATE=1; GitHub is the local stub of test/update-stub.ts, the repository a bare one in a
 // temporary folder, the Stable copy a folder there too (WORFY_UPDATE_STABLE, refused by the stub
@@ -114,7 +115,7 @@ const bridgeCall = (window: Page, channel: string, input?: unknown) =>
 
 /** The toolbar, with the chip's menu or "What's new" under it when one is open, in both themes; kept with the test's output. */
 async function snapshots(window: Page, toolbar: Locator, name: string): Promise<void> {
-  const menu = window.getByRole('menu', { name: 'worfy update' })
+  const menu = window.getByRole('dialog', { name: 'worfy version' })
   const whatsNew = window.getByTestId('whats-new')
   for (const scheme of ['light', 'dark'] as const) {
     await window.emulateMedia({ colorScheme: scheme })
@@ -204,48 +205,53 @@ test('an Available update puts a dot on the version chip; "Update worfy" builds 
   })
   const { window } = launched
   const toolbar = window.locator('.w-toolbar')
-  const chip = toolbar.getByTestId('app-version')
+  const footer = window.getByTestId('footer')
+  const chip = footer.getByTestId('app-version')
   const update = `${VERSION}+${head.slice(0, 7)}`
   // worfy-update ticket 14: while the line shows a build number, the tooltip's second line is this
   // copy's build version with its commit; a build without one (CI's shallow clone) has none.
   const app = (await bridgeCall(window, 'app.version')) as { ok: true; value: { version: string; number?: number } }
   const built = buildVersionTooltip(app.value.version, app.value.number)
   const withBuild = (text: string): string => (built === undefined ? text : `${text}\n${built}`)
+  // The chip's tooltip: its name, then the Update's line, then the build version. The Harness of launchApp's sandbox
+  // is not installed, so the red dot and its reason come first in the name (shell/footer/version-dot.ts).
+  const name = `worfy v${numberedVersion(app.value.version, app.value.number)} — Harness needs Install`
+  const titled = (line: string): string => withBuild(`${name}\n${line}`)
+  const popover = window.getByRole('dialog', { name: 'worfy version' })
+  const actions = popover.getByTestId('version-app-line').getByRole('button')
 
-  // No Update yet: the plain version line.
+  // No Update yet: the version alone.
   await expect(chip).toBeVisible()
-  expect(await chip.evaluate((element) => element.tagName)).toBe('SMALL')
-  // The toolbar's own height is fixed (shell.css): what could grow is the Harness column, the Harness
-  // line over the version line, and the version line itself.
-  const column = toolbar.getByTestId('harness-column')
-  const heights = async (): Promise<{ column: number; chip: number }> => ({ column: (await column.boundingBox())!.height, chip: (await chip.boundingBox())!.height })
+  await expect(chip).toHaveText(/^v/u)
+  await expect(chip).toHaveAttribute('data-dot', 'red')
+  // The footer's own height is fixed (shell.css): what could grow is the chip.
+  const heights = async (): Promise<{ footer: number; chip: number }> => ({ footer: (await footer.boundingBox())!.height, chip: (await chip.boundingBox())!.height })
   const before = await heights()
-  await snapshots(window, toolbar, 'update-none')
+  await snapshots(window, footer, 'update-none')
 
   // Built only when asked: "Update automatically" off, then the check the app would run on its schedule.
   expect((await bridgeCall(window, 'appSettings.set', { autoUpdate: false })).ok).toBe(true)
   expect((await bridgeCall(window, 'update.check')).ok).toBe(true)
 
-  // The dot, the tooltip, and the column and the version line as high as before.
+  // The tooltip, and the footer and the chip as high as before; the dot stays the red one of the Harness.
   await expect(chip).toHaveAttribute('data-update', 'available')
-  await expect(chip.locator('.w-update-dot')).toBeVisible()
-  await expect(chip).toHaveAttribute('title', withBuild(`worfy ${update} is available`))
+  await expect(chip.locator('.w-version-dot')).toBeVisible()
+  await expect(chip).toHaveAttribute('title', titled(`worfy ${update} is available`))
   expect(await heights()).toEqual(before)
-  await snapshots(window, toolbar, 'update-available')
+  await snapshots(window, footer, 'update-available')
 
-  // The menu: "Update worfy", "What's new" and "Later"; "Later" closes it and the dot stays.
+  // The popover's app row: "Update worfy" and "What's new"; Esc closes it and the dot stays.
   await chip.click()
-  const menu = window.getByRole('menu', { name: 'worfy update' })
-  await expect(menu.getByRole('menuitem')).toHaveText(['Update worfy', "What's new", 'Later'])
-  await snapshots(window, toolbar, 'update-available-menu')
-  await menu.getByRole('menuitem', { name: 'Later' }).click()
-  await expect(menu).toBeHidden()
-  await expect(chip.locator('.w-update-dot')).toBeVisible()
+  await expect(actions).toHaveText(['Update worfy', "What's new"])
+  await snapshots(window, footer, 'update-available-menu')
+  await window.keyboard.press('Escape')
+  await expect(popover).toBeHidden()
+  await expect(chip.locator('.w-version-dot')).toBeVisible()
 
   // "What's new": the PRs of the comparison, newest first, the push without a PR left out; the title is text.
   await chip.click()
-  await menu.getByRole('menuitem', { name: "What's new" }).click()
-  await expect(menu).toBeHidden()
+  await popover.getByRole('button', { name: "What's new" }).click()
+  await expect(popover).toBeHidden()
   const whatsNew = window.getByRole('dialog', { name: `What's new in worfy ${update}` })
   await expect(whatsNew.getByRole('heading')).toHaveText(`What's new in worfy ${update}`)
   await expect(whatsNew.getByRole('listitem')).toHaveText([
@@ -255,12 +261,12 @@ test('an Available update puts a dot on the version chip; "Update worfy" builds 
   await expect(whatsNew.getByRole('link', { name: '#1130' })).toHaveAttribute('href', 'https://github.com/IDSAD-XL/worfy/pull/1130')
   await expect(whatsNew.locator('b')).toHaveCount(0)
   await expect(whatsNew.getByRole('button', { name: 'Update worfy' })).toBeVisible()
-  await snapshots(window, toolbar, 'update-whats-new')
+  await snapshots(window, footer, 'update-whats-new')
   await window.keyboard.press('Escape')
   await expect(whatsNew).toBeHidden()
   // It lies over the toasts and so over the Command palette: ⌘K closes it rather than open the palette under it.
   await chip.click()
-  await menu.getByRole('menuitem', { name: "What's new" }).click()
+  await popover.getByRole('button', { name: "What's new" }).click()
   await expect(whatsNew).toBeVisible()
   await window.keyboard.press('ControlOrMeta+k')
   const palette = window.getByTestId('command-palette')
@@ -284,23 +290,31 @@ test('an Available update puts a dot on the version chip; "Update worfy" builds 
   })
   const chipTexts = (): Promise<string[]> => window.evaluate(() => (globalThis as { chipTexts?: string[] }).chipTexts ?? [])
   await chip.click()
-  await menu.getByRole('menuitem', { name: 'Update worfy' }).click()
-  await expect(menu).toBeHidden()
+  await popover.getByRole('button', { name: 'Update worfy' }).click()
+  // The press closes the popover, as it closed the chip's menu.
+  await expect(popover).toBeHidden()
   // At once: the version gives way to the spinner and the words, before main has answered.
   await expect(chip).not.toHaveText(/^v/u)
   await expect(chip.locator('.w-update-spinner')).toBeVisible()
   // The build holds at `pnpm install`: the step is on the chip itself, the time in its tooltip.
   await expect(chip).toHaveText('Updating · 2/3 Installing dependencies')
   await expect(chip).toHaveAttribute('data-update', 'building')
-  // The whole step is the first line of the tooltip: on the chip it may end with an ellipsis (worfy-polish ticket 48).
-  await expect(chip).toHaveAttribute('title', new RegExp(`^Updating · 2/3 Installing dependencies\\nBuilding worfy ${update.replace(/[.+]/gu, '\\$&')}… \\d+:\\d\\d`, 'u'))
+  // The whole step is the first line of the tooltip after the chip's name: on the chip it may end with an ellipsis (worfy-polish ticket 48).
+  await expect(chip).toHaveAttribute('title', new RegExp(`^[^\\n]+\\nUpdating · 2/3 Installing dependencies\\nBuilding worfy ${update.replace(/[.+]/gu, '\\$&')}… \\d+:\\d\\d`, 'u'))
+  expect(
+    await chip.locator('.w-footer__chip-step').evaluate((element) => {
+      const node = element as unknown as { scrollWidth: number; clientWidth: number }
+      return node.scrollWidth > node.clientWidth
+    }),
+    'the step is cut',
+  ).toBe(true)
   for (const scheme of ['light', 'dark'] as const) {
     await window.emulateMedia({ colorScheme: scheme })
     expect(await textContrast(chip), `the chip's text in the ${scheme} theme`).toBeGreaterThanOrEqual(4.5)
   }
   await window.emulateMedia({ colorScheme: null })
   // worfy-polish ticket 48: in the smallest window with the sidebar open, the build does not widen the
-  // toolbar past the window; the step ends with an ellipsis. The size comes back after.
+  // toolbar past the window, and the chip shows the version alone (worfy-layout ticket 03). The size comes back after.
   const size = await launched.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.getSize())
   await expect(window.getByRole('navigation', { name: 'Sidebar' })).toBeVisible()
   await smallestWindow(launched)
@@ -310,17 +324,14 @@ test('an Available update puts a dot on the version chip; "Update worfy" builds 
   })
   expect(widths.scrollWidth, 'the toolbar draws no wider than it is').toBeLessThanOrEqual(widths.clientWidth)
   expect(widths.right, 'the toolbar ends inside the window').toBeLessThanOrEqual(widths.window)
-  await expect(chip).toHaveText('Updating · 2/3 Installing dependencies')
-  expect(
-    await chip.locator('.w-toolbar__version-step').evaluate((element) => {
-      const node = element as unknown as { scrollWidth: number; clientWidth: number }
-      return node.scrollWidth > node.clientWidth
-    }),
-    'the step is cut',
-  ).toBe(true)
-  await snapshots(window, toolbar, 'update-building-smallest')
+  await expect(chip).toHaveAttribute('data-update', 'building')
+  await expect(chip.locator('.w-footer__chip-step')).toBeHidden()
+  await expect(chip.locator('.w-footer__chip-narrow')).toBeVisible()
+  const chipRight = await chip.evaluate((element) => (element as unknown as { getBoundingClientRect(): { right: number } }).getBoundingClientRect().right)
+  expect(chipRight, 'the chip ends inside the window').toBeLessThanOrEqual(widths.window)
+  await snapshots(window, footer, 'update-building-smallest')
   await launched.app.evaluate(({ BrowserWindow }, [width, height]) => BrowserWindow.getAllWindows()[0]?.setSize(width ?? 1280, height ?? 800), size)
-  await snapshots(window, toolbar, 'update-building-install')
+  await snapshots(window, footer, 'update-building-install')
   // Reduced motion: the spinner stands still.
   await window.emulateMedia({ reducedMotion: 'reduce' })
   expect(await chip.locator('.w-update-spinner').evaluate((element) => (element as unknown as { ownerDocument: { defaultView: { getComputedStyle(element: unknown): { animationName: string } } } }).ownerDocument.defaultView.getComputedStyle(element).animationName)).toBe('none')
@@ -337,23 +348,24 @@ test('an Available update puts a dot on the version chip; "Update worfy" builds 
     'Updating · 3/3 Building app',
   ])
   await chip.click()
-  const building = menu.getByRole('menuitem', { name: `Building worfy ${update}…` })
+  const building = popover.getByRole('button', { name: `Building worfy ${update}…` })
   await expect(building).toHaveAttribute('aria-disabled', 'true')
-  await snapshots(window, toolbar, 'update-building-menu')
+  await snapshots(window, footer, 'update-building-menu')
   await window.keyboard.press('Escape')
-  await expect(menu).toBeHidden()
-  await snapshots(window, toolbar, 'update-building')
+  await expect(popover).toBeHidden()
+  await snapshots(window, footer, 'update-building')
 
-  // Built: nothing works in this app, so "Restart now"; the chip is the version line again.
+  // Built: nothing works in this app, so "Restart now"; the chip shows the version again.
   writeFileSync(release, '')
   await expect(chip).toHaveAttribute('data-update', 'ready')
   await expect(chip).toHaveText(/^v/u)
-  await expect(chip).toHaveAttribute('title', withBuild(`worfy ${update} is ready — restart to update`))
-  await snapshots(window, toolbar, 'update-ready')
+  await expect(chip).toHaveAttribute('title', titled(`worfy ${update} is ready — restart to update`))
+  await snapshots(window, footer, 'update-ready')
   await chip.click()
-  await expect(menu.getByRole('menuitem')).toHaveText(['Restart now', "What's new", 'Later'])
-  await snapshots(window, toolbar, 'update-ready-menu')
-  await menu.getByRole('menuitem', { name: 'Later' }).click()
+  await expect(actions).toHaveText(['Restart now', "What's new"])
+  await snapshots(window, footer, 'update-ready-menu')
+  await window.keyboard.press('Escape')
+  await expect(popover).toBeHidden()
   expect(await heights()).toEqual(before)
 
   // worfy-continuity ticket 08: while something works (main's snapshot with `idle: false`, sent as its
@@ -364,7 +376,8 @@ test('an Available update puts a dot on the version chip; "Update worfy" builds 
     for (const each of BrowserWindow.getAllWindows()) each.webContents.send('worfy:update.changed', payload)
   }, { ...(state.value as Record<string, unknown>), idle: false })
   await chip.click()
-  await expect(menu.getByRole('menuitem')).toHaveText(['Restart when idle', 'Restart now', "What's new", 'Later'])
-  await snapshots(window, toolbar, 'update-ready-busy-menu')
-  await menu.getByRole('menuitem', { name: 'Later' }).click()
+  await expect(actions).toHaveText(['Restart when idle', 'Restart now', "What's new"])
+  await snapshots(window, footer, 'update-ready-busy-menu')
+  await window.keyboard.press('Escape')
+  await expect(popover).toBeHidden()
 })

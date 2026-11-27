@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { MigrationPlan, MigrationResult, MigrationSelection } from '../../src/shared/ipc/harness-migration'
 import { MigrationFormView } from '../../src/renderer/harness/MigrationForm'
-import { HarnessStatusView } from '../../src/renderer/shell/toolbar/HarnessStatus'
+import { HarnessStatusView } from '../../src/renderer/harness/HarnessStatus'
 import { expectFocusKeptIn, flush } from './kit-window'
 
 // worfy-harness ticket 14: the form that moves the old Harness out of ~/.claude. Rows by group, a
