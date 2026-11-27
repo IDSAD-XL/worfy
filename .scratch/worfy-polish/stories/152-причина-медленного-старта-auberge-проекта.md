@@ -208,3 +208,16 @@ Electron не запускали (правило владельца); e2e без
    - Ответ: 5 выше 95-го процентиля `N / R` кода до починки, так что предел держит почти все машины и без выигрыша
      починки, а потолок решает только при `R` от 1460 ms.
    - Строки: `test/e2e/start-budget.ts:15-19`
+
+## 11. Что нашёл review и что осталось
+
+> VERIFIED — worfy-polish 152 (the slow start of an Auberge-sized Project — 42 Epics, 682 Tickets — on the macOS runner: no commit or runner image made it slower, N spread 1814–7534 ms on the same code; two full re-renders of every canvas card after the Pipeline answer took ~35% of N; fix: buildEpicNodes keeps the Epic's Node objects when the frame lays out as before, TicketNode slots in a memo component, branchesInWork once per Ticket list, the arrangement record also runs on settled; start limit min(7300, max(3000, 5×R)) instead of 6×R; the quarantine of epic-frame.spec.ts:1113 removed), head 6574a220cb5b948220a9c17c98238d30b02cd923
+>
+> Gate (depth medium, two rounds):
+> Round 1 (29e5e1ca8) worfy:reviewer, lens correctness — REJECTED: [med] epics.ts:591-592 — the short path kept the old Node objects while a NEW ELK request key was in entry.request; requestEpicLayouts runs only on new nodes (epics.ts:811), so the request was never sent and the Epic stayed settled=false (proved by a probe test: folded done stack, a review chip changes only a done card's height). Otherwise clean: Ticket state/title/PR/CI changes rebuild the Node, React Flow selection/measured untouched, slots read their own hooks, branchesInWork not mutated, 3 of 3 mutants red; 567 canvas unit tests EXIT=0, lint, typecheck, story-check EXIT=0.
+> Round 2 (6574a220c) orchestrator read of the code diff (epics.ts +3/−1): the short path now also requires the same ELK request key — the reviewer's proposed fix; unit test epic-node-memo.test.tsx:191-217 is the reviewer's scenario, red without the condition. Implementer: 593 canvas unit tests EXIT=0, lint, typecheck EXIT=0, gate fast green, story-check EXIT=0. CI run 46005568934 green on the head at the first attempt, every job; the Auberge start test without quarantine: N=2521 ms, R=1457 ms, N/R=1.73, limit 7285 ms.
+> Consider: none
+> Noted: START_RATIO 5 rests on two post-fix runner samples (N/R 2.51, 1.73) and the 95th percentile 4.63 of 108 pre-fix jobs — owner to confirm 5. Out of scope found: pipeline.get waits 11 sequential gh pr list calls (961–1342 ms at start), Pickers.tsx useLayoutEffect without deps (137 ms), Stepper overflow measure (247 ms), ~125 IPC calls from Epic frames.
+> Dismissed: none
+> Review depth: medium — owner rule
+> Review tokens: 113334
