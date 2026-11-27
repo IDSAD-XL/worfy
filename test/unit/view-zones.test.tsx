@@ -177,19 +177,28 @@ describe('the three looks', () => {
     expect(acceptance.getAttribute('aria-description')).toBe('Checks that wait for you')
   })
 
-  it('an inactive button (no Project) is disabled in every zone, its tooltip says why', () => {
+  it('an inactive button (no Project) is inactive in every zone, its tooltip says why, and a press opens nothing', () => {
     useLayout({ header: ['canvas', 'history'], rail: ['pull-requests'], footer: ['session', 'pipeline', 'acceptance'] })
-    render(<AppShell />)
+    const onViewChange = vi.fn()
+    render(<AppShell onViewChange={onViewChange} />)
+    // `aria-disabled`, not native `disabled`: Chromium starts no drag on a disabled button (ticket 06).
     const runs = within(header()).getByRole('button', { name: 'Runs' }) as HTMLButtonElement
-    expect(runs.disabled).toBe(true)
+    expect(runs.getAttribute('aria-disabled')).toBe('true')
+    expect(runs.disabled).toBe(false)
     expect(runs.title).toBe('Open a Project to see its Runs')
+    fireEvent.click(runs)
+    expect(openRunHistory).not.toHaveBeenCalled()
     const pulls = within(rail()).getByRole('button', { name: 'Pull requests' }) as HTMLButtonElement
-    expect(pulls.disabled).toBe(true)
+    expect(pulls.getAttribute('aria-disabled')).toBe('true')
     expect(pulls.title).toBe('Open a Project to see its pull requests')
+    fireEvent.click(pulls)
+    expect(onViewChange).not.toHaveBeenCalled()
+    expect(runs.getAttribute('aria-pressed')).toBe('false')
     useLayout({ header: ['canvas'], rail: ['pull-requests'], footer: ['session', 'pipeline', 'acceptance', 'history'] })
     const inFooter = within(footer()).getByRole('button', { name: 'Runs' }) as HTMLButtonElement
-    expect(inFooter.disabled).toBe(true)
+    expect(inFooter.getAttribute('aria-disabled')).toBe('true')
     expect(inFooter.title).toBe('Open a Project to see its Runs')
+    expect(within(header()).getByRole('button', { name: 'Canvas' }).getAttribute('aria-disabled')).toBeNull()
   })
 })
 
@@ -544,7 +553,8 @@ describe('a drag of a View button (ticket 06)', () => {
   it('an inactive button (no Project) is dragged too: the layout does not depend on the Project', async () => {
     render(<AppShell />)
     layOut('header')
-    expect(viewButton('history').disabled).toBe(true)
+    expect(viewButton('history').getAttribute('aria-disabled')).toBe('true')
+    expect(viewButton('history').disabled).toBe(false)
     expect(viewButton('history').draggable).toBe(true)
     const data = transfer()
     fireEvent.dragStart(viewButton('history'), { dataTransfer: data })

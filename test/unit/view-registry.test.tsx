@@ -68,12 +68,13 @@ describe('the View buttons of the toolbar', () => {
       ['Pull requests', 'Pull requests of the open Project'],
       ['Acceptance', 'Checks that wait for you'],
     ])
-    expect(buttons.every((button) => !button.disabled)).toBe(true)
+    expect(buttons.every((button) => button.getAttribute('aria-disabled') === null)).toBe(true)
   })
 
   it('without a Project, Runs and Pull requests are inactive and their tooltip says why; the others stay usable', () => {
     const tabs = renderToolbar({})
-    const inactive = (tabs.getAllByRole('button') as HTMLButtonElement[]).filter((button) => button.disabled)
+    // Inactive is `aria-disabled`, not native `disabled`, so that it can be dragged (worfy-layout ticket 06).
+    const inactive = (tabs.getAllByRole('button') as HTMLButtonElement[]).filter((button) => button.getAttribute('aria-disabled') === 'true')
     expect(inactive.map((button) => [button.getAttribute('aria-label'), button.title])).toEqual([
       ['Runs', 'Open a Project to see its Runs'],
       ['Pull requests', 'Open a Project to see its pull requests'],

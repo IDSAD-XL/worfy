@@ -60,12 +60,13 @@ describe('the Runs tab', () => {
   it('is inactive without a Project, with a tooltip that says what to do', () => {
     const tabs = renderToolbar({})
     const runs = tabs.getByRole('button', { name: 'Runs' }) as HTMLButtonElement
-    expect(runs.disabled).toBe(true)
+    // `aria-disabled`, not native `disabled`, so that it can be dragged (worfy-layout ticket 06).
+    expect(runs.getAttribute('aria-disabled')).toBe('true')
     expect(runs.title).toBe('Open a Project to see its Runs')
     fireEvent.click(runs)
     expect(openRunHistory).not.toHaveBeenCalled()
     // The other tabs stay usable.
-    expect((tabs.getByRole('button', { name: 'Canvas' }) as HTMLButtonElement).disabled).toBe(false)
+    expect(tabs.getByRole('button', { name: 'Canvas' }).getAttribute('aria-disabled')).toBeNull()
   })
 
   it('has the tooltip «Run history» when it is usable (worfy-layout ticket 01)', () => {

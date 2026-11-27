@@ -93,9 +93,12 @@ export function ViewButton({ entry, look, zone, inactive, badged, onContextMenu,
       // on the rail the kit Tooltip gives the description then, and an own key, even undefined, would take its place.
       {...(badge === undefined ? {} : { 'aria-description': badge.label })}
       // The native tooltip in the header and the footer, as the View switch had it; on the rail the kit's, on the right,
-      // but for an inactive button: a disabled button takes no pointer, and only the native tooltip still shows there.
+      // but for an inactive button, which keeps the native one, as it had while it was natively disabled.
       title={look === 'rail' && !inactive ? undefined : tooltip}
-      disabled={inactive}
+      // Inactive is `aria-disabled`, not native `disabled`: Chromium starts no drag on a disabled button, and an inactive
+      // one is dragged too (worfy-layout ticket 06). It stays a Tab stop; a press opens nothing, as openView (views.tsx)
+      // opens no view that needs a Project without one.
+      aria-disabled={inactive ? true : undefined}
       data-view-button={entry.id}
       data-zone={zone}
       data-testid={button.testId}

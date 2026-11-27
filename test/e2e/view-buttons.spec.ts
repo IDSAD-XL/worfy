@@ -247,7 +247,18 @@ test('a drag takes Runs from the footer into the header between Canvas and Sessi
     // A drag as Playwright's dragTo makes it, stopped halfway: over the left half of Session, the gap after Canvas.
     await window.mouse.move(from.x + from.width / 2, from.y + from.height / 2)
     await window.mouse.down()
-    await window.mouse.move(to.x + to.width / 4, to.y + to.height / 2, { steps: 8 })
+    const over = { x: to.x + to.width / 4, y: to.y + to.height / 2 }
+    await window.mouse.move(over.x, over.y, { steps: 8 })
+    // Playwright sends the page a drag event per move, and the element a drag enters gets its first `dragover` only on
+    // the next one: small moves inside the left half of Session bring it there, as a hand that holds still does.
+    let nudge = 0
+    await expect
+      .poll(async () => {
+        nudge = (nudge % 4) + 1
+        await window.mouse.move(over.x + nudge, over.y)
+        return session.getAttribute('data-drop-marker')
+      })
+      .toBe('before')
     await expect(window.getByTestId('app-shell')).toHaveAttribute('data-view-drag', 'history')
     await expect(header(window)).toHaveAttribute('data-drop-zone', 'over')
     await expect(railBlock(window)).toHaveAttribute('data-drop-zone', 'on')

@@ -882,8 +882,8 @@ html[data-platform='linux'] .w-sidebar__titlebar {
   background: var(--selected);
   color: var(--text);
 }
-.w-view-button--rail:disabled,
-.w-view-button--footer:disabled {
+/* An inactive View button is `aria-disabled`, not natively disabled, so that it can be dragged (ViewButton.tsx). */
+.w-view-button[aria-disabled='true'] {
   opacity: 0.5;
 }
 /* The «window» mark in the corner of the icon (owner's decision B): the view opens in the main area, not as a panel. */
@@ -921,7 +921,7 @@ html[data-platform='linux'] .w-sidebar__titlebar {
   font-weight: 500;
   white-space: nowrap;
 }
-.w-view-button--footer:hover:not(:disabled) {
+.w-view-button--footer:hover:not([aria-disabled='true']) {
   background: var(--surface-raised);
 }
 .w-view-button--footer[aria-pressed='true'] {
@@ -933,7 +933,7 @@ html[data-platform='linux'] .w-sidebar__titlebar {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
-.w-view-button--rail:disabled:hover {
+.w-view-button--rail[aria-disabled='true']:hover {
   background: transparent;
   color: var(--text-muted);
 }
