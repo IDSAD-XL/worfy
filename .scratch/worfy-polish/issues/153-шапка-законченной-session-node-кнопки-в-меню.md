@@ -64,10 +64,13 @@ Session, не открыв её.
 ## Готово, когда
 
 - [ ] Unit test: узкая шапка — кнопки в меню «⋯», имя не уже минимума; пункты меню с теми же tooltip-ами и отключением.
+  - evidence: test-run pass · `pnpm test` (test/unit/session-node-product.test.tsx, test/unit/session-node-remove.test.tsx) exit 0 · mac - · 7f86a025039654f45cbb92a1fbe7590739f8eade
 - [ ] e2e: законченная worfy Session Node на 340 px и 240 px держит имя не уже минимума; зелёный в `macos-e2e`.
 - [ ] Снимки шапки 340 px и 240 px в светлой и тёмной теме — в папке вывода test-а, в репозиторий не кладутся.
 - [ ] `docs/features/sessions.md` говорит о меню кнопок на узкой Node.
+  - evidence: commit pass · worfy-polish/153: Session Node header buttons go into a "⋯" menu before the title gets unreadable · - - · 7f86a025039654f45cbb92a1fbe7590739f8eade
 - [ ] «Итог»: выбранный минимум и порядок ухода кнопок — в «Решено без владельца».
+  - evidence: commit pass · worfy-polish/153: ticket result · - - · 7f86a025039654f45cbb92a1fbe7590739f8eade
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
 
 ## Итог
