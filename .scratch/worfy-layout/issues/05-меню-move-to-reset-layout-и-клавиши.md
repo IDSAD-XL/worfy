@@ -1,7 +1,8 @@
 # 05: Меню «Move to», Reset layout и клавиши
 
 Type: task
-Status: open
+Status: claimed 2026-11-27T09:24Z
+Branch: worfy-layout/05
 Blocked by: 04
 Source: [spec.md](../spec.md), «Ticket-ы», 05; «Решения по реализации» («Меню View button», «Клавиши», «Settings → General», «Sidebar спрятан»); «Решения по test-ам», Seam 3 и Seam 4; решения владельца Q3, Q6; «Волны», Wave 3
 
@@ -52,4 +53,6 @@ Q6:
 
 - [ ] «Move to» переносит кнопку в конец зоны, фокус на ней; Reset layout возвращает расстановку по умолчанию во всех
       окнах; ⌥←/⌥→ и ⌥↑/⌥↓ двигают кнопку внутри зоны.
+  - evidence: test-run pass · `pnpm test` exit 0 (test/unit/view-zones.test.tsx, test/unit/settings-reset-layout.test.tsx) · mac - · a725881ce53fb5576136310f8472fb81feecd1be
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · a725881ce53fb5576136310f8472fb81feecd1be
