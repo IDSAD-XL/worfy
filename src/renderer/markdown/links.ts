@@ -97,3 +97,27 @@ export function classifyLink(href: string | undefined, baseDir = ''): LinkTarget
   const normalised = normalise(joined)
   return normalised === '' || normalised === '/' || TWO_SEPARATORS.test(normalised) ? { kind: 'none' } : { kind: 'file', path: normalised }
 }
+
+/** The host to show beside a link to `url` whose text is `text`; null when the text already names that address or host. */
+export function linkHost(text: string, url: string): string | null {
+  let target: URL
+  try {
+    target = new URL(url)
+  } catch {
+    return null
+  }
+  const shown = text.trim()
+  if (shown === url || shown === target.href) return null
+  // A text that reads as an address of the same host — with its scheme or without, as an autolinked `www.…` — names it.
+  if (/^\S+$/u.test(shown)) {
+    for (const candidate of [shown, `https://${shown}`]) {
+      try {
+        const named = new URL(candidate)
+        if ((named.protocol === 'http:' || named.protocol === 'https:') && named.host === target.host) return null
+      } catch {
+        // not an address in this reading
+      }
+    }
+  }
+  return target.host
+}

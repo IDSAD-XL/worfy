@@ -151,7 +151,12 @@ first three items, each with Prepare or Open; and "Was this summary useful?" wit
 **Chat** is the conversation. The user writes at any moment in the box at the foot ("Ask Assistant, or tell it what to
 change…"); Enter sends, Shift+Enter starts a new line. The answer comes when the Assistant's Session ends; until then
 three dots show that it is writing. What the Assistant wrote on its own wakes (morning, batch, urgent) joins the
-conversation too. The user can ask it to change a setting: it proposes a «before → after» card, which stands among the
+conversation too. The Assistant's messages here and its morning summary in Summary are rendered as Markdown, as a
+Session's answers are: bold, code, lists, headings, tables and links that open in the browser. Raw HTML stays text and
+images are not loaded. An http(s) link of a quoted Slack or Jira message opens in the browser too; when its text is not
+its own address, the host it opens stands beside it, muted ("Approve (evil.example)"). Links of other kinds and file
+links open nothing. The user's own messages stay plain text. The
+user can ask it to change a setting: it proposes a «before → after» card, which stands among the
 Proposals of Waits. The user can ask how worfy works: the Assistant answers from the feature pages bundled in worfy,
 with a link to the page, may name a topic of the Guide (Help ▸ worfy Guide), and says it does not know when no page
 describes it.

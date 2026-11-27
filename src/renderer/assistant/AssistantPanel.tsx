@@ -10,7 +10,7 @@ import { shortTime } from './format'
 import { Icon, Spark } from './icons'
 import { OfferCard } from './Offer'
 import { openItem } from './open'
-import { GoneCard, ItemCard, LinkedMachine, RateButtons } from './parts'
+import { AssistantWords, GoneCard, ItemCard, LinkedMachine, RateButtons } from './parts'
 import { applyChange, dismissProposal, forgetRule, prepareItem, sendMessage, undoChange, useAssistant, type AssistantTab } from './useAssistant'
 
 const TABS: readonly { tab: AssistantTab; label: string }[] = [
@@ -237,7 +237,7 @@ function Summary({ view }: { view: AssistantView }): ReactElement {
             <Spark size={12} />
             Morning summary · {shortTime(summary.morning.at)}
           </h4>
-          <p className="w-asst-text">{summary.morning.text}</p>
+          <AssistantWords text={summary.morning.text} />
         </div>
       ) : null}
       {summary.projects.length > 0 ? (
@@ -373,7 +373,7 @@ function Chat({ view }: { view: AssistantView }): ReactElement {
                   </span>
                 ) : (
                   <>
-                    <span className="w-asst-text">{message.text}</span>
+                    <AssistantWords text={message.text} />
                     <RateButtons target={{ kind: 'message', id: message.id }} rating={message.rating} />
                   </>
                 )}

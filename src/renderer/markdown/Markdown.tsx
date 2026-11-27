@@ -6,7 +6,7 @@ import { useFileElsewhere } from '../machines/useFileElsewhere'
 import { revealedNote } from '../toast/revealed'
 import { remarkAutolinkEdges } from './autolink-edges'
 import { remarkGithub, textOf, type GithubOptions } from './github'
-import { classifyLink, isWindowsPathLink } from './links'
+import { classifyLink, isWindowsPathLink, linkHost } from './links'
 import { remarkSoftBreaks } from '../../shared/markdown/soft-breaks'
 import './markdown.css'
 
@@ -17,7 +17,9 @@ import './markdown.css'
 // plain text, so `<script>` or `<img onerror>` written by an agent is shown, not run. Markdown
 // images are not loaded either: they would fetch from wherever the text points; the alt text is
 // shown instead. Links open outside the window (links.ts): http:// and https:// in the browser, a
-// relative path as a file of the Project in the default editor. A bare address in prose is a link
+// relative path as a file of the Project in the default editor; without a Project a file link is inert
+// text. With the opt-in prop `showLinkHost` an http(s):// link whose text is not its own address shows its
+// host beside it (worfy-polish ticket 162). A bare address in prose is a link
 // too (remark-gfm), with a closing quote after it left outside (autolink-edges.ts). Fonts and
 // colours come from the theme tokens (markdown.css); a link stands out in the link / accent colour
 // (worfy-polish ticket 101). In a window on a Linked machine a file link shows "File is on <Machine>"
@@ -51,6 +53,12 @@ export interface MarkdownProps {
   storySelected?: { from: number; to: number } | null | undefined
   /** What a ```story block shows after its line `line` (a question and its answers); nothing when it answers null. */
   storyAside?: ((line: number) => ReactNode) | undefined
+  /**
+   * Show the host of an http(s):// link beside it, muted, when the link's text is not its own address — «Approve
+   * (evil.example)» — so text quoted from outside cannot name one address and open another (links.ts linkHost). Off by
+   * default; the Assistant's messages turn it on (worfy-polish ticket 162).
+   */
+  showLinkHost?: boolean
 }
 
 /** remark plugins: autolink-edges runs last, on the links remark-gfm made. */
@@ -86,23 +94,30 @@ function Link({
   projectId,
   baseDir,
   className,
+  text,
+  showHost,
 }: {
   href: string | undefined
   children: ReactNode
   projectId: string | undefined
   baseDir: string | undefined
   className?: string | undefined
+  /** The link's visible text, for showHost. */
+  text: string
+  showHost: boolean
 }) {
   const target = classifyLink(href, baseDir)
   const file = useFileElsewhere()
   const [note, setNote] = useState<string | null>(null)
-  if (target.kind === 'none') {
+  // A file link without a Project opens nothing, so it does not look like a link either (review of worfy-polish ticket 162).
+  if (target.kind === 'none' || (target.kind === 'file' && projectId === undefined)) {
     return (
       <span className={className === undefined ? 'w-md__inert-link' : `w-md__inert-link ${className}`} title={href}>
         {children}
       </span>
     )
   }
+  const host = showHost && target.kind === 'external' ? linkHost(text, target.url) : null
   const onClick = (event: MouseEvent) => {
     // The window itself never navigates: the link always leaves through main.
     event.preventDefault()
@@ -115,6 +130,7 @@ function Link({
       <a href={href} className={className} title={target.kind === 'external' ? target.url : target.path} onClick={onClick}>
         {children}
       </a>
+      {host !== null && <span className="w-md__link-host">({host})</span>}
       {note !== null && (
         <span className="w-md__link-note" role="status">
           {note}
@@ -248,7 +264,7 @@ function TaskCheckbox({ node, ...rest }: InputHTMLAttributes<HTMLInputElement> &
   return <input {...rest} aria-label={rest.type === 'checkbox' && name !== undefined && name !== '' ? name : rest['aria-label']} />
 }
 
-export function Markdown({ text, projectId, baseDir, breaks = false, github, story = false, storySelected, storyAside }: MarkdownProps) {
+export function Markdown({ text, projectId, baseDir, breaks = false, github, story = false, storySelected, storyAside, showLinkHost = false }: MarkdownProps) {
   const githubRepo = github === undefined ? undefined : github.repo
   const storyLines = useMemo(() => ({ selected: storySelected, aside: storyAside }), [storySelected, storyAside])
   const plugins = useMemo<NonNullable<Options['remarkPlugins']>>(() => {
@@ -257,8 +273,8 @@ export function Markdown({ text, projectId, baseDir, breaks = false, github, sto
   }, [breaks, githubRepo])
   const components = useMemo<Components>(
     () => ({
-      a: ({ href, children, className }) => (
-        <Link href={href} projectId={projectId} baseDir={baseDir} className={className}>
+      a: ({ node, href, children, className }) => (
+        <Link href={href} projectId={projectId} baseDir={baseDir} className={className} text={textOf(node as HastChild | undefined)} showHost={showLinkHost}>
           {children}
         </Link>
       ),
@@ -293,7 +309,7 @@ export function Markdown({ text, projectId, baseDir, breaks = false, github, sto
             },
           }),
     }),
-    [projectId, baseDir, githubRepo, story],
+    [projectId, baseDir, githubRepo, story, showLinkHost],
   )
   return (
     <div className={githubRepo === undefined ? 'w-md' : 'w-md w-md--github'}>

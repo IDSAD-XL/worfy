@@ -725,6 +725,7 @@
 }
 .w-asst-bubble {
   max-width: 88%;
+  min-width: 0;
   padding: 8px 11px;
   border-radius: 14px;
   font-size: 12.5px;
@@ -749,6 +750,60 @@
 .w-asst-bubble .w-asst-text {
   padding: 0;
   display: block;
+}
+/*
+ * A message of the Assistant as Markdown (AssistantWords, parts.tsx; worfy-polish ticket 162): the renderer's own rules
+ * (markdown/markdown.css) made compact for the narrow panel. Its blocks set their own breaks, so the bubble's pre-wrap
+ * would add a blank line between them; the text keeps the bubble's size; a code block and a wide table scroll sideways
+ * inside the bubble rather than past the panel.
+ */
+.w-asst-md {
+  white-space: normal;
+  min-width: 0;
+}
+.w-asst-md .w-md {
+  font-size: inherit;
+  line-height: inherit;
+}
+.w-asst-md .w-md p,
+.w-asst-md .w-md ul,
+.w-asst-md .w-md ol,
+.w-asst-md .w-md pre,
+.w-asst-md .w-md table,
+.w-asst-md .w-md blockquote {
+  margin-bottom: 6px;
+}
+.w-asst-md .w-md h1,
+.w-asst-md .w-md h2,
+.w-asst-md .w-md h3,
+.w-asst-md .w-md h4,
+.w-asst-md .w-md h5,
+.w-asst-md .w-md h6 {
+  margin: 8px 0 4px;
+  font-size: var(--text-13);
+}
+.w-asst-md .w-md ul,
+.w-asst-md .w-md ol {
+  padding-left: 16px;
+}
+.w-asst-md .w-md code {
+  font-size: var(--text-11);
+}
+.w-asst-md .w-md pre {
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 6px 8px;
+}
+.w-asst-md .w-md table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+.w-asst-md .w-md > :first-child {
+  margin-top: 0;
+}
+.w-asst-md .w-md > :last-child {
+  margin-bottom: 0;
 }
 .w-asst-bubble .w-asst-rate {
   float: right;

@@ -110,8 +110,22 @@ describe('Markdown: links', () => {
     expect(asked).toEqual([{ channel: 'shell.openInEditor', input: { projectId: 'alpha', path: 'docs/adr/0002-view.md' } }])
   })
 
-  it('without a Project, a relative link opens nothing', () => {
-    render(<Markdown text={'[spec](spec.md)'} />)
+  it('shows the host of an http(s) link beside it only with showLinkHost, and only when the text is not that address', () => {
+    const text = '[Approve](https://evil.example/a) [https://jira.example/SHOP-1](https://evil.example/b) [https://example.com/c](https://example.com/c)'
+    const { container, unmount } = render(<Markdown text={text} />)
+    expect(container.querySelector('.w-md__link-host')).toBeNull()
+    unmount()
+    const shown = render(<Markdown text={text} showLinkHost />).container
+    expect([...shown.querySelectorAll('.w-md__link-host')].map((each) => [each.previousElementSibling?.textContent, each.textContent])).toEqual([
+      ['Approve', '(evil.example)'],
+      ['https://jira.example/SHOP-1', '(evil.example)'],
+    ])
+  })
+
+  it('without a Project, a file link is inert text and opens nothing (review of worfy-polish ticket 162)', () => {
+    const { container } = render(<Markdown text={'[spec](spec.md) [disk](/etc/passwd)'} />)
+    expect(screen.queryByRole('link')).toBeNull()
+    expect(container.querySelectorAll('.w-md__inert-link')).toHaveLength(2)
     fireEvent.click(screen.getByText('spec'))
     expect(asked).toEqual([])
   })
