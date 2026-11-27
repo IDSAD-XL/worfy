@@ -2,6 +2,7 @@
 
 Type: task
 Status: claimed 2026-11-27T04:17Z
+PR: #2312
 Branch: worfy-polish/168
 Blocked by: —
 Source: решение владельца 2026-11-27 («на все вопросы - да»). Ночью 2026-11-27 часть `macos-e2e (1/2)` PR #2306
