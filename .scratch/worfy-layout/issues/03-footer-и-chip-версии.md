@@ -111,3 +111,21 @@ spec.md, раздел «Решения по реализации», «Footer» �
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 20f738e3db7d4e7c59f2c432419d1c83e1e6ad69
   - evidence: gate pass · `gate fast` exit 0 · mac - · 20f738e3db7d4e7c59f2c432419d1c83e1e6ad69
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · f8556b1dcc8cba48ebcb83e58724b2c3ae43a139
+  - evidence: gate pass · `gate fast` exit 0 · mac - · f8556b1dcc8cba48ebcb83e58724b2c3ae43a139
+
+## Итог
+
+Код — ветка `worfy-layout/03`, PR #2315. Как устроено и почему — Code story
+[03-footer-и-chip-версии.md](../stories/03-footer-и-chip-версии.md).
+
+**Повторный раунд 1 (после REJECTED ревью PR #2315).**
+- Четыре сообщения, которые отправляли к удалённому пункту Harness в toolbar-е, теперь называют chip версии в
+  footer-е: Settings → Plan, Code stories в Project settings, Eco mode («Update it from the version chip in the
+  footer.») и строки формы переноса старого Harness о плагине «not installed» и «outdated».
+- `docs/features/autopilot.md`: «Codex: approve hooks» — на строке Codex в popover-е chip-а версии.
+- Новый test: пока идёт install (`busy`) при Harness «not installed», у chip-а нет точки
+  (`test/unit/update-chip.test.tsx`).
+- Комментарии в коде, называвшие пункт Harness в toolbar-е, переписаны.
+- Сначала красный: шесть мутантов (старый текст каждого сообщения, правило точки без `busy`) — каждый валит свой test,
+  exit 1.

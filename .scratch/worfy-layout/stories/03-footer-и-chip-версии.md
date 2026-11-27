@@ -147,20 +147,66 @@ Code: `src/renderer/shell/shell.css:737-758` · key lines: 739, 745, 749, 751
 - Риски и пробелы test-ов: jsdom не верстает, поэтому ширину проверяют только e2e `toolbar.spec.ts` и
   `update-toolbar.spec.ts`; локально их не запускали.
 
-## 6. Что сознательно не меняли
+## 6. Повтор после ревью: сообщения ведут к chip-у версии
+
+Code: `src/main/harness/migrate/plan.ts:541-542` · key lines: 541, 542
+
+```ts
+    if (plugin.kind === 'not-installed') missing.push('the plugin worfy is not installed: install it first from the version chip in the footer')
+    else if (plugin.kind === 'outdated') missing.push('the plugin worfy is not the version of this build: update or replace it first from the version chip in the footer')
+```
+
+- Что делает: форма переноса старого Harness называет место, где теперь Install и Update Harness, — chip версии в
+  footer-е. Так же переписаны три сообщения о слишком старом Harness: Settings → Plan (`PlanSection.tsx`), Code stories
+  в Project settings (`ProjectSettings.tsx`) и Eco mode (`eco-mode.ts`) — «Update it from the version chip in the
+  footer.».
+- Почему здесь: ревью PR #2315 (REJECTED, пункт 1) нашло четыре сообщения, которые отправляли к удалённому пункту
+  Harness в toolbar-е. Файлы названы в брифе повторного раунда; в «Где в коде» Ticket-а их нет.
+- Без него: человек со старым Harness ищет в toolbar-е пункт, которого больше нет.
+- Требование: [Что строить](../issues/03-footer-и-chip-версии.md#что-строить)
+- Риски и пробелы test-ов: каждое сообщение закреплено целиком — `test/contract/harness-migrate.test.ts` (оба случая
+  плагина), `test/unit/settings-plan.test.tsx`, `test/unit/project-settings-shell.test.tsx` (новый случай `too-old`),
+  `test/unit/modes-menu.test.tsx`. Мутант, возвращающий старый текст, валит каждый из них. Комментарии в коде,
+  называвшие пункт toolbar-а, и абзац `docs/features/autopilot.md` про «Codex: approve hooks» переписаны тоже; test-а у
+  комментариев нет.
+
+## 7. Повтор после ревью: точка молчит, пока идёт install
+
+Code: `src/renderer/shell/footer/VersionChip.tsx:83-84` · key lines: 84
+
+```tsx
+  // While its own install runs the Harness line says "Installing Harness…": its dot waits for the answer.
+  const dot = versionDot(update, harness.busy ? undefined : harness.status, harness.migration, harness.failure)
+```
+
+- Что делает: пока Harness ставится, правило точки получает «состояние неизвестно», и chip не показывает красную
+  точку Install для состояния, прочитанного до install.
+- Почему здесь: не записано; ревью PR #2315 отметило, что у этого поведения нет test-а.
+- Без него: во время install chip горел бы красным «Harness needs Install», хотя Install уже идёт.
+- Требование: [Готово, когда](../issues/03-footer-и-chip-версии.md#готово-когда)
+- Риски и пробелы test-ов: новый test в `test/unit/update-chip.test.tsx` рисует chip с `busy: true` и Harness «not
+  installed» — нет `data-dot` и причины в `aria-label`; с `busy: false` — красная точка. Мутант без `harness.busy`
+  валит его.
+
+## 8. Что сознательно не меняли
 
 View button-ы в footer-е — Ticket 04: левая часть footer-а пуста. Тексты Guide «on the toolbar» — Ticket 07. Toast-ы
-Update не менялись (Q14). Сообщения «Update it from the Harness item of the toolbar» в `PlanSection.tsx`,
-`ProjectSettings.tsx`, `eco-mode.ts` и `migrate/plan.ts` лежат вне файлов Ticket-а и вынесены в отчёт. ADR не нужен
-(spec). Кнопки строки Harness остались простым списком, чтобы следующая кнопка встала в конец.
+Update не менялись (Q14). ADR не нужен (spec). Кнопки строки Harness остались простым списком, чтобы следующая кнопка
+встала в конец. `docs/features/vendors.md` ещё говорит, что шаг Codex hooks показывает toolbar: файл не входит в
+повторный раунд и вынесен в отчёт.
 
-## 7. Как проверено
+## 9. Как проверено
 
 Сначала красный test: `test/unit/version-dot.test.ts` без модуля — exit 1 («Cannot find module»); с модулем — exit 0.
 Затем 27 файлов unit и contract test-ов chip-а, Harness, Update, toast, shell, focus mode и Settings — exit 0 (756
 test-ов); `pnpm lint && pnpm typecheck && pnpm test` и gate fast — коды выхода в отчёте implementer-а и в
 Evidence-строках Ticket-а. Новый e2e `test/e2e/footer.spec.ts` и правки двадцати e2e-файлов локально не запускали
 (правило владельца): их проверит CI.
+
+Повторный раунд: шесть мутантов, по одному за раз, каждый валит свой test (exit 1): текст каждого из четырёх
+сообщений, возвращённый к toolbar-у (в форме переноса — оба случая плагина), и `harness.busy` убранный из правила
+точки. Затем затронутые unit и contract test-ы, `pnpm lint && pnpm typecheck && pnpm test` и gate fast — коды выхода в
+отчёте implementer-а и в Evidence-строках Ticket-а.
 
 ## Проверить себя
 
@@ -173,3 +219,6 @@ Evidence-строках Ticket-а. Новый e2e `test/e2e/footer.spec.ts` и �
 3. Почему в focus mode chip остаётся рабочим?
    - Ответ: слой focus mode рисуется внутри `.w-shell__main`, а footer стоит вне `.w-shell__body`, под ним.
    - Строки: `src/renderer/shell/AppShell.tsx:178-180`
+4. Harness не установлен, и человек нажал Install. Почему chip в это время без красной точки?
+   - Ответ: пока идёт install (`busy`), правило точки получает вместо статуса `undefined`, а без статуса красной точки Install нет.
+   - Строки: `src/renderer/shell/footer/VersionChip.tsx:83-84`
