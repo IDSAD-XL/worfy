@@ -132,3 +132,45 @@ Code: `src/renderer/guide/topics/harness/en.json:56-58` · key lines: 57, 58
 3. Где в Guide теперь стоит источник установки Harness и почему не в toolbar?
    - Ответ: в строке Harness popover-а версии (и в Settings → Pipeline): в toolbar Harness больше нет, его строки — в popover-е chip-а версии в footer-е.
    - Строки: `src/renderer/guide/topics/harness/en.json:56-58`
+
+## 8. Что нашёл review и что осталось
+
+> VERIFIED — worfy-layout 07 (feature docs en + ru for view buttons in header, rail and footer, the footer and the version chip popover, «Move to»/Reset layout/keys and drag; CONTEXT.md terms View button and Footer; Guide topics harness and the-window-and-your-data; comment-only «toolbar» fixes in src/main and src/shared; the First run update hint names the version chip), head 8c6dc81424cb7f58ff9a388fa70ea24565f22650
+>
+> Gate (depth medium, one round): worfy:reviewer, lens claim accuracy — 27 claims checked against the merged code, all match (default layout, ⌥ keys per zone, menu items, no drop zone over the rail buttons in the header, aria-disabled, chip dot colours and causes, popover rows and how it closes, focus mode inert zones, Linked machine local data, Settings «View buttons» row, CONTEXT.md terms as the ticket's «Решения»); en/ru parity read in full for ru app-shell View buttons/Footer/Sidebar and by diff for 7 other pages — no difference in meaning; no page calls the Harness column part of the header or speaks of six tabs (grep both languages); src edits comment-only; 34 Guide JSON files parse. pnpm lint (check-feature-docs 40 pages) EXIT=0, Guide unit tests 190 EXIT=0, guide-lag and feature-docs-lag EXIT=0, story-check EXIT=0; implementer: typecheck and full pnpm test EXIT=0, gate fast green.
+> Fixed in this PR after the review (orchestrator, 8c6dc8142): [low] src/main/first-run/checks.ts:786 user-visible hint «Update worfy from the toolbar …» → «… from the version chip in the footer …» with test/contract/first-run-checks.test.ts:791 (88/88 EXIT=0); [low] docs/features/ru/pr-inbox.md:373 «командой палитры» → «командой Command palette». pnpm lint EXIT=0 after the fix.
+> Consider: none
+> Noted: [low] comments still naming the toolbar as the place of the Harness/memory: src/shared/settings/app-settings.ts:28,340; src/main/harness/install.ts:524; src/main/ipc/harness-migration.ts:104; src/main/ipc/first-run.ts:4; src/main/harness/dependency-cleanup.ts:21; test comments toolbar-runs.test.tsx:1, codex-hooks-step.test.tsx:12, e2e harness-install.spec.ts:9, harness-migrate.spec.ts:13, toolbar.spec.ts:19. Guide topic harness records doc commit 1745e4bb (guide-lag shows 25 commits behind; not a failing check).
+> Dismissed: none
+> Review depth: medium — owner rule
+> Review tokens: 160180
+
+Code: `src/main/first-run/checks.ts:786-786` · key lines: 786
+
+```ts
+  if (available !== null && !available.quiet) return noFirstRun(row('fail', `${numberedVersion(available.version, available.number)} available`, 'Update worfy from the version chip in the footer or Settings → General'))
+```
+
+Code: `test/contract/first-run-checks.test.ts:791-791` · key lines: 791
+
+```ts
+      hint: 'Update worfy from the version chip in the footer or Settings → General',
+```
+
+Code: `docs/features/ru/pr-inbox.md:373-373` · key lines: 373
+
+```md
+**Чтение при открытии.** Каждый раз, когда вид показан — его View button-ом, командой Command palette, группой раздела sidebar,
+```
+
+Code: `src/shared/settings/app-settings.ts:28-28` · key lines: 28
+
+```ts
+// - `memoryIndicator` — whether the toolbar shows how much memory worfy's own processes use
+```
+
+Code: `src/main/harness/install.ts:524-524` · key lines: 524
+
+```ts
+  /** The state, as the toolbar shows it. Writes nothing; runs `plugin list` only when the plugin folder is there. */
+```
