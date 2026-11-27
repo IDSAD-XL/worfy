@@ -492,15 +492,19 @@ test('the sidebar is hidden and shown apart for the normal view and focus mode, 
     const sidebar = sidebarOf(window)
     const toolbar = window.locator('.w-toolbar')
 
-    // The button of the focus mode bar hides the sidebar: the layer is the whole window, and its bar
-    // keeps clear of the window buttons.
+    // The button of the focus mode bar hides the sidebar: the layer is the whole window above the footer,
+    // which stays across the window under it (worfy-layout ticket 03), and its bar keeps clear of the
+    // window buttons.
     const focus = await enterFocus(window)
     const bar = focus.locator('.w-focus__bar')
     await focus.getByRole('button', { name: 'Hide sidebar' }).click()
     await expect(sidebar).toHaveCount(0)
     await expect(bar).toHaveAttribute('data-sidebar', 'hidden')
     const size = await windowSize(window)
-    expect(await box(focus)).toEqual({ x: 0, y: 0, ...size })
+    const footer = await box(window.getByTestId('footer'))
+    expect(footer).toEqual({ x: 0, y: size.height - footer.height, width: size.width, height: footer.height })
+    expect(footer.height).toBeGreaterThan(0)
+    expect(await box(focus)).toEqual({ x: 0, y: 0, width: size.width, height: footer.y })
     if (mac) expect(await paddingLeft(bar)).toBe(TRAFFIC_LIGHTS_PX)
     await expect(focus.getByRole('button', { name: 'Show sidebar' })).toHaveAttribute('aria-pressed', 'false')
     await expect.poll(savedVisibility).toEqual({ normal: true, focus: false })

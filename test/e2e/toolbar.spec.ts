@@ -165,14 +165,22 @@ test('a Project name of 80 characters is cut with an ellipsis and the rest of th
     expect(version.x + version.width, 'the version chip ends inside the window').toBeLessThanOrEqual(width)
     expect(version.y, 'the version chip is in the footer').toBeGreaterThanOrEqual(footer.y)
 
-    // The name and the subtitle are cut with an ellipsis; the full text is their tooltip.
-    for (const element of [name, subtitle.locator('.w-toolbar__subtitle-text')]) {
-      const cut = await element.evaluate((node) => {
-        const found = node as unknown as { scrollWidth: number; clientWidth: number; ownerDocument: { defaultView: { getComputedStyle(e: unknown): { textOverflow: string } } } }
-        return { overflows: found.scrollWidth > found.clientWidth, textOverflow: found.ownerDocument.defaultView.getComputedStyle(found).textOverflow }
+    // The name and the subtitle are cut with an ellipsis where they do not fit; the full text is their tooltip.
+    // The name does not fit. The subtitle is set smaller: with the Harness column gone from the toolbar
+    // (worfy-layout ticket 03) it may fit whole where the system font is narrow (Segoe UI on Windows), and is
+    // then simply shown whole; where it does not fit, the same rule cuts it.
+    const cutOf = (element: Locator) =>
+      element.evaluate((node) => {
+        const found = node as unknown as {
+          scrollWidth: number
+          clientWidth: number
+          ownerDocument: { defaultView: { getComputedStyle(e: unknown): { textOverflow: string; overflowX: string; whiteSpace: string } } }
+        }
+        const style = found.ownerDocument.defaultView.getComputedStyle(found)
+        return { overflows: found.scrollWidth > found.clientWidth, textOverflow: style.textOverflow, overflowX: style.overflowX, whiteSpace: style.whiteSpace }
       })
-      expect(cut).toEqual({ overflows: true, textOverflow: 'ellipsis' })
-    }
+    expect(await cutOf(name)).toEqual({ overflows: true, textOverflow: 'ellipsis', overflowX: 'hidden', whiteSpace: 'nowrap' })
+    expect(await cutOf(subtitle.locator('.w-toolbar__subtitle-text'))).toMatchObject({ textOverflow: 'ellipsis', overflowX: 'hidden', whiteSpace: 'nowrap' })
     await expect(name).toHaveAttribute('title', LONG_NAME)
     await expect(subtitle).toHaveAttribute('title', `${LONG_NAME} · main`)
 

@@ -188,14 +188,44 @@ Code: `src/renderer/shell/footer/VersionChip.tsx:83-84` · key lines: 84
   installed» — нет `data-dot` и причины в `aria-label`; с `busy: false` — красная точка. Мутант без `harness.busy`
   валит его.
 
-## 8. Что сознательно не меняли
+## 8. Повтор после красного CI: test-ы мерили окно без footer-а
+
+Code: `test/e2e/focus-sidebar.spec.ts:504-507` · key lines: 505, 507
+
+```ts
+    const footer = await box(window.getByTestId('footer'))
+    expect(footer).toEqual({ x: 0, y: size.height - footer.height, width: size.width, height: footer.height })
+    expect(footer.height).toBeGreaterThan(0)
+    expect(await box(focus)).toEqual({ x: 0, y: 0, width: size.width, height: footer.y })
+```
+
+- Что делает: слой focus mode со скрытым sidebar-ом занимает окно до верхнего края footer-а, а не всё окно; footer
+  лежит под ним на всю ширину.
+- Почему здесь: CI run на прошлом head-е (`4c5b6db0e`) — пять e2e красные. Четыре из них закрепляли высоту окна до
+  footer-а; приложение там делает то, что решено в spec («Footer» — слой focus mode внутри `.w-shell__main`, footer вне
+  его). Так же поправлены: `layers-popover.spec.ts` — «под chip-ом очереди и Effort нет места» меряется до верхнего края
+  footer-а, а не окна (popover-ы и так стоят над кнопками, `side="top"`); `toolbar.spec.ts` — без колонки Harness
+  подпись пути под именем Project-а в окне 1280 px на Windows помещается целиком, поэтому для неё test требует только
+  правило обрезки (`text-overflow: ellipsis`, `overflow: hidden`, `nowrap`), а имя Project-а по-прежнему обрезано;
+  `product-session.spec.ts` — окно Mind map 1440 × 928: карта получает ту высоту, что была при 900 до footer-а. При
+  900 карточка узла не помещалась ни под узлом, ни над ним и закрывала его на несколько пикселей — `cardPlace` так
+  делает намеренно, когда карта ниже карточки с обеих сторон.
+- Без него: test-ы падают на верном layout-е: слой, popover-ы и карточка стоят там, где решено.
+- Требование: [Решения](../issues/03-footer-и-chip-версии.md#решения) — «Риск высоты: footer забирает 28 px у Canvas,
+  Session view и sidebar».
+- Риски и пробелы test-ов: пятый красный, `done-stack.spec.ts:109` на Windows, прошёл на повторе (Playwright пометил его
+  flaky) и footer-а не касается — не правился. Карточка Mind map при окне 1440 × 900 теперь закрывает узел на
+  несколько пикселей; это поведение `cardPlace` при низкой карте, не новое, но footer делает такое окно ниже на 28 px.
+  E2e локально не запускались (правило владельца): доказательство — CI на новом head-е.
+
+## 9. Что сознательно не меняли
 
 View button-ы в footer-е — Ticket 04: левая часть footer-а пуста. Тексты Guide «on the toolbar» — Ticket 07. Toast-ы
 Update не менялись (Q14). ADR не нужен (spec). Кнопки строки Harness остались простым списком, чтобы следующая кнопка
 встала в конец. `docs/features/vendors.md` ещё говорит, что шаг Codex hooks показывает toolbar: файл не входит в
 повторный раунд и вынесен в отчёт.
 
-## 9. Как проверено
+## 10. Как проверено
 
 Сначала красный test: `test/unit/version-dot.test.ts` без модуля — exit 1 («Cannot find module»); с модулем — exit 0.
 Затем 27 файлов unit и contract test-ов chip-а, Harness, Update, toast, shell, focus mode и Settings — exit 0 (756
@@ -207,6 +237,10 @@ Evidence-строках Ticket-а. Новый e2e `test/e2e/footer.spec.ts` и �
 сообщений, возвращённый к toolbar-у (в форме переноса — оба случая плагина), и `harness.busy` убранный из правила
 точки. Затем затронутые unit и contract test-ы, `pnpm lint && pnpm typecheck && pnpm test` и gate fast — коды выхода в
 отчёте implementer-а и в Evidence-строках Ticket-а.
+
+Повтор после красного CI: правились только четыре e2e-файла; локально их не запускали (правило владельца), проверка —
+CI на новом head-е. `pnpm lint && pnpm typecheck && pnpm test` — exit 0, gate fast — код выхода в отчёте
+implementer-а.
 
 ## Проверить себя
 
