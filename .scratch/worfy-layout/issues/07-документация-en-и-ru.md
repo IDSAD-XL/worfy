@@ -1,7 +1,8 @@
 # 07: Документация en и ru
 
 Type: task
-Status: claimed 2026-11-27T16:06Z
+Status: done 2026-11-27T17:06Z
+PR: #2334
 Branch: worfy-layout/07
 Blocked by: 03, 04, 05, 06
 Source: [spec.md](../spec.md), «Ticket-ы», 07; «Решения по реализации» («Термины в CONTEXT.md», «Тексты UI»); «Решения по test-ам» («Какие e2e запускает PR»); «Волны», Wave 5
@@ -49,5 +50,7 @@ spec.md, раздел «Решения по реализации», «Терми
 
 - [ ] Страницы en и ru говорят одно и то же; ни одна не называет колонку Harness в header или шесть вкладок.
   - evidence: commit pass · docs: Russian feature pages follow the View buttons, the footer and the version chip · - - · 07070a6d1a961ac1122dae580048314416fac06c
+  - evidence: review pass · PR #2334 · - - · 8c6dc81424cb7f58ff9a388fa70ea24565f22650
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 07070a6d1a961ac1122dae580048314416fac06c
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/46035413456/job/140640987947 · ci - · 8c6dc81424cb7f58ff9a388fa70ea24565f22650
