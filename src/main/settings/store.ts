@@ -35,6 +35,11 @@
 // only once chosen; absent or not a boolean reads as on.
 // `assistantSchedule` (worfy-assistant ticket 04) is read, merged and compared by src/shared/assistant/schedule/settings.ts,
 // and `assistant` (worfy-assistant ticket 15) by src/shared/assistant/settings.ts.
+// `viewButtons` (worfy-layout ticket 02) is the View button layout, absent until the person moves a button
+// and again after Reset layout (a patch with null). Both the file and a patch are repaired with
+// repairViewButtons (src/shared/layout/view-buttons.ts): an unknown id is dropped, a missing one goes
+// to the end of its default zone, the wrong shape is the default layout — never an unreadable file.
+// A build without a view that a newer build added keeps the layout without it on its next write.
 //
 // The file is read once, on first use; the store then answers from memory and every write puts the
 // whole state back. An edit of the file made outside worfy (by hand, or by an agent's shell command)
@@ -83,6 +88,7 @@ import {
   type AutoApprovalMode,
   autoContinueOf,
 } from '../../shared/settings/app-settings'
+import { repairViewButtons, sameViewButtons, type ViewButtons } from '../../shared/layout/view-buttons'
 import { readJsonFile, writeJsonFile, type ReadOptions } from '../storage/json-file'
 import { dataRoot } from '../storage/paths'
 
@@ -200,8 +206,20 @@ const appSettingsFileSchema = z.object({
     .catch(undefined),
   prInboxNotify: z.boolean().optional().catch(undefined),
   prInboxDigest: z.boolean().optional().catch(undefined),
+  // Repaired, never refused: an id another build wrote is dropped, a missing one goes back to its zone.
+  viewButtons: z.unknown().transform(repairViewButtons).optional().catch(undefined),
   revision: z.number().int().nonnegative().default(0),
 })
+
+/** The View button layout field of a state, repaired: present only while the person made one. */
+function viewButtonsField(layout: AppSettings['viewButtons'] | AppSettingsPatch['viewButtons']): Pick<AppSettings, 'viewButtons'> {
+  return layout === undefined || layout === null ? {} : { viewButtons: repairViewButtons(layout) }
+}
+
+/** Whether two states hold the same layout; absent is not the default layout made by hand. */
+function sameViewButtonsField(a: ViewButtons | undefined, b: ViewButtons | undefined): boolean {
+  return a === undefined || b === undefined ? a === b : sameViewButtons(a, b)
+}
 
 /** The PR inbox switches after `patch`: each one chosen, the others absent (on). */
 function prInboxChoice(current: Pick<AppSettings, 'prInboxNotify' | 'prInboxDigest'>, patch: Pick<AppSettings, 'prInboxNotify' | 'prInboxDigest'> = {}): Pick<AppSettings, 'prInboxNotify' | 'prInboxDigest'> {
@@ -332,6 +350,7 @@ function copy(settings: AppSettings): AppSettings {
     ...prInboxChoice(settings),
     ...modesChoice(settings.autoApproval),
     ...continuesChoice(settings.autoContinue),
+    ...viewButtonsField(settings.viewButtons),
     ...assistantScheduleField(settings.assistantSchedule),
     ...assistantField(settings.assistant),
     revision: settings.revision,
@@ -368,6 +387,8 @@ function merge(current: AppSettings, patch: AppSettingsPatch, now: number): AppS
     ...modesChoice(current.autoApproval),
     // Nor Auto-continue: setAutoContinue() is the one way to change it.
     ...continuesChoice(current.autoContinue),
+    // Left out: kept; null: Reset layout, the field goes; a layout: repaired, then kept.
+    ...viewButtonsField(patch.viewButtons === undefined ? current.viewButtons : patch.viewButtons),
     ...assistantScheduleField(assistantScheduleAfter(current.assistantSchedule, patch.assistantSchedule)),
     ...assistantField(assistantAfter(current.assistant, patch.assistant, now)),
     revision: current.revision,
@@ -393,6 +414,7 @@ function same(a: AppSettings, b: AppSettings): boolean {
   return (
     sameModes(a.autoApproval, b.autoApproval) &&
     sameContinues(a.autoContinue, b.autoContinue) &&
+    sameViewButtonsField(a.viewButtons, b.viewButtons) &&
     sameAssistantSchedule(a.assistantSchedule, b.assistantSchedule) &&
     sameAssistant(a.assistant, b.assistant) &&
     a.interfaceScale === b.interfaceScale &&

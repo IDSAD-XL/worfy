@@ -1,7 +1,8 @@
 # 02: Модель расстановки в app settings
 
 Type: task
-Status: open
+Status: claimed 2026-11-27T02:06Z
+Branch: worfy-layout/02
 Blocked by: None — can start immediately
 Source: [spec.md](../spec.md), «Ticket-ы», 02; «Решения по реализации» («Модель расстановки», «Хранение», «Окно Linked machine (Q13)»); «Решения по test-ам», Seam 1 и Seam 2; «Риски» («Сборка новее и сборка старее»); «Волны», Wave 1
 
