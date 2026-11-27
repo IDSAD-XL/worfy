@@ -27,6 +27,8 @@ let applied: unknown[]
 let asked: string[]
 /** Every operation the Node gave the Canvas (useLayoutOps), oldest first. */
 let operations: unknown[]
+/** Draws the Node mount() drew again, with these fields of its layout Node (`keep`, `pinned`). */
+let redraw: (fields: Record<string, unknown>) => void
 
 const view = (over: Partial<SessionNodeView> = {}): SessionNodeView => ({
   projectId: PROJECT.id,
@@ -79,14 +81,18 @@ async function mount(data: Record<string, unknown>, status: string, fields: Reco
   // The Canvas's own operations, as the Canvas gives them to its Nodes: Keep, Hide and Remove go there.
   const { LayoutOpsContext } = await import('../../src/renderer/canvas/useLayout')
   const ops = { apply: (op: unknown) => (operations.push(op), Promise.resolve()) } as unknown as Parameters<typeof LayoutOpsContext.Provider>[0]['value']
-  const props = { id: NODE, data: { node: { id: NODE, kind: 'session', data, ...fields } }, selected: false } as unknown as CanvasNodeProps
-  render(
-    <ReactFlowProvider>
-      <LayoutOpsContext.Provider value={ops}>
-        <SessionNode {...props} />
-      </LayoutOpsContext.Provider>
-    </ReactFlowProvider>,
-  )
+  const draw = (more: Record<string, unknown>) => {
+    const props = { id: NODE, data: { node: { id: NODE, kind: 'session', data, ...more } }, selected: false } as unknown as CanvasNodeProps
+    return (
+      <ReactFlowProvider>
+        <LayoutOpsContext.Provider value={ops}>
+          <SessionNode {...props} />
+        </LayoutOpsContext.Provider>
+      </ReactFlowProvider>
+    )
+  }
+  const { rerender } = render(draw(fields))
+  redraw = (more) => rerender(draw(more))
   await vi.waitFor(() => expect(screen.getByTestId('session-node').getAttribute('data-status')).toBe(status))
   return screen.getByTestId('session-node')
 }
@@ -250,6 +256,32 @@ describe('the header of a worfy Session Node: buttons into the «⋯» menu befo
     expect(headerButtons()).toEqual(['Resume', 'Keep', 'Hide', 'Remove'])
     layout.resize(400)
     expect(headerButtons()).toEqual(['Resume', 'Keep', 'Hide', '⋯'])
+  })
+
+  it('a menu open while every button comes back out does not open by itself when one goes into the menu again', async () => {
+    layout = installHeaderLayout(390)
+    await mount({ origin: 'worfy', sessionId: SAVED }, 'finished')
+    fireEvent.click(screen.getByTestId('session-node-more'))
+    expect(menu()).toBeTruthy()
+    layout.resize(420)
+    expect(screen.queryByTestId('session-node-more')).toBeNull()
+    layout.resize(390)
+    expect(headerButtons()).toEqual(['Resume', 'Keep', 'Hide', '⋯'])
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
+  it('an open menu stays open, the same menu, when a button\'s name changes (Keep to Kept)', async () => {
+    layout = installHeaderLayout(240)
+    await mount({ origin: 'worfy', sessionId: SAVED }, 'finished')
+    fireEvent.click(screen.getByTestId('session-node-more'))
+    const open = menu()
+    act(() => redraw({ keep: true }))
+    expect(menu()).toBe(open)
+    expect(within(open).getByRole('menuitemcheckbox', { name: 'Kept' }).getAttribute('aria-checked')).toBe('true')
+    // Once it closes, the header is measured again from every button outside: 240 px still takes them all.
+    act(() => fireEvent.keyDown(open, { key: 'Escape' }))
+    await vi.waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
+    expect(headerButtons()).toEqual(['⋯'])
   })
 
   it('a running Session: Remove in the menu is inactive, saying why, and choosing it sends nothing', async () => {

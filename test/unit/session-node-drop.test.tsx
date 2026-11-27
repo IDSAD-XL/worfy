@@ -2,13 +2,14 @@
 // Node of a Session worfy runs takes it the way the input field of the Session view does —
 // `agent.attach` checks it, it shows as a chip above the Node's input field, and the next message
 // carries it. A read-only Node takes nothing.
-import { act, createEvent, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, createEvent, fireEvent, render, screen } from '@testing-library/react'
 import { ReactFlowProvider } from '@xyflow/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CanvasNodeProps } from '../../src/renderer/canvas/nodes/index'
 import { FILE_COPY_LIMIT_BYTES, fileTooLarge, imageTooLarge, tooManyAttachments, type Attachment, type AttachmentSource } from '../../src/shared/agent/attachments'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { SessionNodeView } from '../../src/shared/ipc/sessions'
+import { installHeaderLayout, menuItems } from './session-header-layout'
 
 // Imported once while the file is collected, as its static imports are: the first import
 // transforms the Node and every renderer module it reaches, which took more than the 5 s of a test
@@ -584,6 +585,30 @@ describe('on the screen of a Linked machine that shares its Projects read-only (
     await drop(node, [text()])
     expect(screen.getByTestId('session-node-error').textContent).toBe(HINT)
     expect(calls.filter((call) => ['sessions.close', 'agent.send', 'agent.attach', 'sessions.start', 'layout.apply'].includes(call.channel))).toEqual([])
+  })
+
+  it('a narrow header: every item of the «⋯» menu is inactive with the hint, and choosing one starts nothing (worfy-polish ticket 153)', async () => {
+    views = []
+    const layout = installHeaderLayout(240)
+    try {
+      await mount({ origin: 'worfy', sessionId: SAVED }, 'finished')
+      await vi.waitFor(() => expect(screen.getByTestId('session-node-input').getAttribute('placeholder')).toBe(HINT))
+      fireEvent.click(screen.getByTestId('session-node-more'))
+      const items = menuItems(screen.getByRole('menu', { name: 'Session actions' }))
+      expect(items.map((item) => item.textContent)).toEqual(['Resume', 'Keep', 'Hide', 'Remove'])
+      for (const item of items) {
+        expect(item.getAttribute('aria-disabled')).toBe('true')
+        expect(item.getAttribute('data-kit-hint')).toBe(HINT)
+        expect(item.getAttribute('title')).toBeNull()
+      }
+      await act(async () => {
+        fireEvent.click(items[0]!)
+      })
+      expect(called('sessions.start')).toEqual([])
+    } finally {
+      cleanup()
+      layout.restore()
+    }
   })
 
   it('a finished Session: Resume is inactive and starts nothing', async () => {

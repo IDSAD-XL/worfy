@@ -317,6 +317,15 @@ interface HeaderFit {
   inMenu: number
   /** `needs[n]`: the header's width with `n` buttons in the menu, measured when it was too narrow for them. */
   needs: readonly number[]
+  /** Measured for other buttons while the menu was open: measured again from every button outside once it closes. */
+  stale: boolean
+}
+
+/** `needs` with `need` at `at`: the widths measured for more buttons in the menu no longer hold. */
+const withNeed = (needs: readonly number[], at: number, need: number): number[] => {
+  const next = needs.slice(0, at)
+  next[at] = need
+  return next
 }
 
 /**
@@ -327,13 +336,24 @@ interface HeaderFit {
  * back when the header has HEADER_SLACK px more than that, so a header at the edge stays as it is. With
  * every button in the menu the title gives up its minimum: a chip as wide as «Interrupted by restart»
  * on a 240 px Node leaves it less. `key` names the buttons and the chip; when it changes, what was
- * measured no longer holds, and the header is measured again from every button outside.
+ * measured no longer holds, and the header is measured again from every button outside. While the menu
+ * is `open` that waits until it closes: the buttons in it stay there (more may go in), so the open menu
+ * neither goes nor takes the focus with it.
  */
-function useHeaderFit(count: number, key: string): { onHeader: (element: HTMLDivElement | null) => void; inMenu: number; titleMin: number } {
+function useHeaderFit(count: number, key: string, open: boolean): { onHeader: (element: HTMLDivElement | null) => void; inMenu: number; titleMin: number } {
   const header = useRef<HTMLDivElement | null>(null)
   const [width, setWidth] = useState(0)
-  const [fit, setFit] = useState<HeaderFit>({ key, inMenu: 0, needs: [] })
-  if (fit.key !== key) setFit({ key, inMenu: 0, needs: [] })
+  const [fit, setFit] = useState<HeaderFit>({ key, inMenu: 0, needs: [], stale: false })
+  // What this render draws: the fit as stored, or as it is about to be after a change of `key` or of `open`.
+  const next: HeaderFit =
+    fit.key !== key
+      ? open
+        ? { key, inMenu: Math.min(fit.inMenu, count), needs: [], stale: true }
+        : { key, inMenu: 0, needs: [], stale: false }
+      : fit.stale && !open
+        ? { key, inMenu: 0, needs: [], stale: false }
+        : fit
+  if (next !== fit) setFit(next)
 
   const onSize = useCallback(({ width: next }: { width: number }) => {
     setWidth(next)
@@ -356,10 +376,10 @@ function useHeaderFit(count: number, key: string): { onHeader: (element: HTMLDiv
     const element = header.current
     if (element === null || fit.key !== key || fit.inMenu >= count || element.scrollWidth <= element.clientWidth) return
     const need = Math.max(element.scrollWidth, element.clientWidth + 1)
-    setFit((now) => (now !== fit ? now : { key, inMenu: now.inMenu + 1, needs: [...now.needs.slice(0, now.inMenu), need] }))
+    setFit((now) => (now !== fit ? now : { ...now, inMenu: now.inMenu + 1, needs: withNeed(now.needs, now.inMenu, need) }))
   }, [fit, key, width, count])
 
-  const inMenu = fit.key === key ? Math.min(fit.inMenu, count) : 0
+  const inMenu = Math.min(next.inMenu, count)
   return { onHeader, inMenu, titleMin: inMenu < count ? TITLE_MIN : 0 }
 }
 
@@ -368,8 +388,19 @@ function useHeaderFit(count: number, key: string): { onHeader: (element: HTMLDiv
  * An item is the same action as its button, with its name and tooltip, inactive when the button would
  * be (writeItem on a read-only screen); Keep is a checkbox item, on while the Node is kept.
  */
-function HeaderTools({ tools, inMenu, readOnly }: { tools: readonly HeaderTool[]; inMenu: number; readOnly: string | null }) {
-  const [open, setOpen] = useState(false)
+function HeaderTools({
+  tools,
+  inMenu,
+  readOnly,
+  open,
+  onOpenChange,
+}: {
+  tools: readonly HeaderTool[]
+  inMenu: number
+  readOnly: string | null
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
   const outside = tools.slice(0, tools.length - inMenu)
   const menu = tools.slice(tools.length - inMenu)
   const trigger = (
@@ -393,7 +424,7 @@ function HeaderTools({ tools, inMenu, readOnly }: { tools: readonly HeaderTool[]
         </button>
       ))}
       {menu.length > 0 ? (
-        <Menu open={open} onOpenChange={setOpen} trigger={trigger} label="Session actions" align="end" inNode>
+        <Menu open={open} onOpenChange={onOpenChange} trigger={trigger} label="Session actions" align="end" inNode>
           {menu.map((tool) => {
             const { onClick, disabled, ...marks } = writeItem(readOnly, tool.run)
             const common = { ...marks, className: 'w-row', testId: tool.testId, title: readOnly === null ? tool.hint : undefined, disabled: disabled || tool.disabled === true }
@@ -467,7 +498,11 @@ function SessionHeader({
   tools: readonly HeaderTool[]
   readOnly: string | null
 }) {
-  const { onHeader, inMenu, titleMin } = useHeaderFit(tools.length, [chip.label, ...tools.map((tool) => tool.label)].join('|'))
+  const [open, setOpen] = useState(false)
+  const { onHeader, inMenu, titleMin } = useHeaderFit(tools.length, [chip.label, ...tools.map((tool) => tool.label)].join('|'), open)
+  // Every button came back out (a wider header, a turn that ended): the menu went, and it is closed,
+  // so it does not open by itself when a button goes into it again.
+  if (open && inMenu === 0) setOpen(false)
   return (
     <div ref={onHeader} style={styles.header} title={hint} data-testid="session-node-header" {...NODE_HEADER}>
       <KindBand kind="session" />
@@ -478,7 +513,7 @@ function SessionHeader({
       <span data-testid="session-node-status" title={chipTitle}>
         <StatusChip status={chip.status} label={chip.label} />
       </span>
-      <HeaderTools tools={tools} inMenu={inMenu} readOnly={readOnly} />
+      <HeaderTools tools={tools} inMenu={inMenu} readOnly={readOnly} open={open} onOpenChange={setOpen} />
     </div>
   )
 }
