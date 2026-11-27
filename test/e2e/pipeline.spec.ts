@@ -177,6 +177,16 @@ test('the Pipeline tab shows the board, a claim moves a card without a reload, a
   }
 })
 
+/** The tooltips of the six View buttons, as the view registry (src/renderer/shell/views.tsx) gives them. */
+const VIEW_TOOLTIPS: Record<string, string> = {
+  Canvas: 'Canvas',
+  Session: 'Session view',
+  Pipeline: 'Pipeline board',
+  Runs: 'Run history',
+  'Pull requests': 'Pull requests of the open Project',
+  Acceptance: 'Checks that wait for you',
+}
+
 test('the View switch shows its icons alone in a window under 1400 px and keeps the names of its segments', async () => {
   const launched = await launch()
   try {
@@ -200,8 +210,8 @@ test('the View switch shows its icons alone in a window under 1400 px and keeps 
       for (const name of names) {
         const segment = views.getByRole('button', { name, exact: true })
         await expect(segment).toHaveAttribute('aria-label', name)
-        // Runs and Pull requests without a Project say in their tooltip to open one; Acceptance says what it holds.
-        await expect(segment).toHaveAttribute('title', new RegExp(`^(?:${name}|Open a Project to see its (?:Runs|pull requests)|Checks that wait for you)$`, 'u'))
+        // The tooltip is the view registry's (worfy-layout 01); Runs and Pull requests without a Project say to open one.
+        await expect(segment).toHaveAttribute('title', new RegExp(`^(?:${VIEW_TOOLTIPS[name]}|Open a Project to see its (?:Runs|pull requests))$`, 'u'))
         await expect(segment.locator('.w-segmented__label'))[labels ? 'toBeVisible' : 'toBeHidden']()
       }
       for (const scheme of ['light', 'dark'] as const) {

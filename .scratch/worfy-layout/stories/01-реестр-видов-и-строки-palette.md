@@ -112,7 +112,8 @@ function viewSegments(project: ToolbarProject | undefined): readonly SegmentOpti
 - Требование: [Готово, когда](../issues/01-реестр-видов-и-строки-palette.md#готово-когда)
 - Риски и пробелы test-ов: tooltip-ы Session, Pipeline, Runs и Pull requests поменялись по spec («Session view»,
   «Pipeline board», «Run history», «Pull requests of the open Project»). e2e `toolbar.spec.ts` локально не
-  запускался; кнопки он ищет по `aria-label` (подпись), не по tooltip-у.
+  запускался; кнопки он ищет по `aria-label` (подпись). `pipeline.spec.ts` проверяет и `title` каждой кнопки: его
+  шаблон переписан под tooltip-ы реестра (найдено review-ем, round 1).
 
 ## 5. Строки View в palette — из реестра
 
