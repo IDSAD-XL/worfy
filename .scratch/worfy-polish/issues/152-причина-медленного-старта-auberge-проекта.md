@@ -78,12 +78,16 @@ Ticket-а, то есть, вероятно, общий путь старта, а
 
 - [ ] «Итог»: таблица этапов старта на runner-е (ms и доля `N`) и commit или смена runner-а, после которых старт
       стал медленнее.
+  - evidence: commit pass · worfy-polish/152: remove the start profile, budget 5 x R, lift the quarantine · - - · 909f7c549f1581374a883e0f33cbd06ab6e9fc8f
 - [ ] Test на найденную причину — сначала красный, после починки зелёный.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/epic-node-memo.test.tsx test/unit/checks-badges.test.tsx` exit 1 on the main code (3 failed), exit 0 with the fix · mac - · 909f7c549f1581374a883e0f33cbd06ab6e9fc8f
 - [ ] Предел Auberge-test-а на CI зависит от замеренной базы, не от одной скорости runner-а; потолок
       `RUNNER_START_CAP_MS` = 7300 остаётся верхней границей, `START_MS` = 3000 не поднят;
       `test/unit/e2e-start-budget.test.ts` проверяет новое правило. (Пункт 3 Ticket-а 151.)
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/e2e-start-budget.test.ts` exit 0 · mac - · 909f7c549f1581374a883e0f33cbd06ab6e9fc8f
 - [ ] Карантин снят: `test/quarantine/epic-frame-auberge-start-macos-ci.json` удалён, test объявлен через `test`;
       `test/unit/quarantine.test.ts` зелёный. (Пункт 4 Ticket-а 151.)
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/quarantine.test.ts` exit 0 · mac - · 909f7c549f1581374a883e0f33cbd06ab6e9fc8f
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR, job `macos-e2e` с этим test-ом —
       зелёный с первой попытки.
 
