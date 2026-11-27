@@ -117,3 +117,29 @@ fast — коды выхода в PR. e2e и Electron локально не за
    - Ответ: столько, сколько нужно, чтобы каждая была не длиннее части полного run-а, но не больше трёх и не больше
      числа файлов: это решает прежняя `e2eShards`, у которой изменился только предел.
    - Строки: `scripts/ci-scope.mjs:218-222`
+
+## 7. Что нашёл review и что осталось
+
+> VERIFIED — worfy-polish 168 (macOS e2e in three shards instead of two: E2E_SHARDS['macos-e2e'] = 3 in scripts/ci-scope.mjs:222, smaller PRs still get fewer shards by time; test/e2e/timings.json regenerated from five green runs, 177 of 177 spec files; the 40-minute globalTimeout unchanged), head 3682bdd6b71a2a180d09250dfbd1c28d44d29e48
+>
+> Gate (depth medium, two rounds):
+> - Round 1, reviewer (lens: correctness and the implementer's report) — REJECTED on 71c49d9cb with five low findings, four in the Code story (two quotes attributed to the ticket that it does not hold, the 2/2 range 23–33 instead of 20–34 min, header PR: -) and one style nit (test/contract/ci-scope-e2e.test.ts:389 spacing, Noted).
+>   - Checked fine: e2eShards (:303-313) gives 1/1 for 1–5 slow files, 1/2–2/2 for 20, three for 80; matrix reads macos-e2e-shards (ci.yml:376); ci-ok needs the whole job; windows-e2e untouched (ci.yml:538); timings.json covers 177/177 files, balance 1132.6/1131.6/1132.7 s; no script, rules file, ADR or harness bin names `macos-e2e (1/2)`.
+>   - Runner load (judged acceptable): shards 22m19s/20m23s/21m42s, run 27m38s, vs before 1/2 29–37 min and 2/2 20–34 min; machine time per full set 64 min vs 53–70; a push to main now takes 5 of 5 macOS slots instead of 4; queue wait is outside globalTimeout and timeout-minutes.
+>   - Mutation: E2E_SHARDS back to 2 → 12 tests red in three files.
+> - Fix 3682bdd6b (orchestrator, story only).
+> - Round 2, same reviewer — VERIFIED: the four story items fixed; story-check exit 0 on 3682bdd6b; code and tests unchanged since 71c49d9cb.
+> Evidence: three test files exit 0 (378); gate fast green; implementer: pnpm lint/typecheck/test exit 0 (21555); ci-ok green on 71c49d9cb (run 45941243130).
+> Not verified: item 1's «three green runs in a row» — one so far; the table's medians against one run of five.
+
+Code: `scripts/ci-scope.mjs:222-222` · key lines: 222
+
+```mjs
+export const E2E_SHARDS = { 'macos-e2e': 3, 'windows-e2e': 4 }
+```
+
+Code: `test/contract/ci-scope-e2e.test.ts:389-389` · key lines: 389
+
+```ts
+  const FULL = { files: '', macos: ['1/3', '2/3', '3/3'], windows:['1/4', '2/4', '3/4', '4/4'] }
+```
