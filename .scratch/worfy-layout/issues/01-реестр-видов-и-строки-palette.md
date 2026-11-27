@@ -1,7 +1,8 @@
 # 01: Реестр видов и строки palette
 
 Type: task
-Status: open
+Status: claimed 2026-11-27T03:34Z
+Branch: worfy-layout/01
 Blocked by: None — can start immediately
 Source: [spec.md](../spec.md), «Ticket-ы», 01; «Решения по реализации» («Реестр видов», «Бейджи», «Command palette»); «Решения по test-ам», Seam 1; «Волны», Wave 1
 
@@ -67,5 +68,29 @@ spec.md, раздел «Решения по реализации», «Реест
 
 - [ ] Реестр задаёт id, подпись, tooltip, иконку, причину неактивности, бейдж и действие у шести видов; `viewOptions`
       удалён; header выглядит как раньше (`toolbar.spec.ts`, `toolbar-runs`).
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/view-registry.test.tsx test/unit/toolbar-runs.test.tsx test/unit/pr-inbox-view.test.tsx test/unit/acceptance-view.test.tsx` exit 0 · mac - · 8058606cf7740f574319864096013c763711ca09
 - [ ] В Command palette есть строка у каждого из шести видов, `view:pipeline` открывает доску Pipeline.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/view-registry.test.tsx test/unit/palette-commands.test.tsx` exit 0 · mac - · 8058606cf7740f574319864096013c763711ca09
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 8058606cf7740f574319864096013c763711ca09
+
+## Итог
+
+- Реестр `src/renderer/shell/views.tsx`: восемь записей (`id`, `area`), у шести — `button` (подпись, tooltip, иконка,
+  `needsProject`, `useBadge`, `open`, строка palette). Toolbar строит сегменты из него, `viewOptions` удалён;
+  `VIEW_NAMES` остаётся до Ticket 04. Бейдж — тип `RailBadge` секций rail (`sidebar-scope.ts`), у Acceptance — счёт
+  Ready to check, разметка счёта прежняя (`w-acc-tab`, `acceptance-tab-count`).
+- Строки View в Command palette строятся из реестра, id и тексты прежние; новая строка `view:pipeline` «Pipeline board».
+  Порядок строк View теперь порядок кнопок: Canvas, Session, Pipeline, Runs, Pull requests, Acceptance, потом прочие.
+  У «Open Run history» вторая строка «shown now», пока открыт Run history, как у остальных видов.
+- Отступление от spec: `button.open` есть только у Runs. Кнопки Pull requests и Acceptance, как и раньше, переключают
+  вид через `onViewChange` shell-а; `openPrInboxOf` и `openAcceptance()` зовут только их строки palette
+  (`command.open`), как до тикета. Причина: так header ведёт себя как раньше, в том числе AppShell без внешнего вида
+  (unit `shell.test.tsx`), и test-ы `pr-inbox-view` и `acceptance-view` на нажатие вкладки не меняются.
+- Tooltip-ы кнопок — по spec: «Session view», «Pipeline board», «Run history», «Pull requests of the open Project»;
+  прежде у Session, Pipeline, Runs и Pull requests tooltip повторял подпись. Unit `toolbar-runs` обновлён.
+- Сначала падающий test: `test/unit/view-registry.test.tsx` на старом коде (реестр-заглушка без записей) — 5 failed,
+  3 passed (причины неактивности, Runs и счёт Acceptance уже работали).
+- e2e (`toolbar.spec.ts` и другие) локально не запускались (правило владельца); их локаторы ищут кнопки по имени
+  (`aria-label` = подпись) и строки palette по прежним текстам; `pipeline.spec.ts` проверяет и `title` кнопок —
+  его шаблон переписан под tooltip-ы реестра (review, round 1).

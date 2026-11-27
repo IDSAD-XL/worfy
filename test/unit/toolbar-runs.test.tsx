@@ -65,8 +65,8 @@ describe('the Runs tab', () => {
     expect((tabs.getByRole('button', { name: 'Canvas' }) as HTMLButtonElement).disabled).toBe(false)
   })
 
-  it('has the plain tooltip «Runs» when it is usable', () => {
+  it('has the tooltip «Run history» when it is usable (worfy-layout ticket 01)', () => {
     const tabs = renderToolbar({ project: PROJECT })
-    expect((tabs.getByRole('button', { name: 'Runs' }) as HTMLButtonElement).title).toBe('Runs')
+    expect((tabs.getByRole('button', { name: 'Runs' }) as HTMLButtonElement).title).toBe('Run history')
   })
 })

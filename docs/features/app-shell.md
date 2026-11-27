@@ -6,8 +6,10 @@ explained in [Concepts](concepts.md).
 
 The View switch of the toolbar picks what the main area shows: **Canvas**, **Session**, **Pipeline** (see
 [Workflow](workflow.md)), **Runs** (see [Flight Recorder](flight-recorder.md) and [Work track](work-track.md)) and **Pull
-requests** (see [Pull requests](pr-inbox.md)). In a narrow window the tabs show their icons alone, the name is the
-tooltip. Runs and Pull requests are inactive without a Project. Every view stays mounted while another one is shown,
+requests** (see [Pull requests](pr-inbox.md)) and **Acceptance** (see [Acceptance](acceptance.md)). Their tooltips are
+"Canvas", "Session view", "Pipeline board", "Run history", "Pull requests of the open Project" and "Checks that wait for
+you". In a narrow window the tabs show their icons alone. Runs and Pull requests are inactive without a Project, and
+their tooltip then says to open one. Every view stays mounted while another one is shown,
 so switching back finds it as it was.
 
 A part that fails to render stays a part: a sidebar section, a tab of the Assistant or a view shows "This section failed
@@ -173,6 +175,7 @@ watcher. Only the open Project's documents are watched.
 | Sections | `src/renderer/shell/sidebar/` |
 | What a part that fails to render shows | `src/renderer/shell/ErrorBoundary.tsx`, `src/renderer/shell/error-boundary.css`; placed in `Sidebar.tsx`, `AppShell.tsx`, `src/renderer/assistant/AssistantPanel.tsx` and `src/renderer/main.tsx` |
 | Rail entries of the sections | `src/renderer/shell/registry.ts` |
+| The views: names, tab tooltips, icons, the Acceptance count and their View rows of the palette | `src/renderer/shell/views.tsx` |
 
 Main tests: `test/unit/sidebar-scope.test.tsx`, `test/unit/error-boundary.test.tsx`, `test/unit/sidebar-resize.test.tsx`, `test/e2e/sidebar-resize.spec.ts`, `test/unit/assistant-window.test.ts`, `test/unit/assistant-panel.test.tsx`, `test/unit/assistant-speech.test.tsx`, `test/unit/assistant-intro.test.ts`, `test/unit/assistant-offer.test.tsx`, `test/e2e/assistant.spec.ts`, `test/unit/sidebar-section.test.tsx`, `test/unit/health-rail-button.test.tsx`, `test/unit/acceptance-section.test.tsx`, `test/e2e/sidebar-rail.spec.ts`,
 `test/e2e/sidebar-sections.spec.ts`.
@@ -200,7 +203,7 @@ next typing or pick. While a command runs, another pick does nothing.
 | Group | Rows |
 |---|---|
 | Action | New session; New Product Session; a "New …" for each item of the Canvas menu; Tidy up; Arrange by Epic; Re-pack; Archive finished sessions now; Process gate queue; Run wave `<epic>`; Ship ticket `<epic>/<NN>`; Open changes `<epic>/<NN>`; Resolve conflicts, Fix checks and Address comments `<owner>/<repo>#<N>`; Reconnect machine…; Remove machine…; Update worfy |
-| View | Switch to Canvas; Switch to Session; Pull requests, with a Project; Acceptance; First-run checks; Health check; Getting started; Settings…; Keyboard shortcuts; worfy Guide; Guide: `<Topic>`, for each Topic; Show only tag `<tag>`; Show all Nodes |
+| View | Switch to Canvas; Switch to Session; Pipeline board; Open Run history, with a Project; Pull requests, with a Project; Acceptance; First-run checks; Health check; Getting started; Settings…; Keyboard shortcuts; worfy Guide; Guide: `<Topic>`, for each Topic; Show only tag `<tag>`; Show all Nodes |
 | Project | Switch to project `<name>`, for each other Project |
 | Go to | Orchestrator; each Epic, Ticket and ADR; each Node of the Layout, except those worfy draws from the workflow and binding anchors |
 | Manual check | Each unchecked manual check of a Ticket. These rows appear only after typing |
