@@ -107,4 +107,7 @@ spec.md, раздел «Решения по реализации», «Footer» �
 - [ ] Точка chip-а красная, янтарная и без точки по правилу; popover закрывается Esc и кликом снаружи; Install,
       Update Harness, Retry, Move old Harness… и Update worfy работают из popover (`footer.spec.ts`).
 - [ ] Test-ы header, которые искали версию и Harness, ищут их в footer.
+  - evidence: commit pass · worfy-layout/03: footer across the window with the version chip, its dot and popover · - - · 20f738e3db7d4e7c59f2c432419d1c83e1e6ad69
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 20f738e3db7d4e7c59f2c432419d1c83e1e6ad69
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 20f738e3db7d4e7c59f2c432419d1c83e1e6ad69
