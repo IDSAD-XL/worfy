@@ -1,7 +1,9 @@
 # 167 — Кнопка Enable у выключенного Harness-а в строке статуса
 
 Type: feature
-Status: open
+Status: claimed 2026-11-27T12:13Z
+PR: #2326
+Branch: worfy-polish/167-redo
 Blocked by: worfy-layout 03 (footer и chip версии: строка Harness переезжает в popover chip-а и в `src/renderer/harness/HarnessStatus.tsx`)
 Source: вопрос владельца 2026-11-26 о строке статуса у знакомого: «Harness 0.4.0+08d75598c · disabled · removed
 mattpocock-skills». Plugin worfy был выключен в Claude Code, а строка только говорит «disabled» и не даёт его включить.
@@ -24,17 +26,33 @@ mattpocock-skills». Plugin worfy был выключен в Claude Code, а с�
 
 ## Где в коде
 
-- После worfy-layout 03: строка `HarnessLine` в popover chip-а версии (`src/renderer/harness/HarnessStatus.tsx`) — кнопка
-  Enable рядом с другими её кнопками (Install, Update Harness, Retry…); до 03 это было
-  `src/renderer/shell/toolbar/HarnessStatus.tsx:214`. Выключенный plugin даёт chip-у янтарную точку.
-- Main-процесс, где выполняются Install и Update Harness-а (найти по `onInstall`): туда же — действие Enable.
+- `src/renderer/harness/HarnessStatus.tsx` — строка `HarnessLine` в popover chip-а версии: кнопка Enable
+  (`harness-enable`) рядом с Install, Update Harness, Retry; ошибка Enable — в tooltip-е текста и кнопки.
+  Прежний путь `src/renderer/shell/toolbar/HarnessStatus.tsx` ушёл с worfy-layout 03.
+- `src/renderer/harness/harness-lines.ts` — `harnessPart`: у `installed` с `enabled: false` кнопка Enable с accent,
+  отсюда янтарная точка chip-а (`src/renderer/shell/footer/version-dot.ts`).
+- `src/renderer/harness/useHarnessStatus.tsx` — `onEnable` через `harness.enable`, «Enabling Harness…», `enableFailure`.
+- `src/shared/ipc/harness.ts` — channel `harness.enable` и его ответ (`status`, `error`); шаг `enable`.
+- `src/main/harness/install.ts` — `HarnessInstaller.enable()`: `claude plugin enable worfy@worfy-harness --scope user`,
+  затем статус заново. `src/main/ipc/harness.ts` — handler и `harness.changed` всем окнам после удачного Enable.
+- Test-ы: `test/contract/harness-install.test.ts`, `test/contract/harness-changed.test.ts`,
+  `test/unit/harness-status.test.tsx`, `test/unit/version-dot.test.tsx`.
+- `docs/features/harness.md` — строка Disabled и абзац «Enable».
 
 ## Готово, когда
 
 - [ ] При выключенном plugin-е строка показывает кнопку Enable; после нажатия статус перечитан и строка без
       «disabled»; ошибка включения видна в tooltip-е.
+  - evidence: test-run pass · `pnpm test test/contract/harness-install.test.ts test/contract/harness-changed.test.ts test/unit/harness-status.test.tsx test/unit/version-dot.test.tsx` exit 0 · mac - · cc476fac0478366d40b7f75d6d9b8592ad8b6bd1
+  - evidence: test-run pass · `pnpm test test/contract` exit 0, harness-install file 3 plain + 4 shuffled runs exit 0 · mac - · 083f742b2012e506e368ec6066e7506bf9e11d51
 - [ ] Unit- и contract-test-ы на действие Enable и на строку; test-ы красные до правки.
+  - evidence: test-run pass · `pnpm test` exit 0, 17 new tests red before the change · mac - · cc476fac0478366d40b7f75d6d9b8592ad8b6bd1
+  - evidence: test-run pass · `pnpm test test/contract/harness-install.test.ts` exit 0; new install-waits-for-enable test red without the fix · mac - · 083f742b2012e506e368ec6066e7506bf9e11d51
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast зелёный; `ci-ok` зелёный на head PR.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · cc476fac0478366d40b7f75d6d9b8592ad8b6bd1
+  - evidence: gate pass · `gate fast` exit 0 · mac - · cc476fac0478366d40b7f75d6d9b8592ad8b6bd1
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 083f742b2012e506e368ec6066e7506bf9e11d51
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 083f742b2012e506e368ec6066e7506bf9e11d51
 - [ ] (вручную) Сделай: в Claude Code выключи plugin worfy (`/plugin`), в Stable worfy нажми Enable в строке
       Harness → Должно быть: строка без «disabled», в Claude Code plugin worfy снова включён.
   - needs: mac stable
@@ -42,3 +60,18 @@ mattpocock-skills». Plugin worfy был выключен в Claude Code, а с�
 ## Откат 2026-11-27
 
 PR #2317 откачен: после merge contract test `test/contract/harness-install.test.ts:1421` («enabling a disabled Harness (worfy-polish ticket 167) > during an install it waits for the install, then reads the state the install left») висел 90 s на обеих попытках в push run-ах main на macOS, Linux и Windows (run 45970580081 и 45972473732), хотя CI PR-а был зелёным. Main стоял красным больше часа (правило: fix forward 1 h, затем revert). Переделка — заново с этого Ticket-а.
+
+### Причина зависания и переделка
+
+Root cause — в test-е, не в коде приложения. Test ждал записи `plugin marketplace list` в журнале stub-а
+(`vi.waitFor(() => expect(commands()).toEqual([LIST, MARKETPLACES]))`) и сразу отвечал «да» диалогу установки. Stub
+пишет эту строку в самом начале своего запуска, а установщик зовёт диалог позже: после выхода stub-а, разбора его
+ответа и плана. Если `vi.waitFor` успевал увидеть строку раньше, `agree(true)` звал пустую функцию — диалог ещё не
+открылся, ответ на него не приходил никогда, и `await install` висел до timeout-а. Без нагрузки test проходил по
+удаче: временный повтор старого test-а 21 раз (`repeats: 20`) локально дал зависание; проба на 41 запуск показала,
+что `vi.waitFor` срабатывал раньше диалога в 35 случаях из 41.
+
+Переделка (ветка `worfy-polish/167-redo`): cherry-pick #2317, test отвечает только после того, как установщик
+действительно спросил (promise диалога), и проверяет, что к этому моменту выполнены ровно два чтения. Заодно закрыт
+[low] ревью: `runInstall` ждёт идущего `enabling`, чтобы Install из другого окна не запускал `plugin install` рядом
+с `plugin enable` (новый contract test, красный без правки).

@@ -13,6 +13,7 @@
 //                         claude plugin install worfy@worfy-harness --scope user
 //   another version       claude plugin update worfy@worfy-harness --scope user
 //   the state             claude plugin list --json
+//   enable (ticket 167)   claude plugin enable worfy@worfy-harness --scope user               (enable() only)
 //   known marketplaces    claude plugin marketplace list --json                               (install() only)
 //
 // A second `install` does not change the version (ADR-0048), so the version is changed by `update`.
@@ -53,6 +54,7 @@ import {
   type CodexHarness as CodexHarnessStatus,
   type HarnessCleanup,
   type HarnessDependency,
+  type HarnessEnableResult,
   type HarnessState,
   type HarnessStatus,
   type HarnessStep,
@@ -511,6 +513,7 @@ export function runTool(tool: Tool, args: string[], timeout = COMMAND_TIMEOUT_MS
 export class HarnessInstaller {
   private readonly pluginDir: string
   private running: Promise<{ outcome: InstallOutcome; status: HarnessStatus }> | null = null
+  private enabling: Promise<HarnessEnableResult> | null = null
   /** The refusal the state last logged: a state read again logs it once, an install every time. */
   private loggedRefusal: string | null = null
 
@@ -544,7 +547,8 @@ export class HarnessInstaller {
   /**
    * Installs or updates after `confirm` said yes. Without anything to do there is no dialog; with
    * `confirm` saying no nothing is written and `claude` ran only its two reads (`plugin list`,
-   * `plugin marketplace list`). A second call while one runs gets the same result.
+   * `plugin marketplace list`). A second call while one runs gets the same result. It waits for an
+   * enable that runs (worfy-polish ticket 167), so `plugin install` never runs next to `plugin enable`.
    */
   install(confirm: (plan: InstallPlan) => Promise<boolean>): Promise<{ outcome: InstallOutcome; status: HarnessStatus }> {
     if (!this.options.canInstall) {
@@ -556,7 +560,42 @@ export class HarnessInstaller {
     return this.running
   }
 
+  /**
+   * Enables the plugin `worfy` that Claude Code lists as disabled (worfy-polish ticket 167):
+   * `claude plugin enable worfy@worfy-harness --scope user`, the command Claude Code's `/plugin` stands
+   * for, so Claude Code writes its own settings and worfy writes no file. The press on Enable is the
+   * consent: no dialog, as the command installs nothing. Then the state is read again. A failed
+   * command is `error`, with the state read again still saying disabled. A state that is not
+   * "installed, disabled" runs no command. It waits for an install that runs; a second call while
+   * one runs gets the same result.
+   */
+  enable(): Promise<HarnessEnableResult> {
+    if (!this.options.canInstall) {
+      return Promise.reject(new Error('a dev run does not install the Harness: start the packaged app, or set WORFY_CLAUDE_HOME to a sandbox'))
+    }
+    this.enabling ??= this.runEnable().finally(() => {
+      this.enabling = null
+    })
+    return this.enabling
+  }
+
+  private async runEnable(): Promise<HarnessEnableResult> {
+    await this.running?.catch(() => undefined)
+    const before = await this.claudeStatus()
+    if (before.state.kind !== 'installed' || before.state.enabled) return { status: await this.withCodex(before), error: null }
+    let error: string | null = null
+    try {
+      await this.claude(['plugin', 'enable', HARNESS_PLUGIN_ID, '--scope', 'user'], 'enable')
+    } catch (failure) {
+      if (!(failure instanceof StepError)) throw failure
+      error = failure.message
+    }
+    return { status: await this.status(), error }
+  }
+
   private async runInstall(confirm: (plan: InstallPlan) => Promise<boolean>): Promise<{ outcome: InstallOutcome; status: HarnessStatus }> {
+    // An Enable from another window: its result does not matter here, the facts are read after it.
+    await this.enabling?.catch(() => undefined)
     let facts: Facts
     try {
       // Also without the plugin folder: what is installed already decides what the dialog names.

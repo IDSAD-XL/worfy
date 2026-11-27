@@ -55,6 +55,7 @@ const INSTALL_DEP = `plugin install ${DEP} --scope user`
 const INSTALL_WORFY = `plugin install ${HARNESS_PLUGIN_ID} --scope user`
 const UNINSTALL_WORFY = `plugin uninstall ${HARNESS_PLUGIN_ID} --scope user`
 const UPDATE_WORFY = `plugin update ${HARNESS_PLUGIN_ID} --scope user`
+const ENABLE_WORFY = `plugin enable ${HARNESS_PLUGIN_ID} --scope user`
 
 /** Files of a tree with their bytes' hash and mode: equal maps mean byte-equal trees. */
 function treeOf(dir: string): Record<string, string> {
@@ -156,6 +157,14 @@ if (command === 'plugin marketplace list') {
   state.plugins[args[2]] = isAbsolute(source) ? manifest(source, 'plugin.json').version : '${DEP_VERSION}'
 } else if (command === 'plugin uninstall') {
   delete state.plugins[args[2]]
+} else if (command === 'plugin enable' || command === 'plugin disable') {
+  // As Claude Code does (worfy-polish ticket 167): the plugin stays installed, only its \`enabledPlugins\` entry changes.
+  if (!(args[2] in state.plugins)) {
+    process.stderr.write('Plugin "' + args[2] + '" not found in installed plugins\\n')
+    process.exit(1)
+  }
+  const others = (state.disabled ?? []).filter((id) => id !== args[2])
+  state.disabled = command === 'plugin disable' ? [...others, args[2]] : others
 } else if (command === 'plugin list') {
   // As Claude Code does (ticket 13): a plugin whose dependency is not installed is listed with an error.
   const list = Object.entries(state.plugins).map(([id, version]) => {
@@ -164,7 +173,7 @@ if (command === 'plugin marketplace list') {
     const needs = isAbsolute(source) && existsSync(source) ? (manifest(source, 'plugin.json').dependencies ?? []) : []
     const errors = needs.filter((dep) => !(dep in state.plugins)).map((dep) => 'Dependency "' + dep + '" is not installed')
     if (id === '${HARNESS_PLUGIN_ID}' && process.env.STUB_CLAUDE_ERRORS) errors.push(process.env.STUB_CLAUDE_ERRORS)
-    return { id, version, scope: 'user', enabled: true, errors }
+    return { id, version, scope: 'user', enabled: !(state.disabled ?? []).includes(id), errors }
   })
   process.stdout.write(JSON.stringify(list, null, 2) + '\\n')
 }
@@ -251,6 +260,8 @@ const yes = (): Promise<boolean> => Promise.resolve(true)
 interface StubState {
   marketplaces: Record<string, string>
   plugins: Record<string, string>
+  /** The plugins disabled in Claude Code (`plugin disable`); none when absent. */
+  disabled?: string[]
 }
 /** Claude Code's side as the stub keeps it. */
 const stubState = (): StubState => (existsSync(sb.state) ? (JSON.parse(readFileSync(sb.state, 'utf8')) as StubState) : { marketplaces: {}, plugins: {} })
@@ -1334,6 +1345,110 @@ describe('the dev build', () => {
     ).rejects.toThrow(/dev run/)
     expect(asked).toBe(false)
     expect(existsSync(sb.harnessHome)).toBe(false)
+    expect(calls()).toEqual([])
+  })
+})
+
+describe('enabling a disabled Harness (worfy-polish ticket 167)', () => {
+  /** The Harness of this build installed, then disabled in Claude Code, as `/plugin` does. */
+  async function installedThenDisabled(): Promise<HarnessInstaller> {
+    const subject = installer(makeBundle(join(sb.root, 'bundle-v1'), V1))
+    await subject.install(yes)
+    setStubState((state) => {
+      state.disabled = [HARNESS_PLUGIN_ID]
+    })
+    clearCalls()
+    return subject
+  }
+
+  it('the state says disabled; enable() runs `claude plugin enable worfy@worfy-harness --scope user` in the sandbox, reads the state again and answers it enabled', async () => {
+    const subject = await installedThenDisabled()
+    expect((await subject.status()).state).toEqual({ kind: 'installed', version: V1, enabled: false })
+    clearCalls()
+    const result = await subject.enable()
+    expect(result).toEqual({ status: { state: { kind: 'installed', version: V1, enabled: true }, bundledVersion: V1, canInstall: true, pluginDir: sb.pluginDir, dependencies: dep('installed') }, error: null })
+    expect(commands()).toEqual([LIST, ENABLE_WORFY, LIST])
+    // The command runs on the sandbox's Claude home, never the real one.
+    expect(calls().every((call) => call.HOME === sb.home && call.CLAUDE_CONFIG_DIR === sb.claudeHome)).toBe(true)
+    expect(stubState().disabled).toEqual([])
+  })
+
+  it('writes nothing itself: no file in the sandbox changes, settings.json byte for byte (Claude Code writes its own settings)', async () => {
+    const subject = await installedThenDisabled()
+    const settings = readFileSync(join(sb.claudeHome, 'settings.json'), 'utf8')
+    const before = filesWithTimes(sb.home)
+    await subject.enable()
+    expect(filesWithTimes(sb.home)).toEqual(before)
+    expect(readFileSync(join(sb.claudeHome, 'settings.json'), 'utf8')).toBe(settings)
+  })
+
+  it('a failing `plugin enable` answers its error with the tail of stderr, and the state read again still says disabled', async () => {
+    const subject = await installedThenDisabled()
+    sb.env.STUB_CLAUDE_FAIL = 'plugin enable'
+    const result = await subject.enable()
+    expect(result.status.state).toEqual({ kind: 'installed', version: V1, enabled: false })
+    expect(result.error).toContain(`claude ${ENABLE_WORFY} exited with 3`)
+    expect(result.error).toContain('failed: stub error')
+    expect(commands()).toEqual([LIST, ENABLE_WORFY, LIST])
+  })
+
+  it('an enabled Harness, or one that is not installed: no `plugin enable`, the state as it is', async () => {
+    const bundle = makeBundle(join(sb.root, 'bundle-v1'), V1)
+    expect(await installer(bundle).enable()).toEqual({ status: await installer(bundle).status(), error: null })
+    expect(commands()).toEqual([])
+    await installer(bundle).install(yes)
+    clearCalls()
+    expect((await installer(bundle).enable()).status.state).toEqual({ kind: 'installed', version: V1, enabled: true })
+    expect(commands()).toEqual([LIST])
+  })
+
+  it('a state that cannot be read answers it with no `plugin enable`', async () => {
+    const subject = await installedThenDisabled()
+    sb.env.STUB_CLAUDE_FAIL = 'plugin list'
+    const result = await subject.enable()
+    expect(result.status.state).toMatchObject({ kind: 'error', step: 'plugin list' })
+    expect(result.error).toBeNull()
+    expect(commands()).toEqual([LIST])
+  })
+
+  it('two clicks at once run one `plugin enable`', async () => {
+    const subject = await installedThenDisabled()
+    const [first, second] = await Promise.all([subject.enable(), subject.enable()])
+    expect(first).toEqual(second)
+    expect(commands().filter((command) => command === ENABLE_WORFY)).toHaveLength(1)
+  })
+
+  it('during an install it waits for the install, then reads the state the install left', async () => {
+    const subject = installer(makeBundle(join(sb.root, 'bundle-v1'), V1))
+    // The install stops at its dialog, and the test answers only once the dialog is up. Not on the stub's
+    // record of `plugin marketplace list`: the stub writes it when it starts, before the installer has its
+    // answer and asks, so an answer then would reach no dialog and the install would wait forever.
+    let asked: (agree: (yes: boolean) => void) => void = () => undefined
+    const dialog = new Promise<(yes: boolean) => void>((resolve) => (asked = resolve))
+    const install = subject.install(() => new Promise((resolve) => asked(resolve)))
+    const agree = await dialog
+    expect(commands()).toEqual([LIST, MARKETPLACES])
+    const enable = subject.enable()
+    agree(true)
+    await install
+    expect((await enable).status.state).toEqual({ kind: 'installed', version: V1, enabled: true })
+    expect(commands()).not.toContain(ENABLE_WORFY)
+  })
+
+  it('an install started during an enable waits for it, so `plugin install` never runs next to `plugin enable`', async () => {
+    const subject = await installedThenDisabled()
+    const enable = subject.enable()
+    const install = subject.install(yes)
+    expect((await enable).status.state).toEqual({ kind: 'installed', version: V1, enabled: true })
+    expect((await install).status.state).toEqual({ kind: 'installed', version: V1, enabled: true })
+    // The enable's read, its command and its read again come first; the install reads only after them.
+    expect(commands().slice(0, 3)).toEqual([LIST, ENABLE_WORFY, LIST])
+    expect(commands().slice(3)[0]).toBe(LIST)
+  })
+
+  it('a dev run without the offer refuses it before any command', async () => {
+    const subject = installer(makeBundle(join(sb.root, 'bundle-v1'), V1), { canInstall: false })
+    await expect(subject.enable()).rejects.toThrow(/dev run/)
     expect(calls()).toEqual([])
   })
 })
