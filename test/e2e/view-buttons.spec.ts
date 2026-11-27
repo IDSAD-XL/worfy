@@ -24,11 +24,16 @@ const pageSize = (window: Page): Promise<{ width: number; height: number }> =>
     return { width: view.innerWidth, height: view.innerHeight }
   })
 
+/**
+ * Sizes the content of the app's first window, the one `launched.window` shows. With a second window open the order of
+ * `getAllWindows()` names no first one: the lowest id is the window the app opened first (as menu.ts picks it).
+ */
 async function sizeWindow(launched: LaunchedApp, width: number): Promise<{ width: number; height: number }> {
   await expect
     .poll(async () => {
       const inner = await pageSize(launched.window)
-      if (inner.width !== width) await launched.app.evaluate(({ BrowserWindow }, wanted) => BrowserWindow.getAllWindows()[0]?.setContentSize(wanted, 800), width)
+      if (inner.width !== width)
+        await launched.app.evaluate(({ BrowserWindow }, wanted) => BrowserWindow.getAllWindows().sort((a, b) => a.id - b.id)[0]?.setContentSize(wanted, 800), width)
       return inner.width
     })
     .toBe(width)

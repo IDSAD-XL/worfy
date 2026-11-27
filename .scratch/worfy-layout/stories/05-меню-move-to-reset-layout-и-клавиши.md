@@ -215,6 +215,35 @@ Drag — Ticket 06. Перевод ru и тексты Guide — Ticket 07: зд�
 Reset из меню, ⌥←, Shift+F10, Reset в Settings, второе окно видит каждую перемену, четыре кнопки header при 1280 px без
 подписей (долг review Ticket-а 04). E2e локально не запускали (правило владельца), его проверит CI.
 
+## 9. Rework, раунд 1: e2e менял размер не того окна
+
+Code: `test/e2e/view-buttons.spec.ts:31-41` · key lines: 36
+
+```ts
+async function sizeWindow(launched: LaunchedApp, width: number): Promise<{ width: number; height: number }> {
+  await expect
+    .poll(async () => {
+      const inner = await pageSize(launched.window)
+      if (inner.width !== width)
+        await launched.app.evaluate(({ BrowserWindow }, wanted) => BrowserWindow.getAllWindows().sort((a, b) => a.id - b.id)[0]?.setContentSize(wanted, 800), width)
+      return inner.width
+    })
+    .toBe(width)
+  return pageSize(launched.window)
+}
+```
+
+- Что делает: helper меняет размер содержимого первого окна приложения, то есть окна с наименьшим id (так же его
+  выбирает `clickMenuItem` в `test/e2e/menu.ts`), и ждёт, пока страница этого окна получит нужную ширину.
+- Почему здесь: CI run 45977491721 на head 477481f8b. Новый случай упал в этом helper-е на macOS (ждали 1600 px, было
+  1280) и на Windows (ждали 1280, было 1264). Helper брал `BrowserWindow.getAllWindows()[0]`, а при открытом втором окне
+  этот порядок первое окно не гарантирует: `setContentSize` уходил второму окну.
+- Без него: при открытом втором окне ширина первого не менялась, и poll истекал на обеих ОС.
+- Требование: [Test-ы](../issues/05-меню-move-to-reset-layout-и-клавиши.md#test-ы)
+- Риски и пробелы test-ов: код приложения не менялся. Предел ожидания не поднимали, повторов не добавляли, проверки
+  случая остались прежними. Случаи Ticket-а 04 открывают одно окно, и для них выбор окна не меняется. Локально e2e не
+  запускали: результат даст CI на новом head.
+
 ## Проверить себя
 
 1. Sidebar спрятан. Человек выбирает в меню Canvas пункт «Sidebar». Где кнопка Canvas окажется на экране и в
