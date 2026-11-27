@@ -49,7 +49,7 @@ function ViewIcon({ button }: { button: ViewButton }) {
   )
 }
 
-function viewOptions(project: ToolbarProject | undefined): readonly SegmentOption<ShellView>[] {
+function viewSegments(project: ToolbarProject | undefined): readonly SegmentOption<ShellView>[] {
   return VIEW_BUTTONS.map(({ id, button }) => {
     const inactive = button.needsProject !== undefined && project === undefined
     return {
@@ -107,7 +107,7 @@ export function ToolbarView({ items, project, view, onViewChange, sidebarVisible
 
       <SegmentedControl
         label="View"
-        options={viewOptions(project)}
+        options={viewSegments(project)}
         value={view}
         // A press opens the view as its entry says (views.tsx): Runs at the newest Run through the Run history entry;
         // the others switch the shell's view.
