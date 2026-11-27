@@ -1,9 +1,9 @@
 # 167 — Кнопка Enable у выключенного Harness-а в строке статуса
 
 Type: feature
-Status: claimed 2026-11-27T08:03Z
-PR: #2317
-Branch: worfy-polish/167
+Status: claimed 2026-11-27T12:13Z
+PR: #2326
+Branch: worfy-polish/167-redo
 Blocked by: worfy-layout 03 (footer и chip версии: строка Harness переезжает в popover chip-а и в `src/renderer/harness/HarnessStatus.tsx`)
 Source: вопрос владельца 2026-11-26 о строке статуса у знакомого: «Harness 0.4.0+08d75598c · disabled · removed
 mattpocock-skills». Plugin worfy был выключен в Claude Code, а строка только говорит «disabled» и не даёт его включить.
