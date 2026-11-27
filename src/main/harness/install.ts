@@ -580,8 +580,8 @@ export class HarnessInstaller {
 
   private async runEnable(): Promise<HarnessEnableResult> {
     await this.running?.catch(() => undefined)
-    const before = await this.status()
-    if (before.state.kind !== 'installed' || before.state.enabled) return { status: before, error: null }
+    const before = await this.claudeStatus()
+    if (before.state.kind !== 'installed' || before.state.enabled) return { status: await this.withCodex(before), error: null }
     let error: string | null = null
     try {
       await this.claude(['plugin', 'enable', HARNESS_PLUGIN_ID, '--scope', 'user'], 'enable')
