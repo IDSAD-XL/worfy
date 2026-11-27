@@ -50,7 +50,7 @@ function ensure(): void {
 
 /** The live state of every Project of the window's Machine; undefined until main answered. */
 export function useProjectPulse(): ProjectPulseState | undefined {
-  useEffect(() => ensure(), [])
+  useEffect(() => { ensure() }, [])
   return usePulseStore((store) => store.state)
 }
 

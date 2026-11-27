@@ -9,6 +9,7 @@ import jsxA11y from 'eslint-plugin-jsx-a11y'
 import globals from 'globals'
 import tseslint from 'typescript-eslint'
 import { noCyrillic } from './scripts/check-cyrillic.mjs'
+import { effectCleanup } from './scripts/eslint-effect-cleanup.mjs'
 
 const srcDir = resolve(dirname(fileURLToPath(import.meta.url)), 'src')
 const nodeBuiltins = new Set(builtinModules)
@@ -79,7 +80,7 @@ const processBoundary = {
 const BASE_UI_ONLY_IN_KIT = 'Base UI is imported only under src/renderer/theme/kit/ (ADR-0106): take the kit wrapper instead.'
 
 // One plugin object for the local rules: flat config refuses a plugin name defined twice.
-const worfy = { rules: { 'process-boundary': processBoundary, 'no-cyrillic': noCyrillic } }
+const worfy = { rules: { 'process-boundary': processBoundary, 'no-cyrillic': noCyrillic, 'effect-cleanup': effectCleanup } }
 
 export default defineConfig(
   {
@@ -111,6 +112,12 @@ export default defineConfig(
     files: ['src/renderer/**/*.{ts,tsx}', 'test/**/*.tsx'],
     languageOptions: { globals: globals.browser },
     extends: [reactHooks.configs.flat.recommended],
+  },
+  {
+    // An effect returns a cleanup function or nothing: React 19 calls whatever it returns (worfy-polish 165).
+    files: ['src/renderer/**/*.{ts,tsx}'],
+    plugins: { worfy },
+    rules: { 'worfy/effect-cleanup': 'error' },
   },
   {
     files: ['src/renderer/**/*.tsx'],

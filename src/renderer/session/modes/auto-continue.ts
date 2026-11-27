@@ -66,10 +66,11 @@ export function useAutoContinue(projectId: string): AutoContinue {
 
   // A change made in another window or on another Machine (or by this one: the same value again).
   useEffect(
-    () =>
-      subscribe('autoContinue.changed', (change) => {
+    () => {
+      return subscribe('autoContinue.changed', (change) => {
         if (change.projectId === projectId) setShown({ projectId, on: change.on })
-      }),
+      })
+    },
     [projectId],
   )
 

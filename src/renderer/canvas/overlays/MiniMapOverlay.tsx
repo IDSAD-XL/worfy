@@ -21,7 +21,7 @@ export default function MiniMapOverlay() {
   const visible = useMinimapShown()
   useEffect(followViewMenu, [])
   // The minimap's visibility is one for every Canvas, so the corner is not cleared on unmount.
-  useEffect(() => setMinimapCorner(visible ? MINIMAP_CORNER : undefined), [visible])
+  useEffect(() => { setMinimapCorner(visible ? MINIMAP_CORNER : undefined) }, [visible])
   if (!visible) return null
   return (
     <MiniMap

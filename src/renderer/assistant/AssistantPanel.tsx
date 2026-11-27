@@ -345,7 +345,8 @@ function Journal({ view }: { view: AssistantView }): ReactElement {
 function Chat({ view }: { view: AssistantView }): ReactElement {
   const end = useRef<HTMLDivElement>(null)
   const count = view.conversation.length
-  useEffect(() => end.current?.scrollIntoView?.({ block: 'end' }), [count])
+  // In braces: Chromium may answer scrollIntoView with a Promise, and React calls what an effect returns (worfy-polish 165).
+  useEffect(() => { end.current?.scrollIntoView?.({ block: 'end' }) }, [count])
   return (
     <div data-testid="assistant-chat">
       {count === 0 ? <p className="w-asst-empty">Write to Assistant at any moment: to set it up, or to understand worfy. It answers in the language of the Guide.</p> : null}

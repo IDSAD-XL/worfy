@@ -40,11 +40,12 @@ export function RunsView({ activeProjectId }: { activeProjectId?: string }) {
   // openRunHistory asks for the focus each time (store.ts, askFocus): with a Run or an Epic named, the
   // entry is about that Run.
   useEffect(
-    () =>
-      useRunHistory.subscribe((state, before) => {
+    () => {
+      return useRunHistory.subscribe((state, before) => {
         if (state.focusAsked === before.focusAsked || state.projectId === null) return
         if (state.run !== null || state.epic !== null) setRunsTab(state.projectId, 'history')
-      }),
+      })
+    },
     [],
   )
 

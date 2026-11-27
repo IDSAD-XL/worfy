@@ -502,7 +502,7 @@ export default function ProjectsSection() {
 
   // "Connect…" of Getting started asks for this same flow (projects/add-project.ts; worfy-onboarding ticket 07).
   // Listens anew after each render, so the request runs this render's addProject.
-  useEffect(() => onAddProjectRequest(() => void addProject()))
+  useEffect(() => { return onAddProjectRequest(() => void addProject()) })
 
   const select = async (machine: string | null, project: ProjectView): Promise<void> => {
     setMessage(undefined)

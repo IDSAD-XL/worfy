@@ -305,7 +305,7 @@ function ensure(projectId: string): void {
 }
 
 function useAutopilot(projectId: string): AutopilotState | undefined {
-  useEffect(() => ensure(projectId), [projectId])
+  useEffect(() => { ensure(projectId) }, [projectId])
   return useAutopilotStore((store) => store.byProject[projectId])
 }
 

@@ -37,7 +37,7 @@ export function SessionPicker({ projectId, shown, shownTitle }: SessionPickerPro
   const nodes = useLayout(projectId).state?.layout.nodes
   const orchestrators = useOrchestratorViews()
   const sessionNodes = useSessionNodeViews()
-  useEffect(() => ensureProject(projectId), [projectId])
+  useEffect(() => { ensureProject(projectId) }, [projectId])
   const entries = useMemo(() => pickerSessions({ projectId, nodes: nodes ?? [], orchestrators, sessionNodes, live, history }), [projectId, nodes, orchestrators, sessionNodes, live, history])
   const value = pickerValue(shown)
   const options: SelectOption[] = entries.map((entry) => ({ value: entry.nodeId, label: entry.title, detail: entry.chip.label }))

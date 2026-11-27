@@ -793,8 +793,8 @@ function useEpicNodes({ projectId, layout }: NodeSourceContext): readonly Canvas
     [projectId, root, model, layout, doneExpanded, derived, answers, cards],
   )
   // After the build, so a request goes out for the inputs the Canvas shows.
-  useEffect(() => requestEpicLayouts(projectId), [projectId, nodes])
-  useEffect(() => foldHiddenDoneStacks(projectId, nodes), [projectId, nodes])
+  useEffect(() => { requestEpicLayouts(projectId) }, [projectId, nodes])
+  useEffect(() => { foldHiddenDoneStacks(projectId, nodes) }, [projectId, nodes])
   useFocusRequests(projectId, nodes)
   useArrangementUpkeep(projectId, nodes)
   return nodes

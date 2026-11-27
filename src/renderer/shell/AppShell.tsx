@@ -107,7 +107,7 @@ export function AppShell({ project, canvas, session, pipeline, history, view: co
   useLayoutEffect(() => {
     latestToggle.current = toggleSidebar
   })
-  useEffect(() => followSidebarCommand(() => latestToggle.current()), [])
+  useEffect(() => { return followSidebarCommand(() => latestToggle.current()) }, [])
   // The strips under the window buttons keep their size in pixels of the window at any interface scale.
   useInterfaceScale()
   // The width the person dragged the sidebar's edge to, kept while the sidebar is hidden too (sidebar-width.ts).

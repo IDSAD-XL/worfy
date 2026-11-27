@@ -24,7 +24,7 @@ export function RailIcon() {
 
 export default function AssistantSection() {
   const view = useAssistant((state) => state.view)
-  useEffect(() => followAssistant(), [])
+  useEffect(() => { return followAssistant() }, [])
   const scope = view === null ? null : view.on ? 'This machine' : 'Off on this machine'
   return (
     <SidebarSection id="AssistantSection" title="Assistant" meta={scope} testId="assistant-section">
