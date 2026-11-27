@@ -99,7 +99,8 @@ Snooze, like и dislike, × в заголовке и строкой внизу �
   - evidence: gate pass · `gate fast` exit 0 · mac - · 73baca2bedbc938c7ed1307ec24b97fbe72ed0ff
   - evidence: gate pass · `gate fast` exit 0 · mac - · 82dc17e5b62233e2ec93b009d8f637a619ba1c41
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45906870254/job/140221756310 · ci - · f27af12d89c0611ee3c6d47a211aa6463ac1783a
-- [ ] (вручную) Сделай: в Stable worfy с накопленными пунктами Assistant-а нажми × на пузыре, перезапусти worfy →
+- [x] (вручную) Сделай: в Stable worfy с накопленными пунктами Assistant-а нажми × на пузыре, перезапусти worfy →
       Должно быть: пузырь исчез с одного ×, пункты в разделе и число на значке на месте; после перезапуска пузырь не
       появляется, пока не придёт новый пункт.
   - needs: mac stable
+  - evidence: owner-check pass · 2026-11-27: «2 +» — ответ на пункт 2 проверки после обновления Stable (пузырь Assistant-а закрывается одним ×) · mac stable · 2ca9be95e
