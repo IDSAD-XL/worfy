@@ -1,13 +1,16 @@
 // Settings → General: the interface scale of this Machine (a slider, 80–150 % by steps of 10 %),
 // whether the version popover of the footer shows worfy's own memory (worfy-ui ticket 20; worfy-layout ticket 03), when an Epic of the sidebar without work
-// moves into the folded «Older» group (`epicsOlderAfter`, worfy-polish ticket 98), the build version
+// moves into the folded «Older» group (`epicsOlderAfter`, worfy-polish ticket 98), Reset layout of the View buttons
+// (`viewButtons`, worfy-layout ticket 05), the build version
 // (`app.version`), numbered as the version chip shows it with the build version next to it (worfy-update
 // ticket 14), and, under it, the block "Updates" (worfy-update ticket 09, UpdatesBlock.tsx).
 import { useEffect, useRef, useState } from 'react'
 import { failureReason } from '../../shared/ipc/channels'
+import { isDefault } from '../../shared/layout/view-buttons'
 import { buildVersionTooltip, numberedVersion } from '../../shared/version-number'
 import { epicsOlderAfterOf, INTERFACE_SCALE_MAX, INTERFACE_SCALE_MIN, INTERFACE_SCALE_STEP, type EpicsOlderAfter } from '../../shared/settings/app-settings'
 import { invoke } from '../ipc'
+import { Button } from '../theme/Button'
 import { Select, type SelectOption } from '../theme/Select'
 import { SettingRow, SettingSwitch } from './controls'
 import { UpdatesBlock } from './UpdatesBlock'
@@ -164,6 +167,41 @@ function OlderEpicsRow() {
   )
 }
 
+/**
+ * Reset layout of the View buttons: every one back to its default zone and place (Q6 of worfy-layout), the same as the
+ * item of a View button's menu (shell/ViewZone.tsx). Inactive while the layout is the default one. The field goes from
+ * the app settings, and every window of this Machine follows at once.
+ */
+function ViewButtonsRow() {
+  const moved = useAppSettings((settings) => settings.viewButtons !== undefined && !isDefault(settings.viewButtons))
+  const [problem, setProblem] = useState<string>()
+  return (
+    <SettingRow
+      label="View buttons"
+      description={
+        problem === undefined ? (
+          'Puts Canvas and Session back in the header, Pull requests and Acceptance on the sidebar, Pipeline and Runs in the footer.'
+        ) : (
+          <span role="alert" data-testid="settings-view-buttons-problem">
+            Not saved: {problem}
+          </span>
+        )
+      }
+      testId="settings-view-buttons-row"
+    >
+      <Button
+        disabled={!moved}
+        onClick={() => {
+          void setAppSettings({ viewButtons: null }).then(setProblem)
+        }}
+        data-testid="settings-reset-layout"
+      >
+        Reset layout
+      </Button>
+    </SettingRow>
+  )
+}
+
 export default function GeneralSection() {
   const [version, setVersion] = useState<Version>({ kind: 'loading' })
 
@@ -185,6 +223,7 @@ export default function GeneralSection() {
       <InterfaceScaleRow />
       <MemoryIndicatorRow />
       <OlderEpicsRow />
+      <ViewButtonsRow />
       <SettingRow label="Version" description="The build of worfy on this Machine." testId="settings-version-row">
         <span className="w-mono" style={{ fontSize: 'var(--text-12)', color: 'var(--text-secondary)' }} data-testid="settings-version" title={version.kind === 'failed' ? version.reason : undefined}>
           {version.kind === 'ok' ? numberedVersion(version.version, version.number) : version.kind === 'loading' ? '…' : 'unknown'}

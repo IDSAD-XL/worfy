@@ -937,3 +937,20 @@ html[data-platform='linux'] .w-sidebar__titlebar {
   background: transparent;
   color: var(--text-muted);
 }
+/* The menu of a View button (ViewZone.tsx, worfy-layout ticket 05): «Move to» over the three zones, the zone the button
+   stands in checked and dimmed, a line, Reset layout. */
+.w-view-menu__heading {
+  display: block;
+  padding: 6px var(--space-2) 2px;
+  font-size: var(--text-11);
+  color: var(--text-muted);
+}
+.w-view-menu__check {
+  flex: none;
+  width: 11px;
+  display: inline-flex;
+  color: var(--accent);
+}
+.w-view-menu .w-row[aria-disabled='true'] {
+  color: var(--text-muted);
+}

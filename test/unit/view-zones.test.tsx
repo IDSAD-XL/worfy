@@ -26,6 +26,25 @@ vi.mock('../../src/renderer/pipeline/usePipeline', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/renderer/pipeline/usePipeline')>()),
   usePipeline: () => ({ snapshot: tickets.value.length === 0 ? undefined : { tickets: tickets.value }, error: undefined }),
 }))
+// Main as the store answers a patch of the layout (ticket 05): a whole layout is kept, `null` takes the field away; the
+// answer comes later, as over IPC.
+const { patches, revision } = vi.hoisted(() => ({ patches: [] as unknown[], revision: { value: 1_000 } }))
+vi.mock('../../src/renderer/settings/useAppSettings', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../../src/renderer/settings/useAppSettings')>()
+  const { defaultAppSettings: fresh } = await import('../../src/shared/settings/app-settings')
+  return {
+    ...real,
+    setAppSettings: (patch: { viewButtons?: ViewButtons | null }) => {
+      patches.push(patch)
+      return Promise.resolve().then(() => {
+        revision.value += 1
+        const { viewButtons } = patch
+        real.acceptAppSettings({ ...fresh(), revision: revision.value, ...(viewButtons === null || viewButtons === undefined ? {} : { viewButtons }) })
+        return undefined
+      })
+    },
+  }
+})
 
 import type { ViewButtons } from '../../src/shared/layout/view-buttons'
 import { defaultAppSettings } from '../../src/shared/settings/app-settings'
@@ -45,10 +64,9 @@ const rail = () => within(screen.getByRole('navigation', { name: 'Sidebar' })).g
 const footer = () => within(screen.getByRole('contentinfo', { name: 'Footer' })).getByRole('group', { name: 'Views' })
 const pressed = () => screen.getAllByRole('button').filter((button) => button.dataset.viewButton !== undefined && button.getAttribute('aria-pressed') === 'true')
 
-let revision = 1_000
 function useLayout(viewButtons: ViewButtons | undefined): void {
-  revision += 1
-  act(() => acceptAppSettings({ ...defaultAppSettings(), revision, ...(viewButtons === undefined ? {} : { viewButtons }) }))
+  revision.value += 1
+  act(() => acceptAppSettings({ ...defaultAppSettings(), revision: revision.value, ...(viewButtons === undefined ? {} : { viewButtons }) }))
 }
 
 function views(over: Partial<ViewSwitch> = {}): ViewSwitch {
@@ -64,6 +82,7 @@ afterEach(() => {
   prCounts.value = []
   tickets.value = []
   openRunHistory.mockClear()
+  patches.length = 0
 })
 
 describe('the default layout', () => {
@@ -251,6 +270,141 @@ describe('focus mode', () => {
     expect(screen.getByRole('contentinfo', { name: 'Footer' }).closest('[inert]')).toBeNull()
     act(() => setFocusActive(false))
     expect(footer().hasAttribute('inert')).toBe(false)
+  })
+})
+
+describe('the menu of a View button (ticket 05)', () => {
+  const menu = () => screen.getByRole('menu', { name: /View button$/ })
+  const item = (name: string) => within(menu()).getByRole('menuitemradio', { name })
+  const reset = () => within(menu()).getByRole('menuitem', { name: 'Reset layout' })
+  const viewButton = (id: string) => document.querySelector<HTMLButtonElement>(`[data-view-button="${id}"]`)
+  const answered = () => act(async () => {})
+
+  it('opens on a right click: Move to Header, Sidebar or Footer with the current zone checked and inactive, a line, Reset layout inactive at the default', () => {
+    render(<AppShell project={PROJECT} />)
+    fireEvent.contextMenu(within(footer()).getByRole('button', { name: 'Runs' }), { clientX: 40, clientY: 700 })
+    expect(menu().getAttribute('aria-label')).toBe('Runs View button')
+    expect(within(menu()).getByRole('group', { name: 'Move to' })).toBeTruthy()
+    expect(within(menu()).getAllByRole('menuitemradio').map((each) => each.textContent)).toEqual(['Header', 'Sidebar', 'Footer'])
+    expect(item('Footer').getAttribute('aria-checked')).toBe('true')
+    expect(item('Footer').getAttribute('aria-disabled')).toBe('true')
+    expect(item('Header').getAttribute('aria-disabled')).toBeNull()
+    expect(within(menu()).getByRole('separator')).toBeTruthy()
+    expect(reset().getAttribute('aria-disabled')).toBe('true')
+  })
+
+  it('Move to puts the button at the end of that zone with one settings patch, and the focus goes to it there', async () => {
+    render(<AppShell project={PROJECT} />)
+    fireEvent.contextMenu(within(footer()).getByRole('button', { name: 'Runs' }), { clientX: 40, clientY: 700 })
+    fireEvent.click(item('Header'))
+    expect(screen.queryByRole('menu')).toBeNull()
+    expect(patches).toEqual([{ viewButtons: { header: ['canvas', 'session', 'history'], rail: ['pull-requests', 'acceptance'], footer: ['pipeline'] } }])
+    await answered()
+    expect(names(header())).toEqual(['Canvas', 'Session', 'Runs'])
+    expect(names(footer())).toEqual(['Pipeline'])
+    expect(document.activeElement).toBe(within(header()).getByRole('button', { name: 'Runs' }))
+  })
+
+  it('opens with Shift+F10 on the focused button; Reset layout takes the field away, and every zone is the default again', async () => {
+    useLayout({ header: ['canvas'], rail: ['session', 'pull-requests', 'acceptance'], footer: ['pipeline', 'history'] })
+    render(<AppShell project={PROJECT} />)
+    const session = within(rail()).getByRole('button', { name: 'Session' })
+    session.focus()
+    fireEvent.keyDown(session, { key: 'F10', shiftKey: true })
+    expect(item('Sidebar').getAttribute('aria-checked')).toBe('true')
+    expect(document.activeElement?.getAttribute('role')).toBe('menuitemradio')
+    expect(reset().getAttribute('aria-disabled')).toBeNull()
+    fireEvent.click(reset())
+    expect(patches).toEqual([{ viewButtons: null }])
+    await answered()
+    expect(names(header())).toEqual(['Canvas', 'Session'])
+    expect(names(rail())).toEqual(['Pull requests', 'Acceptance'])
+    expect(document.activeElement).toBe(viewButton('session'))
+  })
+
+  it('while the sidebar is hidden, Move to Sidebar puts the button at the end of the rail: it shows in the header after the line, focused', async () => {
+    render(<AppShell project={PROJECT} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Hide sidebar' }))
+    fireEvent.contextMenu(within(header()).getByRole('button', { name: 'Canvas' }), { clientX: 80, clientY: 20 })
+    fireEvent.click(item('Sidebar'))
+    expect(patches).toEqual([{ viewButtons: { header: ['session'], rail: ['pull-requests', 'acceptance', 'canvas'], footer: ['pipeline', 'history'] } }])
+    await answered()
+    expect(names(header())).toEqual(['Session', 'Pull requests', 'Acceptance', 'Canvas'])
+    expect(viewButton('canvas')?.dataset.zone).toBe('rail')
+    expect(document.activeElement).toBe(viewButton('canvas'))
+    // The rail's buttons drawn in the header have the menu too: their zone is the rail.
+    fireEvent.contextMenu(viewButton('canvas')!, { clientX: 300, clientY: 20 })
+    expect(item('Sidebar').getAttribute('aria-checked')).toBe('true')
+    fireEvent.click(screen.getByRole('button', { name: 'Show sidebar' }))
+  })
+})
+
+describe('the keys that move a View button within its zone (ticket 05)', () => {
+  const answered = () => act(async () => {})
+
+  it('⌥→ and ⌥← in the header move the focused button, and the focus stays on it', async () => {
+    render(<AppShell project={PROJECT} />)
+    const canvas = within(header()).getByRole('button', { name: 'Canvas' })
+    canvas.focus()
+    fireEvent.keyDown(canvas, { key: 'ArrowRight', altKey: true })
+    expect(patches).toEqual([{ viewButtons: { header: ['session', 'canvas'], rail: ['pull-requests', 'acceptance'], footer: ['pipeline', 'history'] } }])
+    await answered()
+    expect(names(header())).toEqual(['Session', 'Canvas'])
+    expect(document.activeElement).toBe(within(header()).getByRole('button', { name: 'Canvas' }))
+    fireEvent.keyDown(document.activeElement!, { key: 'ArrowLeft', altKey: true })
+    await answered()
+    expect(names(header())).toEqual(['Canvas', 'Session'])
+    expect(document.activeElement).toBe(within(header()).getByRole('button', { name: 'Canvas' }))
+  })
+
+  it('at the edge of a zone nothing happens: only the menu moves a button to another zone', async () => {
+    render(<AppShell project={PROJECT} />)
+    const session = within(header()).getByRole('button', { name: 'Session' })
+    session.focus()
+    fireEvent.keyDown(session, { key: 'ArrowRight', altKey: true })
+    const runs = within(footer()).getByRole('button', { name: 'Runs' })
+    runs.focus()
+    fireEvent.keyDown(runs, { key: 'ArrowRight', altKey: true })
+    await answered()
+    expect(patches).toEqual([])
+    expect(document.activeElement).toBe(runs)
+  })
+
+  it('⌥↓ and ⌥↑ on the rail, ⌥← in the footer; the other axis does nothing there', async () => {
+    render(<AppShell project={PROJECT} />)
+    const pulls = within(rail()).getByRole('button', { name: 'Pull requests' })
+    pulls.focus()
+    fireEvent.keyDown(pulls, { key: 'ArrowRight', altKey: true })
+    expect(patches).toEqual([])
+    fireEvent.keyDown(pulls, { key: 'ArrowDown', altKey: true })
+    await answered()
+    expect(names(rail())).toEqual(['Acceptance', 'Pull requests'])
+    expect(document.activeElement).toBe(within(rail()).getByRole('button', { name: 'Pull requests' }))
+    fireEvent.keyDown(document.activeElement!, { key: 'ArrowUp', altKey: true })
+    await answered()
+    expect(names(rail())).toEqual(['Pull requests', 'Acceptance'])
+    const runs = within(footer()).getByRole('button', { name: 'Runs' })
+    runs.focus()
+    fireEvent.keyDown(runs, { key: 'ArrowLeft', altKey: true })
+    await answered()
+    expect(names(footer())).toEqual(['Runs', 'Pipeline'])
+    expect(document.activeElement).toBe(within(footer()).getByRole('button', { name: 'Runs' }))
+  })
+
+  it('the rail buttons drawn in the header move within the rail with ⌥← and ⌥→, and never past the line into the header', async () => {
+    render(<AppShell project={PROJECT} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Hide sidebar' }))
+    const acceptance = within(header()).getByRole('button', { name: 'Acceptance' })
+    acceptance.focus()
+    fireEvent.keyDown(acceptance, { key: 'ArrowLeft', altKey: true })
+    expect(patches).toEqual([{ viewButtons: { header: ['canvas', 'session'], rail: ['acceptance', 'pull-requests'], footer: ['pipeline', 'history'] } }])
+    await answered()
+    expect(names(header())).toEqual(['Canvas', 'Session', 'Acceptance', 'Pull requests'])
+    expect(document.activeElement).toBe(within(header()).getByRole('button', { name: 'Acceptance' }))
+    fireEvent.keyDown(document.activeElement!, { key: 'ArrowLeft', altKey: true })
+    await answered()
+    expect(patches).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Show sidebar' }))
   })
 })
 

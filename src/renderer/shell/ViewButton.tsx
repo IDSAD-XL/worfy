@@ -2,7 +2,9 @@
 // three looks): a segment of the header's group with its icon, label and badge; a square of the rail, 34 × 34 px with an 18 px
 // icon, the «window» mark in the corner of the icon and the tooltip on the right; a footer button 22 px high with a
 // 13 px icon, its label and badge. Its name, tooltip, icon, badge and why it is inactive come from the registry
-// (views.tsx). It is a button of a kit ToggleGroup (ViewZone.tsx): the group knows which one is pressed.
+// (views.tsx). It is a button of a kit ToggleGroup (ViewZone.tsx): the group knows which one is pressed, and the zone
+// gives it its menu and its keys (worfy-layout ticket 05).
+import type { KeyboardEventHandler, MouseEventHandler } from 'react'
 import type { ViewZone } from '../../shared/layout/view-buttons'
 import { ToggleGroupItem } from '../theme/kit/ToggleGroup'
 import { Tooltip } from '../theme/kit/Tooltip'
@@ -24,6 +26,10 @@ export interface ViewButtonProps {
    * (owner's decision B, 2026-11-25): two equal counts side by side would read as two things.
    */
   badged: boolean
+  /** A right click, a click with two fingers on a touchpad or the menu key: the zone opens the button's menu. */
+  onContextMenu?: MouseEventHandler<HTMLButtonElement>
+  /** Shift+F10 and the ⌥-arrows: the zone opens the menu or moves the button, before the group's own arrows. */
+  onKeyDown?: KeyboardEventHandler<HTMLButtonElement>
 }
 
 function Badge({ badge, look, testId }: { badge: RailBadge; look: ViewButtonLook; testId: string }) {
@@ -64,7 +70,7 @@ const CLASSES: Record<ViewButtonLook, string> = {
   footer: 'w-view-button w-view-button--footer',
 }
 
-export function ViewButton({ entry, look, zone, inactive, badged }: ViewButtonProps) {
+export function ViewButton({ entry, look, zone, inactive, badged, onContextMenu, onKeyDown }: ViewButtonProps) {
   const { button } = entry
   // Every button reads its badge, shown or not: a hook is called on every render.
   const read = button.useBadge()
@@ -87,6 +93,8 @@ export function ViewButton({ entry, look, zone, inactive, badged }: ViewButtonPr
       data-view-button={entry.id}
       data-zone={zone}
       data-testid={button.testId}
+      onContextMenu={onContextMenu}
+      onKeyDown={onKeyDown}
     >
       <Icon />
       {look === 'rail' ? <WindowMark /> : <span className={look === 'header' ? 'w-segmented__label' : 'w-view-button__label'}>{button.label}</span>}
