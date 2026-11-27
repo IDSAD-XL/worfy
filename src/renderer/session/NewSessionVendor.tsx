@@ -93,7 +93,7 @@ function Vendors({ projectId, onPick }: { projectId: string; onPick: (vendor: st
 
   // The first Vendor that can start takes the focus once the list is there, so Enter picks it.
   const first = useRef<HTMLElement>(null)
-  useEffect(() => first.current?.focus(), [vendors])
+  useEffect(() => { first.current?.focus() }, [vendors])
   const firstFree = vendors?.choices.findIndex((choice) => choice.refusal === null) ?? -1
 
   return (

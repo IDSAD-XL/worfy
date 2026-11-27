@@ -125,7 +125,7 @@ function Sessions({ project, others }: SessionsProps) {
   const layout = useLayout(project.id).state
   const orchestrators = useOrchestratorViews()
   const sessionNodes = useSessionNodeViews()
-  useEffect(() => ensureProject(project.id), [project.id])
+  useEffect(() => { ensureProject(project.id) }, [project.id])
   const nodes = layout?.layout.nodes
   const orchestratorNode = nodes?.find((node) => node.kind === 'orchestrator')
   const worfy = useMemo(

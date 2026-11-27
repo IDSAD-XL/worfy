@@ -677,10 +677,11 @@ export function useQuoteComments({ storeKey, sessionId, log: logRef, assistant, 
 
   // A write the window's storage refused is the user's to know: the comments stay in this window only.
   useEffect(
-    () =>
-      onQuoteStoreError(() =>
+    () => {
+      return onQuoteStoreError(() =>
         showToast({ kind: 'error', key: 'quote-store-error', text: 'Comments could not be saved: they stay in this window until it closes', testId: 'quote-store-error-toast' }),
-      ),
+      )
+    },
     [],
   )
 

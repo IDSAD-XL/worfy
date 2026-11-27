@@ -771,7 +771,7 @@ export function Transcript(props: TranscriptProps) {
   // The number of each message of a Product Session's chat, from 1 in the order drawn (ticket 22): the meta line shows it.
   const numbers = useMemo(() => (inProduct ? messageNumbers(items) : null), [inProduct, items])
   const shownMessage = useMindMapFocus((state) => state.shown)
-  useEffect(() => (product === null ? undefined : attachChat(product)), [product])
+  useEffect(() => { return product === null ? undefined : attachChat(product) }, [product])
   // How a node card quotes the messages of its calls (ticket 24): the number, the author and the start of
   // the message the call's chip stands under. A message not loaded has no quote; the card keeps its link.
   const quotes = useMemo(() => {
@@ -786,7 +786,7 @@ export function Transcript(props: TranscriptProps) {
     }
     return quoted
   }, [chips, numbers, index, items])
-  useEffect(() => (product === null || quotes === null ? undefined : publishQuotes(product, quotes)), [product, quotes])
+  useEffect(() => { return product === null || quotes === null ? undefined : publishQuotes(product, quotes) }, [product, quotes])
   // A chat that goes while the pointer is on one of its messages leaves no node lit.
   useEffect(() => (product === null ? undefined : () => lightNodes([])), [product])
   const pinned = useMemo(() => openRequests(items, events, sessionId), [items, events, sessionId])
@@ -966,7 +966,7 @@ export function Transcript(props: TranscriptProps) {
   }, [items, firstIndex, earlier?.loading, hideTools])
 
   // After every render: the reader stays where they were (keep).
-  useLayoutEffect(() => keep())
+  useLayoutEffect(() => { keep() })
 
   // Find (worfy-ui ticket 26): paints the matches drawn now and again when rows change or open; scrolls
   // to the current match once each time it changes. After the follow above, so it wins over it.
@@ -1083,7 +1083,7 @@ export function Transcript(props: TranscriptProps) {
   }, [jump, onJump, items, drawn, place, track])
 
   // Last: the rows to draw for where the reader is now, after the scroll above moved.
-  useLayoutEffect(() => place())
+  useLayoutEffect(() => { place() })
 
   const loadEarlier = () => {
     const element = log.current

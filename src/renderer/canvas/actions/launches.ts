@@ -49,6 +49,6 @@ function ensure(projectId: string): void {
 
 /** Whether "Ship ticket" has a live Session for the Ticket; false until main has answered (main checks again). */
 export function useLaunched(projectId: string, epic: string, num: number): boolean {
-  useEffect(() => ensure(projectId), [projectId])
+  useEffect(() => { ensure(projectId) }, [projectId])
   return useLaunchesStore((state) => state.byProject[projectId]?.tickets.some((ticket) => ticket.epic === epic && ticket.num === num) ?? false)
 }

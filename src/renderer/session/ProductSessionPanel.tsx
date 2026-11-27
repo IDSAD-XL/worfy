@@ -143,12 +143,13 @@ function useTopicOfChip(projectId: string, nodeId: string, shown: ProductTopicSt
     latest.current = shown?.name
   })
   useEffect(
-    () =>
-      useMindMapFocus.subscribe((state, before) => {
+    () => {
+      return useMindMapFocus.subscribe((state, before) => {
         const asked = state.picked
         if (asked === before.picked || asked === null || asked.projectId !== projectId || asked.topic === latest.current) return
         wantTopic(key, { projectId: asked.projectId, topic: asked.topic, id: asked.id })
-      }),
+      })
+    },
     [projectId, key],
   )
   // Held until the map of the chip's topic is drawn, so the copy the map reads is never let go in between.

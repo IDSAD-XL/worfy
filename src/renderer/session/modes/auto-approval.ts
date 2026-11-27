@@ -114,10 +114,11 @@ export function useAutoApproval(projectId: string): AutoApproval {
 
   // A change made in another window or on another Machine (or by this one: the same mode again).
   useEffect(
-    () =>
-      subscribe('autoApproval.changed', (change) => {
+    () => {
+      return subscribe('autoApproval.changed', (change) => {
         if (change.projectId === projectId) setShown({ projectId, state: change.state })
-      }),
+      })
+    },
     [projectId],
   )
 

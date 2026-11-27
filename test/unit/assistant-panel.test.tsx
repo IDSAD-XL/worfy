@@ -468,3 +468,32 @@ describe('the Assistant’s messages as Markdown (worfy-polish ticket 162)', () 
     expect(rules('.w-asst-bubble')).toMatch(/min-width\s*:\s*0/u)
   })
 })
+
+describe('the Chat tab with a scroll that returns a value (worfy-polish ticket 165)', () => {
+  const message = (id: string) => ({ id, at: NOW, who: 'assistant' as const, text: `Message ${id}`, state: 'done' as const, reason: 'user' as const, rating: null })
+
+  it('a new message and a switch to another tab leave Chat without an error, when scrollIntoView returns a Promise', async () => {
+    // Chromium of Electron 44 answers scrollIntoView with a Promise; jsdom has no scrollIntoView at all. React 19
+    // keeps whatever an effect returns and calls it on unmount: a returned Promise threw «destroy_ is not a function».
+    const original = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollIntoView')
+    Object.defineProperty(Element.prototype, 'scrollIntoView', { configurable: true, writable: true, value: () => Promise.resolve() })
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      useAssistant.setState({ tab: 'chat' })
+      const { rerender } = render(<AssistantPanel view={view({ conversation: [message('m1')] })} />)
+      await act(async () => rerender(<AssistantPanel view={view({ conversation: [message('m1'), message('m2')] })} />))
+      // The new message re-runs the scroll: React first calls what the last run returned.
+      expect(screen.queryByText(/failed to render/u)).toBeNull()
+      expect(screen.getByTestId('assistant-chat')).toBeTruthy()
+      fireEvent.click(screen.getByRole('tab', { name: 'Journal' }))
+      await act(async () => undefined)
+      expect(screen.queryByText(/failed to render/u)).toBeNull()
+      expect(screen.queryByTestId('assistant-chat')).toBeNull()
+      expect(screen.getByRole('tab', { name: 'Journal' }).getAttribute('aria-selected')).toBe('true')
+      expect(errors.mock.calls.flat().map(String).join('\n')).not.toMatch(/is not a function/u)
+    } finally {
+      if (original === undefined) delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView
+      else Object.defineProperty(Element.prototype, 'scrollIntoView', original)
+    }
+  })
+})

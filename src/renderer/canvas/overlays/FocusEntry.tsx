@@ -77,12 +77,13 @@ export default function FocusEntry() {
 
   // Only a request made from now on: one made before this Canvas was mounted was meant for another.
   useEffect(
-    () =>
-      useFocusState.subscribe((state, previous) => {
+    () => {
+      return useFocusState.subscribe((state, previous) => {
         if (state.request === null || state.request === previous.request) return
         const start = buildPreset('even', state.request.ids)
         if (start !== null) setTree(start)
-      }),
+      })
+    },
     [],
   )
 

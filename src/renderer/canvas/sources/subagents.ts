@@ -363,7 +363,7 @@ function useSubagentNodes({ projectId, layout }: NodeSourceContext): readonly Ca
   const expanded = useSubagentsUi((state) => state.expanded)
   const nodes = useMemo(() => buildSubagentNodes(projectId, layout, trees, expanded), [projectId, layout, trees, expanded])
   // The Epic frames' column keeps clear of the Subagent Nodes too (ADR-0032).
-  useEffect(() => publishPlaneRects(projectId, 'subagents', subagentPlaneRects(layout, nodes)), [projectId, layout, nodes])
+  useEffect(() => { publishPlaneRects(projectId, 'subagents', subagentPlaneRects(layout, nodes)) }, [projectId, layout, nodes])
   return nodes
 }
 

@@ -133,7 +133,7 @@ function place(region: HTMLElement): void {
 /** The toasts of `projectId`, the active Project, and those of no Project. */
 export function ToastRegion({ projectId }: { projectId: string | undefined }) {
   // Before paint: a toast of the Project just left never flashes on the new one.
-  useLayoutEffect(() => setToastProject(projectId), [projectId])
+  useLayoutEffect(() => { setToastProject(projectId) }, [projectId])
   const shown = shownToasts(useStore(toasts))
   const alerts = shown.filter((toast) => toast.kind === 'error')
   const polite = shown.filter((toast) => toast.kind !== 'error')

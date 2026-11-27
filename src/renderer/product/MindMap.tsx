@@ -1089,12 +1089,13 @@ function MindMapFlow({ projectId, topic, onShowMessage }: MindMapProps) {
     revealLatest.current = reveal
   })
   useEffect(
-    () =>
-      useMindMapFocus.subscribe((state, before) => {
+    () => {
+      return useMindMapFocus.subscribe((state, before) => {
         const asked = state.picked
         if (asked === before.picked || asked === null || asked.projectId !== projectId || asked.topic !== topic.name) return
         revealLatest.current(asked.id, asked.seq)
-      }),
+      })
+    },
     [projectId, topic.name],
   )
   const centered = useRef<number | null>(null)

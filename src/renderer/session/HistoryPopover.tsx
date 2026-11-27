@@ -141,7 +141,7 @@ export function HistoryPopover({ project, onClose }: HistoryPopoverProps) {
   const layout = useLayout(project.id).state
   const orchestrators = useOrchestratorViews()
   const sessionNodes = useSessionNodeViews()
-  useEffect(() => ensureProject(project.id), [project.id])
+  useEffect(() => { ensureProject(project.id) }, [project.id])
   const nodes = layout?.layout.nodes
   const known = useMemo((): KnownSessions => {
     const running = worfySessions({ nodes: nodes ?? [], orchestrators: Object.values(orchestrators), sessionNodes: Object.values(sessionNodes), projectId: project.id, history })
@@ -164,7 +164,7 @@ export function HistoryPopover({ project, onClose }: HistoryPopoverProps) {
   // put a Node on the Canvas; a Node already shown is only focused.
   const readOnly = useReadOnly()
   // The history is read once per Project; Sessions that ended since then are read when it opens.
-  useEffect(() => refreshClaudeHome(project.path), [project.path])
+  useEffect(() => { refreshClaudeHome(project.path) }, [project.path])
 
   const focus = (nodeId: string) => {
     setView('canvas')

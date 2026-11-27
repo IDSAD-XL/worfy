@@ -46,6 +46,6 @@ function ensure(projectId: string): void {
 
 /** The Project's action templates; undefined until main has answered. */
 export function useActionTemplates(projectId: string): ActionTemplates | undefined {
-  useEffect(() => ensure(projectId), [projectId])
+  useEffect(() => { ensure(projectId) }, [projectId])
   return useTemplatesStore((state) => state.byProject[projectId])
 }

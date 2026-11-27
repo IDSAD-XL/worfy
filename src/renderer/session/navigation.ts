@@ -120,7 +120,7 @@ export function useOpenedSession(projectId: string): OpenedSession | null {
   const offCanvas = useNavigation((store) => store.offCanvas[projectId] === true)
   const nodes = useLayout(projectId).state?.layout.nodes
   // A Layout read with `layout.get` (no change event) may show the Node on the Canvas as well.
-  useEffect(() => noteLayout(projectId, nodes), [projectId, nodes, opened, offCanvas])
+  useEffect(() => { noteLayout(projectId, nodes) }, [projectId, nodes, opened, offCanvas])
   return shownSession(opened, nodes, offCanvas)
 }
 

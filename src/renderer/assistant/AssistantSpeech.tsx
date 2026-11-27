@@ -57,7 +57,7 @@ export function AssistantSpeech({ sidebarVisible }: { sidebarVisible: boolean })
   // Urgent and batched, urgent only, or none (Settings → Assistant → In the window, ticket 25).
   const inWindow = useAppSettings(inWindowOf)
   const anchor = useAnchor()
-  useEffect(() => followAssistant(), [])
+  useEffect(() => { return followAssistant() }, [])
   // The section is in front while the sidebar is shown and its panel holds the section: a window starts on another one
   // (`railDefault`), so it holds this one only once chosen.
   const sectionShown = sidebarVisible && saved === ASSISTANT_SECTION
@@ -65,11 +65,11 @@ export function AssistantSpeech({ sidebarVisible }: { sidebarVisible: boolean })
   const queue = windowMachine() === null ? speechQueue(view, new Set(closed), sectionShown, inWindow) : []
   const card = speechCard(view, queue)
   const badge = windowMachine() === null ? assistantBadge(view, queue) : undefined
-  useEffect(() => setRailBadge(ASSISTANT_SECTION, badge), [badge?.count, badge?.label]) // eslint-disable-line react-hooks/exhaustive-deps -- the badge is a fresh object each render
+  useEffect(() => { setRailBadge(ASSISTANT_SECTION, badge) }, [badge?.count, badge?.label]) // eslint-disable-line react-hooks/exhaustive-deps -- the badge is a fresh object each render
   useEffect(() => () => setRailBadge(ASSISTANT_SECTION, undefined), [])
   // What the user sees now counts as shown at its duty; the view main sends counts nothing.
   const shown = windowMachine() === null ? shownItemIds(view, sectionShown, tab, queue).join('\n') : ''
-  useEffect(() => reportShown(shown === '' ? [] : shown.split('\n')), [shown])
+  useEffect(() => { reportShown(shown === '' ? [] : shown.split('\n')) }, [shown])
   // Close (and Escape) closes the card as a whole: every item it would tell of now counts as told by it (worfy-polish
   // 161), with the count of events the card showed of it. The items stay in the list, in their state; the card speaks
   // again only of what comes after.
