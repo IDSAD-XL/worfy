@@ -1,7 +1,8 @@
 # 152 — Причина медленного старта Auberge-размерного Project-а: замер и починка до конца карантина 2026-12-09
 
 Type: bug
-Status: claimed 2026-11-27T09:24Z
+Status: done 2026-11-27T14:04Z
+PR: #2321
 Branch: worfy-polish/152
 Blocked by: 151
 Source: решение владельца 2026-11-26 (раунд Q1–Q12 вечернего отчёта 2026-11-25), Q1; Ticket-ы worfy-polish 150
@@ -79,17 +80,22 @@ Ticket-а, то есть, вероятно, общий путь старта, а
 - [ ] «Итог»: таблица этапов старта на runner-е (ms и доля `N`) и commit или смена runner-а, после которых старт
       стал медленнее.
   - evidence: commit pass · worfy-polish/152: remove the start profile, budget 5 x R, lift the quarantine · - - · 909f7c549f1581374a883e0f33cbd06ab6e9fc8f
+  - evidence: review pass · PR #2321 · - - · 6574a220cb5b948220a9c17c98238d30b02cd923
 - [ ] Test на найденную причину — сначала красный, после починки зелёный.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/epic-node-memo.test.tsx test/unit/checks-badges.test.tsx` exit 1 on the main code (3 failed), exit 0 with the fix · mac - · 909f7c549f1581374a883e0f33cbd06ab6e9fc8f
+  - evidence: review pass · PR #2321 · - - · 6574a220cb5b948220a9c17c98238d30b02cd923
 - [ ] Предел Auberge-test-а на CI зависит от замеренной базы, не от одной скорости runner-а; потолок
       `RUNNER_START_CAP_MS` = 7300 остаётся верхней границей, `START_MS` = 3000 не поднят;
       `test/unit/e2e-start-budget.test.ts` проверяет новое правило. (Пункт 3 Ticket-а 151.)
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/e2e-start-budget.test.ts` exit 0 · mac - · 909f7c549f1581374a883e0f33cbd06ab6e9fc8f
+  - evidence: review pass · PR #2321 · - - · 6574a220cb5b948220a9c17c98238d30b02cd923
 - [ ] Карантин снят: `test/quarantine/epic-frame-auberge-start-macos-ci.json` удалён, test объявлен через `test`;
       `test/unit/quarantine.test.ts` зелёный. (Пункт 4 Ticket-а 151.)
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/quarantine.test.ts` exit 0 · mac - · 909f7c549f1581374a883e0f33cbd06ab6e9fc8f
+  - evidence: review pass · PR #2321 · - - · 6574a220cb5b948220a9c17c98238d30b02cd923
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR, job `macos-e2e` с этим test-ом —
       зелёный с первой попытки.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/46005568934/job/140550189185 · ci - · 6574a220cb5b948220a9c17c98238d30b02cd923
 
 ## Итог
 
