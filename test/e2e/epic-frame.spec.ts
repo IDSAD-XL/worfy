@@ -15,7 +15,6 @@ import { evidenceItems } from '../../src/shared/workflow/evidence'
 import { epicStatusSchema, type Ticket } from '../../src/shared/workflow/types'
 import { readyWave, ticketLevels } from '../../src/shared/workflow/waves'
 import { canvasReady, expectSettledWithoutOverlaps, flowPositionsInOnePass, launchApp, oneBoxEachInOnePass, parkPointer, repoRoot, settledBoxes, settledRead, showSidebarSection, ticketCardCuts, type LaunchedApp } from './helpers'
-import { quarantined } from './quarantine'
 import { snapshotThemes } from './snapshots'
 import { measuresReference, RUNNER_START_CAP_MS, START_RATIO, startBudget } from './start-budget'
 import { settled } from './wait'
@@ -1111,9 +1110,7 @@ async function interactiveAfter(window: Page, epic: string): Promise<number> {
 /** One-Ticket starts behind the reference on GitHub Actions: a single start on the runner varied from 909 to 1274 ms. */
 const REFERENCE_STARTS = 3
 
-// Quarantined (test/quarantine/epic-frame-auberge-start-macos-ci.json): flaky on the macOS runner, where the
-// 7300 ms cap, not the one-Ticket reference, sets the budget in most jobs; worfy-polish 151 fixes it.
-quarantined('epic-frame-auberge-start-macos-ci')('an Auberge-sized Project is interactive within 3 s and pans and zooms smoothly over its biggest Epic', async () => {
+test('an Auberge-sized Project is interactive within 3 s and pans and zooms smoothly over its biggest Epic', async () => {
   const answer = join(scratch, 'epic-status.json')
   makeClaudeHome(answer)
   // On GitHub Actions the budget is measured against the same start of a one-Ticket Project on the

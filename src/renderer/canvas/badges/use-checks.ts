@@ -162,7 +162,20 @@ export function ticketBranch(ticket: Pick<Ticket, 'epic' | 'num' | 'fromBranch' 
  * branch it refuses (an Epic named in Cyrillic, `Q4 work/05` from an Epic named so) would make it refuse the
  * whole call, and every badge of the Project would go.
  */
-export function branchesInWork(tickets: readonly Ticket[]): string[] {
+export function branchesInWork(tickets: readonly Ticket[]): readonly string[] {
+  // Every card's Open PR asks with the same list of the workflow model: one read per list, not one per card
+  // (worfy-polish ticket 152: 682 Tickets on 155 cards cost 187 ms of the start on the macOS runner).
+  const known = branchesOfList.get(tickets)
+  if (known !== undefined) return known
+  const found = readBranchesInWork(tickets)
+  branchesOfList.set(tickets, found)
+  return found
+}
+
+/** The answers of branchesInWork, by the list of Tickets they were read from; a list nobody holds goes with it. */
+const branchesOfList = new WeakMap<readonly Ticket[], readonly string[]>()
+
+function readBranchesInWork(tickets: readonly Ticket[]): string[] {
   const branches = tickets
     .filter((ticket) => ticket.state === 'work' || ticket.fromBranch !== null)
     .flatMap((ticket) => {

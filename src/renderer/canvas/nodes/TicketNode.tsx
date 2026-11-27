@@ -1,4 +1,4 @@
-import { memo } from 'react'
+import { memo, useMemo } from 'react'
 import { Handle, Position } from '@xyflow/react'
 import { reposOfTicket } from '../../../shared/ipc/checks'
 import type { Ticket } from '../../../shared/workflow/types'
@@ -119,6 +119,34 @@ function BlockersLine({ data, keepOut }: { data: TicketNodeData; keepOut: KeepOu
   )
 }
 
+/**
+ * The card's badges and actions, drawn again only for a new subject or focus: the Pipeline or the Project's
+ * repositories coming draw the card's top row, not every slot of every card on screen (worfy-polish ticket 152).
+ * Each slot follows what it shows itself.
+ */
+const TicketSlots = memo(function TicketSlots({ subject, inFocus }: { subject: SlotSubject; inFocus: boolean }) {
+  const keepOut: KeepOut = inFocus ? { 'data-toast-keep-out': '' } : {}
+  if (!badges.length && !actions.length) return null
+  return (
+    <div className="w-ticket__slots" {...keepOut}>
+      {badges.length ? (
+        <div className="w-ticket__badges">
+          {badges.map(({ id, Component }) => (
+            <Component key={id} subject={subject} />
+          ))}
+        </div>
+      ) : null}
+      {actions.length ? (
+        <div className="w-ticket__actions nodrag">
+          {actions.map(({ id, Component }) => (
+            <Component key={id} subject={subject} />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+})
+
 function TicketNode({ id, data, width }: CanvasNodeProps) {
   const node = data.node.data as TicketNodeData
   const { projectId, root, ticket, placed } = node
@@ -128,7 +156,7 @@ function TicketNode({ id, data, width }: CanvasNodeProps) {
   // The top row holds the stepper with the Ready chip or the repository chip only in its narrow form.
   const repos = useProjectRepos(root)
   const narrow = placed.ready || (repos?.repos.length ?? 0) > 1 || (width ?? defaultWidth) < defaultWidth
-  const subject: SlotSubject = { kind: 'ticket', projectId, root, ticket }
+  const subject = useMemo<SlotSubject>(() => ({ kind: 'ticket', projectId, root, ticket }), [projectId, root, ticket])
   const reason = ticket.state === 'blocked' ? (ticket.blockedReason ?? null) : null
   // The tooltip shows the Status line with the reason, as the single old line `blocked — <reason>` did.
   const status = ticket.statusRaw === null ? null : reason ? `${ticket.statusRaw} — ${reason}` : ticket.statusRaw
@@ -205,24 +233,7 @@ function TicketNode({ id, data, width }: CanvasNodeProps) {
       ) : (
         <BlockersLine data={node} keepOut={keepOut} />
       )}
-      {badges.length || actions.length ? (
-        <div className="w-ticket__slots" {...keepOut}>
-          {badges.length ? (
-            <div className="w-ticket__badges">
-              {badges.map(({ id, Component }) => (
-                <Component key={id} subject={subject} />
-              ))}
-            </div>
-          ) : null}
-          {actions.length ? (
-            <div className="w-ticket__actions nodrag">
-              {actions.map(({ id, Component }) => (
-                <Component key={id} subject={subject} />
-              ))}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
+      <TicketSlots subject={subject} inFocus={inFocus} />
       {inFocus ? <TicketEvidence projectId={projectId} root={root} ticket={ticket} read={read} /> : null}
       {inFocus ? <TicketBody projectId={projectId} read={read} /> : null}
       <Handle type="source" position={Position.Right} isConnectable={false} className="w-ticket__handle" />

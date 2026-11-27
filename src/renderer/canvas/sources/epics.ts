@@ -437,6 +437,13 @@ const EMPTY: readonly CanvasFlowNode[] = []
 
 const sameArray = <T>(a: readonly T[], b: readonly T[]) => a.length === b.length && a.every((item, index) => item === b[index])
 
+/** Whether an Epic's frame and Ticket Nodes show the same for `inputs` as for the entry's own, its layout aside. */
+const sameFrame = (entry: EpicEntry, inputs: EpicEntry['inputs'], sameTickets: boolean): boolean =>
+  sameTickets && entry.inputs.root === inputs.root && entry.inputs.saved === inputs.saved && entry.inputs.collapsed === inputs.collapsed && entry.inputs.doneExpanded === inputs.doneExpanded
+
+/** Whether two layouts of a frame place and size everything alike: plain data, compared as such. */
+const sameLayout = (a: EpicLayout, b: EpicLayout): boolean => a === b || JSON.stringify(a) === JSON.stringify(b)
+
 function ticketNodes(projectId: string, root: string, epic: string, tickets: readonly Ticket[], layout: EpicLayout, saved: boolean): CanvasFlowNode[] {
   const byNum = new Map(tickets.map((t) => [t.num, t]))
   const parentId = epicNodeId(epic)
@@ -578,6 +585,16 @@ export function buildEpicNodes(
             ? entry!.request
             : { key: elkKey(tickets, epic.epic, cards), tickets, name: epic.epic, cards }
       const { layout: epicLayout, reserve } = frameLayout(tickets, epic.epic, inputs.collapsed, inputs.doneExpanded, inputs.answer, request?.key ?? null, cards)
+      // New inputs that lay the frame out as before — the Pipeline's Stage names or the Project's repositories coming
+      // after the first frame, an answer of ELK with the places already shown — keep the Epic's Node objects, so React
+      // Flow draws none of its cards again (worfy-polish ticket 152: each such answer drew every card on screen anew).
+      // A new ELK request is not such an input: requestEpicLayouts runs on new Nodes only, so the Nodes are new with it.
+      const sameRequest = (entry?.request?.key ?? null) === (request?.key ?? null)
+      if (entry !== undefined && sameRequest && sameFrame(entry, inputs, sameTickets) && entry.reserve === reserve && sameLayout(entry.layout, epicLayout)) {
+        entry = { ...entry, inputs, request }
+        cache.set(key, entry)
+        return { epic, saved, entry }
+      }
       entry = {
         inputs,
         layout: epicLayout,

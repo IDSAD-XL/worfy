@@ -552,6 +552,17 @@ describe('branchesInWork', () => {
     expect(branches).toEqual(['fix/x', 'аудит/ветка'])
     expect(checksGet.input.safeParse({ root: ROOT, branches }).success).toBe(true)
   })
+
+  it('reads one list of Tickets once: every card of the Canvas asks for the same list (worfy-polish 152)', async () => {
+    // Each card's Open PR asked for the branches of all 682 Tickets of an Auberge-sized Project, 187 ms on the runner.
+    const { branchesInWork } = await import('../../src/renderer/canvas/badges/use-checks')
+    const list = [ticket(7, 'work', 'demo/07'), ticket(8, 'work')]
+    const first = branchesInWork(list)
+    expect(branchesInWork(list)).toBe(first)
+    // Another list, even with the same Tickets, is read anew.
+    expect(branchesInWork([...list])).not.toBe(first)
+    expect(branchesInWork([...list])).toEqual(first)
+  })
 })
 
 describe('the root checks.get and checks.repos take (worfy-windows ticket 03)', () => {

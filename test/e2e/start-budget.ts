@@ -8,12 +8,15 @@ export const START_MS = 3_000
 /**
  * On the GitHub macOS runner every Project starts several times slower than on the owner's Mac, so
  * there the budget is this many times the runner's own start of a one-Ticket Project in the same
- * test (the median of three starts). Measured on the runner 2026-10-28, an Auberge-sized start
- * against a one-Ticket one: 3897 against 1274 ms (3.1×) and 3911 against 909 ms (4.3×) from single
- * starts; 2739 against a median of 721 ms (3.8×) and 1736 against 565 ms (3.07×) from three. 6 is
- * the highest 4.3 with a margin of 1.4.
+ * test (the median of three starts, R). Over 108 macos-e2e jobs of main 2026-11-09..25 the
+ * Auberge-sized start N against R was 3.33 at the median, 4.63 at the 95th percentile and 5.44 at
+ * most, on the code before worfy-polish ticket 152; that ticket took the two late redraws of every
+ * card (831 and 1080 ms of a 5511 ms start on the runner) out of N, and its first run measured
+ * 2338 against 930 ms (2.51). 5 is above that 95th percentile, so the start before the fix would
+ * have passed in 103 of the 108 jobs, and 5 × R reaches the ceiling only from R = 1460 ms: R, not
+ * the ceiling, sets the budget in 83 of the 108 jobs (6 × R, the ratio before, did in 56).
  */
-export const START_RATIO = 6
+export const START_RATIO = 5
 
 /**
  * The ceiling of the runner's budget: a one-Ticket start that got slower must not raise the budget
