@@ -1,7 +1,8 @@
 # 06: Drag
 
 Type: task
-Status: claimed 2026-11-27T12:25Z
+Status: done 2026-11-27T16:00Z
+PR: #2328
 Branch: worfy-layout/06
 Blocked by: 05
 Source: [spec.md](../spec.md), «Ticket-ы», 06; «Решения по реализации» («Drag», «Sidebar спрятан»); «Набросок функции» («Во время drag»); «Решения по test-ам», Seam 3 и Seam 4; «Риски»; решения владельца Q3, Q4; «Волны», Wave 4
@@ -61,8 +62,10 @@ spec.md, раздел «Решения по реализации», «Drag»; «
   - evidence: test-run pass · `pnpm test` exit 0 (test/unit/view-zones.test.tsx: drag across zones, within a zone, dragEnd without drop) · mac - · 5b55335ffee7bf7c75ae293a04535f624da88965
   - evidence: test-run pass · `pnpm test` exit 0 (view-zones: drag of the inactive Runs, aria-disabled) · mac - · a0b9ae54a0b8137e4f1b4ae603c3df224f322d28
   - evidence: test-run pass · `pnpm test` exit 0 (view-zones: review round 1 drag cases) · mac - · 115adbacfa17190aef471f00480c00388164ef43
+  - evidence: review pass · PR #2328 · - - · fcee9bdb9977eb7aa8e15219923962bf848e60b3
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 5b55335ffee7bf7c75ae293a04535f624da88965
   - evidence: gate pass · `gate fast` exit 0 · mac - · 5b55335ffee7bf7c75ae293a04535f624da88965
   - evidence: gate pass · `gate fast` exit 0 · mac - · a0b9ae54a0b8137e4f1b4ae603c3df224f322d28
   - evidence: gate pass · `gate fast` exit 0 · mac - · 115adbacfa17190aef471f00480c00388164ef43
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/46020874317/job/140608037605 · ci - · fcee9bdb9977eb7aa8e15219923962bf848e60b3
