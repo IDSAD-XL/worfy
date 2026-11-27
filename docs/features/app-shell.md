@@ -26,9 +26,18 @@ menu: "Move to" with **Header**, **Sidebar** and **Footer** (the zone it stands 
 **Reset layout**, inactive while the layout is the default one. Move to puts the button at the end of that zone and the
 focus follows it there; while the sidebar is hidden, Sidebar puts it at the end of the rail, and it shows in the toolbar
 after the line. ⌥← and ⌥→ (Alt on Windows) in the toolbar and the footer, ⌥↑ and ⌥↓ on the rail, move the focused
-button within its zone, and the focus stays on it; at the edge of a zone the keys do nothing, only the menu moves a
+button within its zone, and the focus stays on it; at the edge of a zone the keys do nothing: the menu or a drag moves a
 button to another zone. Reset layout puts every button back in its default zone; Settings → General has the same button
 in its row "View buttons". Every window of this computer follows each change at once. No button can be hidden.
+
+A View button can also be dragged with the mouse, an inactive one too, within its zone or into another one. While the
+drag goes, every zone on screen has a dashed accent frame, the one under the pointer a solid one, and a line marks the
+gap the button will land in: a vertical one in the toolbar and the footer, a horizontal one on the rail. The gap is
+before the first button whose middle is past the pointer, or after the last one. An empty zone shows a place of one
+button, "Drop here", only during a drag. Escape, or letting go outside a zone, ends the drag and changes nothing. A
+zone takes only a drag that began in its own window. While the sidebar is hidden, its buttons at the end of the toolbar,
+after the line, are no place to drop on: letting go over them changes nothing, as outside a zone. A drag whose button
+goes away before it ends (another window moved it) ends at once.
 
 A part that fails to render stays a part: a sidebar section, a tab of the Assistant or a view shows "This section failed
 to render" (or "This tab…", "This view…") with the error's message and **Reload**, and the rest of the window keeps

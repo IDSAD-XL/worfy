@@ -1802,7 +1802,7 @@ describe('the entries of the view', () => {
     cleanup()
     render(<ToolbarView items={[]} view="canvas" onViewChange={onViewChange} sidebarVisible onToggleSidebar={() => {}} layout={ALL_IN_HEADER} />)
     const none = within(screen.getByRole('group', { name: 'View' })).getByRole('button', { name: 'Pull requests' }) as HTMLButtonElement
-    expect(none.disabled).toBe(true)
+    expect(none.getAttribute('aria-disabled')).toBe('true')
     expect(none.title).toBe('Open a Project to see its pull requests')
   })
 

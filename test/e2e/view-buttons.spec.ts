@@ -4,7 +4,8 @@
 // the rail, Pipeline and Runs in the footer. In windows of 800×520 (the smallest), 1100, 1280 and 1600 px no zone
 // leaves the window, and each width is shot in both themes (test-results/e2e/snapshots/04-view-buttons-<width>/).
 // Ticket 05 moves them: the menu of a View button (Move to, Reset layout), the same Reset layout in Settings → General,
-// and ⌥←; a second window of this Machine follows every change. A drag is the spec of ticket 06.
+// and ⌥←; a second window of this Machine follows every change. Ticket 06 drags one from the footer into the header,
+// with the zones lit and the marker of the gap drawn halfway (test-results/e2e/snapshots/06-view-buttons-drag/).
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { closeSettings, launchApp, openSecondWindow, smallestWindow, viewButton, type LaunchedApp } from './helpers'
 import { clickMenuItem } from './menu'
@@ -221,6 +222,58 @@ test('the menu of a View button moves it to the end of another zone, ⌥← move
     await closeSettings(window)
     await expect.poll(() => namesIn(header(window))).toEqual(['Canvas', 'Session'])
     await expect.poll(() => namesIn(footerGroup(second))).toEqual(['Pipeline', 'Runs'])
+  } finally {
+    await launched.close()
+  }
+})
+
+/** The width of the line a button draws as the marker of a drag (its `::after`, shell.css); `auto` when none. */
+const markerWidth = (button: Locator): Promise<string> =>
+  button.evaluate((node) => {
+    const view = globalThis as unknown as { getComputedStyle(element: unknown, pseudo: string): { width: string } }
+    return view.getComputedStyle(node, '::after').width
+  })
+
+test('a drag takes Runs from the footer into the header between Canvas and Session; halfway the three zones are lit and the marker stands before Session (ticket 06)', async () => {
+  const launched = await launchApp()
+  try {
+    const { window } = launched
+    await expect(window.getByTestId('app-shell')).toBeVisible()
+    // Without a Project Runs is inactive, and is dragged all the same: the layout does not depend on the Project.
+    const runs = viewButton(window, 'history')
+    const session = viewButton(window, 'session')
+    const from = await box(runs)
+    const to = await box(session)
+    // A drag as Playwright's dragTo makes it, stopped halfway: over the left half of Session, the gap after Canvas.
+    await window.mouse.move(from.x + from.width / 2, from.y + from.height / 2)
+    await window.mouse.down()
+    const over = { x: to.x + to.width / 4, y: to.y + to.height / 2 }
+    await window.mouse.move(over.x, over.y, { steps: 8 })
+    // Playwright sends the page a drag event per move, and the element a drag enters gets its first `dragover` only on
+    // the next one: small moves inside the left half of Session bring it there, as a hand that holds still does.
+    let nudge = 0
+    await expect
+      .poll(async () => {
+        nudge = (nudge % 4) + 1
+        await window.mouse.move(over.x + nudge, over.y)
+        return session.getAttribute('data-drop-marker')
+      })
+      .toBe('before')
+    await expect(window.getByTestId('app-shell')).toHaveAttribute('data-view-drag', 'history')
+    await expect(header(window)).toHaveAttribute('data-drop-zone', 'over')
+    await expect(railBlock(window)).toHaveAttribute('data-drop-zone', 'on')
+    await expect(footerGroup(window)).toHaveAttribute('data-drop-zone', 'on')
+    await expect(session).toHaveAttribute('data-drop-marker', 'before')
+    expect(await markerWidth(session)).toBe('2px')
+    const shots = await snapshotThemes(window, '06-view-buttons-drag')
+    console.log(`view buttons halfway through a drag: ${shots.light} ${shots.dark}`)
+    await window.mouse.up()
+    await expect.poll(() => namesIn(header(window))).toEqual(['Canvas', 'Runs', 'Session'])
+    expect(await namesIn(footerGroup(window))).toEqual(['Pipeline'])
+    await expect(viewButton(window, 'history')).toHaveAttribute('data-zone', 'header')
+    await expect(window.getByTestId('app-shell')).not.toHaveAttribute('data-view-drag')
+    await expect(window.locator('[data-drop-zone]')).toHaveCount(0)
+    await expect(window.locator('[data-drop-marker]')).toHaveCount(0)
   } finally {
     await launched.close()
   }
