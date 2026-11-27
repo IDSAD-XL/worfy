@@ -3,8 +3,9 @@ import { chmodSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, statSync,
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 import { canvasReady, launchApp, newSessionOn } from './helpers'
+import { closeHeaderMenu, headerAction } from './session-header'
 import { catScript } from '../harness-node'
 import { ms } from '../time-scale'
 
@@ -398,26 +399,30 @@ test('during a turn a live Node can be neither closed nor removed', async () => 
     const node = window.locator('[data-testid="session-node"][data-live="true"]')
     await expect(node).toHaveCount(1)
     await panTo(window, (await node.getAttribute('data-node-id')) ?? '')
-    const [status, close, remove] = [node.getByTestId('session-node-status'), node.getByTestId('session-node-close'), node.getByTestId('session-node-remove')]
+    const [status, close] = [node.getByTestId('session-node-status'), node.getByTestId('session-node-close')]
+    // Remove may be an item of the header's «⋯» menu, where the header leaves the title no room for it (worfy-polish ticket 153).
+    const remove = (): Promise<Locator> => headerAction(window, node, 'Remove')
     await expect(status).toHaveText('idle')
     // Idle: Close is offered; Remove waits until the Session is closed.
     await expect(close).toBeEnabled()
-    await expect(remove).toBeDisabled()
+    await expect(await remove()).toBeDisabled()
+    await closeHeaderMenu(window)
 
     await node.getByTestId('session-node-input').fill('count')
     await node.getByTestId('session-node-input').press('Enter')
     await expect(status).toHaveText('busy')
     await expect(close).toBeDisabled()
     await expect(close).toHaveAttribute('title', 'Interrupt the turn before closing the Session')
-    await expect(remove).toBeDisabled()
+    await expect(await remove()).toBeDisabled()
+    await closeHeaderMenu(window)
 
     await node.getByTestId('session-node-interrupt').click()
     await expect(status).toHaveText('idle')
     await expect(close).toBeEnabled()
     await close.click()
     await expect(status).toHaveText('finished')
-    await expect(remove).toBeEnabled()
-    await remove.click()
+    await expect(await remove()).toBeEnabled()
+    await (await remove()).click()
     await expect(node).toHaveCount(0)
   } finally {
     await launched.close()

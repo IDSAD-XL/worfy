@@ -2,16 +2,17 @@
 // worfy-product-session ticket 06): still a Session Node, told apart by the label «Product Session»
 // where a plain Session's Node says «Session». The kind comes from the Node's data, and from main's
 // view while the Session runs.
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { ReactFlowProvider } from '@xyflow/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CanvasNodeProps } from '../../src/renderer/canvas/nodes/index'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { SessionNodeView } from '../../src/shared/ipc/sessions'
+import { installHeaderLayout, menuItems, type HeaderLayout } from './session-header-layout'
 
 // Imported once while the file is collected (see session-node-drop.test.tsx): the first import of
 // the Node transforms every renderer module it reaches, too slow for one test on a loaded machine.
-await import('../../src/renderer/canvas/nodes/SessionNode')
+const { TITLE_MIN } = await import('../../src/renderer/canvas/nodes/SessionNode')
 
 const ROOT = '/Users/test/projects/demo'
 const PROJECT = { id: 'demo-0000000a', name: 'demo', path: ROOT, branch: 'main' }
@@ -22,6 +23,12 @@ const SAVED = 'dddddddd-0000-4000-8000-000000000004'
 let views: SessionNodeView[]
 /** Every `layout.apply` the Node sent, oldest first. */
 let applied: unknown[]
+/** Every channel the Node asked, oldest first. */
+let asked: string[]
+/** Every operation the Node gave the Canvas (useLayoutOps), oldest first. */
+let operations: unknown[]
+/** Draws the Node mount() drew again, with these fields of its layout Node (`keep`, `pinned`). */
+let redraw: (fields: Record<string, unknown>) => void
 
 const view = (over: Partial<SessionNodeView> = {}): SessionNodeView => ({
   projectId: PROJECT.id,
@@ -41,8 +48,11 @@ beforeEach(() => {
   vi.resetModules()
   views = []
   applied = []
+  asked = []
+  operations = []
   ;(globalThis as { worfy?: WorfyBridge }).worfy = {
     invoke: (channel: string, input: unknown) => {
+      asked.push(channel)
       if (channel === 'layout.apply') applied.push(input)
       const value: unknown =
         channel === 'projects.list'
@@ -68,12 +78,21 @@ afterEach(() => {
 /** Renders a Session Node with `data` and answers it once its status chip says `status`. */
 async function mount(data: Record<string, unknown>, status: string, fields: Record<string, unknown> = {}): Promise<HTMLElement> {
   const { default: SessionNode } = await import('../../src/renderer/canvas/nodes/SessionNode')
-  const props = { id: NODE, data: { node: { id: NODE, kind: 'session', data, ...fields } }, selected: false } as unknown as CanvasNodeProps
-  render(
-    <ReactFlowProvider>
-      <SessionNode {...props} />
-    </ReactFlowProvider>,
-  )
+  // The Canvas's own operations, as the Canvas gives them to its Nodes: Keep, Hide and Remove go there.
+  const { LayoutOpsContext } = await import('../../src/renderer/canvas/useLayout')
+  const ops = { apply: (op: unknown) => (operations.push(op), Promise.resolve()) } as unknown as Parameters<typeof LayoutOpsContext.Provider>[0]['value']
+  const draw = (more: Record<string, unknown>) => {
+    const props = { id: NODE, data: { node: { id: NODE, kind: 'session', data, ...more } }, selected: false } as unknown as CanvasNodeProps
+    return (
+      <ReactFlowProvider>
+        <LayoutOpsContext.Provider value={ops}>
+          <SessionNode {...props} />
+        </LayoutOpsContext.Provider>
+      </ReactFlowProvider>
+    )
+  }
+  const { rerender } = render(draw(fields))
+  redraw = (more) => rerender(draw(more))
   await vi.waitFor(() => expect(screen.getByTestId('session-node').getAttribute('data-status')).toBe(status))
   return screen.getByTestId('session-node')
 }
@@ -165,5 +184,120 @@ describe('Archive on a Session Node (worfy-product-session ticket 37)', () => {
     expect(fresh.disabled).toBe(true)
     expect(fresh.getAttribute('title')).toBe('Nothing to archive yet: the Session has not started')
     expect(applied).toEqual([])
+  })
+})
+
+// worfy-polish ticket 153: when the header has no room for the title at its minimum, the header's buttons
+// go into one «⋯» menu, one at a time from the end (Remove, Hide, Keep), the action of the state last.
+// The menu's items are the same actions, with the same names, tooltips and inactive states.
+describe('the header of a worfy Session Node: buttons into the «⋯» menu before the title gets unreadable', () => {
+  let layout: HeaderLayout | undefined
+  afterEach(() => {
+    cleanup()
+    layout?.restore()
+    layout = undefined
+  })
+
+  /** The names of the buttons in the header itself. */
+  const headerButtons = (): string[] => within(screen.getByTestId('session-node-header')).queryAllByRole('button').map((button) => button.textContent ?? '')
+  const menu = () => screen.getByRole('menu', { name: 'Session actions' })
+
+  it('a wide header keeps every button outside, and there is no menu', async () => {
+    layout = installHeaderLayout(600)
+    await mount({ origin: 'worfy', sessionId: SAVED }, 'finished')
+    expect(headerButtons()).toEqual(['Resume', 'Keep', 'Hide', 'Remove'])
+    expect(screen.queryByTestId('session-node-more')).toBeNull()
+  })
+
+  it('a 240 px header puts them all in the menu, the title keeps its minimum, and the items are the same actions', async () => {
+    layout = installHeaderLayout(240)
+    await mount({ origin: 'worfy', sessionId: SAVED }, 'finished')
+    expect(headerButtons()).toEqual(['⋯'])
+    expect(layout.titleWidth()).toBeGreaterThanOrEqual(TITLE_MIN)
+    fireEvent.click(screen.getByTestId('session-node-more'))
+    const items = menuItems(menu())
+    expect(items.map((item) => item.textContent)).toEqual(['Resume', 'Keep', 'Hide', 'Remove'])
+    expect(items.map((item) => item.getAttribute('title'))).toEqual([
+      'Continue this Session in worfy',
+      'Keep this Session on the Canvas: the archive leaves it',
+      'Hide the Node; the Session goes on',
+      'Remove the Node; the transcript stays',
+    ])
+    expect(within(menu()).getByRole('menuitemcheckbox', { name: 'Keep' }).getAttribute('aria-checked')).toBe('false')
+    expect(items.every((item) => item.getAttribute('aria-disabled') !== 'true')).toBe(true)
+    // Choosing an item runs its action, as the button does: Resume starts the Session.
+    await act(async () => {
+      fireEvent.click(within(menu()).getByRole('menuitem', { name: 'Resume' }))
+    })
+    await vi.waitFor(() => expect(asked).toContain('sessions.start'))
+    expect(screen.queryByRole('menu')).toBeNull()
+    fireEvent.click(screen.getByTestId('session-node-more'))
+    await act(async () => {
+      fireEvent.click(within(menu()).getByRole('menuitem', { name: 'Hide' }))
+    })
+    expect(operations).toEqual([{ op: 'hide', id: NODE, hidden: true }])
+    fireEvent.click(screen.getByTestId('session-node-more'))
+    await act(async () => {
+      fireEvent.click(within(menu()).getByRole('menuitemcheckbox', { name: 'Keep' }))
+    })
+    expect(operations.at(-1)).toEqual({ op: 'keep', id: NODE, keep: true })
+  })
+
+  it('a header a little short goes one button at a time from the end, and a button comes back only with room to spare', async () => {
+    // FIXED + TITLE_MIN + 4 buttons is 404 px; with Remove in the menu, 374 px.
+    layout = installHeaderLayout(390)
+    await mount({ origin: 'worfy', sessionId: SAVED }, 'finished')
+    expect(headerButtons()).toEqual(['Resume', 'Keep', 'Hide', '⋯'])
+    expect(screen.getByTestId('session-node-title').style.minWidth).toBe(`${TITLE_MIN}px`)
+    // Just wide enough for Remove again: it stays in the menu, so it does not jump back and forth at the edge.
+    layout.resize(405)
+    expect(headerButtons()).toEqual(['Resume', 'Keep', 'Hide', '⋯'])
+    layout.resize(420)
+    expect(headerButtons()).toEqual(['Resume', 'Keep', 'Hide', 'Remove'])
+    layout.resize(400)
+    expect(headerButtons()).toEqual(['Resume', 'Keep', 'Hide', '⋯'])
+  })
+
+  it('a menu open while every button comes back out does not open by itself when one goes into the menu again', async () => {
+    layout = installHeaderLayout(390)
+    await mount({ origin: 'worfy', sessionId: SAVED }, 'finished')
+    fireEvent.click(screen.getByTestId('session-node-more'))
+    expect(menu()).toBeTruthy()
+    layout.resize(420)
+    expect(screen.queryByTestId('session-node-more')).toBeNull()
+    layout.resize(390)
+    expect(headerButtons()).toEqual(['Resume', 'Keep', 'Hide', '⋯'])
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+
+  it('an open menu stays open, the same menu, when a button\'s name changes (Keep to Kept)', async () => {
+    layout = installHeaderLayout(240)
+    await mount({ origin: 'worfy', sessionId: SAVED }, 'finished')
+    fireEvent.click(screen.getByTestId('session-node-more'))
+    const open = menu()
+    act(() => redraw({ keep: true }))
+    expect(menu()).toBe(open)
+    expect(within(open).getByRole('menuitemcheckbox', { name: 'Kept' }).getAttribute('aria-checked')).toBe('true')
+    // Once it closes, the header is measured again from every button outside: 240 px still takes them all.
+    act(() => fireEvent.keyDown(open, { key: 'Escape' }))
+    await vi.waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
+    expect(headerButtons()).toEqual(['⋯'])
+  })
+
+  it('a running Session: Remove in the menu is inactive, saying why, and choosing it sends nothing', async () => {
+    views = [view()]
+    layout = installHeaderLayout(240)
+    await mount({ origin: 'worfy', sessionId: SAVED }, 'idle')
+    expect(headerButtons()).toEqual(['⋯'])
+    fireEvent.click(screen.getByTestId('session-node-more'))
+    expect(menuItems(menu()).map((item) => item.textContent)).toEqual(['Close', 'Keep', 'Hide', 'Remove'])
+    const remove = within(menu()).getByRole('menuitem', { name: 'Remove' })
+    expect(remove.getAttribute('aria-disabled')).toBe('true')
+    expect(remove.getAttribute('title')).toBe('Close the Session before removing its Node')
+    await act(async () => {
+      fireEvent.click(remove)
+    })
+    expect(operations).toEqual([])
+    expect(screen.getByRole('menu', { name: 'Session actions' })).toBeTruthy()
   })
 })

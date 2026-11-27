@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type FormEvent } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type FormEvent } from 'react'
 import type { AgentEvent } from '../../../shared/agent/events'
 import { chatCommandToast } from '../../../shared/autopilot/chat-command'
 import { TRANSCRIPT_WINDOW_BYTES } from '../../../shared/ipc/claude-home'
@@ -20,7 +20,7 @@ import {
 import { useClaudeHome } from '../../claude-home/useClaudeHome'
 import { useInFocusTile } from '../../focus/focus-tile'
 import { invoke } from '../../ipc'
-import { writeAction } from '../../projects/read-only'
+import { writeAction, writeItem } from '../../projects/read-only'
 import { activeProject, useProjects, useReadOnly } from '../../projects/useProjects'
 import { checkFiles, readFiles, roomFor, takeAttached } from '../../session/attach-files'
 import { clearDraft, draftKey, useDraft } from '../../session/drafts'
@@ -30,6 +30,7 @@ import { openSession } from '../../session/navigation'
 import { isRunning, useSessionNodeView } from '../../session/node-sessions'
 import { useSessionLog } from '../../session/store'
 import { VendorBadge } from '../../session/VendorBadge'
+import { Menu, MenuCheckboxItem, MenuItem } from '../../theme/kit/Menu'
 import { StatusChip, type Status } from '../../theme/primitives'
 import { showToast } from '../../toast/toasts'
 import { archiveSessionNode } from '../archive-node'
@@ -38,6 +39,7 @@ import { KIND, type NodeKindColour } from '../kind-colours'
 import { KindBand, KindIcon } from '../kind-icons'
 import { NodeResizeClamp } from '../NodeResizeClamp'
 import { NODE_HEADER } from '../node-header'
+import { useElementSize } from '../use-element-size'
 import { screenChannel, useLayoutOps } from '../useLayout'
 import type { CanvasNodeProps } from './index'
 
@@ -271,16 +273,174 @@ function usePastAnswer(root: string, sessionId: string | null): string | null {
 }
 
 /**
+ * A button of a Session Node's header, which goes into the header's «⋯» menu when the header is too
+ * narrow for it (useHeaderFit): the same name, tooltip and inactive state in either place.
+ */
+interface HeaderTool {
+  label: string
+  testId?: string
+  run: () => void
+  /** The tooltip: what it does, or why it is inactive. */
+  hint?: string
+  /** Inactive for a reason of its own (the Session runs); a read-only screen makes every one inactive. */
+  disabled?: boolean
+  /** A toggle (Keep): whether it is on. */
+  pressed?: boolean
+}
+
+/**
  * Keep (ADR-0076): the automatic archive and «Archive finished sessions now» leave the Node on the
  * Canvas while it is pressed. A step of ⌘Z; inactive on a read-only screen.
  */
-function KeepButton({ id, keep, readOnly }: { id: string; keep: boolean; readOnly: string | null }) {
-  const ops = useLayoutOps()
-  const hint = keep ? 'Kept: the archive leaves this Session on the Canvas. Click to let it go' : 'Keep this Session on the Canvas: the archive leaves it'
-  return (
-    <button type="button" style={styles.tool} data-testid="session-node-keep" aria-pressed={keep} {...writeAction(readOnly, () => void ops.apply({ op: 'keep', id, keep: !keep }), hint)}>
-      {keep ? 'Kept' : 'Keep'}
+const keepTool = (keep: boolean, toggle: () => void): HeaderTool => ({
+  label: keep ? 'Kept' : 'Keep',
+  testId: 'session-node-keep',
+  run: toggle,
+  hint: keep ? 'Kept: the archive leaves this Session on the Canvas. Click to let it go' : 'Keep this Session on the Canvas: the archive leaves it',
+  pressed: keep,
+})
+
+/**
+ * The narrowest the title of a Session Node's header gets while a button of the header can still go
+ * into its «⋯» menu (worfy-polish ticket 153): 64 px, about nine characters of the header's 13 px
+ * semibold font — «Session 1a2» of a Session's id, «Plan the ro…» of a name. At 31 px (ticket 37's
+ * measure of a 340 px finished Node) it showed «Pl…», which named no Session.
+ */
+export const TITLE_MIN = 64
+/** How much wider than it needs a header must get before a button comes back out of the menu: no flicker at the edge. */
+const HEADER_SLACK = 8
+
+interface HeaderFit {
+  /** The buttons the fit was measured for (useHeaderFit's `key`). */
+  key: string
+  /** How many buttons, counted from the end, are in the menu. */
+  inMenu: number
+  /** `needs[n]`: the header's width with `n` buttons in the menu, measured when it was too narrow for them. */
+  needs: readonly number[]
+  /** Measured for other buttons while the menu was open: measured again from every button outside once it closes. */
+  stale: boolean
+}
+
+/** `needs` with `need` at `at`: the widths measured for more buttons in the menu no longer hold. */
+const withNeed = (needs: readonly number[], at: number, need: number): number[] => {
+  const next = needs.slice(0, at)
+  next[at] = need
+  return next
+}
+
+/**
+ * How many of `count` header buttons go into the «⋯» menu, counted from the end, so the title keeps
+ * TITLE_MIN (worfy-polish ticket 153). The header itself is measured, in layout pixels: the zoom of the
+ * Canvas and the font cannot mislead it. Before a paint, while its content overflows it — the title
+ * held at TITLE_MIN — one more button goes in, and the width this layout needed is kept; a button comes
+ * back when the header has HEADER_SLACK px more than that, so a header at the edge stays as it is. With
+ * every button in the menu the title gives up its minimum: a chip as wide as «Interrupted by restart»
+ * on a 240 px Node leaves it less. `key` names the buttons and the chip; when it changes, what was
+ * measured no longer holds, and the header is measured again from every button outside. While the menu
+ * is `open` that waits until it closes: the buttons in it stay there (more may go in), so the open menu
+ * neither goes nor takes the focus with it.
+ */
+function useHeaderFit(count: number, key: string, open: boolean): { onHeader: (element: HTMLDivElement | null) => void; inMenu: number; titleMin: number } {
+  const header = useRef<HTMLDivElement | null>(null)
+  const [width, setWidth] = useState(0)
+  const [fit, setFit] = useState<HeaderFit>({ key, inMenu: 0, needs: [], stale: false })
+  // What this render draws: the fit as stored, or as it is about to be after a change of `key` or of `open`.
+  const next: HeaderFit =
+    fit.key !== key
+      ? open
+        ? { key, inMenu: Math.min(fit.inMenu, count), needs: [], stale: true }
+        : { key, inMenu: 0, needs: [], stale: false }
+      : fit.stale && !open
+        ? { key, inMenu: 0, needs: [], stale: false }
+        : fit
+  if (next !== fit) setFit(next)
+
+  const onSize = useCallback(({ width: next }: { width: number }) => {
+    setWidth(next)
+    setFit((now) => {
+      let inMenu = now.inMenu
+      while (inMenu > 0 && next >= (now.needs[inMenu - 1] ?? Infinity) + HEADER_SLACK) inMenu -= 1
+      return inMenu === now.inMenu ? now : { ...now, inMenu }
+    })
+  }, [])
+  const measure = useElementSize<HTMLDivElement>(onSize)
+  const onHeader = useCallback(
+    (element: HTMLDivElement | null) => {
+      header.current = element
+      measure(element)
+    },
+    [measure],
+  )
+
+  useLayoutEffect(() => {
+    const element = header.current
+    if (element === null || fit.key !== key || fit.inMenu >= count || element.scrollWidth <= element.clientWidth) return
+    const need = Math.max(element.scrollWidth, element.clientWidth + 1)
+    setFit((now) => (now !== fit ? now : { ...now, inMenu: now.inMenu + 1, needs: withNeed(now.needs, now.inMenu, need) }))
+  }, [fit, key, width, count])
+
+  const inMenu = Math.min(next.inMenu, count)
+  return { onHeader, inMenu, titleMin: inMenu < count ? TITLE_MIN : 0 }
+}
+
+/**
+ * The header's buttons: those that fit, then the «⋯» menu with the last `inMenu` of them as its items.
+ * An item is the same action as its button, with its name and tooltip, inactive when the button would
+ * be (writeItem on a read-only screen); Keep is a checkbox item, on while the Node is kept.
+ */
+function HeaderTools({
+  tools,
+  inMenu,
+  readOnly,
+  open,
+  onOpenChange,
+}: {
+  tools: readonly HeaderTool[]
+  inMenu: number
+  readOnly: string | null
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const outside = tools.slice(0, tools.length - inMenu)
+  const menu = tools.slice(tools.length - inMenu)
+  const trigger = (
+    <button type="button" style={styles.tool} data-testid="session-node-more" aria-label="More actions" title="More actions">
+      ⋯
     </button>
+  )
+  return (
+    <span className="nodrag" style={styles.tools}>
+      {outside.map((tool) => (
+        <button
+          key={tool.testId ?? tool.label}
+          type="button"
+          style={styles.tool}
+          data-testid={tool.testId}
+          disabled={tool.disabled}
+          aria-pressed={tool.pressed}
+          {...writeAction(readOnly, tool.run, tool.hint)}
+        >
+          {tool.label}
+        </button>
+      ))}
+      {menu.length > 0 ? (
+        <Menu open={open} onOpenChange={onOpenChange} trigger={trigger} label="Session actions" align="end" inNode>
+          {menu.map((tool) => {
+            const { onClick, disabled, ...marks } = writeItem(readOnly, tool.run)
+            const common = { ...marks, className: 'w-row', testId: tool.testId, title: readOnly === null ? tool.hint : undefined, disabled: disabled || tool.disabled === true }
+            return tool.pressed === undefined ? (
+              <MenuItem key={tool.testId ?? tool.label} {...common} onClick={onClick}>
+                {tool.label}
+              </MenuItem>
+            ) : (
+              <MenuCheckboxItem key={tool.testId ?? tool.label} {...common} checked={tool.pressed} onCheckedChange={onClick} closeOnClick>
+                {tool.label}
+              </MenuCheckboxItem>
+            )
+          })}
+        </Menu>
+      ) : null}
+    </span>
   )
 }
 
@@ -315,6 +475,46 @@ function ArchiveButton({ projectId, id, blocked, readOnly, onProblem }: { projec
     >
       Archive
     </button>
+  )
+}
+
+/**
+ * The header of a Session Node: the kind band and icon, the title, the status chip and the buttons
+ * (HeaderTools), as many of them outside as leave the title TITLE_MIN (useHeaderFit). `hint` is the
+ * header's own tooltip, `chipTitle` the chip's.
+ */
+function SessionHeader({
+  hint,
+  title,
+  chip,
+  chipTitle,
+  tools,
+  readOnly,
+}: {
+  hint: string
+  title: string
+  chip: { status: Status; label: string }
+  chipTitle?: string
+  tools: readonly HeaderTool[]
+  readOnly: string | null
+}) {
+  const [open, setOpen] = useState(false)
+  const { onHeader, inMenu, titleMin } = useHeaderFit(tools.length, [chip.label, ...tools.map((tool) => tool.label)].join('|'), open)
+  // Every button came back out (a wider header, a turn that ended): the menu went, and it is closed,
+  // so it does not open by itself when a button goes into it again.
+  if (open && inMenu === 0) setOpen(false)
+  return (
+    <div ref={onHeader} style={styles.header} title={hint} data-testid="session-node-header" {...NODE_HEADER}>
+      <KindBand kind="session" />
+      <KindIcon kind="session" />
+      <span style={{ ...styles.title, minWidth: titleMin }} data-testid="session-node-title" title={title}>
+        {title}
+      </span>
+      <span data-testid="session-node-status" title={chipTitle}>
+        <StatusChip status={chip.status} label={chip.label} />
+      </span>
+      <HeaderTools tools={tools} inMenu={inMenu} readOnly={readOnly} open={open} onOpenChange={setOpen} />
+    </div>
   )
 }
 
@@ -476,6 +676,38 @@ function LiveSessionNode({
     })
   }
 
+  // The header's buttons, the action of the state first (Interrupt, Close, Continue or Resume): the
+  // last go into the «⋯» menu first when the header is too narrow (worfy-polish ticket 153).
+  const resume = () => act(() => invoke('sessions.start', { projectId: project.id, nodeId: id }))
+  const primary: HeaderTool[] = running
+    ? [
+        ...(busy ? [{ label: 'Interrupt', testId: 'session-node-interrupt', run: () => act(() => invoke('agent.interrupt', { sessionId: view.sessionId })) }] : []),
+        {
+          label: 'Close',
+          testId: 'session-node-close',
+          run: () => act(() => invoke('sessions.close', { nodeId: id })),
+          hint: busy ? 'Interrupt the turn before closing the Session' : 'Close the Session; the Node stays',
+          disabled: busy,
+        },
+      ]
+    : cutOff !== null
+      ? [{ label: 'Continue', testId: 'session-node-continue', run: resume, hint: 'Continue the Session where the restart of worfy cut it off' }]
+      : saved !== undefined
+        ? [{ label: 'Resume', testId: 'session-node-resume', run: resume, hint: 'Continue this Session in worfy' }]
+        : []
+  const tools: HeaderTool[] = [
+    ...primary,
+    keepTool(keep, () => void ops.apply({ op: 'keep', id, keep: !keep })),
+    { label: 'Hide', run: () => void ops.apply({ op: 'hide', id, hidden: true }), hint: 'Hide the Node; the Session goes on' },
+    {
+      label: 'Remove',
+      testId: 'session-node-remove',
+      run: () => void ops.apply({ op: 'remove', id }),
+      hint: running ? 'Close the Session before removing its Node' : 'Remove the Node; the transcript stays',
+      disabled: running,
+    },
+  ]
+
   return (
     <div
       className="w-node-surface"
@@ -506,65 +738,14 @@ function LiveSessionNode({
         minHeight={140}
         onResizeEnd={(_event, { x, y, width, height }) => ops.apply({ op: 'resize', id, x, y, w: width, h: height })}
       />
-      <div style={styles.header} title="Double-click to open the Session" {...NODE_HEADER}>
-        <KindBand kind="session" />
-        <KindIcon kind="session" />
-        <span style={styles.title} data-testid="session-node-title" title={title}>
-          {title}
-        </span>
-        <span data-testid="session-node-status" title={running ? (view.error ?? undefined) : cutOff !== null ? `Not continued: ${cutOff.reason}` : undefined}>
-          <StatusChip status={chip.status} label={chip.label} />
-        </span>
-        <span className="nodrag" style={styles.tools}>
-          {busy ? (
-            <button type="button" style={styles.tool} data-testid="session-node-interrupt" {...writeAction(readOnly, () => act(() => invoke('agent.interrupt', { sessionId: view.sessionId })))}>
-              Interrupt
-            </button>
-          ) : null}
-          {running ? (
-            <button
-              type="button"
-              style={styles.tool}
-              data-testid="session-node-close"
-              disabled={busy}
-              {...writeAction(readOnly, () => act(() => invoke('sessions.close', { nodeId: id })), busy ? 'Interrupt the turn before closing the Session' : 'Close the Session; the Node stays')}
-            >
-              Close
-            </button>
-          ) : cutOff !== null ? (
-            <button
-              type="button"
-              style={styles.tool}
-              data-testid="session-node-continue"
-              {...writeAction(readOnly, () => act(() => invoke('sessions.start', { projectId: project.id, nodeId: id })), 'Continue the Session where the restart of worfy cut it off')}
-            >
-              Continue
-            </button>
-          ) : saved !== undefined ? (
-            <button
-              type="button"
-              style={styles.tool}
-              data-testid="session-node-resume"
-              {...writeAction(readOnly, () => act(() => invoke('sessions.start', { projectId: project.id, nodeId: id })), 'Continue this Session in worfy')}
-            >
-              Resume
-            </button>
-          ) : null}
-          <KeepButton id={id} keep={keep} readOnly={readOnly} />
-          <button type="button" style={styles.tool} {...writeAction(readOnly, () => void ops.apply({ op: 'hide', id, hidden: true }), 'Hide the Node; the Session goes on')}>
-            Hide
-          </button>
-          <button
-            type="button"
-            style={styles.tool}
-            data-testid="session-node-remove"
-            disabled={running}
-            {...writeAction(readOnly, () => void ops.apply({ op: 'remove', id }), running ? 'Close the Session before removing its Node' : 'Remove the Node; the transcript stays')}
-          >
-            Remove
-          </button>
-        </span>
-      </div>
+      <SessionHeader
+        hint="Double-click to open the Session"
+        title={title}
+        chip={chip}
+        chipTitle={running ? (view.error ?? undefined) : cutOff !== null ? `Not continued: ${cutOff.reason}` : undefined}
+        tools={tools}
+        readOnly={readOnly}
+      />
       <div style={styles.body}>
         <div style={styles.line}>
           {/* On the line under the header, not in it: the header's chip and buttons leave the title no room for it. */}
@@ -702,25 +883,17 @@ function SessionNode({ id, data, selected }: CanvasNodeProps) {
         minHeight={80}
         onResizeEnd={(_event, { x, y, width, height }) => ops.apply({ op: 'resize', id, x, y, w: width, h: height })}
       />
-      <div style={styles.header} title="Double-click to open the transcript" {...NODE_HEADER}>
-        <KindBand kind="session" />
-        <KindIcon kind="session" />
-        <span style={styles.title} data-testid="session-node-title" title={title}>
-          {title}
-        </span>
-        <span data-testid="session-node-status">
-          <StatusChip status={chip.status} label={chip.label} />
-        </span>
-        <span className="nodrag" style={styles.tools}>
-          <KeepButton id={id} keep={data.node.keep === true} readOnly={readOnly} />
-          <button type="button" style={styles.tool} {...writeAction(readOnly, () => void ops.apply({ op: 'hide', id, hidden: true }), `Hide the Node; ${leaves}`)}>
-            Hide
-          </button>
-          <button type="button" style={styles.tool} {...writeAction(readOnly, () => void ops.apply({ op: 'remove', id }), `Remove the Node; ${leaves}`)}>
-            Remove
-          </button>
-        </span>
-      </div>
+      <SessionHeader
+        hint="Double-click to open the transcript"
+        title={title}
+        chip={chip}
+        tools={[
+          keepTool(data.node.keep === true, () => void ops.apply({ op: 'keep', id, keep: data.node.keep !== true })),
+          { label: 'Hide', run: () => void ops.apply({ op: 'hide', id, hidden: true }), hint: `Hide the Node; ${leaves}` },
+          { label: 'Remove', run: () => void ops.apply({ op: 'remove', id }), hint: `Remove the Node; ${leaves}` },
+        ]}
+        readOnly={readOnly}
+      />
       <div style={styles.body}>
         <div style={styles.line}>
           {codex ? <VendorBadge vendor={info.vendor ?? UNNAMED_VENDOR} form="short" testId="session-node-vendor" /> : null}

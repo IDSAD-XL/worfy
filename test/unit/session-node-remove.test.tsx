@@ -3,12 +3,13 @@
 // alone: while it runs in a terminal or in Claude desktop, it goes on; once it has finished, what
 // stays is its transcript. The hint says whichever is true now. Its Archive (worfy-product-session
 // ticket 37) is active once the Session has finished, and inactive, saying why, while it runs.
-import { render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { ReactFlowProvider } from '@xyflow/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CanvasNodeProps } from '../../src/renderer/canvas/nodes/index'
 import type { WorfyBridge } from '../../src/shared/ipc/channels'
 import type { LiveSession } from '../../src/shared/ipc/claude-home'
+import { installHeaderLayout, menuItems, type HeaderLayout } from './session-header-layout'
 
 const ROOT = '/Users/test/projects/demo'
 const PROJECT = { id: 'demo-0000000a', name: 'demo', path: ROOT, branch: 'main' }
@@ -83,5 +84,35 @@ describe('read-only Session Node: Archive', () => {
     const { archive } = await mount('idle')
     expect(archive.disabled).toBe(true)
     expect(archive.getAttribute('title')).toBe('The Session still runs; archive its Node once it ends')
+  })
+})
+
+describe('read-only Session Node: the header buttons in the «⋯» menu (worfy-polish ticket 153)', () => {
+  let layout: HeaderLayout | undefined
+  afterEach(() => {
+    cleanup()
+    layout?.restore()
+    layout = undefined
+  })
+
+  it('a 240 px header puts Keep, Hide and Remove in the menu, with the same hints', async () => {
+    layout = installHeaderLayout(240)
+    const { default: SessionNode, TITLE_MIN } = await import('../../src/renderer/canvas/nodes/SessionNode')
+    const data = { node: { id: `session-${SESSION}`, kind: 'session', data: { origin: 'external', sessionId: SESSION, source: 'terminal', cwd: ROOT } } }
+    render(
+      <ReactFlowProvider>
+        <SessionNode {...({ id: `session-${SESSION}`, data, selected: false } as unknown as CanvasNodeProps)} />
+      </ReactFlowProvider>,
+    )
+    await vi.waitFor(() => expect(screen.getByTestId('session-node').getAttribute('data-status')).toBe('finished'))
+    expect(within(screen.getByTestId('session-node-header')).getAllByRole('button').map((button) => button.textContent)).toEqual(['⋯'])
+    expect(layout.titleWidth()).toBeGreaterThanOrEqual(TITLE_MIN)
+    fireEvent.click(screen.getByTestId('session-node-more'))
+    const items = menuItems(screen.getByRole('menu', { name: 'Session actions' }))
+    expect(items.map((item) => [item.textContent, item.getAttribute('title')])).toEqual([
+      ['Keep', 'Keep this Session on the Canvas: the archive leaves it'],
+      ['Hide', 'Hide the Node; the transcript stays'],
+      ['Remove', 'Remove the Node; the transcript stays'],
+    ])
   })
 })

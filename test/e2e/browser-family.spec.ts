@@ -21,6 +21,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test'
 import { canvasReady, chooseLevel, closeSettings, launchApp, linkThroughUi, machineIdOf, openMachinesSettings, openSecondWindow, parkPointer, PROJECTS_ACCESS_LABEL, showSidebarSection, type LaunchedApp } from './helpers'
+import { headerAction } from './session-header'
 import { catScript, loginProfileWithNode } from '../harness-node'
 import { ms } from '../time-scale'
 
@@ -202,7 +203,8 @@ test('a Session’s Browser is in its Ticket’s Family and leaves the Canvas wi
     const place = placeOf(opened.id)!
 
     // Hide the Session: its Browser leaves the Canvas of both windows and its page is closed.
-    await window.locator(`[data-testid="session-node"][data-session-id="${CLAIM}"]`).getByRole('button', { name: 'Hide', exact: true }).click()
+    // A button of the header, or an item of its «⋯» menu where it is narrow (worfy-polish ticket 153).
+    await (await headerAction(window, window.locator(`[data-testid="session-node"][data-session-id="${CLAIM}"]`), 'Hide')).click()
     for (const page of [window, second]) {
       await expect(frameOf(page, opened.id)).toHaveCount(0)
       await expect(frameOf(page, USER_BROWSER)).toBeVisible()

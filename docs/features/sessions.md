@@ -16,6 +16,16 @@ worfy runs Sessions itself and shows the ones started elsewhere. Each Session ha
 | Live Session Node, 340 by 220 pixels | "New session", or Resume | Send messages from the Node or the Session view |
 | Read-only Session Node, 300 by 120 pixels | A Session started in a terminal or Claude desktop | Read its transcript, Resume it once it has finished |
 
+**The header of a Session Node.** The header holds the title, the status chip and the buttons: on a live Node the action
+of its state (Interrupt and Close, Continue or Resume), then Keep, Hide and Remove; on a read-only Node Keep, Hide and
+Remove. The title keeps at least 64 pixels, about nine characters. When the header is too narrow for that, its buttons go
+into one **⋯** menu, one at a time from the end: Remove first, then Hide and Keep, and the action of the state last. How
+many go depends on the fonts and the chip; a finished live Node at the narrowest, 240 pixels, has all four in the menu. The
+header is measured in its own pixels, so the zoom of the Canvas changes nothing. The menu's items are the same actions, with the same names, tooltips and inactive states: Remove stays
+inactive while the Session runs, and on a read-only screen every item is inactive with the reason. A button comes back
+out of the menu only once the header is 8 pixels wider than it needs, so the buttons do not jump back and forth at the
+edge. With every button in the menu, a very wide chip such as **Interrupted by restart** can still leave the title less.
+
 A Session worfy runs belongs to the app, not to a window. Its events go to every window, closing a window does not stop
 it, and it stops when worfy quits. The quit first lets the Sessions' external calls without a result finish, such as a
 `git push` or `gh pr merge`, for 60 seconds at most. Meanwhile every window shows **Quitting worfy** with those calls and

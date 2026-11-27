@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { endApp } from './end-app'
 import { canvasReady, launchApp } from './helpers'
+import { closeHeaderMenu, headerAction } from './session-header'
 import { snapshotThemes } from './snapshots'
 import { ms } from '../time-scale'
 
@@ -169,14 +170,17 @@ test('started more than an hour after the kill: «Interrupted by restart», and 
     const node = nodeOf(window, sdk)
     await expect(node.getByTestId('session-node-status')).toHaveText('Interrupted by restart')
     await expect(node.getByTestId('session-node-status')).toHaveAttribute('title', 'Not continued: it was cut off more than an hour before worfy started again')
-    await expect(node.getByTestId('session-node-continue')).toBeVisible()
+    // The wide «Interrupted by restart» chip leaves the title little room: Continue may be an item of the
+    // header's «⋯» menu (worfy-polish ticket 153).
+    await expect(await headerAction(window, node, 'Continue')).toBeVisible()
+    await closeHeaderMenu(window)
     expect(messages()).toEqual([FIRST])
     await snapshotThemes(window, 'session-restart-interrupted')
 
-    await node.getByTestId('session-node-continue').click()
+    await (await headerAction(window, node, 'Continue')).click()
     await expect.poll(() => messages(), { timeout: ms(10_000) }).toEqual([FIRST, expect.stringMatching(RESTART)])
     await expect(node.getByTestId('session-node-status')).toHaveText('busy')
-    await expect(node.getByTestId('session-node-continue')).toHaveCount(0)
+    await expect(window.getByTestId('session-node-continue')).toHaveCount(0)
   } finally {
     await second.close()
   }
