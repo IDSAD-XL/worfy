@@ -252,6 +252,9 @@ async function writeFirstOpening(projectId: string, start: ArrangementState, nod
 export function useArrangementUpkeep(projectId: string, nodes: readonly CanvasFlowNode[]): void {
   const store = useStoreApi()
   const checkedDay = useRef(false)
+  // The build of this render set the state; an answer of ELK that leaves every frame where it was keeps the Nodes
+  // (sources/epics.ts) and settles the frames all the same, so the state's own `settled` runs the effect too.
+  const settled = arrangements.get(projectId)?.settled
   useEffect(() => {
     const state = arrangements.get(projectId)
     if (state === undefined || readOnlyNow() !== null) return
@@ -288,5 +291,5 @@ export function useArrangementUpkeep(projectId: string, nodes: readonly CanvasFl
     if (pendingColumns.get(projectId) === state.columns) return
     pendingColumns.set(projectId, state.columns)
     void applyLayoutOp(projectId, { op: 'patchData', id: EPIC_ARRANGEMENT_ID, data: { columns: state.columns } })
-  }, [projectId, nodes, store])
+  }, [projectId, nodes, settled, store])
 }

@@ -112,40 +112,6 @@ export function App() {
   )
 }
 
-performance.mark('worfy-entry-body') // TEMPORARY (worfy-polish 152): every import has run
-// TEMPORARY (worfy-polish 152): when the first Epic frame and Ticket Node enter the DOM, and the long frames.
-{
-  const seen = new Set<string>()
-  const watch = new MutationObserver(() => {
-    for (const id of ['epic-frame', 'ticket-node']) {
-      if (!seen.has(id) && document.querySelector(`[data-testid="${id}"]`) !== null) {
-        seen.add(id)
-        performance.mark(`worfy-dom-${id}`)
-      }
-    }
-    if (seen.size === 2) watch.disconnect()
-  })
-  watch.observe(document, { subtree: true, childList: true })
-  const frames: unknown[] = ((globalThis as unknown as { __worfyLoaf?: unknown[] }).__worfyLoaf = [])
-  try {
-    new PerformanceObserver((list) => {
-      for (const entry of list.getEntries()) {
-        const loaf = entry as PerformanceEntry & { blockingDuration?: number; scripts?: { sourceFunctionName?: string; invoker?: string; duration: number; forcedStyleAndLayoutDuration?: number }[] }
-        frames.push([
-          Math.round(entry.startTime),
-          Math.round(entry.duration),
-          Math.round(loaf.blockingDuration ?? 0),
-          (loaf.scripts ?? [])
-            .sort((a, b) => b.duration - a.duration)
-            .slice(0, 3)
-            .map((s) => `${s.invoker ?? ''}/${s.sourceFunctionName ?? ''} ${Math.round(s.duration)} fl${Math.round(s.forcedStyleAndLayoutDuration ?? 0)}`),
-        ])
-      }
-    }).observe({ type: 'long-animation-frame', buffered: true })
-  } catch {
-    // no long-animation-frame here
-  }
-}
 const container = document.getElementById('root')
 if (container) {
   // Before the first render: the styles and the key handlers read the system from <html>
@@ -174,7 +140,6 @@ if (container) {
   installPrInboxDigest()
   // A throw that no inner boundary caught shows what failed and «Reload window», not a blank window
   // (worfy-polish ticket 163): without a boundary React unmounts the whole tree.
-  performance.mark('worfy-render') // TEMPORARY (worfy-polish 152)
   createRoot(container).render(
     <StrictMode>
       <ErrorBoundary scope="window" name="app">

@@ -85,8 +85,6 @@ export default defineConfig(({ command }) => {
     },
     renderer: {
       plugins: [react()],
-      // TEMPORARY (worfy-polish 152): readable names in the start profile.
-      build: { minify: false },
     },
   }
 })

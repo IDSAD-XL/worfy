@@ -4,7 +4,6 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { gzipSync } from 'node:zlib'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { codeSection } from '../../src/main/workflow/reader'
 import ELK from 'elkjs/lib/elk.bundled.js'
@@ -16,7 +15,6 @@ import { evidenceItems } from '../../src/shared/workflow/evidence'
 import { epicStatusSchema, type Ticket } from '../../src/shared/workflow/types'
 import { readyWave, ticketLevels } from '../../src/shared/workflow/waves'
 import { canvasReady, expectSettledWithoutOverlaps, flowPositionsInOnePass, launchApp, oneBoxEachInOnePass, parkPointer, repoRoot, settledBoxes, settledRead, showSidebarSection, ticketCardCuts, type LaunchedApp } from './helpers'
-import { quarantined } from './quarantine'
 import { snapshotThemes } from './snapshots'
 import { measuresReference, RUNNER_START_CAP_MS, START_RATIO, startBudget } from './start-budget'
 import { settled } from './wait'
@@ -1109,130 +1107,9 @@ async function interactiveAfter(window: Page, epic: string): Promise<number> {
   )
 }
 
-// ── TEMPORARY (worfy-polish 152): the stages of a start, from the start profile (WORFY_START_PROFILE=1) ──
-
-interface CpuProfile {
-  nodes: { id: number; callFrame: { functionName: string; url: string; lineNumber: number }; children?: number[] }[]
-  samples: number[]
-  timeDeltas: number[]
-}
-
-/** Self and inclusive time in the first `windowMs` of a CPU profile, callers of forced layouts, and a timeline. */
-function profileTops(json: string | null, windowMs: number): string {
-  if (json === null) return 'no profile'
-  const profile = JSON.parse(json) as CpuProfile
-  const byId = new Map(profile.nodes.map((node) => [node.id, node]))
-  const parent = new Map<number, number>()
-  for (const node of profile.nodes) for (const child of node.children ?? []) parent.set(child, node.id)
-  const nameOf = (id: number): string => {
-    const frame = byId.get(id)!.callFrame
-    const file = frame.url.replace(/^.*node_modules\/(\.pnpm\/)?/, 'nm:').replace(/^.*\//, '') || frame.functionName
-    return `${frame.functionName || '(anon)'}@${file.slice(0, 30)}:${frame.lineNumber + 1}`
-  }
-  const self = new Map<string, number>()
-  const inclusive = new Map<string, number>()
-  const layoutCallers = new Map<string, number>()
-  const buckets = new Map<number, { idle: number; fns: Map<string, number> }>()
-  const add = (map: Map<string, number>, key: string, t: number): void => void map.set(key, (map.get(key) ?? 0) + t)
-  let elapsed = 0
-  for (let i = 0; i < profile.samples.length; i += 1) {
-    const delta = (profile.timeDeltas[i + 1] ?? 0) / 1000
-    elapsed += (profile.timeDeltas[i] ?? 0) / 1000
-    if (elapsed > windowMs) break
-    const leaf = profile.samples[i]!
-    const leafName = nameOf(leaf)
-    add(self, leafName, delta)
-    const bucket = Math.floor(elapsed / 500) * 500
-    if (!buckets.has(bucket)) buckets.set(bucket, { idle: 0, fns: new Map() })
-    const b = buckets.get(bucket)!
-    if (leafName.startsWith('(idle)')) b.idle += delta
-    const seen = new Set<string>()
-    const chain: string[] = []
-    for (let id: number | undefined = leaf; id !== undefined; id = parent.get(id)) {
-      const name = nameOf(id)
-      if (chain.length < 6) chain.push(name.replace(/@.*:/, ':'))
-      if (seen.has(name) || name.startsWith('(root)')) continue
-      seen.add(name)
-      add(inclusive, name, delta)
-    }
-    // The app's frames under this sample, by the closest app function that is not React's or the bundle's runtime.
-    if (!leafName.startsWith('(idle)') && !leafName.startsWith('(program)')) add(b.fns, chain.slice(0, 3).join('<'), delta)
-    if (/getBoundingClientRect|getComputedStyle|offsetWidth|offsetHeight|clientWidth|scrollHeight/.test(leafName)) add(layoutCallers, chain.slice(0, 6).join('<'), delta)
-  }
-  const top = (map: Map<string, number>, n: number): string =>
-    [...map]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, n)
-      .map(([name, t]) => `${name} ${Math.round(t)}`)
-      .join(' | ')
-  const timeline = [...buckets].map(([at, b]) => `@${at} idle ${Math.round(b.idle)}: ${top(b.fns, 3)}`).join(' ;; ')
-  return `self: ${top(self, 20)} ## inclusive: ${top(inclusive, 45)} ## forced layout callers: ${top(layoutCallers, 6)} ## timeline: ${timeline}`
-}
-
-async function printStartProfile(launched: LaunchedApp, label: string, interactiveMs: number): Promise<void> {
-  const page = await launched.window.evaluate(() => {
-    const g = globalThis as unknown as {
-      performance: { timeOrigin: number; getEntriesByType(type: string): { name: string; startTime: number; responseEnd?: number; domInteractive?: number; domContentLoadedEventEnd?: number; duration: number }[] }
-      __worfyIpcTimes?: unknown[]
-      __worfyElk?: unknown[]
-      __worfyBuilds?: unknown[]
-      __worfyLoaf?: unknown[]
-    }
-    const nav = g.performance.getEntriesByType('navigation')[0]
-    return {
-      origin: g.performance.timeOrigin,
-      nav: nav ? [Math.round(nav.responseEnd ?? 0), Math.round(nav.domInteractive ?? 0), Math.round(nav.domContentLoadedEventEnd ?? 0)] : null,
-      res: g.performance.getEntriesByType('resource').map((r) => [r.name.split('/').pop()?.slice(0, 40), Math.round(r.startTime), Math.round(r.responseEnd ?? 0)]),
-      marks: g.performance.getEntriesByType('mark').map((m) => [m.name, Math.round(m.startTime)]),
-      longtasks: g.performance.getEntriesByType('longtask').map((t) => [Math.round(t.startTime), Math.round(t.duration)]),
-      ipc: g.__worfyIpcTimes ?? [],
-      elk: g.__worfyElk ?? [],
-      builds: g.__worfyBuilds ?? [],
-      loaf: g.__worfyLoaf ?? [],
-    }
-  })
-  const stopped = (await launched.app.evaluate(async () => {
-    const g = globalThis as unknown as { __worfyStopStartProfiles?: () => Promise<unknown> }
-    return g.__worfyStopStartProfiles ? await g.__worfyStopStartProfiles() : null
-  })) as { main: string | null; renderer: string | null; mainLag: number[][]; mainIpc: [string, number, number, number][]; startedAt: number; children: unknown[][]; loadedAt: number } | null
-  const shift = stopped ? stopped.startedAt - page.origin : 0
-  const ipc = (page.ipc as [string, number, number][]).filter(([, at]) => at <= interactiveMs + 200).sort((a, b) => b[2] - a[2])
-  const elk = (page.elk as [string, number[]][]).map(([epic, row]) => [epic, ...row] as [string, number, number, number, number, number, number, number])
-  const counts = new Map<string, number>()
-  for (const [channel] of ipc) counts.set(channel, (counts.get(channel) ?? 0) + 1)
-  console.log(`auberge-stage ${label}: interactive ${interactiveMs} ms; main profile from page ms ${shift}; nav [responseEnd, domInteractive, dcl] ${JSON.stringify(page.nav)}; marks ${JSON.stringify(page.marks)}`)
-  console.log(`auberge-stage ${label} resources: ${JSON.stringify(page.res)}`)
-  console.log(`auberge-stage ${label} renderer ipc (channel, sent, took) slowest: ${JSON.stringify(ipc.slice(0, 25))}; count ${ipc.length}`)
-  const answered = elk.filter((e) => e[6] >= 0)
-  console.log(`auberge-stage ${label} elk (epic, tickets, built at, build ms, folded at, open at, answered at, setState ms): ${elk.length} requests, ${answered.length} answered, first built ${elk.length ? Math.min(...elk.map((e) => e[2])) : "-"}, build total ${elk.reduce((a, e) => a + e[3], 0)} ms, last answered ${answered.length ? Math.max(...answered.map((e) => e[6])) : "-"}; ${JSON.stringify(elk)}`)
-  console.log(`auberge-stage ${label} ipc counts: ${JSON.stringify([...counts].sort((a, b) => b[1] - a[1]).slice(0, 20))}`)
-  console.log(`auberge-stage ${label} epic node builds (at, ms, nodes, answers): ${JSON.stringify(page.builds)}`)
-  console.log(`auberge-stage ${label} long frames (at, ms, blocking, scripts): ${JSON.stringify(page.loaf)}`)
-  if (stopped === null) return
-  const mainIpc = stopped.mainIpc.map(([name, at, handle, parse]) => [name, at - page.origin, handle, parse] as const).filter(([, at]) => at <= interactiveMs + 200).sort((a, b) => b[2] + b[3] - a[2] - a[3])
-  console.log(`auberge-stage ${label} main ipc (channel, at page ms, handle, output parse) slowest: ${JSON.stringify(mainIpc.slice(0, 25))}`)
-  console.log(`auberge-stage ${label} main lag >30 ms (page ms, gap): ${JSON.stringify(stopped.mainLag.map(([at, gap]) => [at! + shift, gap]).filter(([at]) => at! <= interactiveMs + 200))}`)
-  console.log(`auberge-stage ${label} children (what, page ms, ran, sync): ${JSON.stringify(stopped.children.map(([w, at, ran, sync]) => [w, (at as number) + stopped.loadedAt - page.origin, ran, sync]).filter(([, at]) => (at as number) <= interactiveMs + 200))}`)
-  console.log(`auberge-stage ${label} main cpu: ${profileTops(stopped.main, interactiveMs - shift)}`)
-  console.log(`auberge-stage ${label} renderer cpu: ${profileTops(stopped.renderer, interactiveMs - shift)}`)
-  // The raw profiles, gzip and base64 in lines of 60000 characters, for an analysis off the runner.
-  if (label === 'auberge' || label === 'reference 3') {
-    for (const [kind, json] of [['renderer', stopped.renderer], ['main', stopped.main]] as const) {
-      if (json === null) continue
-      const packed = gzipSync(Buffer.from(json)).toString('base64')
-      const parts = Math.ceil(packed.length / 60_000)
-      for (let at = 0; at < parts; at += 1) console.log(`auberge-raw ${label.replace(' ', '-')} ${kind} ${at + 1}/${parts} ${packed.slice(at * 60_000, (at + 1) * 60_000)}`)
-    }
-  }
-}
-
-const launchProfiled = (): Promise<LaunchedApp> => launchApp({ env: { WORFY_DATA_DIR: dataDir, WORFY_CLAUDE_HOME: claudeHome, WORFY_START_PROFILE: '1' } })
-
 /** One-Ticket starts behind the reference on GitHub Actions: a single start on the runner varied from 909 to 1274 ms. */
 const REFERENCE_STARTS = 3
 
-// Quarantined (test/quarantine/epic-frame-auberge-start-macos-ci.json): flaky on the macOS runner, where the
-// 7300 ms cap, not the one-Ticket reference, sets the budget in most jobs; worfy-polish 151 fixes it.
 test('an Auberge-sized Project is interactive within 3 s and pans and zooms smoothly over its biggest Epic', async () => {
   const answer = join(scratch, 'epic-status.json')
   makeClaudeHome(answer)
@@ -1246,11 +1123,9 @@ test('an Auberge-sized Project is interactive within 3 s and pans and zooms smoo
     })
     writeFileSync(answer, small!.json)
     for (let n = 0; n < REFERENCE_STARTS; n += 1) {
-      const reference = await launchProfiled()
+      const reference = await launch()
       try {
-        const startMs = await interactiveAfter(reference.window, small!.biggest)
-        starts.push(startMs)
-        await printStartProfile(reference, `reference ${n + 1}`, startMs)
+        starts.push(await interactiveAfter(reference.window, small!.biggest))
       } finally {
         await reference.close()
       }
@@ -1269,11 +1144,10 @@ test('an Auberge-sized Project is interactive within 3 s and pans and zooms smoo
   writeFileSync(answer, generated!.json)
   const enforce = process.env.WORFY_PERF === '1'
 
-  const launched = await launchProfiled()
+  const launched = await launch()
   try {
     const { window } = launched
     const interactiveMs = await interactiveAfter(window, generated!.biggest)
-    await printStartProfile(launched, 'auberge', interactiveMs)
 
     // Center on the biggest Epic through the sidebar, then pan and zoom for 5 s while counting frames.
     await showSidebarSection(window, 'Epics')

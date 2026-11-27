@@ -12,7 +12,6 @@ import { isSignInContents, markSignInWindow } from './sign-in-windows'
 import { reportStartupFailure } from './startup-failure'
 import { frameOptions } from './window-frame'
 import { windowShow } from './window-show'
-import { startStartProfiles } from './start-profile'
 import { dataRoot } from './storage/paths'
 
 /** Path of the file that remembers the window's position and size (ADR 0005: worfy's own state). */
@@ -224,8 +223,6 @@ export function createMainWindow(options: MainWindowOptions = {}): BrowserWindow
       clearTimeout(timer)
     }
   }
-  // TEMPORARY (worfy-polish 152): the start profile, WORFY_START_PROFILE=1 only.
-  if (options.firstOfStart === true) startStartProfiles(window)
   const { indexHtml, devServerUrl } = rendererEntry()
   if (devServerUrl) {
     window.loadURL(devServerUrl).catch(loaded('loadURL'))

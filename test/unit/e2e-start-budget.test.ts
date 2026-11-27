@@ -12,10 +12,27 @@ describe('the budget of an Auberge-sized start (startBudget)', () => {
     expect(START_MS).toBe(3_000)
   })
 
-  it('on GitHub Actions is 6 times the one-Ticket start of the runner', () => {
-    expect(START_RATIO).toBe(6)
-    expect(startBudget(721, CI)).toBe(4_326)
-    expect(startBudget(909, CI)).toBe(5_454)
+  it('on GitHub Actions is 5 times the one-Ticket start of the runner', () => {
+    expect(START_RATIO).toBe(5)
+    expect(startBudget(721, CI)).toBe(3_605)
+    expect(startBudget(909, CI)).toBe(4_545)
+  })
+
+  it('on GitHub Actions follows the one-Ticket start the runner measured, not the ceiling, up to 1460 ms of it', () => {
+    // The median one-Ticket start of 108 macos-e2e jobs of main 2026-11-09..25, and its 75th percentile.
+    expect(startBudget(1_204, CI)).toBe(6_020)
+    expect(startBudget(1_406, CI)).toBe(7_030)
+    expect(startBudget(1_459, CI)).toBeLessThan(RUNNER_START_CAP_MS)
+    expect(startBudget(1_460, CI)).toBe(RUNNER_START_CAP_MS)
+    // A faster runner gives a smaller budget: the same start is held against its own machine.
+    expect(startBudget(930, CI)).toBeLessThan(startBudget(1_204, CI))
+  })
+
+  it('on GitHub Actions is above the 95th percentile of the measured Auberge-sized start against its reference', () => {
+    // N / R over those 108 jobs, before worfy-polish ticket 152: 3.33 at the median, 4.63 at the 95th percentile.
+    expect(START_RATIO).toBeGreaterThan(4.63)
+    // The first run with that ticket's fix: 2338 against 930 ms.
+    expect(2_338).toBeLessThanOrEqual(startBudget(930, CI))
   })
 
   it('on GitHub Actions holds every Auberge-sized start the runner measured against its reference', () => {
@@ -36,7 +53,8 @@ describe('the budget of an Auberge-sized start (startBudget)', () => {
   it('on GitHub Actions stops at 7.3 s, the slowest measured 4853 ms times 1.5, however slow the one-Ticket start', () => {
     expect(RUNNER_START_CAP_MS).toBe(7_300)
     expect(RUNNER_START_CAP_MS).toBeGreaterThanOrEqual(4853 * 1.5)
-    expect(startBudget(1_274, CI)).toBe(7_300)
+    // The 90th percentile of the one-Ticket start over those 108 jobs.
+    expect(startBudget(1_658, CI)).toBe(7_300)
     // A one-Ticket start 10 times slower does not raise the budget 10 times.
     expect(startBudget(7_210, CI)).toBe(7_300)
     // A fixed 2.5 s added to every start (721 + 2500 ms) leaves the budget at the ceiling.
