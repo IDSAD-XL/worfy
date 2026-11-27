@@ -211,3 +211,29 @@ React снимает дерево, и `within(...)` не находит запа
    - Ответ: у части сброс состояния boundary монтирует её заново, остальное окно живо; у окна живого дерева нет,
      поэтому — `window.location.reload()`.
    - Строки: `src/renderer/shell/ErrorBoundary.tsx:48-54`
+
+## 10. Что нашёл review и что осталось
+
+> VERIFIED — worfy-polish 163 (React error boundaries on every sidebar section, every Assistant tab, each main-area view, the two halves of the Runs view and the root: a render error shows a fallback with its message, the component name and Reload instead of blanking the window; the root cause of the owner's Journal and Work crashes is not found and stays open), head 1ac047b3c8e73e5610d5124a0d3cb387273a2940
+>
+> Gate (depth medium, one round plus two low fixes):
+> - Round 1, reviewer (lens: correctness) — MERGE, two low findings:
+>   - the history view's boundary replaced the Run history | Work track switch, so a failing Work track trapped the user;
+>   - the real-shell test stayed green with a section boundary removed.
+>   - Checked fine:
+>     - React 19 boundaries also catch effect and ref errors; event-handler and async errors never blank the window, so the owner's blank window was a render or commit error;
+>     - the window can still go blank only on a JS hang, a renderer or GPU crash, or a throw in the fallback;
+>     - Assistant tabs reset on switch (key={tab});
+>     - no DOM, selector or focus change while no error is caught;
+>     - the fallback shows error.message and one component name.
+>   - Mutations: with all three boundaries removed, 3 tests fail; with one section boundary removed, 1 fails.
+> - Fix 1ac047b3c:
+>   - RunsView.tsx:55-66 gives Run history and Work track each its own boundary under the switch; Work track's boundary is keyed by Project and draws the switch via a new `above` prop (ErrorBoundary.tsx:20,60-63);
+>   - the real-shell test makes the ADR section throw;
+>   - 3 tests red first.
+>   Diff read by the orchestrator; it closes both findings.
+> Evidence: 30 files (682 tests) exit 0; lint exit 0; typecheck exit 0; gate fast green; story-check and evidence-check exit 0.
+> Not verified:
+> - the cause of the owner's crashes (the Journal data is empty and no throw reproduced; Work track was not reproduced);
+> - the fallback in real Electron;
+> - manual item 5: the owner presses Journal and Work in Stable and sends the fallback text.
