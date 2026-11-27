@@ -52,8 +52,6 @@ const installs = vi.hoisted(() => ({
   next: null as null | (() => Promise<unknown>),
   runs: 0,
   calls: 0,
-  /** The answer of the next enable (worfy-polish ticket 167). */
-  enable: null as null | (() => Promise<unknown>),
 }))
 
 vi.mock('../../src/main/harness/install', async (original) => {
@@ -72,9 +70,6 @@ vi.mock('../../src/main/harness/install', async (original) => {
         this.running = null
       })
       return this.running
-    }
-    enable(): Promise<unknown> {
-      return installs.enable === null ? Promise.reject(new Error('no enable scripted')) : installs.enable()
     }
   }
   return { ...actual, HarnessInstaller: FakeInstaller }
@@ -132,7 +127,6 @@ beforeEach(() => {
   installs.next = null
   installs.runs = 0
   installs.calls = 0
-  installs.enable = null
   migration.result = null
   migration.legacy = true
 })
@@ -209,40 +203,6 @@ describe('harness.changed', () => {
       ['first', installed],
       ['second', installed],
     ])
-  })
-})
-
-describe('harness.enable (worfy-polish ticket 167)', () => {
-  const disabled: HarnessStatus = { ...status('installed'), state: { kind: 'installed', version: '0.2.0+bbbbbbb', enabled: false } }
-
-  it('is `local`, as the install: it writes the Claude home of the machine the window runs on', async () => {
-    await import('../../src/shared/ipc/harness')
-    expect(accessOf('harness.enable')).toBe('local')
-  })
-
-  it('an enable that went in answers the status, and every window gets it as `harness.changed`', async () => {
-    const call = await firstWindowCaller()
-    const installed = status('installed')
-    installs.enable = () => Promise.resolve({ status: installed, error: null })
-    expect(await call('harness.enable')).toStrictEqual({ ok: true, value: { status: installed, error: null } })
-    expect(events('harness.changed')).toStrictEqual([
-      ['first', installed],
-      ['second', installed],
-    ])
-  })
-
-  it('a failed enable answers its error with the status still disabled, and no window gets an event', async () => {
-    const call = await firstWindowCaller()
-    installs.enable = () => Promise.resolve({ status: disabled, error: 'claude plugin enable worfy@worfy-harness --scope user exited with 1' })
-    expect(await call('harness.enable')).toMatchObject({ ok: true, value: { status: disabled, error: expect.stringContaining('exited with 1') as unknown } })
-    expect(events('harness.changed')).toStrictEqual([])
-  })
-
-  it('an enable that throws (a dev run) sends nothing and the caller gets the error', async () => {
-    const call = await firstWindowCaller()
-    installs.enable = () => Promise.reject(new Error('a dev run does not install the Harness'))
-    expect(await call('harness.enable')).toMatchObject({ ok: false })
-    expect(events('harness.changed')).toStrictEqual([])
   })
 })
 

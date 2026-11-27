@@ -3,11 +3,10 @@
 // depends on, and the action that installs or updates them after the user agrees in a native dialog.
 // Main reads and writes through src/main/harness/install.ts, with one installer for the app
 // (appInstaller in src/main/ipc/harness.ts). The version chip of the footer (src/renderer/harness/useHarnessStatus.tsx)
-// reads `harness.state`, installs through `harness.install` and enables a disabled plugin through
-// `harness.enable` (worfy-polish ticket 167); the first-run screen installs
+// reads `harness.state` and installs through `harness.install`; the first-run screen installs
 // through its own `firstRun.run` (src/shared/ipc/first-run.ts), which calls the same installer.
 // Every install that answers `done`, from either place, reaches every window as `harness.changed`,
-// so no window keeps a stale state, as does every enable that went in. All of them are `local`: the install writes the Claude home of
+// so no window keeps a stale state. All three are `local`: the install writes the Claude home of
 // the machine the window runs on, and a Linked machine cannot start it.
 import { z } from 'zod'
 import { eventChannel, invokeChannel } from './channels'
@@ -17,7 +16,7 @@ import { eventChannel, invokeChannel } from './channels'
  * `dependency …` steps are the commands for a plugin the Harness depends on; `uninstall` removes
  * the record a failed first `install` left behind.
  */
-export const harnessStepSchema = z.enum(['copy', 'marketplace add', 'install', 'update', 'plugin list', 'dependency marketplace add', 'dependency install', 'uninstall', 'enable'])
+export const harnessStepSchema = z.enum(['copy', 'marketplace add', 'install', 'update', 'plugin list', 'dependency marketplace add', 'dependency install', 'uninstall'])
 export type HarnessStep = z.infer<typeof harnessStepSchema>
 
 export const harnessStateSchema = z.discriminatedUnion('kind', [
@@ -155,19 +154,6 @@ export const harnessInstall = invokeChannel(
   'local',
 )
 
-/** What `harness.enable` answers: the status read after it, and the failure of `plugin enable` (null when it went in or did not run). */
-export const harnessEnableResultSchema = z.object({ status: harnessStatusSchema, error: z.string().nullable() })
-export type HarnessEnableResult = z.infer<typeof harnessEnableResultSchema>
-
-/**
- * Enables the plugin `worfy` that Claude Code lists as disabled (worfy-polish ticket 167): `claude plugin
- * enable worfy@worfy-harness --scope user`, with no dialog, as it installs nothing; then reads the state
- * again. A failed command is `error`, the status still disabled; any other state runs no command. A dev
- * run (no `canInstall`) refuses it, as it refuses the install. After an answer without `error` every
- * window gets the status as `harness.changed`.
- */
-export const harnessEnable = invokeChannel('harness.enable', z.void(), harnessEnableResultSchema, 'local')
-
 /**
  * Sent to every window after an install answers `done` — installed, or failed with the error in the
  * state — whichever window or screen started it; not after `declined` or `nothing-to-do`. The
@@ -207,7 +193,6 @@ declare module './channels' {
     'harness.codexHooks': typeof harnessCodexHooks
     'harness.state': typeof harnessState
     'harness.install': typeof harnessInstall
-    'harness.enable': typeof harnessEnable
     'harness.changed': typeof harnessChanged
   }
 }

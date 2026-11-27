@@ -6,20 +6,15 @@ import type { UpdateSnapshot } from '../../shared/ipc/update'
 // lines draw (worfy-layout ticket 03).
 
 /** The icons of the lines' buttons (HarnessStatus.tsx draws them). */
-export type IconName = 'install' | 'update' | 'retry' | 'migrate' | 'enable'
+export type IconName = 'install' | 'update' | 'retry' | 'migrate'
 
-/** The button a line offers: its icon, its name, its tooltip, whether it carries the accent, and what it runs. */
+/** The button a line offers: its icon, its name, its tooltip, and whether it carries the accent. */
 export interface LineButton {
   icon: IconName
   label: string
   title: string
   accent: boolean
-  /** `install` — the install with its dialog (`harness.install`); `enable` — Enable of a disabled plugin (`harness.enable`, worfy-polish ticket 167). */
-  action: 'install' | 'enable'
 }
-
-/** The command Enable runs (src/main/harness/install.ts, enable()). */
-export const ENABLE_COMMAND = 'claude plugin enable worfy@worfy-harness --scope user'
 
 /** What the Harness line says for a status, and the button it offers while this run may install. */
 export interface HarnessPart {
@@ -32,7 +27,7 @@ export interface HarnessPart {
 /** The Harness line of an installed, missing, outdated or broken Harness; pure, for the line and the chip's dot. */
 export function harnessPart(status: Status, harnessBehind: UpdateSnapshot['harnessBehind'] | null = null): HarnessPart {
   const { state, canInstall } = status
-  const offer = (icon: IconName, label: string, title: string, accent = false, action: LineButton['action'] = 'install'): LineButton | null => (canInstall ? { icon, label, title, accent, action } : null)
+  const offer = (icon: IconName, label: string, title: string, accent = false): LineButton | null => (canInstall ? { icon, label, title, accent } : null)
   switch (state.kind) {
     case 'not-installed':
       return { text: 'Harness not installed', tone: 'var(--text-muted)', button: offer('install', 'Install', `Install the Harness ${status.bundledVersion ?? ''} into ${status.pluginDir}`) }
@@ -41,8 +36,7 @@ export function harnessPart(status: Status, harnessBehind: UpdateSnapshot['harne
         text: state.enabled ? `Harness ${state.version}` : `Harness ${state.version} · disabled`,
         title: state.enabled ? undefined : 'The plugin worfy is disabled in Claude Code',
         tone: 'var(--text-muted)',
-        // A disabled plugin is a signal, as an update is: the accent, and the chip's amber dot (worfy-polish ticket 167).
-        button: state.enabled ? null : offer('enable', 'Enable', `Enable the plugin worfy in Claude Code: ${ENABLE_COMMAND}`, true, 'enable'),
+        button: null,
       }
     case 'outdated':
       if (state.sameVersion && harnessBehind !== null && harnessBehind.from === state.from) {

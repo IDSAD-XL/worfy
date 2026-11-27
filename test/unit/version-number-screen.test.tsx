@@ -38,7 +38,7 @@ afterEach(() => {
   resetToasts()
 })
 
-const NO_HARNESS: HarnessStatusState = { status: undefined, busy: false, busyText: 'Installing Harness…', failure: undefined, migration: false, onInstall: () => undefined, onEnable: () => undefined, enableFailure: undefined, onMigrate: undefined, onApproveHooks: () => undefined, harnessBehind: null, dialogs: null }
+const NO_HARNESS: HarnessStatusState = { status: undefined, busy: false, failure: undefined, migration: false, onInstall: () => undefined, onMigrate: undefined, onApproveHooks: () => undefined, harnessBehind: null, dialogs: null }
 
 /** The footer's version chip for the version, its number and the Update snapshot given, without a Harness. */
 function UpdateChip({ version, number, update }: { version: string; number?: number; update: UpdateSnapshot | null }) {

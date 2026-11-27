@@ -38,12 +38,6 @@ describe('versionDot', () => {
     expect(versionDot(snapshot(), status({ kind: 'error', step: 'install', reason: 'exited with 1' }), false, undefined)).toEqual({ tone: 'red', reason: 'Harness needs Retry' })
   })
 
-  it('amber: a Harness disabled in Claude Code, Enable offered (worfy-polish ticket 167); none in a dev run without canInstall', () => {
-    const disabled: HarnessState = { kind: 'installed', version: '0.2.0+bbbbbbb', enabled: false }
-    expect(versionDot(snapshot(), status(disabled), false, undefined)).toEqual({ tone: 'amber', reason: 'Harness needs Enable' })
-    expect(versionDot(snapshot(), status(disabled, false), false, undefined)).toBeNull()
-  })
-
   it('red: an old Harness to move, "Move old Harness…" offered', () => {
     expect(versionDot(snapshot(), installed(), true, undefined)).toEqual({ tone: 'red', reason: 'old Harness to move' })
   })

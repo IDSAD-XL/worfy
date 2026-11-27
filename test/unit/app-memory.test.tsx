@@ -41,7 +41,7 @@ describe('the memory figure', () => {
   })
 
   it('is no row of the version popover while the setting is off', () => {
-    const harness: HarnessStatusState = { status: undefined, busy: false, busyText: 'Installing Harness…', failure: undefined, migration: false, onInstall: () => undefined, onEnable: () => undefined, enableFailure: undefined, onMigrate: undefined, onApproveHooks: () => undefined, harnessBehind: null, dialogs: null }
+    const harness: HarnessStatusState = { status: undefined, busy: false, failure: undefined, migration: false, onInstall: () => undefined, onMigrate: undefined, onApproveHooks: () => undefined, harnessBehind: null, dialogs: null }
     render(<VersionChipView version={{ version: '0.3.0+abc' }} update={null} harness={harness} memoryShown={false} />)
     fireEvent.click(screen.getByTestId('app-version'))
     expect(screen.getByRole('dialog', { name: 'worfy version' })).toBeTruthy()
