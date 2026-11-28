@@ -41,3 +41,16 @@ Source: решение владельца 2026-11-28 (раунд по разбо
       красный до правки.
 - [ ] У worfy-product-session 28, 30 и 31 есть строка `Blocked by:`, взятая из spec-а Epic-а.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+
+## Итог
+
+- Ticket без строки `Blocked by:` (`blockedParsed: false`, `blockedRaw: null`) теперь получает уровень
+  `{ kind: 'unparsed', raw: null }` в `ownProblem` (`src/shared/workflow/waves.ts`) и в раскладке рамки Epic-а
+  (`src/renderer/canvas/epic-layout.ts`): в Wave не идёт, ни как `ready`, ни как `skipped`; на холсте стоит в
+  «Needs attention». Отдельный `kind` не заводили: тип `unparsed` уже допускал `raw: null`.
+- Текст для человека — `unparsedText` (`waves.ts`): «no “Blocked by:” line»; его же показывают карточка Ticket-а
+  (`attentionText`) и неактивная кнопка Ship ticket (`render-template.ts`), раньше там было «“Blocked by: ” is not a
+  list of tickets».
+- worfy-product-session 28, 30 и 31: в `spec.md` Epic-а этих Ticket-ов нет — ни в разделе «Ticket-ы» (он кончается
+  на 21), ни в таблице «Волны»; в истории файлов строки `Blocked by:` не было никогда. Поставлено `None — can start
+  immediately`.

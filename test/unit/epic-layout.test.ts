@@ -32,7 +32,7 @@ import {
   type PlacedTicket,
 } from '../../src/renderer/canvas/epic-layout'
 import { layoutEpicElk } from '../../src/renderer/canvas/elk/layout'
-import { ACTIONS_LINE } from '../../src/renderer/canvas/ticket-card'
+import { ACTIONS_LINE, blockersLine, blockersString } from '../../src/renderer/canvas/ticket-card'
 import { ms } from '../time-scale'
 
 // ELK without a worker: the same layout code the app runs against the worker (ADR-0037).
@@ -360,6 +360,14 @@ describe('layoutEpic by ELK', () => {
     expect(placed(layout, 3).attention).toEqual({ kind: 'missing-blocker', missing: [99] })
     expect(placed(layout, 4).attention).toEqual({ kind: 'cycle', cycle: [4, 5] })
     expect(placed(layout, 1).attention).toBeNull()
+  })
+
+  it('moves a Ticket with no "Blocked by" line to "Needs attention" and says the line is missing (worfy-polish 169)', async () => {
+    const tickets = [ticket(1), ticket(2, { blockedRaw: null, blockedNums: [], blockedParsed: false })]
+    const layout = await laidOut(tickets)
+    expect(columnsOf(layout)).toEqual(['Level 1: 1', 'Needs attention: 2'])
+    expect(placed(layout, 2).attention).toEqual({ kind: 'unparsed', raw: null })
+    expect(blockersString(blockersLine(tickets[1]!, placed(layout, 2).attention, []))).toBe('no “Blocked by:” line')
   })
 
   it('does not count a cycle whose other members are done', async () => {

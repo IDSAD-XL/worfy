@@ -39,7 +39,7 @@ import {
 } from '../projects/action-templates'
 import { prFollowBlock, type PrFollowRow } from './pr-follow'
 import type { Ticket } from '../workflow/types'
-import { doneOnlyInBranch, inWork, readyWave, waveNumbers, type SkippedTicket } from '../workflow/waves'
+import { doneOnlyInBranch, inWork, readyWave, unparsedText, waveNumbers, type SkippedTicket } from '../workflow/waves'
 
 /** The values one action has; a placeholder without one cannot be rendered. */
 export type TemplateValues = Partial<Record<Placeholder, string>>
@@ -160,7 +160,7 @@ export function shipTicketState(input: { ticket: ShipTicket; tickets: readonly B
   const { ticket, tickets, template, branch, launched = false } = input
   if (ticket.state !== 'open') return { enabled: false, reason: STATE_REASONS[ticket.state] }
   if (launched) return { enabled: false, reason: launchedHint(ticket.num) }
-  if (!ticket.blockedParsed) return { enabled: false, reason: `“Blocked by: ${ticket.blockedRaw ?? ''}” is not a list of tickets` }
+  if (!ticket.blockedParsed) return { enabled: false, reason: unparsedText(ticket.blockedRaw) }
   const open = ticket.blockedNums.flatMap((num) => {
     const blocker = tickets.find((each) => each.epic === ticket.epic && each.num === num)
     if (blocker && doneOnlyInBranch(blocker)) return [`${ticketNumber(num)} (done in branch ${blocker.fromBranch}, not merged)`]
