@@ -2,11 +2,13 @@
 // tickets.trail_section of the ticket file that names the files the ticket may edit. bin/land reads it for a PR's
 // verification paths, and the guard hook of ticket 03 is to read it the same way, at the tip of the base branch.
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
+
+import { removeTestTree } from '../remove'
 
 type Ticket = { epic: string; nn: string; path?: string | null }
 type Tickets = { branch?: string | null; path?: string | null; root?: string | null; trail_section?: string | null }
@@ -112,7 +114,7 @@ describe('namedByTrail', () => {
 
 describe('readTrail', () => {
   const dir = mkdtempSync(join(tmpdir(), 'ticket-trail-'))
-  afterAll(() => rmSync(dir, { recursive: true, force: true }))
+  afterAll(() => removeTestTree(dir))
   const tickets: Tickets = { branch: '<epic>/<NN>', path: '.scratch/<epic>/issues/NN-*.md', root: '.scratch/', trail_section: HEADING }
   const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } })
   mkdirSync(join(dir, '.scratch/e/issues'), { recursive: true })

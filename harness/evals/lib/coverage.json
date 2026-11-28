@@ -64,7 +64,7 @@
     "hooks/session-start.mjs": ["implementer-report", "implementer-story", "pr-fix-checks", "pr-fix-comments", "pr-fix-conflicts", "pr-fix-conflicts-silent", "ship-ticket-local-green", "ship-ticket-pr-green-ci"],
     "hooks/stage-lines.mjs": ["status-block", "hooks/after-compact.mjs"],
     "hooks/stop.mjs": ["hooks/gate.mjs"],
-    "lib/code-fence.cjs": ["bin/epic-status", "bin/land", "bin/review-draft-lint", "bin/ticket", "lib/evidence.cjs", "lib/verdict.cjs"],
+    "lib/code-fence.cjs": ["bin/epic-status", "bin/land", "bin/review-draft-lint", "bin/ticket", "lib/evidence.cjs", "lib/ticket-trail.cjs", "lib/verdict.cjs"],
     "lib/e2e-lock.cjs": ["bin/wave-gate", "lib/gate-failures/rerun.mjs"],
     "lib/evidence.cjs": ["bin/evidence-check", "bin/land", "bin/ticket", "hooks/after-compact.mjs"],
     "lib/gate-failures/export.mjs": ["bin/gate-failures"],
@@ -79,8 +79,9 @@
     "lib/pipeline.cjs": ["bin/profile"],
     "lib/privacy.cjs": ["bin/evidence-check", "bin/land", "bin/review-draft-lint", "bin/story-check", "hooks/gate-failures.mjs"],
     "lib/profile-rules.cjs": ["bin/profile"],
+    "lib/ticket-trail.cjs": ["bin/land"],
     "lib/verdict.cjs": ["reviewer-verdict", "bin/land", "bin/verdict"],
-    "lib/verification-paths.cjs": ["bin/profile"],
+    "lib/verification-paths.cjs": ["bin/land", "bin/profile", "lib/profile-rules.cjs", "lib/ticket-trail.cjs"],
     "lib/workflow-traces.cjs": ["bin/review-draft-lint", "bin/silent-check"]
   },
   "uncovered": {
