@@ -115,7 +115,7 @@ Claude Code degraded, Codex loads; с `--context-tokens 1000000` — оба load
   Полностью просканированы 10: codebase-design, grill-me, grill-with-docs, grilling, handoff, prototype, research,
   to-questionnaire, to-spec, to-tickets.
 - **Hook-и и `bin/` Tier 1 не сканировал вовсе.** Ни одной находки по `hooks/hooks.json`, в выводе нет слова «hook»;
-  ожидаемая по их docs находка BH1 «hook payload unmodeled» не пришла ни на один из 20 command hook-ов. Это совпадает с
+  ожидаемая по их docs находка BH1 «hook payload unmodeled» не пришла ни на один из 21 command hook-а. Это совпадает с
   открытым issue #495 их репозитория (у plugin-а сканируются только bundled skills), а не с `docs/tier1-reference.mdx:362`. Значит,
   hook-и и скрипты Harness этой статикой не проверены.
 
