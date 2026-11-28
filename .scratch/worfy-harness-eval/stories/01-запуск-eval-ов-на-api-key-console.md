@@ -51,7 +51,7 @@ export function billingFor(billing, env, fail) {
 
 ## 3. Ключ получает только вызов claude plugin eval
 
-Code: `scripts/eval-harness.mjs:396-399` · key lines: 397, 398
+Code: `scripts/eval-harness.mjs:401-404` · key lines: 402, 403
 
 ```js
 // The key of a credits run goes only into the environment of each claude call, below.
@@ -101,7 +101,7 @@ const judgeEnv = { ...childEnv, ...billing.vars }
 1. Почему ключ не кладётся в `childEnv`, а добавляется только при вызове `plugin eval`?
    - Ответ: `childEnv` уходит и в git, и в `claude --version`; ключ должен попасть только в окружение вызова, который
      ходит в модель.
-   - Строки: `scripts/eval-harness.mjs:396-399`
+   - Строки: `scripts/eval-harness.mjs:401-404`
 2. Почему ключ с NUL-байтом отказывается до `spawnSync`, а не ловится после?
    - Ответ: Node цитирует значение окружения в тексте ошибки `spawnSync`; проверка до запуска не даёт ключу попасть в
      текст вообще.
