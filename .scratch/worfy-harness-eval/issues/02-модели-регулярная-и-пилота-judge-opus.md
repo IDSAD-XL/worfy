@@ -58,6 +58,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 02; «Решения владел�
 - [ ] `harness/README.md` называет место констант и новые модели.
   - evidence: commit pass · worfy-harness-eval/02: README names the constants' file without a new repository script path · - - · 2e102aaa1ca24934f62842401867b16d827b215b
 - [ ] PR называет Ticket 05 своим полным прогоном.
+  - evidence: commit pass · PR 2356 description, section Full eval run: ticket 05 is its full run · - - · 9e22c68476d1c3187c4aa9ff0fcf6cd3abbaed66
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
 
 ## Итог
