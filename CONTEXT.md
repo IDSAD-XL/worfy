@@ -447,6 +447,10 @@ _Avoid_: suggestion (это Terminal AI), предложение (без «Assis
 Проверка источника Assistant-ом по расписанию: Slack, Jira и CI основной ветки каждого Project-а. У каждого вида свой интервал, свой выключатель и свой выбор — спать ли вне work hours пользователя; после нескольких неудач подряд Check Slack или Jira идёт реже. Пока Machine спит или worfy закрыт, проверки не идут, а после запуска догоняют пропущенное. Slack и Jira Check читает через connectors claude.ai пользователя: своих token-ов для них у worfy нет. Что Check нашёл, становится Attention item-ами.
 _Avoid_: Health check (проверка Machine и Project-ов), check-и PR (GitHub checks — CI одного PR), poll, sync, Integration (это подключённый аккаунт Project-а)
 
+**Schedule**:
+Правило «какую Session и когда запускать»: Project, Vendor и модель, точный текст prompt-а и повтор (или один раз). Schedule создаётся только кнопкой Accept пользователя на карточке Schedule — в чате Assistant-а или в ручной форме; Accept разрешает все будущие запуски, пока текст, Project, Vendor и модель не меняли, а любая правка ждёт нового Accept. Каждый запуск — **scheduled run**: новая Session без человека (unattended) с Auto-approval Project-а; что требует человека, кончает run и становится Attention item-ом. Schedule работает только на своей Machine, пока worfy открыт и Machine не спит; Autopilot он не запускает. Пауза, правка и удаление — кнопками списка Schedules или через карточку «было → станет» в чате; Assistant сам Schedule не удаляет.
+_Avoid_: задача, job, scheduled task, routine (облачные routines Claude Code — другое), Check (проверка источника Assistant-ом), Start window (окно запуска Run-а), cron
+
 ## Tests
 
 **Quarantine**:
