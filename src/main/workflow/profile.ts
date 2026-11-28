@@ -513,27 +513,29 @@ export type ProfileMiss = 'none' | 'failed'
  * and one that started but printed more than the size cap, are not problems a new login shell can
  * fix.
  */
-export type ProfileMissRead =
-  | { ok: false; reason: string; miss: 'none' }
-  | { ok: false; reason: string; miss: 'failed'; environment: boolean; /** The script's exit code, when it ended with one other than 0 or 3. */ code?: number }
+export type ProfileMissRead = { ok: false; reason: string; miss: 'none' } | { ok: false; reason: string; miss: 'failed'; environment: boolean }
 
 /** One field of the Profile: its printed value, or why there is none. */
 type FieldRead = { ok: true; stdout: string } | ProfileMissRead
 
 /** Runs `bin/profile -C <root> --field <field>` and turns every exit but code 0 into a reason. */
-function readField(options: ReadProfileOptions, field: string): Promise<FieldRead> {
-  return runProfile(options, ['--field', field], `the Profile has no ${field} field (profile exit code 4)`)
+function readField(options: ReadProfileOptions, field: string, exit?: { code: number | null }): Promise<FieldRead> {
+  return runProfile(options, ['--field', field], `the Profile has no ${field} field (profile exit code 4)`, exit)
 }
 
-/** Runs `bin/profile -C <root> <args>`; every exit but code 0 is a reason, `absent` that of code 4. */
-async function runProfile(options: ReadProfileOptions, args: readonly string[], absent: string): Promise<FieldRead> {
+/**
+ * Runs `bin/profile -C <root> <args>`; every exit but code 0 is a reason, `absent` that of code 4. `exit`, when
+ * given, gets the script's exit code (null when it did not run or ended without one).
+ */
+async function runProfile(options: ReadProfileOptions, args: readonly string[], absent: string, exit?: { code: number | null }): Promise<FieldRead> {
   const run = options.run ?? profileRunner(options.claudeHome, options.env)
   const none = (reason: string): FieldRead => ({ ok: false, reason, miss: 'none' })
-  const failed = (reason: string, environment = false, code?: number): FieldRead => ({ ok: false, reason, miss: 'failed', environment, ...(code === undefined ? {} : { code }) })
+  const failed = (reason: string, environment = false): FieldRead => ({ ok: false, reason, miss: 'failed', environment })
 
   let result: ProfileRun
   try {
     result = await run(options.root, ['-C', options.root, ...args])
+    if (exit !== undefined) exit.code = result.code
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code
     // With no Harness found this names <claudeHome>/bin/profile, where it was looked for before the plugin.
@@ -546,10 +548,10 @@ async function runProfile(options: ReadProfileOptions, args: readonly string[], 
 
   const detail = scriptFailureDetail(result.stderr)
   if (result.code === 3) return none(`the folder is in no registered project (profile exit code 3${detail ? `: ${detail}` : ''})`)
-  if (result.code === 4) return failed(absent, false, 4)
+  if (result.code === 4) return failed(absent)
   if (result.code === null && result.signal) return failed(`the profile script was ended by the signal ${result.signal}${detail ? `: ${detail}` : ''}`)
   if (result.code === null) return failed(`the profile script did not answer within ${HARNESS_SCRIPT_TIMEOUT_MS / 1000} s`)
-  if (result.code !== 0) return failed(`the profile script failed with exit code ${result.code}${detail ? `: ${detail}` : ''}`, environmentExit(result.code), result.code)
+  if (result.code !== 0) return failed(`the profile script failed with exit code ${result.code}${detail ? `: ${detail}` : ''}`, environmentExit(result.code))
   return { ok: true, stdout: result.stdout.trim() }
 }
 
@@ -675,11 +677,9 @@ export async function readVerificationPaths(options: ReadProfileOptions): Promis
     log(`[profile] verification paths of ${options.root}: none shown, because ${reason}`)
     return { paths: null, reason, miss }
   }
-  const field = await readField(options, VERIFICATION_PATHS_FIELD)
-  if (!field.ok) {
-    const code = field.miss === 'failed' ? field.code : undefined
-    return none(field.reason, code === 1 ? 'profile' : code === 4 ? 'harness' : 'failed')
-  }
+  const exit: { code: number | null } = { code: null }
+  const field = await readField(options, VERIFICATION_PATHS_FIELD, exit)
+  if (!field.ok) return none(field.reason, exit.code === 1 ? 'profile' : exit.code === 4 ? 'harness' : 'failed')
   let json: unknown
   try {
     json = JSON.parse(field.stdout)
