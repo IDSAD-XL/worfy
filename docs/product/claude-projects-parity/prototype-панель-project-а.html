@@ -177,13 +177,15 @@ ul,ol{list-style:none}
 .pc-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:8px;align-items:center}
 .pin-empty{border:1px dashed var(--border-strong);border-radius:8px;padding:14px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:8px;color:var(--text-secondary)}
 .pin-empty .btns{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
-.pin-dock{flex:none;padding:8px 14px;border-bottom:1px solid var(--border);background:var(--bg)}
+.pin-dock{flex:none;padding:6px 14px 8px;border-bottom:1px solid var(--border);background:var(--bg)}
+.pin-dock .pin-card-b{max-height:128px;overflow:auto}
+.pin-card-h{flex-wrap:wrap}
 
 /* ---------- side panel, rows and groups */
-.panel{flex:none;width:400px;display:flex;flex-direction:column;border-left:1px solid var(--border);background:var(--surface);min-height:0;position:relative}
+.panel{flex:none;width:420px;display:flex;flex-direction:column;border-left:1px solid var(--border);background:var(--surface);min-height:0;position:relative}
 .panel.wide{width:600px}
-.panel-h{flex:none;display:flex;align-items:center;gap:2px;padding:6px 8px 0;border-bottom:1px solid var(--border)}
-.tab{height:30px;padding:0 9px;font-size:12px;color:var(--text-secondary);border-bottom:2px solid transparent;display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.panel-h{flex:none;display:flex;align-items:center;gap:0;padding:6px 6px 0;border-bottom:1px solid var(--border)}
+.tab{height:30px;padding:0 7px;font-size:12px;color:var(--text-secondary);border-bottom:2px solid transparent;display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
 .tab[aria-selected="true"]{color:var(--text);font-weight:600;border-bottom-color:var(--accent)}
 .panel-tools{display:flex;gap:2px;margin-left:auto;padding-bottom:4px}
 .panel-body{flex:1 1 auto;overflow:auto;padding:8px 10px 18px}
@@ -212,13 +214,14 @@ ul,ol{list-style:none}
 .verdict.bad{color:var(--blocked-text)}
 
 /* ---------- details (drawer in A, inline in B, pane in C) */
-.drawer{position:absolute;top:0;bottom:0;width:380px;background:var(--surface);border-left:1px solid var(--border-strong);box-shadow:-8px 0 24px rgba(0,0,0,.10);z-index:5;display:flex;flex-direction:column}
+.drawer{flex:none;width:360px;background:var(--surface);border-left:1px solid var(--border-strong);box-shadow:-6px 0 16px rgba(0,0,0,.08);overflow:auto;min-height:0}
 .det{display:flex;flex-direction:column;gap:10px;min-width:0}
 .det-head{position:relative;display:flex;align-items:center;gap:7px;padding:12px 12px 9px;background:var(--kind-session-tint);border-bottom:1px solid var(--border)}
 .det-head.neutral{background:var(--surface-raised)}
 .det-head.epic{background:var(--kind-epic-tint)}
-.det-head h3{font-size:15px;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.det-body{padding:0 12px 14px;display:flex;flex-direction:column;gap:10px;overflow:auto}
+.det-head{flex-wrap:wrap}
+.det-head h3{font-size:15px;font-weight:600;min-width:0;overflow-wrap:anywhere}
+.det-body{padding:0 12px 14px;display:flex;flex-direction:column;gap:10px}
 .facts{display:grid;grid-template-columns:76px minmax(0,1fr);gap:4px 8px;font-size:12px}
 .facts dt{color:var(--text-muted)}
 .facts dd{min-width:0;overflow-wrap:anywhere}
@@ -335,7 +338,7 @@ ul,ol{list-style:none}
 .c-detail-b{flex:1 1 auto;overflow:auto;min-height:0}
 .glance{padding:10px 12px 16px;display:flex;flex-direction:column;gap:12px}
 .glance h3{font-size:12px;font-weight:600;color:var(--text-secondary);display:flex;align-items:center;gap:6px}
-.art-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.art-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px}
 .art-grid .art{width:auto}
 
 /* ---------- popovers and menus */
@@ -361,7 +364,7 @@ ul,ol{list-style:none}
 .node.orch .nh{background:var(--kind-orchestrator-tint)}
 .node.sess .nh{background:var(--kind-session-tint)}
 .node.subn{border:1px dashed var(--kind-session);box-shadow:none}
-.node.focus{outline:3px solid var(--accent);outline-offset:2px}
+.node.focus,.frame.focus{outline:3px solid var(--accent);outline-offset:2px}
 .frame{position:absolute;border:1px solid var(--border-strong);border-radius:8px;background:color-mix(in srgb,var(--surface) 55%,transparent)}
 .frame .fh{position:relative;display:flex;align-items:center;gap:6px;padding:10px 10px 6px;background:var(--kind-epic-tint);border-radius:8px 8px 0 0;font-size:12px}
 .cv-note{position:absolute;left:12px;bottom:12px;max-width:440px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:7px 10px;font-size:12px;color:var(--text-secondary);box-shadow:var(--shadow-node)}
@@ -751,6 +754,7 @@ function routeWhy(r) {
   if (r.how === 'chosen') return 'you chose it as the addressee';
   if (r.how === 'changed') return 'you moved it' + (r.prev ? ' from «' + routeName(r.prev) + '»' : '');
   if (r.how === 'new') return 'started for this message';
+  if (r.how === 'panel') return 'you answered it from its details';
   if (r.to === 'orch') return 'no Session is bound to what it is about';
   const s = byId(r.to);
   return s.ticket ? 'bound to Ticket ' + s.epic + ' ' + s.ticket : s.epic ? 'it works on ' + s.epic : 'it worked on the same thing';
@@ -1059,7 +1063,7 @@ function variantA() {
       <span class="panel-tools">${tools()}</span></div>
     ${S.searchOn ? searchRow() : ''}
     <div class="panel-body" id="tabpanel" role="tabpanel" aria-labelledby="tab-${S.tab}" data-keep="panelA-${S.tab}">${body}</div></aside>`;
-  const drawer = S.sel && S.view === 'conversation' ? `<div class="drawer" style="right:${S.wide ? 600 : 400}px" data-keep="drawerA">${details(S.sel)}</div>` : '';
+  const drawer = S.sel && S.view === 'conversation' ? `<aside class="drawer" aria-label="Details" data-keep="drawerA">${details(S.sel)}</aside>` : '';
   return `<div class="main" data-variant="a">${mainView({})}${drawer}${panel}</div>`;
 }
 /* B — one column, no tabs, by what needs the owner first; details open in place; the pinned Card docks above the conversation */
@@ -1070,7 +1074,7 @@ function bDock() {
 }
 function variantB() {
   const vs = visibleSessions(), cnt = (g) => vs.filter((s) => s.group === g).length;
-  const src = S.selSrc || 'row', inl = (where) => (S.sel && src === where ? `<div class="row sel" style="margin-top:6px"><div class="inline-det" style="border-top:0">${details(S.sel)}</div></div>` : '');
+  const src = S.selSrc || 'row', inl = (where) => (S.sel && src === where ? `<div class="row sel" style="margin-top:6px;overflow:hidden">${details(S.sel)}</div>` : '');
   const sec = (g, cls) => {
     const list = vs.filter((s) => s.group === g.id); if (!list.length) return '';
     return `<section class="ov-sec ${cls || ''}" id="ov-${g.id}"><h3>${svg(g.icon, 14)}${g.label}<span class="n">${list.length}</span></h3><div class="rows" role="list" aria-label="${g.label}">${list.map((s) => sessionRow(s, { inline: src === 'row' })).join('')}</div></section>`;
@@ -1092,7 +1096,7 @@ function variantB() {
 function cRow(s) {
   const sel = S.sel === s.id;
   return `<div class="c-row${sel ? ' sel' : ''}"><button type="button" class="c-row-main" data-act="select" data-id="${s.id}" aria-pressed="${sel}">
-    <span class="l1">${s.acceptance ? svg('checkbox', 14) : svg('session', 14, 'k-s')}<span class="row-title ell">${esc(s.name)}</span><span class="muted cap nowrap">${esc(s.role)}</span><span class="age">${esc(s.age)}</span></span>
+    <span class="l1" title="${esc(sTitle(s))}">${s.acceptance ? svg('checkbox', 14) : svg('session', 14, 'k-s')}<span class="row-title ell">${esc(s.name)}</span><span class="age">${esc(s.age)}</span></span>
     <span class="l2" style="flex-wrap:wrap">${stateChip(s.state)}${s.ticket ? `<span class="mono">${esc(s.epic.replace('worfy-', ''))} ${esc(s.ticket)}</span>` : ''}${s.pr ? `<span class="mono">${s.pr}</span>` : ''}</span>
     <span class="l2"><span class="ell">${esc(S.notes[s.id] || s.status)}</span></span></button>${s.subs.length ? subsBlock(s) : ''}</div>`;
 }
@@ -1142,7 +1146,7 @@ function canvasView() {
   const N = (id, x, y, w, h, cls, head, body) => `<div class="node ${cls}${f === id ? ' focus' : ''}" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px">${head}${body ? `<div class="nb">${body}</div>` : ''}</div>`;
   const sNode = (id, x, y) => { const s = byId(id); return N(id, x, y, 230, 74, 'sess', `<div class="nh"><span class="band band-s"></span>${svg('session', 12, 'k-s')}<span class="ell">${esc(sTitle(s))}</span></div>`, `${stateChip(s.state)}<div class="ell" style="margin-top:4px">${esc(s.status)}</div>`); };
   const tk = (n, x, y) => { const t = EPICS[0].waves.flatMap((w) => w.t).find((r) => r[0] === n), id = 'tk:hg:' + n; return `<div class="node${f === id ? ' focus' : ''}" style="left:${x}px;top:${y}px;width:150px;height:46px;padding:5px 7px"><div class="ell"><span class="mono">${n}</span> ${esc(t[1])}</div><div style="margin-top:3px">${ticketChip(t[2])}</div></div>`; };
-  const frame = (id, x, y, w, h, e, inner) => { const c = epicCounts(e); return `<div class="frame${f === id ? ' node focus' : ''}" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px"><div class="fh"><span class="band band-e"></span>${svg('epic', 12, 'k-e')}<b class="mono">${esc(e.name)}</b>${segBar(c)}<span class="mono">${c.done}/${c.total}</span></div>${inner || ''}</div>`; };
+  const frame = (id, x, y, w, h, e, inner) => { const c = epicCounts(e); return `<div class="frame${f === id ? ' focus' : ''}" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px"><div class="fh"><span class="band band-e"></span>${svg('epic', 12, 'k-e')}<b class="mono">${esc(e.name)}</b>${segBar(c)}<span class="mono">${c.done}/${c.total}</span></div>${inner || ''}</div>`; };
   const hg = EPICS[0], extraLabel = f === 'extra' ? itemLabel(S.canvasFocus) : '';
   const plane = frame('epic:hg', 20, 20, 520, 300, hg, '')
     + tk('01', 32, 76) + tk('02', 200, 76) + tk('03', 200, 128) + tk('07', 200, 180) + tk('08', 200, 232) + tk('04', 368, 76) + tk('05', 368, 128) + tk('06', 368, 180) + tk('09', 368, 232)
@@ -1153,7 +1157,7 @@ function canvasView() {
     + frame('epic:ac', 290, 350, 270, 56, EPICS[1]) + frame('epic:mem', 290, 420, 270, 56, EPICS[2])
     + N('handoff', 290, 490, 270, 80, '', `<div class="nh">${svg('doc', 12)}HANDOFF</div>`, 'In work: Wave 2 · Waits for the owner: 3 checks')
     + (f === 'extra' ? N('extra', 830, 342, 230, 74, 'sess', `<div class="nh"><span class="band band-s"></span>${svg('session', 12, 'k-s')}<span class="ell">${esc(extraLabel)}</span></div>`, 'Had no Node here: worfy placed it next to the Orchestrator') : '');
-  const note = S.canvasFocus ? `Centered on ${esc(itemLabel(S.canvasFocus))}. The selection stays in the panel; Conversation in the toolbar goes back.` : 'The Canvas as today: every Node of the Project on one plane. In this mock it is one view among five, not the start.';
+  const note = S.canvasFocus ? `Centered on ${esc(itemLabel(S.canvasFocus))}. «Conversation» in the toolbar goes back.` : 'The Canvas as today: every Node of the Project on one plane. In this mock it is one view among five, not the start.';
   return `<section class="view" aria-label="Canvas"><div class="canvasv" id="canvasv"><div class="cv-plane" id="cv-plane" style="width:1070px;height:590px">${plane}</div><div class="cv-note">${note}</div></div></section>`;
 }
 function pipelineView() {
@@ -1275,16 +1279,16 @@ function render() {
   const cb = document.getElementById('convo-body'); if (cb && S.scrollEnd) cb.scrollTop = cb.scrollHeight;
   S.scrollEnd = false;
   fitCanvas(); renderOverlay(); renderState(); renderSwitch(); renderChrome();
-  let el = null;
+  let el = null, viaFk = false;
   if (S.focus) { el = document.querySelector(S.focus); S.focus = null; }
-  else if (fk) { const sc = fk.scope && document.querySelector(`[data-keep="${fk.scope}"]`); el = (sc && sc.querySelector(fk.key)) || document.querySelector(fk.key); }
+  else if (fk) { const sc = fk.scope && document.querySelector(`[data-keep="${fk.scope}"]`); el = (sc && sc.querySelector(fk.key)) || document.querySelector(fk.key); viaFk = true; }
   if (el) {
     if (el !== document.activeElement) el.focus({ preventScroll: true });
     if (typeof el.selectionStart === 'number') {
       try {
         if (S.caret != null) el.setSelectionRange(S.caret, S.caret);
         else if (S.caretEnd) el.setSelectionRange(el.value.length, el.value.length);
-        else if (fk && fk.sel) el.setSelectionRange(fk.sel[0], fk.sel[1]);
+        else if (viaFk && fk.sel) el.setSelectionRange(fk.sel[0], fk.sel[1]);
       } catch (e) { /* inputs of some types have no selection */ }
     }
   }
@@ -1434,7 +1438,8 @@ const ACT = {
   },
   messageTo: (el) => {
     const s = byId(el.dataset.id); toConversation();
-    if (S.variant === 'c') S.toC = s.id; else S.draft = '@' + s.name + ' ' + S.draft.replace(/^@[^@]*? (?=\S)/, '');
+    const rest = SESSIONS.reduce((d, x) => (d.startsWith('@' + x.name + ' ') ? d.slice(x.name.length + 2) : d), S.draft);
+    if (S.variant === 'c') S.toC = s.id; else S.draft = '@' + s.name + ' ' + rest;
     S.focus = '#composer'; S.caretEnd = true;
   },
   clearTo: () => { S.toC = null; S.focus = '#composer'; },
