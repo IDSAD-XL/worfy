@@ -8,9 +8,9 @@
 // Schemas are zod raw shapes, as the SDK's tool() takes them; the server (src/main/mcp/app-server.ts) parses the
 // arguments again with the same shapes.
 import { z } from 'zod'
-import { ATTENTION_STATES } from './attention'
+import { ATTENTION_STATES, ITEM_CLOSE_WHY_MAX } from './attention'
 import { answerTopicSchema, ANSWER_TEXT_MAX, COMMITMENT_TEXT_MAX } from './memory'
-import { preparedSessionSchema, proposalTitleSchema, proposalWhySchema } from './proposals'
+import { preparedSessionSchema, PROPOSAL_CLOSE_WHY_MAX, proposalTitleSchema, proposalWhySchema } from './proposals'
 import { settingsChangeSchema } from './settings-change'
 
 export const WORFY_APP_SERVER_NAME = 'worfy-app'
@@ -51,6 +51,12 @@ export const ITEMS_LIST_IDS_MAX = 50
 export const ITEMS_LIST_STATES = ['open', 'all', ...ATTENTION_STATES] as const
 
 const id = z.string().min(1).max(200)
+/** One line of why the Assistant closes an item or a proposal it read was done (worfy-polish 172). */
+const closeWhy = (max: number) =>
+  z
+    .string()
+    .max(max)
+    .refine((value) => value.trim() !== '', 'must not be empty or blanks only')
 const EPIC_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/u
 
 export const appToolShapes = {
@@ -74,7 +80,8 @@ export const appToolShapes = {
   proposals_list: {},
   proposal_create: { title: proposalTitleSchema, why: proposalWhySchema, item: id.optional(), prepare: preparedSessionSchema.optional(), change: settingsChangeSchema.optional() },
   proposal_update: { id, title: proposalTitleSchema.optional(), why: proposalWhySchema.optional(), prepare: preparedSessionSchema.nullable().optional() },
-  proposal_remove: { id },
+  proposal_remove: { id, why: closeWhy(PROPOSAL_CLOSE_WHY_MAX).optional() },
+  item_close: { id, why: closeWhy(ITEM_CLOSE_WHY_MAX) },
   action_run: { item: id, action: z.enum(APP_ACTIONS), epic: z.string().regex(EPIC_NAME).optional() },
   memory_note: {
     kind: z.enum(['commitment', 'answer']),
@@ -120,7 +127,10 @@ export const appToolDescriptions: Record<AppToolName, string> = {
   proposal_create:
     'Propose a step to the user: title, why, the item it answers, and with prepare the Session you would start — its Project of this Machine and its exact text. Nothing starts: the user sees the text and starts it with a click. With change, propose a change of your own settings — workHours, checks (slack, jira, main-ci: enabled, intervalMinutes 5-1440, sleepOutsideWorkHours), dailyWakeLimit (1-200), duties by id (enabled, thresholdMinutes, modes of its actions): the user sees each setting before and after, and nothing changes until they press Apply.',
   proposal_update: 'Change a proposal\'s title, why or prepared Session (prepare: null drops it). Answers the proposal as kept.',
-  proposal_remove: 'Remove a proposal that no longer holds.',
+  proposal_remove:
+    'Remove a proposal that no longer holds. With why (one line, up to 200 characters) — what you read that shows it is done, such as the draft replies sent — worfy keeps it closed with that why instead, and the user no longer sees it.',
+  item_close:
+    'Close an open item of Slack, Jira or Autopilot that you read is done, with why: one line, up to 200 characters, of what you read (autopilot_runs_read, pr_threads_read, a Slack or Jira connector of this Session). worfy checks every other item itself and refuses them. Close only what is surely done; when unsure, leave it. A new event of the same subject opens it again.',
   action_run:
     'Do an action on an item, only when its duty\'s mode is self or pre-approved; with ask, propose it instead; with hand-over, leave it to the user. wake-orchestrator and continue-session send the text main sets; autopilot-start (epic) on a Project\'s item only opens the Start Autopilot dialog for the user. pr-follow (Fix checks, Resolve conflicts, Address comments) is never an action here: its mode is ask or hand-over, so make it a proposal with proposal_create, or tell the user.',
   memory_note:

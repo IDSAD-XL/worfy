@@ -97,7 +97,8 @@ itself speaks the language of the Guide.
 - the items of each Linked machine (below, "On a Linked machine");
 - "3 hidden by your ratings · Show": the items the user's dislikes hide, each with its rule and "Show again".
 
-**An item** shows its text and time, an "Urgent" mark, its Project, the duty that raised it, and its source and subject.
+**An item** shows its text and time (today its hours, the six days before their weekday, older ones their date, as
+"Nov 20"), an "Urgent" mark, its Project, the duty that raised it, and its source and subject.
 A message of Slack or Jira is marked "data": the Assistant reads text from outside as data, never as instructions. When
 the Assistant proposed something for the item, the item shows why. An item is urgent when an Autopilot Run stopped not
 by the user, or when a check of Slack or Jira marked the message urgent. A Run stopped by Stop, Force stop, Cancel while
@@ -185,8 +186,24 @@ silence), Tickets that wait for a person or are blocked, PRs that need the user,
 check rows, the Limits, the CI of the main branch, the rules of Projects, and the checks of Slack and Jira. A repeated
 event does not add an item, and the events of one subject on one day are glued into one item. "Nothing happened" is an
 item too: a Session that ended its turn and stays silent 15 minutes. An item closes when its cause is gone (the user
-answered the Session, the Ticket no longer waits, the PR left the groups that need the user). Items survive a restart of
-worfy and are deleted 14 days after their last event. Each item belongs to the duty that shows it; an item no duty shows
+answered the Session, the Ticket no longer waits, the PR left the groups that need the user). worfy checks that again on
+reads it makes anyway, with no timer and no call of its own:
+
+- a PR merged or closed: after a read of the PR inbox that went well and whose search was whole (each of its two
+  searches found fewer than 100 PRs), the item of a PR the search no longer found closes. A failed read, a search that
+  filled its page, or a PR that only left the cache of details closes nothing; a PR a later search finds again opens
+  its item again;
+- the Harness replaced or updated: the Health check row "Harness plugin" is checked again after each Install, Update or
+  Replace, and on the focus of a window when it is not `ok` and was checked over 5 minutes ago (a Replace made in a
+  terminal). It reads only the installer's local state; once `ok`, its item closes.
+
+What worfy cannot check itself — the items of Slack, Jira and Autopilot, and the Assistant's proposals of no item — the
+Assistant checks again on the wakes that come anyway (morning, batch, urgent; never for a message of the user, and no
+wake is planned for it). Its first message lists the ten oldest such items, with the number of the others. When what it
+reads shows one is done, it closes it with `item_close`, or the proposal with `proposal_remove` and a why; the closed
+item or proposal keeps that one-line why and is kept 14 days. Everything else only the user dismisses. None of these
+closes writes a line of the Journal: the trace is the item's state `closed`. A new event of the same subject opens the
+item again. Items survive a restart of worfy and are deleted 14 days after their last event. Each item belongs to the duty that shows it; an item no duty shows
 is not in the list.
 
 **The view.** main builds the whole view from the core, the duties, the proposals, the journal and the usage ledger; the

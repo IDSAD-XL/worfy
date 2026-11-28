@@ -90,7 +90,8 @@ export function memoryView(memory: AssistantMemory | undefined, itemId: (id: str
     pauseAfter: memory?.pauseAfter ?? null,
     duties,
     rules: (memory?.rules ?? []).map(({ id, duty, projectId, source, kind, text }) => ({ id, duty, projectId, source, kind, text })),
-    proposals: (memory?.proposals ?? []).map((proposal) => ({
+    // Only the open ones: a proposal the Assistant closed with a why is kept for a while, not shown (worfy-polish 172).
+    proposals: (memory?.proposals ?? []).filter((proposal) => proposal.closed == null).map((proposal) => ({
       id: proposal.id,
       title: proposal.title,
       why: proposal.why,

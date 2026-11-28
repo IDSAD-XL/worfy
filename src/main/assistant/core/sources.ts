@@ -4,7 +4,7 @@
 import { createHash } from 'node:crypto'
 import { realpathSync } from 'node:fs'
 import { posix, win32 } from 'node:path'
-import type { AttentionSubject } from '../../../shared/assistant/attention'
+import { OPEN_STATES, type AttentionSubject } from '../../../shared/assistant/attention'
 import type { AgentEvent } from '../../../shared/agent/events'
 import type { LimitsState } from '../../../shared/agent/limits'
 import { AUTOPILOT_STOP_REASONS, type AutopilotStopReason } from '../../../shared/autopilot/cycle'
@@ -15,7 +15,7 @@ import { ticketKey, type Ticket, type WorkflowDelta, type WorkflowModel } from '
 import { waitBody, waitKey, waitsForPerson } from '../../workflow/waits-notify'
 import type { AttentionCore } from './attention-core'
 
-type Core = Pick<AttentionCore, 'ingest' | 'resolve' | 'expect' | 'batch'>
+type Core = Pick<AttentionCore, 'ingest' | 'resolve' | 'resolveGone' | 'expect' | 'batch' | 'items'>
 
 /**
  * How long a Session may stay silent after the end of its turn before it waits for the user: 15 minutes, the
@@ -158,7 +158,12 @@ function takeWorkflowRead(core: Core, projectId: string, read: WorkflowModel | W
   for (const gone of 'removedTickets' in read ? read.removedTickets : []) core.resolve(projectId, { kind: 'ticket', id: ticketKey(gone), label: '' })
 }
 
-/** A read of a Project's PR inbox: a PR in a group that needs the user is an item; one in another group closes its items. */
+/**
+ * A read of a Project's PR inbox: a PR in a group that needs the user is an item; one in another group closes its items,
+ * and so does one a whole search of a read that went well no longer found — merged or closed (worfy-polish 172). A
+ * failed read, a search that filled its page, or a snapshot that does not say what it found closes nothing: the PR may
+ * still be open.
+ */
 export function prInboxAttention(core: Core, snapshot: PrInboxSnapshot): void {
   core.batch(() => takePrInbox(core, snapshot))
 }
@@ -175,6 +180,12 @@ function takePrInbox(core: Core, snapshot: PrInboxSnapshot): void {
       const at = Date.parse(row.updatedAt)
       core.ingest({ source: 'pr-inbox', id: `${subject.id}:${group}`, revision: row.updatedAt, projectId: snapshot.projectId, subject, kind: group, text: clip(`${PR_INBOX_GROUP_TITLES[group]}: ${subject.label}`), ...(Number.isNaN(at) ? {} : { at }) })
     }
+  }
+  if (snapshot.error !== null || snapshot.search == null || !snapshot.search.complete) return
+  const found = new Set(snapshot.search.found)
+  for (const item of core.items(snapshot.projectId)) {
+    // The keys of its events go too: a PR this one search missed, found again unchanged, waits again.
+    if (item.source === 'pr-inbox' && item.subject.kind === 'pr' && OPEN_STATES.includes(item.state) && !found.has(item.subject.id)) core.resolveGone(snapshot.projectId, item.subject, 'pr-inbox', `${item.subject.id}:`)
   }
 }
 

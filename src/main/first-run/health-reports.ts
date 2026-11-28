@@ -78,8 +78,8 @@ export class HealthReports {
   private rechecks = new Map<CheckId, Recheck>()
   private networkSources: (() => Promise<Check[]>)[] = []
   private lastRecheck = new Map<string, number>()
-  /** The rows whose re-check is running: a second one waits for nothing and starts nothing. */
-  private inFlight = new Set<string>()
+  /** The rows whose re-check is running, with its end: a second one waits for nothing and starts nothing. */
+  private inFlight = new Map<string, Promise<void>>()
   private listeners = new Set<(report: FirstRunReport) => void>()
   private sent: string | null = null
 
@@ -183,6 +183,19 @@ export class HealthReports {
     await Promise.all([...due.values()].map(({ id, project, recheck }) => this.recheck(id, project, recheck)))
   }
 
+  /**
+   * Checks the row `id` of `project` again now, out of any budget, with `recheck` or the one registered (worfy-polish
+   * 172: the Harness row after an install). Only a row the report holds: one no check made yet is the first check's,
+   * and a row made here would stand beside the one that check makes. A re-check of the row that is running may have
+   * read the state before the change: this one waits for its end, then runs.
+   */
+  async recheckNow(id: CheckId, project: CheckProject | undefined, recheck: Recheck | undefined = this.rechecks.get(id)): Promise<void> {
+    const key = keyOf(id, project)
+    if (recheck === undefined || this.storedAt(key) === undefined) return
+    await this.inFlight.get(key)
+    await this.recheck(id, project, recheck)
+  }
+
   /** The merged report; null before the first check and the first message. */
   current(): FirstRunReport | null {
     const rows = this.rows().map(({ check }) => check)
@@ -194,7 +207,13 @@ export class HealthReports {
   private async recheck(id: CheckId, project: CheckProject | undefined, recheck: Recheck): Promise<void> {
     const key = keyOf(id, project)
     if (this.inFlight.has(key)) return
-    this.inFlight.add(key)
+    let done = (): void => undefined
+    this.inFlight.set(
+      key,
+      new Promise<void>((resolve) => {
+        done = resolve
+      }),
+    )
     const startedAt = this.now()
     let fresh: Check | null
     try {
@@ -204,6 +223,7 @@ export class HealthReports {
       return
     } finally {
       this.inFlight.delete(key)
+      done()
     }
     const at = this.now()
     const ofChecks = this.checked?.find((stored) => keyOfCheck(stored.check) === key)

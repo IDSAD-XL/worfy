@@ -11,10 +11,12 @@
 // reaches the model. The e2e scenario with the fake agent is tickets 14–16.
 import { publicItemId, wakeItemRecord } from '../../mcp/app-server'
 import { appNow } from '../../clock'
+import { projectStore } from '../../projects/store'
 import { dataRoot } from '../../storage/paths'
 import { claudeAssistantQuery, type AssistantQueryStarter } from '../../vendors/claude/assistant-session'
 import { startClosedList } from '../actions/app'
 import { appAssistantUsage } from '../budget/ledger'
+import { appAttentionCore } from '../core/app'
 import { assistantMemoryPath, sessionMemoryStore } from '../duties/memory'
 import type { PowerEvents } from '../schedule/scheduler'
 import { startAssistantWake } from '../wake/app'
@@ -61,6 +63,11 @@ export function startAssistant(power: PowerEvents): (() => void) | null {
     memory: () => readMemoryView(file, publicItemId),
     ledger: appAssistantUsage(),
     itemRecord: wakeItemRecord,
+    // Every item of this Machine, read at an automatic wake: the open ones worfy cannot check again go in its first message (worfy-polish 172).
+    openItems: () => {
+      const core = appAttentionCore()
+      return core === null ? [] : [null, ...projectStore().list().map((project) => project.id)].flatMap((scope) => core.items(scope))
+    },
   })
   const assistant = composeAssistant({
     sessions,

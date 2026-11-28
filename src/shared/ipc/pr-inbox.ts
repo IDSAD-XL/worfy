@@ -185,6 +185,13 @@ export const prInboxSnapshotSchema = z.object({
   signInFailed: z.boolean().optional(),
   /** A line for the view about how the inbox is read (worfy-pr-inbox ticket 08 fills it); null here. */
   notice: z.string().nullable(),
+  /**
+   * What the last search found (worfy-polish 172): every PR it named, `owner/name#N` in lower case, with a row or
+   * without one (a PR whose details did not read leaves the rows, not this list), and whether the search was whole —
+   * each of its two searches gave fewer PRs than its one page holds. The attention core closes the item of an open PR
+   * no whole search found any more. Null before the first read and while the reader is off; absent — not known.
+   */
+  search: z.object({ complete: z.boolean(), found: z.array(z.string()) }).nullable().optional(),
 })
 export type PrInboxSnapshot = z.infer<typeof prInboxSnapshotSchema>
 

@@ -84,6 +84,9 @@ export interface AttentionEvent {
   stopReason?: AutopilotStopReason
 }
 
+/** The longest why of a close by the Assistant (`item_close`, worfy-polish 172). */
+export const ITEM_CLOSE_WHY_MAX = 200
+
 export const attentionItemSchema = z.object({
   id: z.string().min(1),
   source: attentionSourceSchema,
@@ -119,8 +122,21 @@ export const attentionItemSchema = z.object({
    * build added does not make the file unreadable; the wake treats a reason it does not know as urgent.
    */
   stopReason: z.string().optional(),
+  /**
+   * Who closed it when not the cause going away (worfy-polish 172): the Assistant, which read it was done
+   * (`item_close`), with its one line why. Absent on every other item; a new event that opens it again drops both.
+   */
+  closedBy: z.literal('assistant').optional(),
+  closedWhy: z.string().max(ITEM_CLOSE_WHY_MAX).optional(),
 })
 export type AttentionItem = z.infer<typeof attentionItemSchema>
+
+/**
+ * The sources whose items worfy cannot check again itself (worfy-polish 172): only a call of a connector (Slack,
+ * Jira) or a read of the model (an Autopilot Run) tells whether the thing is done. The Assistant gets them on its
+ * automatic wakes and may close one with `item_close`; every other source's items worfy closes when their cause goes.
+ */
+export const ASSISTANT_RECHECKED_SOURCES: readonly AttentionSource[] = ['slack', 'jira', 'autopilot']
 
 /** The kinds of item that are urgent by themselves. `run-finished` (a Run that did its Tickets) is not one. */
 export const URGENT_ITEM_KINDS: ReadonlySet<string> = new Set(['run-stopped'])

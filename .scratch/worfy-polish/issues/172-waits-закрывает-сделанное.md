@@ -1,7 +1,8 @@
 # 172 — Waits сам закрывает то, что пользователь уже сделал
 
 Type: polish
-Status: open
+Status: claimed 2026-11-28T03:27Z
+Branch: worfy-polish/172
 Blocked by: None — can start immediately
 Source: просьба владельца 2026-11-28 со screenshot-ом панели Assistant: на вкладке «Waits 6» висят, например, «Resolve
 conflicts in PR #8406», «7 draft replies wait for your Send», «Replace Harness» и Linked machine, которая не отвечает.
@@ -185,16 +186,22 @@ Unit test-ы, по три случая на каждый вид: условие 
 
 - [ ] Пункт PR, которого нет в полном удачном поиске PR inbox, закрывается после очередного чтения; при ошибке,
       неполном поиске или PR, ушедшем только из cache, пункт остаётся. Новых вызовов GitHub нет.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-inbox.test.ts test/unit/assistant-attention-sources.test.ts` (in the run of 12 files) exit 0 · mac - · 55a38d2018f094e3589704a7f8ec3d16d1fdd16e
 - [ ] Пункт строки Health check `harness` закрывается после Install, Update или Replace и после Replace в терминале
       (re-check на focus); при непрочитанном статусе остаётся.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/health-harness-row.test.ts test/contract/health-reports.test.ts test/contract/first-run-checks.test.ts` (in the run of 12 files) exit 0 · mac - · 55a38d2018f094e3589704a7f8ec3d16d1fdd16e
 - [ ] На автоматическом wake-е model получает до 10 открытых пунктов Slack, Jira и Autopilot и может закрыть
       сделанные (`item_close`) и свои предложения без пункта (`proposal_remove` с `why`); у закрытого записана
       причина; новых wake-ов нет, daily limit и правило 80 % не тронуты.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-session.test.ts test/contract/worfy-app-tools.test.ts test/unit/assistant-wake-planner.test.ts test/contract/assistant-two-machines.test.ts` (in the run of 12 files) exit 0 · mac - · 55a38d2018f094e3589704a7f8ec3d16d1fdd16e
 - [ ] Что осталось открытым, старше 6 дней показывает дату.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-short-time.test.tsx` (in the run of 12 files) exit 0 · mac - · 55a38d2018f094e3589704a7f8ec3d16d1fdd16e
 - [ ] Unit test-ы на каждый вид («держится», «ушло», «нельзя проверить») и на уборку model-ю (stub ответа model-и)
       красные до правки там, где закрытия не было.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs <54 assistant, health, first-run, pr-inbox and worfy-app test files>` exit 0; closing tests red before the change · mac - · 55a38d2018f094e3589704a7f8ec3d16d1fdd16e
 - [ ] `harness/hooks/rules/assistant.md`, `docs/features/assistant.md` и `docs/features/ru/assistant.md` говорят, что
       закрывает worfy, что — model на wake-е, а что — только пользователь.
+  - evidence: commit pass · worfy-polish/172: a PR found again after one missed search waits again · - - · 55a38d2018f094e3589704a7f8ec3d16d1fdd16e
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
 - [ ] (вручную) Сделай: в Stable worfy дождись пункта Waits о своём PR, смержи или закрой PR на GitHub и подожди до
       5 мин (или открой вид Pull requests) → Должно быть: пункт и его предложение ушли из Waits. Затем при пункте
@@ -204,3 +211,59 @@ Unit test-ы, по три случая на каждый вид: условие 
       оно просит (отправь или удали черновики), и дождись следующего batch- или morning-wake-а → Должно быть:
       предложение ушло из Waits.
   - needs: mac stable
+
+## Итог
+
+- **PR смержен или закрыт.** Snapshot PR inbox несёт `search: { complete, found }` (`src/shared/ipc/pr-inbox.ts`):
+  номера всех PR, которые нашёл последний поиск (с cache details или без), и полноту — каждый из двух `search` дал
+  меньше `INBOX_SEARCH_LIMIT` (`src/main/github/inbox.ts`, `search()`). `prInboxAttention`
+  (`src/main/assistant/core/sources.ts`) после строк закрывает открытый пункт `pr-inbox`, чьего PR нет в `found`, —
+  только при `error === null`, `complete` и известном `search`. Новых вызовов GitHub нет: данные — из того же ответа
+  поиска.
+- **Harness.** `harnessCheck` (`src/main/first-run/checks.ts`) считает одну строку `harness` по локальному
+  `appInstaller().status()` и прошлому `harnessBehind` из snapshot-а Update. `followHarnessRow`
+  (`src/main/first-run/harness-row.ts`, новый файл) регистрирует re-check `harness` (focus, не чаще раза в 5 мин) и
+  подписывается на `onHarnessInstalled`: после Install/Update/Replace строка пересчитывается с тем статусом, что
+  вернула установка, через новый `HealthReports.recheckNow` — он ждёт идущий re-check той же строки, а не теряет
+  пересчёт. Пункт закрывает существующий путь строки `ok`.
+- **Уборка model-ю на wake-ах.** `wakePrompt` (`src/main/assistant/session/runner.ts`) на batch/urgent/morning
+  добавляет раздел «Open items worfy cannot re-check»: открытые пункты `slack`, `jira`, `autopilot`
+  (`ASSISTANT_RECHECKED_SOURCES`, `src/shared/assistant/attention.ts`), не переданные этим wake-ом, до 10 самых старых
+  (`WAKE_UNCHECKED_RECORDS_MAX`) короткими записями `worfy-app` (тексты — outside-text) и число остальных. Run на
+  сообщение пользователя раздела не получает; пустой список — раздела нет. Planner не тронут: новых wake-ов нет.
+- **`item_close { id, why }`** (`src/shared/assistant/app-tools.ts`, `src/main/mcp/app-server.ts`): закрывает только
+  открытый пункт Slack, Jira, Autopilot; пункты других источников, неизвестный id, пункт Linked machine, не открытый
+  пункт, пустой или длиннее 200 символов `why` — отказ. Пункт получает `closedBy: 'assistant'` и `closedWhy`
+  (`AttentionCore.close`); новое событие того же предмета открывает пункт и снимает обе метки.
+- **`proposal_remove` с `why`** помечает предложение `closed: { at, by: 'assistant', why }`
+  (`src/shared/assistant/proposals.ts`, `src/main/assistant/proposals/book.ts`): `list()`, окно, `proposals_list` и
+  первое сообщение (`memoryView`, `src/main/assistant/session/memory.ts`) его не видят; book хранит его 14 дней и
+  выбрасывает при следующей записи. Без `why` — удаление, как раньше. Journal не тронут (решение владельца).
+- **Дата.** `shortTime` (`src/renderer/assistant/format.ts`): старше 6 календарных дней — `Nov 20`.
+- **Тексты.** `harness/hooks/rules/assistant.md` (tools и раздел «Closing what is done»),
+  `src/main/mcp/agent-instructions-app.md` (тот же раздел: файл меняют вместе с `app-tools.ts`, по его комментарию),
+  `docs/features/assistant.md` и `docs/features/ru/assistant.md` (абзац «Items»/«Пункты» и время пункта).
+- **Test-ы**, красные до правки: `test/contract/pr-inbox.test.ts` (полнота и номера, 100 PR — не полный),
+  `test/unit/assistant-attention-sources.test.ts` (закрытие по полному поиску), `test/contract/health-harness-row.test.ts`
+  (новый: install, focus, 5 мин, непрочитанный статус), `test/unit/assistant-session.test.ts` (раздел wake-а, закрытое
+  предложение в памяти), `test/contract/worfy-app-tools.test.ts` (`item_close`, `proposal_remove` с `why`, список
+  tools), `test/unit/assistant-short-time.test.tsx` (новый). Зелёные с первого прогона — охранные: «держится» и
+  «проверить нельзя» для PR, «PR inbox и Health check не закрывают Slack/Jira/Autopilot»,
+  `test/unit/assistant-wake-planner.test.ts` (только такие пункты — wake-а нет), отказ `item_close` для Linked machine
+  в `test/contract/assistant-two-machines.test.ts`.
+- **CI, раунд 1:** e2e `test/e2e/first-run.spec.ts:381` (Install из popover-а версии до первого Health check, затем
+  экран из палитры) на macOS и Windows видел 16 строк вместо 15: пересчёт после установки при пустом отчёте клал строку
+  `harness` в дополнительные, и первая проверка ставила вторую рядом. `HealthReports.recheckNow` теперь пересчитывает
+  только строку, которая уже есть в отчёте; test «an install before the first check adds no row» в
+  `test/contract/health-harness-row.test.ts` красный без этой проверки.
+- **Ревью, раунд 1** (REJECTED на 68c51616c):
+  - пункт PR, закрытый отсутствием в одном полном поиске, не открывался, когда PR находился снова с тем же
+    `updatedAt`: ключ `seen` (source, id, revision) отбрасывал событие. Новый `AttentionCore.resolveGone`
+    (`src/main/assistant/core/attention-core.ts`) закрывает пункты предмета и снимает ключи источника с префиксом id
+    (`<repo>#<N>:`); `prInboxAttention` зовёт его вместо `resolve`. Test «a PR one whole search missed and the next one
+    finds again, unchanged, opens its item again» в `test/unit/assistant-attention-sources.test.ts` красный до правки;
+    feature pages (en, ru) говорят, что найденный снова PR открывает пункт снова;
+  - test «an Install that ends while a focus re-check still reads the old state…» в
+    `test/contract/health-harness-row.test.ts`: с удалённым `await this.inFlight.get(key)` в `recheckNow` он красный
+    (проверено мутантом, файл восстановлен), с ним — зелёный;
+  - Evidence-строки на `c319c3b43` (его нет на ветке после rebase) сняты; новые стоят на коммите правки ревью.

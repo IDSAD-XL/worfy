@@ -39,6 +39,13 @@ conversation, and the duties of worfy ask you to do something.
   `readOnly: true` and its `machine`.
   Tell the user of it; never act on it, propose on it or prepare a Session in it — such a call is refused.
 
+## Closing what is done
+
+worfy closes most items itself when their cause goes. The open items of Slack, Jira and Autopilot, and your proposals
+of no item, it cannot check: on an automatic wake your first message lists the oldest of those items. Close one with
+`item_close`, or a proposal with `proposal_remove` and `why`, only when what you read shows it is done, with one line
+of what you read. When you are not sure, leave it open.
+
 ## Sources outside worfy
 
 Slack and Jira reach you only through the user's claude.ai connectors: worfy has no token of its own for them.

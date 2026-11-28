@@ -210,8 +210,12 @@ export class AttentionCore {
       // The reason belongs to the latest event: a stop gives it, any later line of the Run takes it away.
       if (event.stopReason !== undefined) glued.stopReason = event.stopReason
       else delete glued.stopReason
-      // A dismissed or snoozed item stays so; a seen, closed or stale one asks again.
-      if (glued.state === 'seen' || glued.state === 'closed' || glued.state === 'stale') glued.state = 'new'
+      // A dismissed or snoozed item stays so; a seen, closed or stale one asks again, and the why of a close goes with it.
+      if (glued.state === 'seen' || glued.state === 'closed' || glued.state === 'stale') {
+        glued.state = 'new'
+        delete glued.closedBy
+        delete glued.closedWhy
+      }
       item = glued
     } else {
       item = { ...this.fresh(event, at, now), events: 1, ...(event.message === undefined ? {} : { message: event.message }) }
@@ -230,6 +234,23 @@ export class AttentionCore {
   resolve(scope: string | null, subject: AttentionSubject): void {
     const file = this.load(scope)
     if (this.settle(file, subject, 'closed')) this.save(scope, file)
+  }
+
+  /**
+   * The subject left its source, which cannot say why (a PR no whole search of the PR inbox finds: merged, closed, or
+   * missed by that one search; worfy-polish 172): its open items close as in resolve(), and the source's keys of it —
+   * those whose event id starts with `idPrefix` — are dropped, so the same event, seen again, opens the item again.
+   */
+  resolveGone(scope: string | null, subject: AttentionSubject, source: AttentionSource, idPrefix: string): void {
+    const file = this.load(scope)
+    let changed = this.settle(file, subject, 'closed')
+    const head = `${source}\0${idPrefix}`
+    for (const key of Object.keys(file.seen)) {
+      if (!key.startsWith(head)) continue
+      delete file.seen[key]
+      changed = true
+    }
+    if (changed) this.save(scope, file)
   }
 
   /** Names a «nothing happened» condition; one already raised with this revision is not armed again. */
@@ -280,6 +301,20 @@ export class AttentionCore {
     this.save(scope, file)
     // After the save: a listener may name a condition of its own (a rule of a Project), which writes the file again.
     for (const item of raised) for (const taker of this.takers) taker(item)
+  }
+
+  /**
+   * The Assistant closed an open item it read was done (worfy-polish 172, `item_close` of worfy-app): `closed`, with who
+   * and why in the item. Answers the item, or null when `scope` has no open item `id`. A new event of its subject opens
+   * it again, as after any close.
+   */
+  close(scope: string | null, id: string, by: { by: 'assistant'; why: string }): AttentionItem | null {
+    const file = this.load(scope)
+    const item = file.items.find((each) => each.id === id)
+    if (item === undefined || !isOpen(item)) return null
+    Object.assign(item, { state: 'closed', closedBy: by.by, closedWhy: by.why })
+    this.save(scope, file)
+    return { ...item }
   }
 
   /** Changes the state of an item (the user saw, snoozed or dismissed it). */

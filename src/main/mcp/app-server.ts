@@ -11,6 +11,9 @@
 //   Reading changes nothing but the duties' «shown» counters.
 // - Proposals: create, update, remove (ProposalBook); Prepare keeps and answers the exact text of the future Session,
 //   which only the user's click starts (boundary 3). A Prepare names a Project of this Machine only (boundary 5).
+// - Closing what is done (worfy-polish 172): proposal_remove with a why keeps the proposal closed with it; item_close
+//   closes an open item worfy cannot check again itself (Slack, Jira, Autopilot) with its why, and refuses any other.
+//   Neither writes a line of the journal of actions: the closed proposal or item is the trace.
 // - Two machines (ticket 18; boundary 5): the Assistant of each Machine acts only in its own Projects. projects_list names
 //   the Linked machine and its Projects, read-only; items_list gives what waits there (src/shared/assistant/linked.ts)
 //   under `linked`, its text — and every name, title and refusal that came over the link — as outside text, with ids of
@@ -35,7 +38,7 @@ import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import type { AttentionItem } from '../../shared/assistant/attention'
 import type { LinkedItem } from '../../shared/assistant/linked'
-import { OPEN_STATES } from '../../shared/assistant/attention'
+import { ASSISTANT_RECHECKED_SOURCES, ITEM_CLOSE_WHY_MAX, OPEN_STATES } from '../../shared/assistant/attention'
 import {
   APP_TOOL_NAMES,
   appToolDescriptions,
@@ -184,6 +187,8 @@ export interface WorfyAppDeps {
   projects(): readonly { id: string; name: string }[]
   /** The items of the attention core, every scope of this Machine. */
   items(): readonly AttentionItem[]
+  /** Closes an open item of the attention core by the Assistant, with why (AttentionCore.close; worfy-polish 172). */
+  closeItem(item: AttentionItem, why: string): void
   duties: { look(items: readonly AttentionItem[], options?: { countShown?: boolean }): DutyLook }
   workflow(projectId: string): Promise<Pick<WorkflowModel, 'epics' | 'tickets' | 'error'>>
   /** The PR inbox of a Project; null when it has none. */
@@ -656,13 +661,29 @@ function handlers(deps: WorfyAppDeps): Handlers {
       }
     },
 
-    proposal_remove: ({ id }) => {
+    // With why, the Assistant read that it is done: kept closed with that why (worfy-polish 172), not removed.
+    proposal_remove: ({ id, why }) => {
       try {
-        deps.proposals.remove(id)
+        deps.proposals.remove(id, ...(why === undefined ? [] : [{ by: 'assistant' as const, why: redactSecrets(why.trim()) }]))
       } catch (error) {
         throw new ToolError(error instanceof Error ? error.message : String(error))
       }
       return { removed: id }
+    },
+
+    // Only what worfy cannot check again itself (ASSISTANT_RECHECKED_SOURCES); no line of the journal of actions: the
+    // closed item with its why is the trace (owner's decision 2026-11-28).
+    item_close: async ({ id, why }) => {
+      await refuseLinkedItem(id, 'Nothing was closed.')
+      const item = deps.items().find((each) => publicItemId(each.id) === id)
+      if (item === undefined) throw new ToolError(`No item ${id}: items_list lists them. Nothing was closed.`)
+      if (!ASSISTANT_RECHECKED_SOURCES.includes(item.source)) {
+        throw new ToolError(`Item ${id} is of ${item.source}: worfy re-checks such items itself and closes them when their cause goes. Only items of ${ASSISTANT_RECHECKED_SOURCES.join(', ')} are closed with item_close. Nothing was closed.`)
+      }
+      if (!OPEN_STATES.includes(item.state)) throw new ToolError(`Item ${id} is not open (${item.state}). Nothing was closed.`)
+      // Hidden first, then cut: a hidden secret may make the line longer than the item keeps.
+      deps.closeItem(item, redactSecrets(why.trim()).slice(0, ITEM_CLOSE_WHY_MAX))
+      return { closed: id }
     },
 
     action_run: async (args) => {
@@ -818,6 +839,10 @@ async function appWorfyAppDeps(): Promise<WorfyAppDeps> {
     items: () => {
       const core = appAttentionCore()
       return core === null ? [] : [null, ...projects().map((project) => project.id)].flatMap((scope) => core.items(scope))
+    },
+    closeItem: (item, why) => {
+      const core = appAttentionCore()
+      if (core === null || core.close(item.projectId, item.id, { by: 'assistant', why }) === null) throw new Error(`The item could not be closed: the attention core is not running or the item is no longer open`)
     },
     duties: appDuties(),
     workflow: async (projectId) => (await readWorkflow({ root: projectStore().get(projectId).path, claudeHome: claudeHome(), env: harnessScriptEnv })).model,

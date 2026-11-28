@@ -156,6 +156,7 @@ function thisAssistant(level: AccessLevel) {
     machines: async () => [{ id: 'mac', name: 'This Mac', thisMachine: true, projects: [{ id: ALPHA, name: 'alpha' }], items: [], problem: null }, ...(await waits.refresh()).map((machine) => ({ ...machine, thisMachine: false }))],
     projects: () => [{ id: ALPHA, name: 'alpha' }],
     items: () => [],
+    closeItem: refuse,
     duties: { look: () => ({ shown: [], duties: [] }) as never },
     workflow: refuse,
     prInbox: () => null,
@@ -224,6 +225,10 @@ describe("worfy-app gives the Linked machine's Projects to read, and refuses to 
     const onItem = await w.call('proposal_create', { title: 'Deploy', why: 'It asks', item: item!.id })
     expect(onItem.isError).toBe(true)
     expect(textOf(onItem)).toMatch(/Linked machine PC/u)
+    // Closing it is its own Assistant's too (worfy-polish 172).
+    const closed = await w.call('item_close', { id: item!.id, why: 'Looks done' })
+    expect(closed.isError).toBe(true)
+    expect(textOf(closed)).toMatch(/waits on the Linked machine PC/u)
     const prepared = await w.call('proposal_create', { title: 'Deploy', why: 'It asks', prepare: { projectId: DOCS, text: 'Deploy the docs' } })
     expect(prepared.isError).toBe(true)
     expect(textOf(prepared)).toMatch(/not a Project of this Machine/u)

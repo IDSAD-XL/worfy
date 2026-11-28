@@ -5,8 +5,12 @@
 // `proposals`), so a restart of worfy keeps them and each new Session of the Assistant reads them there. The book reads
 // the file once, at its first use, and writes it before it takes a change: a change the file refuses throws and changes
 // nothing.
+//
+// A proposal the Assistant closed with a why (worfy-polish 172) stays in the book, marked `closed`, for
+// PROPOSAL_CLOSED_KEEP_DAYS: it is not open any more, so list() and every reader of open proposals leave it out, and the
+// next change after those days drops it from the file.
 import { randomUUID } from 'node:crypto'
-import type { AssistantProposal, PreparedSession } from '../../../shared/assistant/proposals'
+import { PROPOSAL_CLOSED_KEEP_DAYS, type AssistantProposal, type PreparedSession } from '../../../shared/assistant/proposals'
 import type { SettingsChange } from '../../../shared/assistant/settings-change'
 import { appNow } from '../../clock'
 import { dataRoot } from '../../storage/paths'
@@ -40,6 +44,9 @@ export type ProposalChange = Partial<ProposalDraft> & { applied?: AssistantPropo
 
 export type ProposalListener = (proposals: readonly AssistantProposal[]) => void
 
+const DAY_MS = 24 * 60 * 60_000
+const isOpen = (proposal: AssistantProposal): boolean => proposal.closed == null
+
 export class ProposalBook {
   private proposals: Map<string, AssistantProposal> | null = null
   private readonly listeners = new Set<ProposalListener>()
@@ -48,7 +55,12 @@ export class ProposalBook {
 
   /** Every open proposal, oldest first. */
   list(): AssistantProposal[] {
-    return [...this.kept().values()].map((each) => ({ ...each }))
+    return [...this.kept().values()].filter(isOpen).map((each) => ({ ...each }))
+  }
+
+  /** The proposals the Assistant closed with a why in the last PROPOSAL_CLOSED_KEEP_DAYS, oldest first. */
+  closed(): AssistantProposal[] {
+    return [...this.kept().values()].filter((each) => !isOpen(each)).map((each) => ({ ...each }))
   }
 
   /** Told of every change, with the whole list; answers the function that stops it. */
@@ -72,11 +84,15 @@ export class ProposalBook {
     return { ...next }
   }
 
-  /** Throws for an unknown id. */
-  remove(id: string): void {
-    this.get(id)
+  /**
+   * Removes an open proposal; with `closed` (the Assistant read that it is done, worfy-polish 172) it is kept closed
+   * instead, with when and why. Throws for an id of no open proposal.
+   */
+  remove(id: string, closed?: { by: 'assistant'; why: string }): void {
+    const before = this.get(id)
     const next = new Map(this.kept())
-    next.delete(id)
+    if (closed === undefined) next.delete(id)
+    else next.set(id, { ...before, closed: { at: this.options.now(), by: closed.by, why: closed.why } })
     this.commit(next)
   }
 
@@ -87,12 +103,14 @@ export class ProposalBook {
 
   private get(id: string): AssistantProposal {
     const found = this.kept().get(id)
-    if (found === undefined) throw new Error(`No open proposal ${id}`)
+    if (found === undefined || !isOpen(found)) throw new Error(`No open proposal ${id}`)
     return found
   }
 
   /** Writes `next` first, then takes it and tells the listeners. */
   private commit(next: Map<string, AssistantProposal>): void {
+    const oldest = this.options.now() - PROPOSAL_CLOSED_KEEP_DAYS * DAY_MS
+    for (const [id, proposal] of next) if (proposal.closed != null && proposal.closed.at < oldest) next.delete(id)
     this.options.store?.write([...next.values()])
     this.proposals = next
     const list = this.list()

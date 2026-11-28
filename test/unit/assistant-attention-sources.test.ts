@@ -146,6 +146,80 @@ describe('the seven sources', () => {
     stop()
   })
 
+  describe('a PR the search of the PR inbox no longer finds (worfy-polish 172)', () => {
+    const row = { repo: 'acme/app', number: 7, title: 'Fix', updatedAt: '2026-11-13T11:30:00Z' }
+    const KEY = 'acme/app#7'
+    type Read = Partial<Pick<PrInboxSnapshot, 'enabled' | 'readAt' | 'error' | 'search'>> & { rows?: (typeof row)[] }
+    const read = ({ rows = [row], ...over }: Read = {}): PrInboxSnapshot =>
+      ({ projectId: ALPHA.id, enabled: true, viewer: 'me', readAt: '2026-11-13T12:00:00Z', error: null, groups: [{ group: 'needs-fix', rows }], search: { complete: true, found: rows.map(() => KEY) }, ...over }) as unknown as PrInboxSnapshot
+    /** The core with the open item of PR #7, and a function that gives it the next read. */
+    const opened = () => {
+      let snapshot = read()
+      const h = harness({})
+      h.sources.prInbox.snapshot = () => snapshot
+      const { core, stop } = installAttentionCore(h.sources)
+      h.prChanged(ALPHA.id)
+      return { core, stop, next: (next: PrInboxSnapshot) => ((snapshot = next), h.prChanged(ALPHA.id)), states: () => core.items(ALPHA.id).map((item) => item.state) }
+    }
+
+    it('still found and still in a group that needs the user: the item stays open', () => {
+      const { next, states, stop } = opened()
+      next(read())
+      expect(states()).toEqual(['new'])
+      stop()
+    })
+
+    it('not in a whole, successful search (merged or closed): the item closes', () => {
+      const { next, states, stop } = opened()
+      next(read({ rows: [], search: { complete: true, found: ['acme/app#8'] } }))
+      expect(states()).toEqual(['closed'])
+      stop()
+    })
+
+    it('a PR one whole search missed and the next one finds again, unchanged, opens its item again', () => {
+      const { core, next, states, stop } = opened()
+      next(read({ rows: [], search: { complete: true, found: [] } }))
+      expect(states()).toEqual(['closed'])
+      next(read())
+      // The same read again is a repeat: nothing changes.
+      next(read())
+      expect(core.items(ALPHA.id).map((item) => [item.state, item.events])).toEqual([['new', 2]])
+      stop()
+    })
+
+    it.each<[string, Read]>([
+      ['the read failed', { rows: [], error: 'HTTP 502', search: { complete: true, found: [] } }],
+      ['the search filled its page (100 PRs)', { rows: [], search: { complete: false, found: [] } }],
+      ['the reader is off', { rows: [], enabled: false, search: null }],
+      ['the Project was never read', { rows: [], readAt: null, search: null }],
+      ['the snapshot does not say what the search found', { rows: [], search: undefined }],
+      ['only its details left the cache: the search still found it', { rows: [], search: { complete: true, found: [KEY] } }],
+    ])('cannot tell — %s: the item stays open', (_, over) => {
+      const { next, states, stop } = opened()
+      next(read(over))
+      expect(states()).toEqual(['new'])
+      stop()
+    })
+
+    it('neither a PR inbox read nor a Health check report closes an item of Slack, Jira or Autopilot', () => {
+      const h = harness({})
+      h.sources.prInbox.snapshot = () => read({ rows: [], search: { complete: true, found: [] } })
+      const { core, stop } = installAttentionCore(h.sources)
+      for (const source of ['slack', 'jira'] as const) {
+        core.ingest({ source, id: `${source}-1`, revision: 'r1', projectId: ALPHA.id, subject: { kind: 'message', id: `${source}-1`, label: source }, kind: 'mention', text: `A ${source} message` })
+      }
+      h.journalLine(runStopped('2026-11-13T11:00:00.000Z'))
+      h.prChanged(ALPHA.id)
+      h.health({ checkedAt: '2026-11-13T12:00:00Z', checks: [{ id: 'harness', group: 'Harness', title: 'Harness plugin', status: 'ok', severity: 'critical', detail: '1.0.0', hint: '', command: null, actions: [] }] } as unknown as FirstRunReport)
+      expect(core.items(ALPHA.id).map((item) => [item.source, item.state])).toEqual([
+        ['slack', 'new'],
+        ['jira', 'new'],
+        ['autopilot', 'new'],
+      ])
+      stop()
+    })
+  })
+
   it('a Session that ended its turn and heard nothing for 15 minutes waits for the user: one item; a prompt closes it', async () => {
     const h = harness({})
     const { core, stop } = installAttentionCore(h.sources)
