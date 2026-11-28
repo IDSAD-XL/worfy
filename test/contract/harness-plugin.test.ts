@@ -11,7 +11,7 @@ import { afterAll, describe, expect, it } from 'vitest'
 import { isPersonalBin } from '../../src/main/harness/migrate/plan'
 import { ASSISTANT_SESSION_KIND, SESSION_KIND_VARIABLE } from '../../src/main/vendors/claude/options'
 import { removeTestTree } from '../remove'
-import { claudeEnv, startMessagesApiStandIn } from './messages-api-stand-in'
+import { claudeEnv, startMessagesApiStandIn } from '../../src/main/harness/contract/messages-api-stand-in'
 
 const REPO = join(__dirname, '..', '..')
 const HARNESS = join(REPO, 'harness')

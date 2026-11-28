@@ -1,7 +1,7 @@
 // Spike for ticket worfy-harness-guarantees/01 (result: the "Itog" (summary) section of the ticket): how the Claude Code
 // of the pinned Agent SDK calls the hooks of the Harness plugin `worfy`. No model, no key, no
 // sign-in: every run goes to a local scripted stand-in of the Messages API, with the environment of
-// test/contract/messages-api-stand-in.ts (claudeEnv: a fake key, HOME and CLAUDE_CONFIG_DIR in a
+// src/main/harness/contract/messages-api-stand-in.ts (claudeEnv: a fake key, HOME and CLAUDE_CONFIG_DIR in a
 // temporary folder, no telemetry). Nothing reads or writes the real ~/.claude.
 //
 // Run from the repository root with plain Node 24 (it strips the types; no Electron):
@@ -21,7 +21,7 @@
 // <dir>/init-plugin-errors.jsonl. Everything else goes to --out (default: a new temporary folder).
 //
 // The stand-in here scripts a chain of tool calls per conversation (the main thread and each
-// Subagent), where test/contract/messages-api-stand-in.ts scripts one call: a Subagent's Write
+// Subagent), where startMessagesApiStandIn of src/main/harness/contract/messages-api-stand-in.ts scripts one call: a Subagent's Write
 // needs two (Agent in the main thread, Write in the Subagent).
 
 import { spawn } from 'node:child_process'
@@ -33,7 +33,7 @@ import { homedir, hostname, tmpdir, userInfo } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
 import { query } from '@anthropic-ai/claude-agent-sdk'
 import type { Options, SDKMessage } from '@anthropic-ai/claude-agent-sdk'
-import { claudeEnv } from '../../../test/contract/messages-api-stand-in.ts'
+import { claudeEnv } from '../../../src/main/harness/contract/messages-api-stand-in.ts'
 
 type Block = Record<string, unknown>
 interface Call {

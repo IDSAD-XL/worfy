@@ -16,7 +16,7 @@ import { PermissionGate, type PermissionAnswer } from '../../src/main/agent/perm
 import { claudeCanUseTool, QUESTION_DECLINED_MESSAGE } from '../../src/main/vendors/claude/session'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import type { QuestionPick } from '../../src/shared/agent/questions'
-import { claudeEnv, startMessagesApiStandIn, type RecordedToolResult } from './messages-api-stand-in'
+import { claudeEnv, startMessagesApiStandIn, type RecordedToolResult } from '../../src/main/harness/contract/messages-api-stand-in'
 
 type QuestionRequest = Extract<AgentEvent, { type: 'question_request' }>
 
