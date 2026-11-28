@@ -211,6 +211,17 @@ revert, marked `main_fix`, and a PR with documents only. When `gh` cannot read t
 `land` reruns and reverts nothing: the pause ends at the first pass that finds the newest verdict green, and the next PR
 merges then. Each reading keeps the `main-red-<key>.json` marker above.
 
+**Drafts and verification paths.** `land` never merges a draft PR: it waits with the reason `draft`. A PR that changes a
+verification path (a file that judges work, such as a CI workflow, a Quarantine file or a Harness hook; the list is the
+Profile's `verification.paths` on top of the defaults) merges only when the trail of its Ticket names that path. The Ticket
+is the one the PR's branch names, and its trail is read on the tip of the main branch, not at the point the branch was cut
+from. So a trail that a documents PR extended after the branch was cut counts without a rebase, and a PR that writes the
+path into its own trail gains nothing. A PR with such a path outside the trail waits, and the reason names the paths. A PR
+whose branch names no Ticket waits for the owner. The `land` line of a merged PR names its verification paths, and so does
+the line of a PR that adds one to a trail. The final CI check is the Profile's `workflow.ci_check`: a state file that names
+another check is refused. `land --check <N>` answers for one PR without a state file, by the Profile: exit 0 when it is
+ready, 1 when it waits (the reason on one line), 2 when `land` cannot tell.
+
 **The e2e lock.** With `workflow.e2e_lock` in the Profile, `wave-gate`, the skills and the Project's rules take that folder as a
 lock for each local e2e run and Gate full. The Gate itself does not take it, so a bare `node gate.mjs full` holds nothing, and CI
 jobs do not use it. A lock older than 30 minutes counts as abandoned, and its holder touches it every 5 minutes. A file inside it may name the

@@ -1,7 +1,8 @@
 # 04: `land`: пути проверок, draft, `land --check`
 
 Type: task
-Status: open
+Status: claimed 2026-11-28T09:58Z
+Branch: worfy-harness-guarantees/04
 Blocked by: 02
 Source: [spec.md](../spec.md), «Ticket-ы», 04; «Решение», 1 и 2; «Решения по реализации» («`land`: пути проверок,
 draft, `land --check`»); «Решения по test-ам», Seams (`land`) и «Сначала падающий test», 04; «Вопросы владельцу», Q3 (а);
@@ -87,3 +88,46 @@ draft, `land --check`»); «Решения по test-ам», Seams (`land`) и �
       «Итог».
 - [ ] Helper чтения trail-а лежит в `harness/lib/` и готов для guard-а Ticket-а 03.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR, включая Windows verdict.
+
+## Итог
+
+- `land` не сливает draft: `isDraft` добавлен в `PR_FIELDS`, PR ждёт с причиной `draft` и при первом чтении, и под
+  замком main branch. Строка — `#N waits: draft` (общая форма строк `land` — `#N waits: <причина>`).
+- Шаг `verified()` в `ready()`: пути diff-а PR от merge-base сверяются со списком `lib/verification-paths.cjs` и
+  `verification.paths` Profile-а (`bin/profile --json`), никогда из state file. Ticket — по ветке PR и
+  `tickets.branch`, файл — по `tickets.path`, trail — раздел `tickets.trail_section` на вершине base branch
+  (`git show refs/remotes/<remote>/<branch>:<путь>`). Путь вне trail-а — `verification paths outside the trail of
+  <epic> <NN>: <пути>`; PR без Ticket-а с путём проверки — `verification paths, and the PR has no ticket (…): <пути> —
+  the owner decides`. Правка собственного trail-а в PR ничего не разрешает: на base branch её нет (test «own trail»).
+- PR, который дописывает путь проверки в trail любого Ticket-а (файл под `tickets.root`, в trail-е на head есть путь
+  проверки, которого нет на merge-base), сливается, а его строка это называет:
+  `#N merged <sha> — verification paths: added to the trail of <файл Ticket-а>: <пути>`. Отметки `owner` нет — это
+  Ticket 10 (возражение 1 critic-а).
+- Строка слитого PR с путями проверок: `#N merged <sha> — verification paths: <пути> (trail of <epic> <NN>)`; то же
+  в `prs[].result.verification`. Skill `epic-wave`: раздел 4 описывает новые условия и хвост строки, раздел 5 —
+  строку под таблицей отчёта Wave для каждого такого PR.
+- Имя check-а CI: state file с `ci_check`, отличным от `workflow.ci_check` Profile-а, — отказ (exit 1) с обоими
+  именами. Сверх Ticket-а и осознанно: если Profile не называет `workflow.ci_check` (сейчас так у worfy, пока владелец
+  не выполнил команду `profile-set` из «Итог» Ticket-а 02), остаётся имя state file-а и строка в log — иначе каждый
+  `land` worfy падал бы до этой команды. Отмечено `shortcut:` в коде.
+- Новый режим `land --check <N> [-C <dir>]`: условие одного PR без state file по Profile-у (`_resolved.checkout`,
+  `worktree.base`, `workflow.ci_check`, Check-и всех Stage-ей `check` Pipeline-а, `tickets.*`); workflow CI — тот, в
+  чьём run-е последний check `ci_check` на head (`details_url` → `gh run list --commit`). Exit 0 — `#N ready`,
+  1 — `#N waits: <причина>`, 2 — `#N unverified: <причина>` (нет Profile-а, нет ответа `gh` или git). Ничего не пишет:
+  ни log, ни marker `main-red`, ни merge. `red_elsewhere` не читает: это правила Project-а, не Profile.
+- Время ответа `land --check` на одном PR с gh stand-in на Mac — 311 ms (test `land-verification.test.sh`, случай
+  «check: a green PR»). С настоящим GitHub не мерилось (бриф запрещает настоящий `gh`): это `git fetch` и 7 вызовов
+  `gh` (`pr view`, 2 × check runs, 2 × `run list` на head, statuses, push runs main) плюс `bin/profile` дважды; при 0,5–1 s на
+  вызов `gh` — около 5–8 s, внутри лимита hook-а 30 s, но это оценка, не замер.
+- Helper trail-а — `harness/lib/ticket-trail.cjs`: `ticketOfBranch`, `ticketPattern`, `trailPaths`, `namedByTrail`,
+  `readTrail({repo, ref, branch, tickets, git, folder})`. Guard Ticket-а 03 зовёт `readTrail` с `ref` =
+  `worktree.base` и получает тот же trail. Unit test — `test/unit/ticket-trail.test.ts` (раздел trail-а, пути в
+  backticks, суффиксы строк, `\` с Windows, блоки кода, чтение на ref, а не из working tree).
+- Test-ы `land` вынесены в новый файл `harness/bin/tests/land-verification.test.sh` (тема отдельно, как
+  `land-story.test.sh`: `land.test.sh` и так 306 s на Windows). Stub-ы `land-world.sh` отдают `isDraft`,
+  `headRefName`, `bin/profile --json` и отказ `gh` (`gh-down`); bare origin получил `receive.autogc false`. В
+  `land-story.test.sh` случай «PR без Ticket-а» теперь проверяет, что не читается `code_stories.pr`: Profile
+  читается всегда, ради путей проверок.
+- Сначала падающий test: `land-verification.test.sh` на старом `land` — 16 FAIL из 19 (draft сливался: `#1 merged
+  …`; пути проверок, `ci_check` и `--check` не читались).
+- Feature page `docs/features/gate-and-github.md` — абзац «Drafts and verification paths» (полный текст — Ticket 12).

@@ -44,6 +44,8 @@ const out = (v) => process.stdout.write(JSON.stringify(v) + "\n")
 const prJson = (n) => ({ state: "OPEN", mergeStateStatus: "CLEAN", ...JSON.parse(read(`pr-${n}.json`, "{}")) })
 const setPr = (n, v) => fs.writeFileSync(f(`pr-${n}.json`), JSON.stringify({ ...prJson(n), ...v }))
 const cmd = a.slice(0, 2).join(" ")
+// gh-down: every call fails, as with no network
+if (has("gh-down")) { process.stderr.write("error connecting to api.github.com\n"); process.exit(1) }
 if (cmd === "pr view") {
     const n = a[2], p = prJson(n)
     let mergeable = "MERGEABLE"
@@ -56,7 +58,8 @@ if (cmd === "pr view") {
     const views = +read(`views-${n}`, "0") + 1
     fs.writeFileSync(f(`views-${n}`), String(views))
     const head = views > 1 && has(`moved-${n}`) ? read(`moved-${n}`).trim() : headOf(n)
-    out({ number: +n, state: p.state, headRefOid: head, mergeable, mergeStateStatus: p.mergeStateStatus, mergeCommit: p.mergeCommit || null })
+    // isDraft and headRefName from pr-<N>.json: not a draft, the branch e/0<N> (the ticket e 0<N>) without them
+    out({ number: +n, state: p.state, headRefOid: head, mergeable, mergeStateStatus: p.mergeStateStatus, mergeCommit: p.mergeCommit || null, isDraft: !!p.isDraft, headRefName: p.headRefName || `e/0${n}` })
 } else if (cmd === "run list" && a.includes("--event")) {
     // the push runs of main: main-runs — their JSON list ([] without it); main-runs-fail — gh fails
     if (has("main-runs-fail")) { process.stderr.write("HTTP 502: Bad Gateway\n"); process.exit(1) }
@@ -190,8 +193,11 @@ fs.appendFileSync(path.join(D, "docs-check.log"), process.cwd() + "\n")
 const p = path.join(D, "docs-check-rc")
 process.exit(fs.existsSync(p) ? +fs.readFileSync(p, "utf8") : 0)
 EOF
-# bin/profile: `-C <dir> --field code_stories.pr` prints $GHD/code-stories ("off" without it) and exits with
-# $GHD/profile-rc (0 without it); logs its arguments.
+# bin/profile: `-C <dir> --field code_stories.pr` prints $GHD/code-stories ("off" without it); `-C <dir> --json` prints
+# the profile of the world — workflow.ci_check ci-ok, worktree.base origin/main, the tickets of .scratch/<epic>/issues/NN-*.md
+# on the branches <epic>/<NN> with the trail "## Where in the code", the default verification paths and scripts/check-*,
+# no Check in the Pipeline, _resolved.checkout <dir> — with each top-level object of $GHD/profile.json merged over its
+# own. Exits with $GHD/profile-rc (0 without it); logs its arguments.
 cat >"$STUBS/profile.mjs" <<'EOF'
 import fs from "node:fs"
 import path from "node:path"
@@ -199,8 +205,22 @@ const D = process.env.GHD
 fs.appendFileSync(path.join(D, "profile.log"), process.argv.slice(2).join(" ") + "\n")
 const read = (n, d) => (fs.existsSync(path.join(D, n)) ? fs.readFileSync(path.join(D, n), "utf8").trim() : d)
 const rc = +read("profile-rc", "0")
+const a = process.argv.slice(2)
 if (rc) process.stderr.write(`profile: stub exit ${rc}\n`)
-else process.stdout.write(read("code-stories", "off") + "\n")
+else if (a.includes("--json")) {
+    const dir = a[a.indexOf("-C") + 1]
+    const p = {
+        workflow: { ci: "pr", ci_check: "ci-ok" },
+        worktree: { base: "origin/main" },
+        tickets: { root: ".scratch/", path: ".scratch/<epic>/issues/NN-*.md", branch: "<epic>/<NN>", trail_section: "## Where in the code" },
+        verification: { paths: [".github/workflows/**", ".github/actions/**", "CLAUDE.md", "AGENTS.md", ".claude/**", ".codex/**", ".mcp.json", "scripts/check-*"] },
+        code_stories: { pr: read("code-stories", "off") },
+        _resolved: { checkout: dir, repo_root: dir, mode: "full", pipeline: [{ kind: "queued" }, { kind: "ci" }] },
+    }
+    const over = JSON.parse(read("profile.json", "{}"))
+    for (const [k, v] of Object.entries(over)) p[k] = v && typeof v === "object" && !Array.isArray(v) && p[k] && typeof p[k] === "object" ? { ...p[k], ...v } : v
+    process.stdout.write(JSON.stringify(p) + "\n")
+} else process.stdout.write(read("code-stories", "off") + "\n")
 process.exit(rc)
 EOF
 # Environment values: Git Bash turns a path in them into the Windows form for node itself.
@@ -227,6 +247,8 @@ build_world() {
     local W="$1"; shift
     mkdir -p "$W/gh"
     git init -q --bare -b main "$W/origin.git"
+    # no gc while a push is received: a race once came from it (GIT_CONFIG does not reach receive-pack, so the bare repo's own config)
+    git -C "$W/origin.git" config receive.autogc false
     git clone -q "$W/origin.git" "$W/seed" 2>/dev/null
     seq 1 40 >"$W/seed/base.txt" && git -C "$W/seed" add -A && git -C "$W/seed" commit -q -m base
     local refs=(main:main)

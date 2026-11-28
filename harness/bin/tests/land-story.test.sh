@@ -67,8 +67,9 @@ echo off >"$GHD/code-stories"
 story_world sg-noticket
 edit 'delete s.prs[0].epic;delete s.prs[0].ticket'
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
-[ "$rc" = 0 ] && [ "$(merged_of 1)" = 1 ] && [ ! -e "$GHD/profile.log" ] && ! grep -qi "story" "$W/state.log" \
-    && ok "story guard: a PR without a ticket -> merged, the guard does not read the profile or look for a story" || bad "story guard no ticket: exit $rc: $(cat "$W/out")"
+# (the profile itself is read for the verification paths, land-verification.test.sh; the story switch is not)
+[ "$rc" = 0 ] && [ "$(merged_of 1)" = 1 ] && ! grep -q "code_stories.pr" "$GHD/profile.log" && ! grep -qi "story" "$W/state.log" \
+    && ok "story guard: a PR without a ticket -> merged, the guard does not read code_stories.pr or look for a story" || bad "story guard no ticket: exit $rc: $(cat "$W/out")"
 story_world sg-unread pr-en.md
 echo 1 >"$GHD/profile-rc"
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
