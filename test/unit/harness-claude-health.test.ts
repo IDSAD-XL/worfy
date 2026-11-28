@@ -264,8 +264,8 @@ describe('Health: Harness on Claude Code — the runs', () => {
 
   it('on Windows a claude.exe is started; npm\'s claude.cmd, which needs cmd.exe, is named with its version and not started', async () => {
     const run = () => Promise.resolve({ code: 0, stdout: '2.1.330 (Claude Code)', stderr: '', missing: false })
-    const exe = await terminalClaude({ Path: 'C:\\Users\\u\\.local\\bin', PATHEXT: '.EXE;.CMD' }, { platform: 'win32', run, exists: (file) => file === 'C:\\Users\\u\\.local\\bin\\claude.exe' })
-    expect(exe).toEqual({ kind: 'found', binary: 'C:\\Users\\u\\.local\\bin\\claude.exe', version: '2.1.330' })
+    const exe = await terminalClaude({ Path: 'C:\\Tools\\claude', PATHEXT: '.EXE;.CMD' }, { platform: 'win32', run, exists: (file) => file === 'C:\\Tools\\claude\\claude.exe' })
+    expect(exe).toEqual({ kind: 'found', binary: 'C:\\Tools\\claude\\claude.exe', version: '2.1.330' })
     const cmd = await terminalClaude({ Path: 'C:\\npm', PATHEXT: '.EXE;.CMD' }, { platform: 'win32', run, exists: (file) => file === 'C:\\npm\\claude.cmd' })
     expect(cmd).toMatchObject({ kind: 'unusable', version: '2.1.330' })
     expect(await terminalClaude({ Path: 'C:\\npm' }, { platform: 'win32', run, exists: () => false })).toEqual({ kind: 'missing' })
