@@ -217,8 +217,11 @@ that every session runs names the cases whose graded work goes through it: `hook
 the cases that commit, rewrite history or filter the output of a check, not all of them;
 `hooks/eval-env.cjs` and `bin/profile`, which every run goes through, name `"*"`. The test fails on
 a file the cases run in neither list, in both or twice, an entry that names nothing, a name that is
-neither a case nor a path of the map, and a path that leads to a file of `uncovered`. A new hook
-script, script or library goes into the map in the same PR.
+neither a case nor a path of the map, and a path that leads to a file of `uncovered`. A second test
+reads the code of these files for the scripts that load or start each other — an `import` or
+`require` of a relative path, a file named inside `join(…)` — and fails when a file chooses fewer
+cases than one of its callers; the scan is lexical, so a path put together in another way is not
+seen. A new hook script, script or library goes into the map in the same PR.
 
 The shared fixtures are not in the map: they are found from the `scaffold.sh` of each case. A
 `scaffold.sh` line (not a comment) that names a file in another folder of `evals/`

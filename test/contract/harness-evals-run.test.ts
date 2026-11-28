@@ -794,13 +794,17 @@ describe('harness/evals/lib/coverage.json: which case checks which rule file', (
       'implementer-report', 'implementer-story', 'pr-fix-checks', 'pr-fix-comments', 'pr-fix-conflicts', 'pr-fix-conflicts-silent', 'ship-ticket-local-green',
       'ship-ticket-pr-green-ci',
     ])
+    // bin/ticket: the cases whose skills run it, and those of the scripts that start it (bin/epic-status,
+    // bin/evidence-check, bin/land, bin/review-draft-lint, bin/silent-check, hooks/after-compact.mjs).
     const ticket = [
-      'compaction-state', 'epic-wave-old-form', 'epic-wave-tickets', 'implementer-report', 'implementer-story', 'no-os-screen-capture', 'product-ideas',
-      'reviewer-intended-breakage', 'reviewer-simplification', 'reviewer-verdict', 'ship-ticket-local-green', 'ship-ticket-pr-green-ci', 'status-block',
+      'compaction-state', 'critic-verdict', 'epic-wave-old-form', 'epic-wave-tickets', 'human-review-setup-full', 'human-review-setup-refresh-declined',
+      'implementer-report', 'implementer-story', 'no-os-screen-capture', 'pr-fix-checks', 'pr-fix-comments', 'pr-fix-conflicts', 'pr-fix-conflicts-silent',
+      'pr-reply-guards', 'pr-reply-three-threads', 'product-ideas', 'reviewer-intended-breakage', 'reviewer-simplification', 'reviewer-verdict',
+      'ship-ticket-local-green', 'ship-ticket-pr-green-ci', 'status-block',
     ]
     expect(pick('harness/bin/ticket')).toEqual(ticket)
     // A library leads to the cases of the scripts that load it: bin/ticket, bin/evidence-check, bin/land, hooks/after-compact.mjs.
-    expect(pick('harness/lib/evidence.cjs')).toEqual([...ticket, 'human-review-setup-full', 'human-review-setup-refresh-declined'].sort())
+    expect(pick('harness/lib/evidence.cjs')).toEqual(ticket)
     // Every run reads its state folder and its git through hooks/eval-env.cjs, and bin/profile runs at the start of every session.
     expect(pick('harness/hooks/eval-env.cjs')).toEqual([...CASE_NAMES].sort())
     expect(pick('harness/bin/profile')).toEqual([...CASE_NAMES].sort())
@@ -816,6 +820,53 @@ describe('harness/evals/lib/coverage.json: which case checks which rule file', (
     expect(calls.uncovered).toEqual([{ path: 'harness/hooks/calls.mjs', reason: coverage.uncovered['hooks/calls.mjs'] }])
     // A file of the tests of the Harness is no file the cases run.
     expect(casesFor(['harness/hooks/tests/guard.test.sh', 'harness/bin/tests/ticket.test.sh'], coverage, CASE_NAMES, fixtures)).toEqual({ cases: [], files: [], uncovered: [] })
+  })
+
+  // coverageProblems cannot tell that an entry misses a script that loads or starts its file. This test
+  // reads the code of every file the cases run for such edges — an import or require of a relative path,
+  // and a file named inside join(…) — and requires that a change to the file chooses every case a change
+  // to its caller chooses (review of PR #2355). Comment lines are left out; the scan is lexical, so a path
+  // put together in another way is not seen.
+  it('a file chooses at least the cases of each script that loads or starts it', async () => {
+    const { casesFor, readCoverage, scriptFiles } = await coverageModule()
+    const coverage = readCoverage(HARNESS)
+    const files = new Set([...scriptFiles(HARNESS), 'hooks/inject-rules.mjs'])
+    const bin = new Set([...files].filter((file) => file.startsWith('bin/')).map((file) => file.slice('bin/'.length)))
+    const cases = (file: string): string[] => casesFor([`harness/${file}`], coverage, CASE_NAMES).cases
+    const callees = (caller: string): Set<string> => {
+      const here = dirname(caller)
+      const found = new Set<string>()
+      const add = (file: string): void => {
+        if (file !== caller && files.has(file)) found.add(file)
+      }
+      const code = readFileSync(join(HARNESS, caller), 'utf8')
+        .split('\n')
+        .filter((line) => !/^\s*(\/\/|#|\*|\/\*)/.test(line))
+      for (const line of code) {
+        for (const [, spec = ''] of line.matchAll(/(?:from|require\(|import\()\s*["'](\.{1,2}\/[^"']+)["']/g)) {
+          add(join(here, spec).split(sep).join('/'))
+        }
+        if (!line.includes('join(')) continue
+        const words = [...line.matchAll(/["']([\w.-]+)["']/g)].map(([, word = '']) => word)
+        words.forEach((word, i) => {
+          const folder = words[i - 1]
+          if (folder === 'bin' || folder === 'hooks' || folder === 'lib') add(`${folder}/${word}`)
+          else if (files.has(`${here}/${word}`)) add(`${here}/${word}`)
+          else if (bin.has(word)) add(`bin/${word}`)
+        })
+      }
+      return found
+    }
+    const missing: string[] = []
+    for (const caller of [...files].sort()) {
+      const chosen = cases(caller)
+      if (chosen.length === 0) continue
+      for (const callee of [...callees(caller)].sort()) {
+        const lost = chosen.filter((name) => !cases(callee).includes(name))
+        if (lost.length > 0) missing.push(`${callee} misses ${caller}: ${lost.join(', ')}`)
+      }
+    }
+    expect(missing).toEqual([])
   })
 
   it('maps every hook script, script and library of harness/ exactly once, to cases or to a reason', async () => {

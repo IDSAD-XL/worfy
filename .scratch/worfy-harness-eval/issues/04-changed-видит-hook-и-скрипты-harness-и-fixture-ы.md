@@ -107,6 +107,13 @@ test краснеет.
   трёх bare-репозиториях fixture-ов (`lib/demo-project.sh`, `implementer-story/scaffold.sh`,
   `pr-fix-checks/fixture/pr-fix.cjs`). `gc.auto` и `receive.autogc` в `GIT_CONFIG_COUNT` не добавлены: до
   `receive-pack` окружение не доходит, а commit и fetch уже закрыты `maintenance.auto=false`.
+- Ревью, раунд 2: в записи карты добавлены пропущенные скрипты, которые запускают или загружают файл. Это
+  `hooks/gate-resolve.mjs` у `hooks/gate-paths.mjs`; `bin/epic-status`, `bin/evidence-check`, `bin/review-draft-lint`
+  и `bin/silent-check` у `bin/ticket`; `bin/ticket` у `bin/evidence-check` и `lib/input-words.json`;
+  `hooks/after-compact.mjs` у `hooks/stage-lines.mjs`. Последний пропуск нашёл новый test. Он читает код файлов на
+  `import`/`require` относительных путей и на имена файлов внутри `join(…)` и требует, чтобы файл выбирал не меньше
+  case-ов, чем каждый, кто его вызывает. До правки карты test был красным: 7 рёбер. Поиск лексический: путь, собранный
+  иначе, test не увидит.
 - Feature pages `docs/features/harness.md` и `docs/features/skills-agents-and-hooks.md`: `--changed` больше не
   пропускает `compaction-state`. В `harness/README.md`, кроме раздела карты, в «When to run the evals» добавлены
   `harness/hooks/`, `harness/bin/`, `harness/lib/`.
