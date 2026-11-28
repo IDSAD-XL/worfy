@@ -220,7 +220,9 @@ point the branch was cut from. So a trail that a documents PR extended after the
 and a PR that writes the path into its own trail gains nothing. Only the list items of the trail count: a plain paragraph allows nothing, and
 a list item marked read only (`Read only:`) allows nothing either. A PR with such a path outside the trail waits, and the reason names the paths; so does a PR whose Ticket file is
 not on the main branch. A PR whose branch names no Ticket and that changes a verification path waits for the owner. The
-`land` line of a merged PR names its verification paths, and so does the line of a PR that adds one to a trail. The final
+`land` line of a merged PR names its verification paths, and so does the line of a PR that adds one to a trail. The guard
+hook refuses a Subagent's edit of such a path by the same rule before the PR exists
+([hooks](skills-agents-and-hooks.md)). The final
 CI check is the Profile's `workflow.ci_check`, and a state file that names another check is refused. When the Profile
 names none, the state file's check stands, and `land` prints a line that says so. `land --check <N>` answers for one
 PR without a state file, by the Profile: exit 0 when it is ready, 1 when it waits (the reason on one line), 2 when `land`
