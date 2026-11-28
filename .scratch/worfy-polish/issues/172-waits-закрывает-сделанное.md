@@ -186,16 +186,22 @@ Unit test-ы, по три случая на каждый вид: условие 
 
 - [ ] Пункт PR, которого нет в полном удачном поиске PR inbox, закрывается после очередного чтения; при ошибке,
       неполном поиске или PR, ушедшем только из cache, пункт остаётся. Новых вызовов GitHub нет.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-inbox.test.ts test/unit/assistant-attention-sources.test.ts` (in the run of 11 files) exit 0 · mac - · c319c3b43e2d4c7ac3194d9ca0f6627cc7ce91e4
 - [ ] Пункт строки Health check `harness` закрывается после Install, Update или Replace и после Replace в терминале
       (re-check на focus); при непрочитанном статусе остаётся.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/health-harness-row.test.ts test/contract/health-reports.test.ts` (in the run of 11 files) exit 0 · mac - · c319c3b43e2d4c7ac3194d9ca0f6627cc7ce91e4
 - [ ] На автоматическом wake-е model получает до 10 открытых пунктов Slack, Jira и Autopilot и может закрыть
       сделанные (`item_close`) и свои предложения без пункта (`proposal_remove` с `why`); у закрытого записана
       причина; новых wake-ов нет, daily limit и правило 80 % не тронуты.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-session.test.ts test/contract/worfy-app-tools.test.ts test/unit/assistant-wake-planner.test.ts` (in the run of 11 files) exit 0 · mac - · c319c3b43e2d4c7ac3194d9ca0f6627cc7ce91e4
 - [ ] Что осталось открытым, старше 6 дней показывает дату.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-short-time.test.tsx` (in the run of 11 files) exit 0 · mac - · c319c3b43e2d4c7ac3194d9ca0f6627cc7ce91e4
 - [ ] Unit test-ы на каждый вид («держится», «ушло», «нельзя проверить») и на уборку model-ю (stub ответа model-и)
       красные до правки там, где закрытия не было.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs <the 11 test files of the ticket>` exit 0, red before the change · mac - · c319c3b43e2d4c7ac3194d9ca0f6627cc7ce91e4
 - [ ] `harness/hooks/rules/assistant.md`, `docs/features/assistant.md` и `docs/features/ru/assistant.md` говорят, что
       закрывает worfy, что — model на wake-е, а что — только пользователь.
+  - evidence: commit pass · worfy-polish/172: Waits closes what the user already did · - - · c319c3b43e2d4c7ac3194d9ca0f6627cc7ce91e4
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
 - [ ] (вручную) Сделай: в Stable worfy дождись пункта Waits о своём PR, смержи или закрой PR на GitHub и подожди до
       5 мин (или открой вид Pull requests) → Должно быть: пункт и его предложение ушли из Waits. Затем при пункте
