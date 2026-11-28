@@ -251,3 +251,8 @@ Unit test-ы, по три случая на каждый вид: условие 
   «проверить нельзя» для PR, «PR inbox и Health check не закрывают Slack/Jira/Autopilot»,
   `test/unit/assistant-wake-planner.test.ts` (только такие пункты — wake-а нет), отказ `item_close` для Linked machine
   в `test/contract/assistant-two-machines.test.ts`.
+- **CI, раунд 1:** e2e `test/e2e/first-run.spec.ts:381` (Install из popover-а версии до первого Health check, затем
+  экран из палитры) на macOS и Windows видел 16 строк вместо 15: пересчёт после установки при пустом отчёте клал строку
+  `harness` в дополнительные, и первая проверка ставила вторую рядом. `HealthReports.recheckNow` теперь пересчитывает
+  только строку, которая уже есть в отчёте; test «an install before the first check adds no row» в
+  `test/contract/health-harness-row.test.ts` красный без этой проверки.

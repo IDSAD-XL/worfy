@@ -185,12 +185,14 @@ export class HealthReports {
 
   /**
    * Checks the row `id` of `project` again now, out of any budget, with `recheck` or the one registered (worfy-polish
-   * 172: the Harness row after an install). A re-check of the row that is running may have read the state before the
-   * change: this one waits for its end, then runs.
+   * 172: the Harness row after an install). Only a row the report holds: one no check made yet is the first check's,
+   * and a row made here would stand beside the one that check makes. A re-check of the row that is running may have
+   * read the state before the change: this one waits for its end, then runs.
    */
   async recheckNow(id: CheckId, project: CheckProject | undefined, recheck: Recheck | undefined = this.rechecks.get(id)): Promise<void> {
-    if (recheck === undefined) return
-    await this.inFlight.get(keyOf(id, project))
+    const key = keyOf(id, project)
+    if (recheck === undefined || this.storedAt(key) === undefined) return
+    await this.inFlight.get(key)
     await this.recheck(id, project, recheck)
   }
 

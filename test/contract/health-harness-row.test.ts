@@ -75,6 +75,22 @@ describe('the Harness row after an install (onHarnessInstalled)', () => {
     s.stop()
   })
 
+  it('an install before the first check adds no row: the first check makes the one row (the e2e of the version popover)', async () => {
+    const health = new HealthReports(() => 1_000_000)
+    let installed: ((status: HarnessStatus) => void) | undefined
+    const deps = { harness: () => Promise.resolve(INSTALLED) }
+    const stop = followHarnessRow(health, deps, (listener) => {
+      installed = listener
+      return () => undefined
+    })
+    installed?.(INSTALLED)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(health.current()).toBeNull()
+    health.setChecks({ checks: [machineRow('git', 'ok'), await harnessCheck(deps)], checkedAt: new Date(0).toISOString() })
+    expect(health.current()?.checks.filter((check) => check.id === 'harness').map((check) => check.status)).toEqual(['ok'])
+    stop()
+  })
+
   it('stopped: an install no longer checks the row again', async () => {
     const s = await setup()
     s.stop()
