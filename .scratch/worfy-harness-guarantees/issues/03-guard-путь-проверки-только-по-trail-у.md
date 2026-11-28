@@ -94,6 +94,7 @@ Seams (guard), «Сначала падающий test», 03, «Mutation testing�
       проверки вне trail-а своего Ticket-а на base branch в любом permission mode; отказ называет путь и следующий шаг
       (shell test-ы и contract test Codex, красный на старом коде).
   - evidence: test-run pass · `bash harness/hooks/tests/guard-verification.test.sh` exit 0; `pnpm test -- test/contract/harness-codex-hooks.test.ts` exit 0 · mac - · a6ed5f8b87967019ffe7062a1cdd5ed0d19a2e8e
+  - evidence: test-run pass · `bash harness/hooks/tests/guard-verification.test.sh` exit 0 (107 checks, review round 1 cases); `bash harness/bin/tests/land-verification.test.sh` exit 0 · mac - · 319495189b4b19be393dccb59084588a4df5e973
 - [ ] Путь, который trail называет, проходит; главная Session проходит; Subagent без Ticket-а отказан.
   - evidence: test-run pass · `bash harness/hooks/tests/guard-verification.test.sh` exit 0 · mac - · a6ed5f8b87967019ffe7062a1cdd5ed0d19a2e8e
 - [ ] Silent mode: trail читается из Workflow folder, правка раздела trail-а Subagent-ом отказана.
@@ -101,6 +102,7 @@ Seams (guard), «Сначала падающий test», 03, «Mutation testing�
 - [ ] `ticket mark` из Subagent-а и `profile-set` полей `verification.*`, `workflow.ci_check`, `workflow.pipeline`,
       `workflow.merge` любой Session агента отказаны.
   - evidence: test-run pass · `bash harness/hooks/tests/guard-verification.test.sh` exit 0 (ticket mark and profile-set cases) · mac - · a6ed5f8b87967019ffe7062a1cdd5ed0d19a2e8e
+  - evidence: test-run pass · `bash harness/hooks/tests/guard-verification.test.sh` exit 0 (profile-set --field workflow and --field verification.paths cases) · mac - · 319495189b4b19be393dccb59084588a4df5e973
 - [ ] `deny()` пишет строку JSON в `WORFY_GUARD_LOG`, когда переменная задана; формат записан в шапке `guard.mjs`.
   - evidence: test-run pass · `bash harness/hooks/tests/guard-verification.test.sh` exit 0 (refusal log cases) · mac - · a6ed5f8b87967019ffe7062a1cdd5ed0d19a2e8e
 - [ ] Тексты implementer-а и skill `epic-wave` называют шаг после отказа.
