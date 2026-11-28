@@ -157,8 +157,8 @@ export const routeKey = (blocker: number, blocked: number): string => `${blocker
 const byNum = (a: { num: number }, b: { num: number }) => a.num - b.num
 
 /**
- * Level and attention of each Ticket that is not done. A Ticket's own defect — an unreadable
- * "Blocked by", a blocker that is not in the Epic, a cycle among Tickets not done — sends it to
+ * Level and attention of each Ticket that is not done. A Ticket's own defect — an unreadable or
+ * absent "Blocked by", a blocker that is not in the Epic, a cycle among Tickets not done — sends it to
  * "Needs attention"; a Ticket blocked only by such Tickets keeps a level and ignores them.
  */
 function placeOpenTickets(tickets: readonly LayoutTicket[]): Map<number, { level: number } | { attention: AttentionReason }> {
@@ -168,7 +168,7 @@ function placeOpenTickets(tickets: readonly LayoutTicket[]): Map<number, { level
 
   const own = new Map<number, AttentionReason>()
   for (const t of remaining) {
-    if (!t.blockedParsed && t.blockedRaw !== null) own.set(t.num, { kind: 'unparsed', raw: t.blockedRaw })
+    if (!t.blockedParsed) own.set(t.num, { kind: 'unparsed', raw: t.blockedRaw })
     else {
       const missing = t.blockedNums.filter((blocker) => !all.has(blocker))
       if (missing.length) own.set(t.num, { kind: 'missing-blocker', missing })

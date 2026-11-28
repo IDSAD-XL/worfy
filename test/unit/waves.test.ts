@@ -158,6 +158,12 @@ describe('ticket levels', () => {
     expect(levels.get(3)).toEqual({ kind: 'after-problem', blockers: [1] })
   })
 
+  it('marks a Ticket with no "Blocked by" line as unparsed, not as a Ticket without blockers (worfy-polish 169)', () => {
+    const levels = ticketLevels([ticket(1, { blockedParsed: false, blockedRaw: null, blockedNums: [] }), ticket(2, blocked(1))])
+    expect(levels.get(1)).toEqual({ kind: 'unparsed', raw: null })
+    expect(levels.get(2)).toEqual({ kind: 'after-problem', blockers: [1] })
+  })
+
   it('keeps Epics apart: the same number in another Epic is another Ticket', () => {
     const levels = ticketLevels([ticket(1), ticket(2, { ...blocked(1), epic: 'other' })], 'other')
     expect(levels.get(2)).toEqual({ kind: 'missing-blocker', missing: [1] })
@@ -254,6 +260,15 @@ describe('ready wave', () => {
       { num: 3, reason: { kind: 'unparsed', raw: '???' } },
       { num: 4, reason: { kind: 'missing-blocker', missing: [42] } },
     ])
+  })
+
+  it('keeps a Ticket with no "Blocked by" line out of the Wave, open or blocked, as the Harness does (worfy-polish 169)', () => {
+    const noLine = { blockedParsed: false, blockedRaw: null, blockedNums: [] }
+    const wave = readyWave([ticket(1, noLine), ticket(2, { ...noLine, state: 'blocked', statusRaw: 'blocked' }), ticket(3)])
+    expect(wave.ready.map((r) => r.num)).toEqual([3])
+    expect(wave.waiting).toEqual([{ num: 1, reason: { kind: 'unparsed', raw: null } }])
+    expect(wave.skipped).toEqual([])
+    expect(Object.fromEntries(waveNumbers([ticket(1, noLine), ticket(3)]))).toEqual({ 3: 1 })
   })
 
   it('lists as skipped the blocked and status-less Tickets whose blockers are all done, and nothing in work or done (ticket 30)', () => {

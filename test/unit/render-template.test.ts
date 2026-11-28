@@ -88,6 +88,15 @@ describe('readyWaveNumber', () => {
     expect(readyWaveNumber([t(1, 'done'), t(2, 'open'), t(3, 'open', [1]), t(4, 'open', [3])], 'e')).toBe(1)
   })
 
+  it('counts a done Ticket without a "Blocked by" line as without blockers in the plan; an open one keeps no number (worfy-polish 169)', () => {
+    const noLine = (ticket: Ticket): Ticket => ({ ...ticket, blockedParsed: false, blockedRaw: null })
+    // Plan: wave 1 = 01; wave 2 = 02 (after 01); wave 3 = 03 (after 02).
+    expect(readyWaveNumber([noLine(t(1, 'done')), t(2, 'done', [1]), t(3, 'open', [2])], 'e')).toBe(3)
+    // The same missing line on a Ticket that is not done still keeps it out of the Wave.
+    expect(readyWaveNumber([noLine(t(1, 'open')), t(2, 'open')], 'e')).toBe(1)
+    expect(readyWaveNumber([noLine(t(1, 'open'))], 'e')).toBeNull()
+  })
+
   it('is null when nothing is ready', () => {
     expect(readyWaveNumber([t(1, 'work'), t(2, 'open', [1])], 'e')).toBeNull()
     expect(readyWaveNumber([t(1, 'done')], 'e')).toBeNull()

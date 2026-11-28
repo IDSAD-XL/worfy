@@ -15,6 +15,7 @@
 // badges/review-threads.css; change both.
 import { DEFAULT_PIPELINE, stageLabel } from '../../shared/workflow/pipeline'
 import type { Ticket, TicketState } from '../../shared/workflow/types'
+import { unparsedText } from '../../shared/workflow/waves'
 
 /** The card's width; the layout's columns are this wide (TICKET_WIDTH of epic-layout.ts). */
 export const TICKET_WIDTH = 240
@@ -401,7 +402,7 @@ export type Attention = { kind: 'unparsed'; raw: string | null } | { kind: 'miss
 export function attentionText(reason: Attention): string {
   switch (reason.kind) {
     case 'unparsed':
-      return `“Blocked by: ${reason.raw ?? ''}” is not a list of tickets`
+      return unparsedText(reason.raw)
     case 'missing-blocker':
       return `blocked by ${numList(reason.missing)}, not in this epic`
     case 'cycle':
