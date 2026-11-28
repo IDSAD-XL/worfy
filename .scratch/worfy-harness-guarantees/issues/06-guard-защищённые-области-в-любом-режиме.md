@@ -85,17 +85,17 @@ Windows verdict.
 
 - [ ] Запись и удаление в защищённых областях отказаны в `bypassPermissions` и в Codex Full access; `.git/hooks/` и
       `.git/config` — тоже (shell test-ы, красный на старом коде).
-  - evidence: test-run pass · `bash harness/hooks/tests/guard-areas.test.sh` exit 0 (172 passed; exit 1 with 126 failed on the old guard) · mac - · 3548d9652e5dad542342b622490394f65b312ffd
+  - evidence: test-run pass · `bash harness/hooks/tests/guard-areas.test.sh` exit 0 (172 passed; exit 1 with 126 failed on the old guard) · mac - · c31b217f294883afcb0b7fced0560822969b113f
 - [ ] Чтение правил Harness, память Claude Code, файлы Session по spike-у 01 и папка Card-ов открыты.
-  - evidence: test-run pass · `bash harness/hooks/tests/guard-areas.test.sh` exit 0 (open places and reads) · mac - · 3548d9652e5dad542342b622490394f65b312ffd
+  - evidence: test-run pass · `bash harness/hooks/tests/guard-areas.test.sh` exit 0 (open places and reads) · mac - · c31b217f294883afcb0b7fced0560822969b113f
 - [ ] Ручные Session-ы — по Q2 (в): unattended — отказ; ручная — `ask` или отказ по ответу spike-а 01, ветка названа в
       «Итог».
-  - evidence: test-run pass · `bash harness/hooks/tests/guard-areas.test.sh` exit 0 (Q2 branch (в): unattended deny, manual ask, Codex deny) · mac - · 3548d9652e5dad542342b622490394f65b312ffd
+  - evidence: test-run pass · `bash harness/hooks/tests/guard-areas.test.sh` exit 0 (Q2 branch (в): unattended deny, manual ask, Codex deny) · mac - · c31b217f294883afcb0b7fced0560822969b113f
 - [ ] Contract test: области и id правил guard-а равны `roots.ts` и `policy.ts`; таблица команд даёт одно hard-решение
       в `shell.ts` и guard-е, расхождение с lease записано.
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/guard-policy-parity.test.ts` exit 0 · mac - · 3548d9652e5dad542342b622490394f65b312ffd
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/guard-policy-parity.test.ts` exit 0 · mac - · c31b217f294883afcb0b7fced0560822969b113f
 - [ ] Contract set Ticket-а 08 получил case-ы области `~/.claude` и правила Ticket-а 03.
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/harness-guarantees.test.ts` exit 0 · mac - · 3548d9652e5dad542342b622490394f65b312ffd
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/harness-guarantees.test.ts` exit 0 · mac - · c31b217f294883afcb0b7fced0560822969b113f
 - [ ] Mutation testing reviewer-а: снятие каждого нового правила deny краснит хотя бы один test.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR, включая Windows verdict.
 

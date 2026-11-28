@@ -157,7 +157,7 @@ export function guardVariables(unattended: boolean, env: Readonly<Record<string,
 
 ## 7. Одна таблица, записанные расхождения
 
-Code: `test/contract/guard-policy-parity.test.ts:207-221` · key lines: 211, 218, 219
+Code: `test/contract/guard-policy-parity.test.ts:211-225` · key lines: 215, 222, 223
 
 ```ts
     // the rows where the two differ on purpose
