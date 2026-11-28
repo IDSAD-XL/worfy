@@ -32,6 +32,7 @@ import { readWorkflow } from '../../src/main/workflow/reader'
 import { WorkflowWatcher } from '../../src/main/workflow/watch'
 import type { WorkflowDelta } from '../../src/shared/workflow/types'
 import { DEFAULT_SETTINGS } from '../../src/shared/agent/settings'
+import { guardVariables } from '../../src/main/vendors/session'
 import { CANVAS_SERVER_NAME } from '../../src/shared/canvas/tools'
 import { ABORTED, hasSh, NODE_DIR, nodeScript, OUT_OF_MEMORY, scriptsEnv } from '../harness-node'
 import { removeTestTree } from '../remove'
@@ -513,9 +514,10 @@ describe('sdkQueryFactory and the Profile list', () => {
     const allowlist = (cwd: string, env: Record<string, string>): Promise<readonly string[]> => (asked.push([cwd, env]), Promise.resolve(['qmd']))
     await sdkQueryFactory(() => Promise.resolve(attached), allowlist)(request('/repo/.claude/worktrees/06'))
     const options = sdkOptions()
-    // Asked with the login shell environment the Session itself gets (env.ts), not worfy's own.
+    // Asked with the login shell environment the Session itself gets (env.ts), not worfy's own; the Session's has the
+    // variables of the Harness's guard over it (guardVariables).
     expect(asked).toEqual([['/repo/.claude/worktrees/06', loginEnv()]])
-    expect(asked[0]?.[1]).toBe(options.env)
+    expect(options.env).toEqual({ ...loginEnv(), ...guardVariables(false) })
     expect(options.managedSettings).toEqual({ allowManagedMcpServersOnly: true, allowedMcpServers: [{ serverName: 'qmd' }] })
     expect(options).not.toHaveProperty('mcpServers')
     expect(options.settingSources).toEqual(['user', 'project', 'local'])

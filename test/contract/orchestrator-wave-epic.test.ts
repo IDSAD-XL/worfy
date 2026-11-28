@@ -164,7 +164,8 @@ describe('the Epic of a Wave in the Orchestrator\'s Session', () => {
       [false, undefined],
     ])
     expect([epicOf(0), epicOf(1), epicOf(2)]).toEqual([undefined, 'ep-a', undefined])
-    expect(sdkOptions(1).env).toEqual({ ...LOGIN_ENV, WORFY_EPIC: 'ep-a' })
+    // The unattended Session also tells the Harness's guard that no person is at it, and where worfy's data folder is.
+    expect(sdkOptions(1).env).toEqual({ ...LOGIN_ENV, WORFY_EPIC: 'ep-a', WORFY_UNATTENDED: '1', WORFY_GUARD_DATA_DIR: dataDir })
     expect(appended(1)).toContain(waveInstructions('ep-a'))
     expect(appended(0)).not.toContain('wave-brief')
     expect(appended(2)).not.toContain('wave-brief')

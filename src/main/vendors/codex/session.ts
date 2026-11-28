@@ -70,7 +70,7 @@ import type { AutoApprovalMode } from '../../../shared/settings/app-settings'
 import { approvalMode, reportedOutcome } from '../../agent/auto-approve/mode'
 import { createParker, type ParkEnd } from '../../agent/auto-approve/park'
 import type { Decision } from '../../agent/auto-approve/policy'
-import { EPIC_VARIABLE, type ApprovalDecided, type PermissionAsk, type SessionApproval, type SessionHandle, type SessionMessage, type SessionPart, type SessionStart } from '../session'
+import { EPIC_VARIABLE, guardVariables, type ApprovalDecided, type PermissionAsk, type SessionApproval, type SessionHandle, type SessionMessage, type SessionPart, type SessionStart } from '../session'
 import type { CodexAppServer } from './app-server'
 import { approvalAsk, codexPinConfig, codexPinned, decisionOf, isApprovalRequest, parkedCard, policyRequestOf, UNATTENDED_DECLINED_MESSAGE, withGrantRoot, type CodexApprovalRequest, type CodexDecision } from './approvals'
 import type { CodexRuntime } from './binary'
@@ -958,8 +958,11 @@ async function open(options: CodexServerOptions, opts: SessionStart, resume: str
   // The run's TMPDIR and git environment of an unattended Session at Shadow or On (worfy-auto-approve tickets 04, 05);
   // without them, in Off, the environment as before.
   const runEnv = opts.environment === undefined ? tokenEnv : { ...tokenEnv, ...opts.environment }
+  // The variables of the Harness's guard (worfy-harness-guarantees ticket 06): an unattended Session, a moved data
+  // folder; on Codex the guard refuses either way, as Codex takes no `ask` from a hook, and reads the data folder.
+  const guarded = { ...runEnv, ...guardVariables(opts.unattended === true) }
   // The Epic of a Session that runs a Wave (worfy-continuity ticket 12): the Harness's after-compact hook reads it.
-  const env = opts.epic === undefined || opts.epic === '' ? runEnv : { ...runEnv, [EPIC_VARIABLE]: opts.epic }
+  const env = opts.epic === undefined || opts.epic === '' ? guarded : { ...guarded, [EPIC_VARIABLE]: opts.epic }
   // The same variables pinned in every command's shell, where the owner's include_only does not drop them (codexPinned); none in Off.
   const pinned = opts.environment === undefined ? null : codexPinned(env, opts.environment)
   const config = { ...mcp?.config, ...(pinned === null ? {} : codexPinConfig(pinned)), compact_prompt: CODEX_COMPACT_PROMPT }

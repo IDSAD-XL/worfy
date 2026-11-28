@@ -33,6 +33,7 @@ import type { CodexRuntime } from '../../src/main/vendors/codex/binary'
 import { codexDriver } from '../../src/main/vendors/codex'
 import { CODEX_CAPABILITIES, codexCapabilities } from '../../src/main/vendors/codex/capabilities'
 import { CODEX_COMPACT_PROMPT, codexSessions } from '../../src/main/vendors/codex/session'
+import { dataRoot } from '../../src/main/storage/paths'
 import { removeTestTree } from '../remove'
 import { scriptNode } from '../script-node'
 import { ms } from '../time-scale'
@@ -497,6 +498,18 @@ describe('a Codex Session: start and turns', () => {
     const plain = fake('turn')
     await (await live(plain)).until((event) => event.type === 'account', 'account')
     expect(plain.spawnedEnvs[0]?.WORFY_EPIC).toBe(process.env.WORFY_EPIC)
+  })
+
+  it('an unattended Session starts the app-server with WORFY_UNATTENDED=1 and the moved data folder, which the guard hook reads (worfy-harness-guarantees ticket 06)', async () => {
+    const unattended = fake('turn')
+    await (await live(unattended, { unattended: true })).until((event) => event.type === 'account', 'account')
+    expect(unattended.spawnedEnvs[0]?.WORFY_UNATTENDED).toBe('1')
+    // The contract tests move worfy's data folder (test/setup-contract.ts): the guard is told where it is.
+    expect(unattended.spawnedEnvs[0]?.WORFY_GUARD_DATA_DIR).toBe(dataRoot())
+
+    const manual = fake('turn')
+    await (await live(manual)).until((event) => event.type === 'account', 'account')
+    expect(manual.spawnedEnvs[0]?.WORFY_UNATTENDED).toBeUndefined()
   })
 })
 

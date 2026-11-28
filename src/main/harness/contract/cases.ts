@@ -9,8 +9,8 @@
 // money — cases 4 and 5, and the refusal cases tickets 03, 05 and 06 add. The paid case 15 keeps only
 // what takes a model: what the agent does after the refusal.
 //
-// A new case is one more entry of CONTRACT_CASES (the runner stays as it is): ticket 06 adds the cases
-// of its areas and of ticket 03's rules, ticket 05 the merge case.
+// A new case is one more entry of CONTRACT_CASES (the runner stays as it is): ticket 06 added case 7, its
+// protected area ~/.claude, and case 8, ticket 03's rule on verification paths; ticket 05 adds the merge case.
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { gateTag } from '../../gate/state'
@@ -161,5 +161,71 @@ export const SUBAGENT_AGENT_ID: ContractCase = {
   },
 }
 
+const CLAUDE_HOME_CALL = 'toolu_contract_claude_home'
+const CLAUDE_HOME_TEXT = 'written by the contract set'
+
+/** 7. The guard refuses a write into ~/.claude in bypassPermissions (ticket 06: protected areas in any mode). */
+export const GUARD_CLAUDE_HOME: ContractCase = {
+  id: 'guard-claude-home',
+  title: 'The guard refuses a write into ~/.claude in bypassPermissions',
+  prompt: 'CONTRACT-GUARD-CLAUDE-HOME',
+  chains: [{ marker: 'CONTRACT-GUARD-CLAUDE-HOME', calls: [{ id: CLAUDE_HOME_CALL, name: 'Bash', input: { command: `echo '${CLAUDE_HOME_TEXT}' > ~/.claude/settings.json`, description: 'Write the settings' } }] }],
+  // No person is at a run of the set, as at an Autopilot Session: the guard refuses rather than asks (WORFY_UNATTENDED).
+  prepare: () => ({ WORFY_UNATTENDED: '1' }),
+  check(run) {
+    const result = run.toolResult(CLAUDE_HOME_CALL)
+    if (result === undefined) return 'the scripted Bash call got no result'
+    const file = join(run.home, '.claude', 'settings.json')
+    const written = existsSync(file) && readFileSync(file, 'utf8').includes(CLAUDE_HOME_TEXT)
+    if (result.is_error !== true || written) return `the guard did not refuse: settings.json was ${written ? 'written' : 'kept'}, the result: ${resultText(result).slice(0, 300)}`
+    if (!resultText(result).includes('a protected area (claude-home)')) return `the call was refused, but not by the guard's protected areas: ${resultText(result).slice(0, 300)}`
+    return null
+  },
+}
+
+const TRAIL_CALL = 'toolu_contract_subagent_write'
+const TRAIL_PROJECT = 'contract-trail'
+// A new file: Claude Code refuses a Write of a file the Session has not read, before any hook.
+const WORKFLOW_FILE = '.github/workflows/new.yml'
+
+/** 8. The guard refuses a Subagent's write of a verification path its ticket's trail does not name (ticket 03). */
+export const GUARD_VERIFICATION_TRAIL: ContractCase = {
+  id: 'guard-verification-trail',
+  title: "The guard refuses a Subagent's write of a verification path outside its ticket's trail",
+  prompt: 'CONTRACT-TRAIL-MAIN',
+  // Write takes an absolute path: the case's own folder.
+  chains: (context) => [
+    { marker: 'CONTRACT-TRAIL-MAIN', calls: [{ id: 'toolu_contract_trail_agent', name: 'Agent', input: { description: 'Edit the workflow', prompt: 'CONTRACT-TRAIL-SUB edit the workflow', subagent_type: 'general-purpose' } }] },
+    { marker: 'CONTRACT-TRAIL-SUB', calls: [{ id: TRAIL_CALL, name: 'Write', input: { file_path: join(context.cwd, WORKFLOW_FILE), content: 'on: workflow_dispatch\n' } }] },
+  ],
+  prepare(context) {
+    // A registered project on the branch of ticket ep 07, whose trail at the base branch names another file.
+    git(context, ['init', '-q', '-b', 'main'])
+    mkdirSync(join(context.cwd, '.scratch', 'ep', 'issues'), { recursive: true })
+    mkdirSync(join(context.cwd, '.github', 'workflows'), { recursive: true })
+    writeFileSync(join(context.cwd, '.scratch', 'ep', 'issues', '07-x.md'), '# 07: x\n\nStatus: claimed\n\n## Where in code\n\n- `src/a.ts`\n\n## Done when\n\n- [ ] x\n')
+    writeFileSync(join(context.cwd, '.github', 'workflows', 'ci.yml'), 'on: push\n')
+    git(context, ['add', '-A'])
+    git(context, ['commit', '-q', '-m', 'init'])
+    git(context, ['update-ref', 'refs/remotes/origin/main', 'HEAD'])
+    git(context, ['checkout', '-q', '-b', 'ep/07'])
+    const top = git(context, ['rev-parse', '--show-toplevel'])
+    mkdirSync(join(context.harnessHome, 'gate'), { recursive: true })
+    mkdirSync(join(context.harnessHome, 'projects', TRAIL_PROJECT), { recursive: true })
+    writeFileSync(join(context.harnessHome, 'gate', 'config.json'), JSON.stringify({ repos: [{ key: TRAIL_PROJECT, match: top, profile: TRAIL_PROJECT, pm: 'npm', root: {}, workspace: {} }] }))
+    const tickets = { root: '.scratch/', path: '.scratch/<epic>/issues/NN-*.md', branch: '<epic>/<NN>', trail_section: '## Where in code' }
+    const worktree = { root: join(context.scratch, 'worktrees'), base: 'origin/main', implementer: 'x', reviewer: 'x' }
+    writeFileSync(join(context.harnessHome, 'projects', TRAIL_PROJECT, 'profile.json'), JSON.stringify({ schema: 2, name: TRAIL_PROJECT, mode: 'full', tickets, worktree }))
+  },
+  check(run) {
+    const result = run.toolResult(TRAIL_CALL)
+    if (result === undefined) return "the Subagent made no Write call: the stand-in did not drive its turn"
+    const written = existsSync(join(run.cwd, WORKFLOW_FILE))
+    if (result.is_error !== true || written) return `the guard did not refuse: the workflow was ${written ? 'written' : 'not written'}, the result: ${resultText(result).slice(0, 300)}`
+    if (!resultText(result).includes(`${WORKFLOW_FILE} is a verification path, and the trail of ep 07 does not name it`)) return `the call was refused, but not by the trail rule: ${resultText(result).slice(0, 300)}`
+    return null
+  },
+}
+
 /** The contract set, in the order it runs. */
-export const CONTRACT_CASES: readonly ContractCase[] = [PLUGIN_LOADED, SESSION_START_RULES, SKILLS_AND_AGENTS, GUARD_RESET_HARD, STOP_HOLDS_ON_RED, SUBAGENT_AGENT_ID]
+export const CONTRACT_CASES: readonly ContractCase[] = [PLUGIN_LOADED, SESSION_START_RULES, SKILLS_AND_AGENTS, GUARD_RESET_HARD, STOP_HOLDS_ON_RED, SUBAGENT_AGENT_ID, GUARD_CLAUDE_HOME, GUARD_VERIFICATION_TRAIL]
