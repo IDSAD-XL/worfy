@@ -221,6 +221,9 @@ for d in "$SKILLS_DIR"/*/; do
     [[ "$THIRD_PARTY" == *" $sk "* ]] && continue
     for f in "$d"/*; do
         n="$(basename "$f")"; [ "$n" = SKILL.md ] && continue
+        # agents/ holds the Codex manifest (agents/openai.yaml), which Codex reads itself: it is not a
+        # part a model reads, so no SKILL.md names it.
+        [ "$n" = agents ] && [ -d "$f" ] && continue
         # A folder of parts (a template) is named with its trailing slash.
         [ -d "$f" ] && n="$n/"
         step_files=$((step_files + 1))

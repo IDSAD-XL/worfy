@@ -77,16 +77,36 @@ Code: `test/contract/harness-plugin.test.ts:107-115` · key lines: 109, 114
 - Риски и пробелы test-ов: до правки test красный и называет оба skill-а (exit 1). Regex не разбирает YAML целиком:
   строка `allow_implicit_invocation: false` под другим ключом с отступом сразу после `policy:` тоже засчиталась бы.
 
-## 5. Что сознательно не меняли
+## 5. Проверка частей skill-а не считает `agents/` потерянной частью
+
+Code: `harness/bin/tests/start-context.test.sh:224-226` · key lines: 226
+
+```bash
+        # agents/ holds the Codex manifest (agents/openai.yaml), which Codex reads itself: it is not a
+        # part a model reads, so no SKILL.md names it.
+        [ "$n" = agents ] && [ -d "$f" ] && continue
+```
+
+- Что делает: проверка 3a требует, чтобы каждый файл или папку рядом со `SKILL.md` своего skill-а называл
+  `SKILL.md` или агент; папку `agents/` она теперь пропускает. Скопированные skill-ы она не смотрела и раньше.
+- Почему здесь: Ticket этого файла не называет. Без пропуска `pnpm test` красный: contract test
+  `test/contract/harness-scripts-4.test.ts` запускает этот скрипт, и он писал «agents/ lies next to SKILL.md, but
+  neither SKILL.md nor an agent names it» для обоих skill-ов.
+- Без него: красный `pnpm test`, либо строка про `agents/` в `SKILL.md`, которую модель читала бы зря.
+- Требование: [Готово, когда, п. 4](../issues/176-agents-openai-yaml-у-human-review-setup-и-overnight-fix-loop.md#готово-когда)
+- Риски и пробелы test-ов: пропуск по имени папки; часть skill-а, положенная в папку `agents/`, проверку
+  тоже пройдёт.
+
+## 6. Что сознательно не меняли
 
 Файлы 11 скопированных skill-ов не трогали: их sha256 закреплены в `test/contract/harness-third-party-skills.test.ts`.
 `scripts/eval-harness-coverage.mjs` (все case-ы при правке `harness/evals/lib/`) — вне следа Ticket-а.
 
-## 6. Как проверено
+## 7. Как проверено
 
 Новый test до правки — exit 1 (называет `human-review-setup`, `overnight-fix-loop`), после — exit 0. Contract test-ы
 `harness-plugin`, `harness-evals-run`, `harness-evals`, `harness-third-party-skills`, `harness-human-review-setup`,
-`codex-compat` — exit 0. `bash harness/bin/tests/plugin-neutral.test.sh` — exit 0.
+`codex-compat`, `harness-scripts-4` — exit 0. `bash harness/bin/tests/plugin-neutral.test.sh` и `start-context.test.sh` (пустой HOME) — exit 0.
 `pnpm eval:harness -- --changed origin/main --dry-run` — exit 0, claude не вызван.
 
 ## Проверить себя

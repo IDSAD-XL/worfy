@@ -95,3 +95,7 @@ PR #2350, «Итог», «Вопросы владельцу», вопрос 1: �
   case-ы (`scripts/eval-harness-coverage.mjs:105`). Без правки `coverage.json` `--changed` отказывает (карта не
   совпадает с `harness/`). Новые файлы в выводе — строки «no case: … — The Codex manifest …». Платного run-а не было.
 - Скопированные skill-ы не тронуты.
+- Вне следа Ticket-а: `harness/bin/tests/start-context.test.sh`, проверка 3a («каждую часть рядом со `SKILL.md` называет
+  `SKILL.md` или агент»), теперь пропускает папку `agents/`. Без этого `pnpm test` красный
+  (`test/contract/harness-scripts-4.test.ts`: «agents/ lies next to SKILL.md, but neither SKILL.md nor an agent names it»
+  для обоих skill-ов); скопированные skill-ы эта проверка не смотрела и раньше.
