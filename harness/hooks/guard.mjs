@@ -19,10 +19,11 @@
 // the trail read by lib/ticket-trail.cjs at the tip of worktree.base, or in the tickets folder when the
 // tickets live outside the repository — the rule bin/land merges by; as there, a symbolic link a command
 // makes (`ln -s`) counts wherever it is, and so does a folder above a verification path a command may
-// write or remove whole (`rm -r .github`, `cp -R tmpl .github`, `mv`, `rsync`). Refused: a path outside the
-// trail, a branch that names no ticket, a ticket with no trail at the base branch (a ticket only on its
-// branch), and any verification path in a tree on a detached HEAD (a review tree: mutate a copy outside
-// the repository). The main Session is not refused; a folder no profile covers, a project of several
+// write or remove whole (`rm -r .github`; a folder that `cp -R`, `mv` or `rsync` lands as or over: `cp -RT
+// tmpl .github`, `mv tmpl/workflows .github/`; a file moved into a folder is that one file). Refused: a path
+// outside the trail, a branch that names no ticket, a ticket with no trail at the base branch (a ticket only
+// on its branch), and any verification path in a tree on a detached HEAD with no rebase in progress (a
+// review tree: mutate a copy outside the repository; during a rebase the branch being rebased decides). The main Session is not refused; a folder no profile covers, a project of several
 // repositories and a profile without a tickets.branch template are not checked (checksPaths). With the
 // tickets outside the repository (Silent mode) a subagent's edit that changes the trail section of a
 // ticket there is refused too. A read that fails or runs out of the section's 8 s budget (bin/profile,
@@ -1084,8 +1085,9 @@ function operands(args, valued = []) {
 
 // The files a shell command writes or removes, as {abs, folder, symlink}: the targets of its write redirections, and the
 // operands of the common commands that write files (tee, cp, mv, install, ln, rsync, rm, rmdir, unlink, touch, truncate,
-// dd of=, sed -i, perl -i); a folder copy (cp -r, -R, -a), mv and rsync write a whole folder at the destination, and rm
-// and the source of mv remove one. A path is read the way its shell reads it (`~`, `$HOME`, `$PWD`, variables the
+// dd of=, sed -i, perl -i); a folder copy (cp -r, -R, -a), mv and rsync write a whole folder where a folder source lands
+// (in a destination that ends in "/" or is a folder now, under the source's own name; -T and rsync "src/" onto the
+// destination itself), and rm and the source of mv remove one. A path is read the way its shell reads it (`~`, `$HOME`, `$PWD`, variables the
 // command sets, `cd` or `pushd` before it; Git Bash paths on Windows); a word the guard cannot expand ($(…), an unknown
 // variable) is skipped.
 // shortcut: lexical, as every rule here: a script that writes a file itself (`node -e "…writeFileSync…"`), git
@@ -1100,6 +1102,18 @@ function shellTargets(src) {
         if (!p || /[$`]/.test(p) || /^\/dev\//.test(p)) return
         out.push({ abs: path.resolve(dir, p), folder, symlink })
     }
+    // what a word names now, at the time of the call: a folder or a file (false when it does not exist or cannot be told)
+    const statOf = (word) => {
+        const p = expandPath(word.replace(/^\$(?:PWD\b|\{PWD\})/, () => dir.replace(/\\/g, "/")))
+        if (!p || /[$`*?]/.test(p)) return null
+        try {
+            return fs.statSync(path.resolve(dir, p))
+        } catch {
+            return null
+        }
+    }
+    const isFolder = (word) => statOf(word)?.isDirectory() === true
+    const isFile = (word) => statOf(word)?.isFile() === true
     for (const words of lex(flat)) {
         if (words.every((x) => /^[A-Za-z_][A-Za-z0-9_]*=/.test(x))) words.forEach(setShellVar)
         else if (words[0] === "export") words.slice(1).forEach(setShellVar)
@@ -1132,11 +1146,21 @@ function shellTargets(src) {
                 add(path.basename(dest), false, symlink)
                 continue
             }
-            // a folder copy (cp -r, -R, -a), a move and rsync may write a whole folder at the destination: `cp -R tmpl .github`
-            const whole = prog === "mv" || prog === "rsync" || (prog === "cp" && args.some((a) => /^-[a-zA-Z]*[rRa]/.test(a) || a === "--recursive" || a === "--archive"))
-            add(dest, whole, symlink)
-            // the destination may be a folder: the file lands there under its own name
-            for (const s of sources) add(`${dest.replace(/[\\/]+$/, "")}/${path.basename(s.replace(/[\\/]+$/, ""))}`, whole, symlink)
+            // a folder copy (cp -r, -R, -a), a move and rsync may write a whole folder where a source lands
+            const recursive = prog === "mv" || prog === "rsync" || (prog === "cp" && args.some((a) => /^-[a-zA-Z]*[rRa]/.test(a) || a === "--recursive" || a === "--archive"))
+            // -T (--no-target-directory) makes the destination the name itself; rsync's -T is its temporary folder
+            const noTarget = prog !== "rsync" && args.some((a) => /^-[a-zA-Z]*T/.test(a) || a === "--no-target-directory")
+            // a destination that ends in "/" or is a folder now: each source lands in it under its own name
+            const intoFolder = !noTarget && (into !== null || /[\\/]$/.test(dest) || isFolder(dest))
+            const base = dest.replace(/[\\/]+$/, "")
+            for (const s of sources.length ? sources : [""]) {
+                // rsync's "src/" copies the folder's contents: they land in the destination itself
+                const contents = prog === "rsync" && /[\\/]$/.test(s)
+                const name = path.basename(s.replace(/[\\/]+$/, ""))
+                const lands = intoFolder && !contents && name ? `${base}/${name}` : dest
+                // a source that is a file writes one file; a folder, or one that does not exist yet, may write a whole folder
+                add(lands, recursive && !isFile(s), symlink)
+            }
             if (prog === "mv") sources.forEach((s) => add(s, true))
         } else if (prog === "rm" || prog === "rmdir" || prog === "unlink") operands(args).forEach((f) => add(f, true))
         else if (prog === "touch") operands(args, ["-t", "-d", "-r", "--date", "--reference"]).forEach((f) => add(f))
@@ -1261,9 +1285,31 @@ function treeOf(dir) {
         try {
             tree.top = fs.realpathSync.native(tree.top)
         } catch {}
+        // HEAD is detached during a rebase too: the branch being rebased is the branch (git keeps its name in
+        // rebase-merge/head-name, or rebase-apply/head-name for the apply backend); a detached HEAD with neither is a
+        // review tree
+        if (tree.branch === "HEAD") tree.branch = rebasedBranch(dir) || "HEAD"
     }
     treeOfDir.set(dir, tree)
     return tree
+}
+
+// The branch a rebase in progress in the work tree of `dir` is rebasing, or null.
+function rebasedBranch(dir) {
+    const r = spawnSync(GIT, ["-C", dir, "rev-parse", "--git-path", "rebase-merge/head-name", "--git-path", "rebase-apply/head-name"], {
+        encoding: "utf8",
+        timeout: section4Left(),
+        windowsHide: true,
+    })
+    if (r.status !== 0) return null
+    for (const file of r.stdout.split("\n").map((l) => l.trim()).filter(Boolean)) {
+        let name = ""
+        try {
+            name = fs.readFileSync(path.resolve(dir, file), "utf8").trim()
+        } catch {}
+        if (name.startsWith("refs/heads/")) return name.slice("refs/heads/".length)
+    }
+    return null
 }
 
 // Where the tickets of the project are read: {folder} — a tickets folder outside the repository (Silent mode: under the

@@ -355,8 +355,11 @@ refuses a Subagent's `ticket mark`, and `profile-set` of `verification.*`, `work
 `workflow.merge` from any agent Session: the owner changes those fields. The check is lexical: a script that writes a file
 itself passes, and `land` checks the PR's diff at merge.
 
-A work tree on a detached HEAD is a review tree: a Subagent there edits no verification path, and the refusal tells it to
-mutate a copy outside the repository. Two kinds of Project are not checked yet: a Project of several repositories, whose
+A work tree on a detached HEAD with no rebase in progress is a review tree: a Subagent there edits no verification path,
+and the refusal tells it to mutate a copy outside the repository. During a rebase the branch being rebased decides, as on
+that branch. A folder copy or move counts as a write of the whole folder only where a folder lands as or over a folder
+above a verification path (`cp -RT tmpl .github`, `mv tmpl/workflows .github/`); a file moved into `.github/` is that one
+file. Two kinds of Project are not checked yet: a Project of several repositories, whose
 trail entries start with the repository's name, and a Profile without a `tickets.branch` template, where no branch names a
 Ticket. `land` still checks their PRs. A read that fails or runs out of the guard's 8 s budget (`bin/profile`, git, the
 trail) lets the call through, and so does a failure inside the check: `land` checks the PR at merge.

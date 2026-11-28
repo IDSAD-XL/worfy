@@ -31,7 +31,7 @@ Code: `harness/hooks/hooks.json:186-187` · key lines: 187
 
 ## 3. Кто Subagent и какие tool-ы доходят до раздела 4
 
-Code: `harness/hooks/guard.mjs:122-140` · key lines: 128, 136, 138
+Code: `harness/hooks/guard.mjs:123-141` · key lines: 129, 137, 139
 
 ```js
 const agent = codex ? codexAgent(payload) : ""
@@ -67,7 +67,7 @@ if (bash && !cmd.trim()) ok()
 
 ## 4. Решение — правило `land`
 
-Code: `harness/hooks/guard.mjs:1384-1431` · key lines: 1393, 1401, 1407, 1410, 1419, 1429
+Code: `harness/hooks/guard.mjs:1430-1477` · key lines: 1439, 1447, 1453, 1456, 1465, 1475
 
 ```js
 function verificationSection() {
@@ -123,7 +123,7 @@ function verificationSection() {
 - Что делает: для каждого файла вызова — realpath ближайшей существующей папки, дерево git этой папки и его ветка,
   профиль дерева; путь проверки (или любая символическая ссылка, или папка, которую команда пишет или удаляет целиком)
   сверяется с trail-ом Ticket-а ветки на вершине `worktree.base` через `readTrail`/`namedByTrail` — те же helper-ы, что
-  у `land`. Дерево на detached HEAD (дерево reviewer-а) получает свой отказ: мутировать копию вне репозитория.
+  у `land`. Дерево на detached HEAD без rebase (дерево reviewer-а) получает свой отказ: мутировать копию вне репозитория.
 - Почему здесь: Ticket велит переиспользовать `verification-paths.cjs` и helper trail-а Ticket-а 04 («только вызов»);
   корень — дерево файла, потому что worktree лежат в `.claude/worktrees/`, а `.claude/**` — путь проверки по умолчанию.
   Текст для detached HEAD — решение review round 1 (reviewer-у не нужен trail, ему нужна копия).
@@ -136,7 +136,7 @@ function verificationSection() {
 
 ## 5. Какие профили проверяются
 
-Code: `harness/hooks/guard.mjs:1372-1382` · key lines: 1381
+Code: `harness/hooks/guard.mjs:1418-1428` · key lines: 1427
 
 ```js
 // Whether the guard checks verification paths for a project: a ticket branch template (tickets.branch with <epic> and
@@ -165,7 +165,7 @@ function checksPaths(profile) {
 
 ## 6. Сбой открывает проход
 
-Code: `harness/hooks/guard.mjs:1006-1016` · key lines: 1013, 1016
+Code: `harness/hooks/guard.mjs:1007-1017` · key lines: 1014, 1017
 
 ```js
 // The time all the reads of this section share — bin/profile, git rev-parse, git symbolic-ref and the git calls of the
@@ -190,12 +190,12 @@ const section4Left = () => Math.max(1, section4Until - Date.now())
 - Без него: зависший git держал бы каждый Edit до лимита hook-а (test «a git that does not answer the trail read within
   the budget» шёл 20 s и краснел до правки); непрочитанный профиль отказывал бы всем правкам путей проверок.
 - Требование: [Готово, когда, п. 1](../issues/03-guard-путь-проверки-только-по-trail-у.md#готово-когда)
-- Риски и пробелы test-ов: мутант «исключение раздела 4 → отказ» выживает — ни один вход раздел не роняет, мутант
-  эквивалентный. Медленный git проверен только на POSIX (shell-скрипт не запускается как программа на Windows).
+- Риски и пробелы test-ов: исключение внутри раздела проверено одним входом (replace_all, результат которого длиннее
+  предельной строки node); мутант «исключение → отказ» краснеет. Медленный git проверен только на POSIX (shell-скрипт не запускается как программа на Windows).
 
 ## 7. Silent mode: правка trail-а в папке Ticket-ов
 
-Code: `harness/hooks/guard.mjs:1350-1370` · key lines: 1357, 1361, 1362
+Code: `harness/hooks/guard.mjs:1396-1416` · key lines: 1403, 1407, 1408
 
 ```js
 function trailEdit(t, folder, heading) {
@@ -234,7 +234,7 @@ function trailEdit(t, folder, heading) {
 
 ## 8. `ticket mark` и `profile-set`
 
-Code: `harness/hooks/guard.mjs:1178-1190` · key lines: 1182, 1183, 1184
+Code: `harness/hooks/guard.mjs:1202-1214` · key lines: 1206, 1207, 1208
 
 ```js
 function marksAndFields() {
@@ -265,7 +265,7 @@ function marksAndFields() {
 
 ## 9. Один `deny()` и строка в `WORFY_GUARD_LOG`
 
-Code: `harness/hooks/guard.mjs:93-113` · key lines: 98, 99, 100, 101, 102
+Code: `harness/hooks/guard.mjs:94-114` · key lines: 99, 100, 101, 102, 103
 
 ```js
 let refusedTicket = null
@@ -299,11 +299,81 @@ const deny = (reason, rule) => {
 - Требование: [Готово, когда, п. 5](../issues/03-guard-путь-проверки-только-по-trail-у.md#готово-когда)
 - Риски и пробелы test-ов: `ticket` в строке — только когда раздел 4 читал trail; у остальных правил `null`.
 
-## 10. Как проверено
+## 10. Копия или перенос в папку
 
-`bash harness/hooks/tests/guard-verification.test.sh` — exit 0 (107 проверок; на старом guard-е — 57 FAIL из 85, test-ы
-review round 1 до правки — 14–15 FAIL); копия Harness с мутантом — test красный для каждого нового правила и каждой
-правки round 1, кроме эквивалентного «исключение → отказ»; `guard-silent.test.sh`, `rules-hooks.test.sh`,
+Code: `harness/hooks/guard.mjs:1149-1164` · key lines: 1154, 1158, 1160, 1162
+
+```js
+            // a folder copy (cp -r, -R, -a), a move and rsync may write a whole folder where a source lands
+            const recursive = prog === "mv" || prog === "rsync" || (prog === "cp" && args.some((a) => /^-[a-zA-Z]*[rRa]/.test(a) || a === "--recursive" || a === "--archive"))
+            // -T (--no-target-directory) makes the destination the name itself; rsync's -T is its temporary folder
+            const noTarget = prog !== "rsync" && args.some((a) => /^-[a-zA-Z]*T/.test(a) || a === "--no-target-directory")
+            // a destination that ends in "/" or is a folder now: each source lands in it under its own name
+            const intoFolder = !noTarget && (into !== null || /[\\/]$/.test(dest) || isFolder(dest))
+            const base = dest.replace(/[\\/]+$/, "")
+            for (const s of sources.length ? sources : [""]) {
+                // rsync's "src/" copies the folder's contents: they land in the destination itself
+                const contents = prog === "rsync" && /[\\/]$/.test(s)
+                const name = path.basename(s.replace(/[\\/]+$/, ""))
+                const lands = intoFolder && !contents && name ? `${base}/${name}` : dest
+                // a source that is a file writes one file; a folder, or one that does not exist yet, may write a whole folder
+                add(lands, recursive && !isFile(s), symlink)
+            }
+            if (prog === "mv") sources.forEach((s) => add(s, true))
+```
+
+- Что делает: цель, которая кончается на `/` или уже есть как папка, получает каждый источник под его именем
+  (`mv notes.md tools/` пишет `tools/notes.md`); `-T` и `rsync src/` пишут саму цель. Запись всей папки (проверка «папка
+  над путём проверки») — только для источника, который не файл: папка или то, чего ещё нет.
+- Почему здесь: review round 2: правило round 1 считало любой перенос в `.github/` или `tools/` записью всей папки и
+  отказывало `mv CODEOWNERS .github/`, хотя `cp` того же файла проходил.
+- Без него: ложный отказ на перенос файла в папку над путём проверки (test-ы «mv of a file into tools/», «mv CODEOWNERS
+  .github/» красные на коммите 129ab4b18); без проверки источника-папки `cp -RT tmpl .github` и `mv tmpl/workflows .github/`
+  проходили бы (мутанты «цель-папка не распознана», «`-T` не читается», «rsync `src/` не читается» краснят test).
+- Требование: [Готово, когда, п. 1](../issues/03-guard-путь-проверки-только-по-trail-у.md#готово-когда)
+- Риски и пробелы test-ов: папка или файл решаются по состоянию на момент вызова; команда, которая сначала создаёт
+  папку цели и потом копирует в неё в той же строке, читается по старому состоянию. Glob в источнике (`cp -r tmpl/* .github/`)
+  не раскрывается — это закрывает `land`.
+
+## 11. Rebase, остановленный на конфликте
+
+Code: `harness/hooks/guard.mjs:1297-1313` · key lines: 1299, 1308, 1310
+
+```js
+// The branch a rebase in progress in the work tree of `dir` is rebasing, or null.
+function rebasedBranch(dir) {
+    const r = spawnSync(GIT, ["-C", dir, "rev-parse", "--git-path", "rebase-merge/head-name", "--git-path", "rebase-apply/head-name"], {
+        encoding: "utf8",
+        timeout: section4Left(),
+        windowsHide: true,
+    })
+    if (r.status !== 0) return null
+    for (const file of r.stdout.split("\n").map((l) => l.trim()).filter(Boolean)) {
+        let name = ""
+        try {
+            name = fs.readFileSync(path.resolve(dir, file), "utf8").trim()
+        } catch {}
+        if (name.startsWith("refs/heads/")) return name.slice("refs/heads/".length)
+    }
+    return null
+}
+```
+
+- Что делает: на detached HEAD guard читает имя ветки, которую двигает rebase (`rebase-merge/head-name` или
+  `rebase-apply/head-name`), и решает по trail-у этой ветки; detached HEAD без rebase остаётся деревом reviewer-а.
+- Почему здесь: review round 2: skill `epic-wave` велит implementer-у делать rebase при конфликте, и на время rebase HEAD
+  detached — правило round 1 отказывало ему с текстом для reviewer-а.
+- Без него: Edit пути из trail-а во время rebase отказан «Mutate a copy outside the repository» (test «a rebase in
+  progress: a verification path the trail names» красный, мутант «rebase не читается» — 3 FAIL).
+- Требование: [Готово, когда, п. 2](../issues/03-guard-путь-проверки-только-по-trail-у.md#готово-когда)
+- Риски и пробелы test-ов: имя читается только из `refs/heads/…`; rebase, начатый на detached HEAD (в `head-name`
+  тогда `detached HEAD`), остаётся деревом reviewer-а. Rebase через `rebase-apply` test не проверяет.
+
+## 12. Как проверено
+
+`bash harness/hooks/tests/guard-verification.test.sh` — exit 0 (124 проверки; на старом guard-е — 57 FAIL из 85, test-ы
+review round 1 до правки — 14–15 FAIL, round 2 — 13 FAIL); копия Harness с мутантом — test красный для каждого нового правила и каждой
+правки round 1 и round 2, включая «исключение → отказ» (test с replace_all, результат которого длиннее предельной строки node); `guard-silent.test.sh`, `rules-hooks.test.sh`,
 `session-hooks.test.sh`, `harness-home.test.sh`, `plugin-neutral.test.sh`, `land-verification.test.sh` — exit 0;
 `test/contract/harness-codex-hooks.test.ts`, `harness-guarantees.test.ts`, `harness-evals-run.test.ts`,
 `test/unit/ticket-trail.test.ts`, `verification-paths.test.ts` — exit 0; `pnpm lint`, `pnpm typecheck` — exit 0.
@@ -313,10 +383,10 @@ Windows и Git Bash — только CI.
 
 1. Почему trail читается на `origin/main`, а не на HEAD ветки дерева?
    - Ответ: trail на ветке пишет сам Subagent; прочитанный там, он разрешал бы путь, который Subagent себе дописал.
-   - Строки: `harness/hooks/guard.mjs:1297-1310`
+   - Строки: `harness/hooks/guard.mjs:1343-1356`
 2. Что делает guard, когда git не ответил за бюджет раздела?
    - Ответ: пропускает вызов — сбой открывает проход, путь закрывает `land` при merge.
-   - Строки: `harness/hooks/guard.mjs:1416-1419`
+   - Строки: `harness/hooks/guard.mjs:1462-1465`
 3. Почему Edit главного потока Session, запущенной с `--agent`, не отказан, хотя в нём есть `agent_type`?
    - Ответ: Subagent на Claude Code узнаётся по `agent_id`, который есть только внутри Subagent-а.
-   - Строки: `harness/hooks/guard.mjs:124-128`
+   - Строки: `harness/hooks/guard.mjs:125-129`
