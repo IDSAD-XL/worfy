@@ -110,6 +110,7 @@
             "merge_gate": { "enum": ["each", "wave", null], "description": "The gate before the merge of a PR with code: null or absent — none required; each — gate full on every PR after a rebase; wave — one gate full for the set of a wave's ready PRs (bin/wave-gate)." },
             "ci": { "enum": ["pr", "batch", null], "description": "Where GitHub CI runs: pr (absent or null resolve to it) — on every PR head, a merge condition; batch — once on the main branch per wave (bin/wave-gate ci), not a merge condition." },
             "ci_batch_run": { "type": ["string", "null"], "description": "The command that starts the CI run on a branch, $ref is the branch; required with ci batch." },
+            "ci_check": { "type": ["string", "null"], "minLength": 1, "pattern": "^[^\\r\\n]*\\S[^\\r\\n]*$", "description": "The name of the CI check a merge waits for, the one that sums up the others (worfy: ci-ok); null or absent — none named." },
             "e2e_lock": { "type": ["string", "null"], "description": "Absolute path of the e2e lock directory (~/ is expanded); null — no lock." },
             "agents": { "enum": ["eco", "full", null], "description": "How many subagents a ticket starts (profiles/README.md, workflow.agents): full (absent or null resolve to it) — as before; eco — fewer, by the rules of skills epic-wave and ship-ticket." },
             "pipeline": {
@@ -161,6 +162,18 @@
           "type": "object",
           "required": ["allowed"],
           "properties": { "allowed": { "type": "array", "items": { "type": "string" } } }
+        },
+        "verification": {
+          "type": ["object", "null"],
+          "description": "The verification paths of the project (profiles/README.md, verification.paths). Absent or null — the defaults only.",
+          "additionalProperties": false,
+          "properties": {
+            "paths": {
+              "type": ["array", "null"],
+              "description": "Globs of the files that judge work, added to the defaults every project has (.github/workflows/**, .github/actions/**, CLAUDE.md, AGENTS.md, .claude/**, .codex/**, .mcp.json); a glob only adds, so none is blank or starts with ! (after spaces); ./, a leading /, a . segment and a trailing / are read as from the root of the repository and as the whole folder; a glob with a .. segment or made only of /, \\ and . leaves the repository or names nothing, so it is refused here and by bin/profile.",
+              "items": { "type": "string", "minLength": 1, "pattern": "^(?!\\s*(?:\\.?[\\\\/])*\\.?\\s*$)(?![\\s\\S]*(?:^\\s*|[\\\\/])\\.\\.(?:[\\\\/]|\\s*$))\\s*[^!\\s]" }
+            }
+          }
         },
         "code_stories": {
           "type": ["object", "null"],

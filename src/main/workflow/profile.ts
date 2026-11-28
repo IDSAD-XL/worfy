@@ -519,12 +519,15 @@ export type ProfileMissRead = { ok: false; reason: string; miss: 'none' } | { ok
 type FieldRead = { ok: true; stdout: string } | ProfileMissRead
 
 /** Runs `bin/profile -C <root> --field <field>` and turns every exit but code 0 into a reason. */
-function readField(options: ReadProfileOptions, field: string): Promise<FieldRead> {
-  return runProfile(options, ['--field', field], `the Profile has no ${field} field (profile exit code 4)`)
+function readField(options: ReadProfileOptions, field: string, exit?: { code: number | null }): Promise<FieldRead> {
+  return runProfile(options, ['--field', field], `the Profile has no ${field} field (profile exit code 4)`, exit)
 }
 
-/** Runs `bin/profile -C <root> <args>`; every exit but code 0 is a reason, `absent` that of code 4. */
-async function runProfile(options: ReadProfileOptions, args: readonly string[], absent: string): Promise<FieldRead> {
+/**
+ * Runs `bin/profile -C <root> <args>`; every exit but code 0 is a reason, `absent` that of code 4. `exit`, when
+ * given, gets the script's exit code (null when it did not run or ended without one).
+ */
+async function runProfile(options: ReadProfileOptions, args: readonly string[], absent: string, exit?: { code: number | null }): Promise<FieldRead> {
   const run = options.run ?? profileRunner(options.claudeHome, options.env)
   const none = (reason: string): FieldRead => ({ ok: false, reason, miss: 'none' })
   const failed = (reason: string, environment = false): FieldRead => ({ ok: false, reason, miss: 'failed', environment })
@@ -532,6 +535,7 @@ async function runProfile(options: ReadProfileOptions, args: readonly string[], 
   let result: ProfileRun
   try {
     result = await run(options.root, ['-C', options.root, ...args])
+    if (exit !== undefined) exit.code = result.code
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code
     // With no Harness found this names <claudeHome>/bin/profile, where it was looked for before the plugin.
@@ -637,6 +641,54 @@ export async function readProfileFolder(options: ReadProfileOptions): Promise<Pr
   const dir = field.stdout
   if (dir.includes('\n') || !isAbsolutePath(dir)) return none(`${PROFILE_DIR_FIELD} is not an absolute path: ${JSON.stringify(dir.slice(0, 200))}`)
   return { dir, reason: null }
+}
+
+// ── the verification paths ───────────────────────────────────────────────────
+
+/** The Profile field with the verification paths, which `bin/profile` prints resolved (harness/lib/verification-paths.cjs). */
+export const VERIFICATION_PATHS_FIELD = 'verification.paths'
+
+/**
+ * Why there are no verification paths to show: `profile` — bin/profile refused the Profile (exit code 1: a broken
+ * field, such as a negated glob); `harness` — this Harness does not know the field (exit code 4); `failed` — any
+ * other failure of the read.
+ */
+export type VerificationPathsMiss = 'profile' | 'harness' | 'failed'
+
+/** The verification paths of a Project, or null with the reason there are none to show. */
+export interface VerificationPaths {
+  paths: readonly string[] | null
+  reason: string | null
+  miss: VerificationPathsMiss | null
+}
+
+const globList = z.array(z.string().min(1))
+
+/**
+ * The verification paths of the Project at `root` (worfy-harness-guarantees ticket 02): the files that judge
+ * work, the Harness's defaults and then the Profile's own globs, as `bin/profile --field verification.paths`
+ * prints them. Without them — a broken Profile (exit code 1), an older Harness (exit code 4), no Profile, a
+ * failed run, a value that is not a list of globs — the paths are null, `miss` says which, and the reason goes
+ * to the log in one line.
+ */
+export async function readVerificationPaths(options: ReadProfileOptions): Promise<VerificationPaths> {
+  const log = options.log ?? ((message: string) => console.warn(message))
+  const none = (reason: string, miss: VerificationPathsMiss): VerificationPaths => {
+    log(`[profile] verification paths of ${options.root}: none shown, because ${reason}`)
+    return { paths: null, reason, miss }
+  }
+  const exit: { code: number | null } = { code: null }
+  const field = await readField(options, VERIFICATION_PATHS_FIELD, exit)
+  if (!field.ok) return none(field.reason, exit.code === 1 ? 'profile' : exit.code === 4 ? 'harness' : 'failed')
+  let json: unknown
+  try {
+    json = JSON.parse(field.stdout)
+  } catch {
+    return none(`${VERIFICATION_PATHS_FIELD} is not JSON: ${JSON.stringify(field.stdout.slice(0, 200))}`, 'failed')
+  }
+  const parsed = globList.safeParse(json)
+  if (!parsed.success) return none(`${VERIFICATION_PATHS_FIELD} is not a list of globs: ${JSON.stringify(field.stdout.slice(0, 200))}`, 'failed')
+  return { paths: parsed.data, reason: null, miss: null }
 }
 
 // ── the GitHub account ───────────────────────────────────────────────────────

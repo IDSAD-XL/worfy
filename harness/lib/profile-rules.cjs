@@ -7,6 +7,9 @@
 // - workflow.e2e_lock is an absolute path (`~/` counts) or null;
 // - workflow.ci is "pr", "batch" or null; workflow.ci_batch_run is a command string or null, and "batch"
 //   needs it;
+// - workflow.ci_check, the name of the CI check a merge waits for, is a one-line text or null;
+// - verification is null or {paths}, verification.paths a list of globs that only add to the defaults
+//   (lib/verification-paths.cjs holds that rule with the list);
 // - cross_machine_gate is null or {label, role, exempt?, check?, checks_section}, role "serve" needs check.
 //
 // profileProblems returns the problems instead of ending the process, as pipeline.cjs does: the caller
@@ -20,6 +23,7 @@
 
 const os = require("node:os")
 const path = require("node:path")
+const { verificationProblems } = require("./verification-paths.cjs")
 
 const MERGE_GATES = ["each", "wave"]
 const CI_MODES = ["pr", "batch"]
@@ -50,6 +54,8 @@ function workflowProblems(wf) {
             path: "workflow.ci",
             message: `workflow.ci "batch" needs workflow.ci_batch_run, the command that starts the CI run on the main branch`,
         })
+    if (given(wf.ci_check) && (!text(wf.ci_check) || /[\r\n]/.test(wf.ci_check)))
+        problems.push({ path: "workflow.ci_check", message: `workflow.ci_check is the name of a CI check or null, got ${JSON.stringify(wf.ci_check)}` })
     return problems
 }
 
@@ -74,7 +80,7 @@ function crossMachineGateProblems(g) {
 /** Every problem bin/profile would refuse `profile` for among the rules above; [] when it reads it. */
 function profileProblems(profile) {
     if (!isObject(profile)) return []
-    return [...workflowProblems(profile.workflow), ...crossMachineGateProblems(profile.cross_machine_gate)]
+    return [...workflowProblems(profile.workflow), ...crossMachineGateProblems(profile.cross_machine_gate), ...verificationProblems(profile)]
 }
 
 module.exports = { profileProblems, expandHome }

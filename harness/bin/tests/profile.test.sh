@@ -121,7 +121,36 @@ check "code_stories.pr false -> on, exit 0" 0 "on" "$PROFILE" -C "$T/repo" --fie
 check "code_stories.pr false -> a warning naming the field" 0 "code_stories.pr" bash -c "'$PROFILE' -C '$T/repo' --field code_stories.pr 2>&1 >/dev/null"
 with_stories '"off"'
 check "code_stories a string -> on, exit 0" 0 "on" "$PROFILE" -C "$T/repo" --field code_stories.pr
+# verification.paths, the files that judge work (lib/verification-paths.cjs): --field prints the whole list,
+# the defaults of every project and then the profile's globs; the profile only adds. workflow.ci_check as written.
+DEFAULT_PATHS='[".github/workflows/**",".github/actions/**","CLAUDE.md","AGENTS.md",".claude/**",".codex/**",".mcp.json"]'
+paths_of() { "$PROFILE" -C "$T/repo" --field verification.paths | node -e 'process.stdout.write(JSON.stringify(JSON.parse(require("fs").readFileSync(0,"utf8"))))'; }
+with_fields() { node -e 'const p=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); Object.assign(p, JSON.parse(process.argv[2])); process.stdout.write(JSON.stringify(p))' "$T/demo-profile.json" "$1" >"$T/profiles/demo/profile.json"; }
+check "verification absent -> --field verification.paths prints the defaults" 0 "" test "$(paths_of)" = "$DEFAULT_PATHS"
+with_fields '{"verification":{"paths":["scripts/ci-*.mjs","test/quarantine/**"]},"workflow":{"ci_check":"ci-ok"}}'
+check "verification.paths -> the defaults, then the profile's globs" 0 "" \
+    test "$(paths_of)" = "${DEFAULT_PATHS%]}"',"scripts/ci-*.mjs","test/quarantine/**"]'
+check "--json carries the whole list" 0 '"scripts/ci-*.mjs"' bash -c "'$PROFILE' -C '$T/repo' --json | node -e 'process.stdout.write(JSON.stringify(JSON.parse(require(\"fs\").readFileSync(0,\"utf8\")).verification.paths))'"
+check "workflow.ci_check as written" 0 "ci-ok" "$PROFILE" -C "$T/repo" --field workflow.ci_check
+with_fields '{"verification":{"paths":[]}}'
+check "verification.paths [] -> the defaults" 0 "" test "$(paths_of)" = "$DEFAULT_PATHS"
+with_fields '{"verification":null}'
+check "verification null -> the defaults" 0 "" test "$(paths_of)" = "$DEFAULT_PATHS"
+with_fields '{"verification":{"paths":["!CLAUDE.md"]}}'
+check "a negated glob -> exit 1, the profile only adds" 1 "" "$PROFILE" -C "$T/repo" --field verification.paths
+check "a negated glob -> the reason names the field" 1 "verification.paths[0]" bash -c "'$PROFILE' -C '$T/repo' --name 2>&1 >/dev/null"
+# Review round 1: a glob is printed the way it matches ("./x", "/x", "x/", "\\"); one that leaves the repository is refused.
+with_fields '{"verification":{"paths":["./scripts/**","tools/","/ROOT.md","test\\quarantine\\**"]}}'
+check "verification.paths printed normalised" 0 "" \
+    test "$(paths_of)" = "${DEFAULT_PATHS%]}"',"scripts/**","tools/**","ROOT.md","test/quarantine/**"]'
+with_fields '{"verification":{"paths":["../other/**"]}}'
+check "a glob outside the repository -> exit 1" 1 "verification.paths[0]" bash -c "'$PROFILE' -C '$T/repo' --name 2>&1 >/dev/null"
+with_fields '{"verification":{"paths":"scripts/**"}}'
+check "verification.paths a string -> exit 1" 1 "" "$PROFILE" -C "$T/repo" --name
+with_fields '{"workflow":{"ci_check":""}}'
+check "workflow.ci_check blank -> exit 1" 1 "" "$PROFILE" -C "$T/repo" --name
 cp "$T/demo-profile.json" "$T/profiles/demo/profile.json"
+check "workflow.ci_check absent -> 4" 4 "" "$PROFILE" -C "$T/repo" --field workflow.ci_check
 check "worktree outside match prefix" 0 "demo" "$PROFILE" -C "$T/elsewhere-wt" --name
 check "worktree flagged" 0 "true" "$PROFILE" -C "$T/elsewhere-wt" --field _resolved.in_worktree
 check "root not flagged" 0 "false" "$PROFILE" -C "$T/repo" --field _resolved.in_worktree

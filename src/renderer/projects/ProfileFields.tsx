@@ -1,6 +1,6 @@
 // The fields of a Profile form, shared by the Review step of "Add project" (ConnectProject.tsx) and
 // "Edit profile" of Project settings (EditProfile.tsx, worfy-polish ticket 78): a labelled field with the
-// Harness's reasons under it, a text input, a list input and a choice of fixed values. The look is the
+// Harness's reasons under it, a text input, a list input, a choice of fixed values and a list shown read-only. The look is the
 // first-run screen's (docs/design/F-SPEC.md, "First run"); the focus ring of the inputs is
 // connect-project.css; the styles and the path helpers are profile-fields.ts.
 import { useId, type CSSProperties, type ReactNode } from 'react'
@@ -135,5 +135,33 @@ export function SelectField({ path, label, value, issues, disabled, hint, option
         />
       )}
     </Field>
+  )
+}
+
+/**
+ * A list the form shows and never writes (the verification paths, worfy-harness-guarantees ticket 02): each item
+ * on its own line in the look of a read-only value, the `hint` under it; null — the Harness gave none, and
+ * `missing` says so instead.
+ */
+export function ReadOnlyList({ label, items, hint, missing, testId }: { label: string; items: readonly string[] | null; hint: string; missing: string; testId: string }) {
+  const labelId = useId()
+  return (
+    <div style={fieldStyles.field} data-testid={testId}>
+      <span id={labelId} style={fieldStyles.label}>
+        {label}
+      </span>
+      {items === null ? (
+        <span style={fieldStyles.hint} data-testid={`${testId}-missing`}>
+          {missing}
+        </span>
+      ) : (
+        <ul aria-labelledby={labelId} style={{ ...fieldStyles.mono, ...fieldStyles.readOnly, margin: 0, listStyle: 'none' }}>
+          {items.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
+      )}
+      <span style={fieldStyles.hint}>{hint}</span>
+    </div>
   )
 }
