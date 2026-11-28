@@ -1,7 +1,8 @@
 # 173 — Mind map Product Session показывает тему своей Session, а не последнюю изменённую в Project-е
 
 Type: bug
-Status: claimed 2026-11-28T05:20Z
+Status: done 2026-11-28T10:29Z
+PR: #2366
 Branch: worfy-polish/173
 Blocked by: None — can start immediately
 Source: два bug-а владельца 2026-11-28, оба про Link (Link — связь двух машин worfy: гость смотрит и ведёт Session-ы
@@ -119,16 +120,21 @@ Root cause у обоих bug-ов один: тема, чей Mind map рисуе
 - [ ] Панель Product Session и её заголовок показывают тему последнего вызова `mind_map_*` своей Session. При
       переключении на другую Session карта переключается; запись другой Session в её тему карту не меняет.
   - evidence: test-run pass · `pnpm test` exit 0 (test/unit/product-session-panel.test.tsx, test/unit/node-chips.test.tsx) · mac - · d97b8bb6e5df9416500be3aace4e7b4320af0194
+  - evidence: review pass · PR #2366 · - - · 0479117127fbcee192d36db3ebc299406894bda0
 - [ ] Session, запущенная на другой машине, при первом открытии на этой показывает свою карту без клика по идее.
   - evidence: test-run pass · `pnpm test` exit 0 (test/unit/product-session-panel.test.tsx, test/unit/node-chips.test.tsx) · mac - · d97b8bb6e5df9416500be3aace4e7b4320af0194
+  - evidence: review pass · PR #2366 · - - · 0479117127fbcee192d36db3ebc299406894bda0
 - [ ] Чип другой темы переключает карту и выделяет узел; следующий вызов Session возвращает карту на её тему.
   - evidence: test-run pass · `pnpm test` exit 0 (test/unit/product-session-panel.test.tsx, test/unit/node-chips.test.tsx) · mac - · d97b8bb6e5df9416500be3aace4e7b4320af0194
+  - evidence: review pass · PR #2366 · - - · 0479117127fbcee192d36db3ebc299406894bda0
 - [ ] Unit test-ы на оба bug-а, в том числе в окне гостя через stub Link bridge, красные до правки; test `:955`
       переписан под новое поведение.
   - evidence: test-run pass · `pnpm test` test/unit/product-session-panel.test.tsx exit 1 on origin/main panel (10 red), exit 0 after the change · mac - · d97b8bb6e5df9416500be3aace4e7b4320af0194
+  - evidence: review pass · PR #2366 · - - · 0479117127fbcee192d36db3ebc299406894bda0
 - [ ] Абзац «Which topic shows» в `docs/features/product-session.md` и `docs/features/ru/product-session.md` говорит,
       откуда берётся тема.
   - evidence: commit pass · worfy-polish/173: a Product Session's Mind map shows the topic of its own calls · - - · d97b8bb6e5df9416500be3aace4e7b4320af0194
+  - evidence: review pass · PR #2366 · - - · 0479117127fbcee192d36db3ebc299406894bda0
 - [ ] (вручную) Сделай: на Mac в Stable worfy (хост) открой Project с двумя Product Session, у которых разные темы;
       на ПК открой этот Project через Link. На ПК переключись с первой Session на вторую и обратно, пока advisor
       первой ещё пишет → Должно быть: каждый раз граф своей Session, и запись первой не перекидывает вторую.
@@ -139,6 +145,7 @@ Root cause у обоих bug-ов один: тема, чей Mind map рисуе
   - needs: mac stable
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · d97b8bb6e5df9416500be3aace4e7b4320af0194
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/46127578823/job/140949136635 · ci - · 0479117127fbcee192d36db3ebc299406894bda0
 
 ## Итог
 

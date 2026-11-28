@@ -188,3 +188,64 @@ Product Session без сообщения и писали файлы темы р
 3. Почему вызов Subagent-а Session не переключает карту?
    - Ответ: тема ищется в свёртке `foldTranscript`, а она берёт только главный поток, как и чипы.
    - Строки: `src/renderer/session/ProductSessionPanel.tsx:138`
+
+## 8. Что нашёл review и что осталось
+
+> VERIFIED
+>
+> - Low 1, «Load earlier» resetting the chip's choice: fixed at `src/renderer/session/ProductSessionPanel.tsx:123-130` (`chipHolds`), `:165-167` and `:215`. «Load earlier» loads the older part of the transcript, and an older call it brings now comes before the stored anchor, so the choice holds. A new `mind_map_*` call from the Session comes after the anchor and takes the map back. The new test at `test/unit/product-session-panel.test.tsx:1134` covers both cases.
+> - Low 2, the two typos: fixed at `src/renderer/product/node-chips.ts:92` and `test/e2e/product-session.spec.ts:203`.
+> - Low 3, the unreadable `needs:` line: fixed. Manual items 6 and 7 now read `needs: windows stable` and `needs: mac stable`.
+> - Choice made with an empty transcript: it is stored with an empty anchor and no topic call. It holds while the transcript has no topic call, and the Session's first call takes the map back. That is correct.
+> - Switching Sessions: events of another Session do not contain the anchor, so any topic call there ends the choice (`:126`).
+> - Stale closures: none. Every value the `useMemo` at `:165` reads is in its dependencies, and the effect at `:224` lists `last` and `anchor`.
+> - `src/renderer/session/ProductSessionPanel.tsx:167`: [low] the anchor is the newest event. If that event is a streaming text chunk, the next chunk replaces it with a new object (`src/renderer/session/store.ts:122`). The anchor then disappears and the choice falls back to the old reset. Scenario: the user picks a chip while the Session is still writing and the loaded part of the transcript has no topic call. A later «Load earlier» that brings an old call resets the map, which is the round-1 bug in a narrower case.
+> - `pnpm install --frozen-lockfile` EXIT=0. `node scripts/vitest-electron.mjs test/unit/product-session-panel.test.tsx test/unit/node-chips.test.ts` under a temporary HOME EXIT=0, 79 tests passed.
+> - Mutant: I made the last return of `chipHolds` always `false`. The test file then exited 1, with exactly the new test at `:1134` red. I restored the file from its copy (cmp=0, `git status` clean).
+> - `ticket evidence worfy-polish 173` EXIT=0. I did not check the needs of the two manual items; they call for Stable on both machines.
+> - Could not verify: e2e and Electron runs; the brief forbids them.
+> - Nothing else found.
+> - Outside the lens: the evidence lines of items 1–5 and 8 cite commit `507b2176c`. That is the version of `d97b8bb6e` from before the branch was rebased. It is not in the branch (`git merge-base --is-ancestor` exits 1) and it predates the round-1 fixes. Item 1 also names `node-chips.test.tsx`; that file does exist in this branch.
+>
+> The review worktree is removed.
+>
+> Orchestrator: the evidence lines now cite d97b8bb6e, the rebased commit (0479117127, ticket text only). The streaming-chunk anchor low is not a blocker.
+>
+> Review depth: low — round-1 lows only
+
+Code: `src/renderer/session/ProductSessionPanel.tsx:123-130` · key lines: 123
+
+```tsx
+function chipHolds(chosen: ChosenTopic, events: readonly AgentEvent[], last: string | null): boolean {
+  if (chosen.since === last || last === null) return true
+  if (chosen.anchor === null) return false
+  const anchorAt = events.lastIndexOf(chosen.anchor)
+  if (anchorAt < 0) return false
+  const callAt = events.findIndex((event) => event.type === 'tool_use' && event.id === last)
+  return callAt >= 0 && callAt < anchorAt
+}
+```
+
+Code: `test/unit/product-session-panel.test.tsx:1134-1134` · key lines: 1134
+
+```tsx
+  it('a chip chosen while the loaded transcript held no topic call keeps the map when «Load earlier» brings an older call; a newer one takes it back', async () => {
+```
+
+Code: `src/renderer/product/node-chips.ts:92-92` · key lines: 92
+
+```ts
+const KIND: Readonly<Record<NodeChip['node']['kind'], string>> = { idea: 'Idea', question: 'Question', decision: 'Decision', objection: 'Objection' }
+```
+
+Code: `test/e2e/product-session.spec.ts:203-203` · key lines: 203
+
+```ts
+    const node = view.getByTestId('product-session-map').locator(`[data-testid="mind-node"][data-id="${NODE.id}"]`)
+```
+
+Code: `src/renderer/session/ProductSessionPanel.tsx:167-167` · key lines: 167
+
+```tsx
+  return { name, last, anchor: list.at(-1) ?? null }
+```
