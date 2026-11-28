@@ -82,10 +82,11 @@ function toolUse(res: ServerResponse, call: ScriptedToolUse): void {
 }
 
 async function body(req: IncomingMessage): Promise<Block> {
-  let raw = ''
-  for await (const chunk of req) raw += String(chunk)
+  // Bytes first, decoded once: a character split between two chunks would turn into U+FFFD.
+  const chunks: Buffer[] = []
+  for await (const chunk of req) chunks.push(chunk as Buffer)
   try {
-    return JSON.parse(raw) as Block
+    return JSON.parse(Buffer.concat(chunks).toString('utf8')) as Block
   } catch {
     return {}
   }

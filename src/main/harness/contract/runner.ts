@@ -10,11 +10,12 @@
 // touching it. Its answer tells three things apart, which Health (ticket 09) writes as different
 // lines:
 //   - passed: the run happened and the check holds;
-//   - failed: the run happened and the Harness did not do its part (a hook did not load, the guard
-//     did not refuse, Stop did not hold the turn) — the reason names what is missing;
-//   - not-run: the run never got as far as a turn — the binary did not start, the stand-in could not
-//     listen, Claude Code printed no system/init, never asked the stand-in, ended its turn with an API
-//     error, or did not finish within the limit. That says nothing about the Harness.
+//   - failed: Claude Code started with the plugin (system/init came) and the Harness did not do its
+//     part — a hook did not load, the guard did not refuse, Stop did not hold the turn, a hook of the
+//     plugin blocked the run (judgeRun), or the check itself threw. The reason names what is missing;
+//   - not-run: nothing about the Harness can be said — the binary did not start, the stand-in could
+//     not listen, Claude Code printed no system/init, or, with no hook of the plugin blocking, ended
+//     its turn with an API error, printed no result or did not finish within the limit.
 import { spawn, spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -87,6 +88,8 @@ export interface ContractSetOptions {
   scratch?: string
 }
 
+const message = (e: unknown): string => (e instanceof Error ? e.message : String(e))
+
 /** The last characters of a text, for a reason line. */
 const tail = (text: string, size = 600): string => (text.length > size ? `…${text.slice(-size)}` : text)
 
@@ -113,8 +116,9 @@ interface Spawned {
 
 function runBinary(binary: string, args: string[], cwd: string, env: Record<string, string>, limitMs: number): Promise<Spawned> {
   return new Promise((resolve) => {
-    let out = ''
-    let err = ''
+    // Bytes, decoded once at the end: a character split between two chunks stays whole.
+    const out: Buffer[] = []
+    const err: Buffer[] = []
     let timedOut = false
     let error: NodeJS.ErrnoException | undefined
     const child = spawn(binary, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
@@ -123,14 +127,74 @@ function runBinary(binary: string, args: string[], cwd: string, env: Record<stri
       timedOut = true
       child.kill('SIGKILL')
     }, limitMs)
-    child.stdout.on('data', (chunk: Buffer) => (out += String(chunk)))
-    child.stderr.on('data', (chunk: Buffer) => (err += String(chunk)))
+    child.stdout.on('data', (chunk: Buffer) => out.push(chunk))
+    child.stderr.on('data', (chunk: Buffer) => err.push(chunk))
     child.on('error', (e) => (error = e))
     child.on('close', (code) => {
       clearTimeout(timer)
-      resolve({ out, err, code, timedOut, ...(error === undefined ? {} : { error }) })
+      resolve({ out: Buffer.concat(out).toString('utf8'), err: Buffer.concat(err).toString('utf8'), code, timedOut, ...(error === undefined ? {} : { error }) })
     })
   })
+}
+
+/** What a run of Claude Code gave, as judgeRun reads it. */
+export interface RunTrace {
+  /** Why the binary did not start (ENOENT, EACCES); undefined when it started. */
+  startError?: string
+  /** Whether the runner stopped the run at its limit. */
+  timedOut: boolean
+  limitMs: number
+  exitCode: number | null
+  lines: StreamLine[]
+  stderr: string
+  /** How many turns of a conversation reached the stand-in. */
+  requests: number
+}
+
+export type RunVerdict = { status: 'ran'; init: StreamLine } | { status: 'failed' | 'not-run'; reason: string }
+
+/** The hook_response lines that blocked: exit code 2, or a JSON answer that blocks or stops. */
+function blockingHooks(lines: StreamLine[]): string[] {
+  return lines
+    .filter((line) => line.type === 'system' && line.subtype === 'hook_response')
+    .filter((line) => {
+      if (line.exit_code === 2) return true
+      try {
+        const answer = JSON.parse(String(line.stdout ?? '')) as Record<string, unknown>
+        return answer.decision === 'block' || answer.continue === false
+      } catch {
+        return false
+      }
+    })
+    .map((line) => `${String(line.hook_event)} (exit code ${String(line.exit_code)}): ${tail(String(line.stderr || line.stdout || ''), 200).trim()}`)
+}
+
+/**
+ * Whether a run got as far as a case can judge, and if not, whose fault it is. Only Claude Code is
+ * to blame (not-run) while it never came up with the plugin — no start, no system/init — or when,
+ * with no hook of the plugin blocking, the run ended without its result: an API error, no result
+ * line, the time limit. Once system/init came, a run that asked the stand-in nothing, or a stop
+ * of any kind while a hook of the plugin blocked, is the Harness's: failed, naming the hook.
+ */
+export function judgeRun(trace: RunTrace): RunVerdict {
+  if (trace.startError !== undefined) return { status: 'not-run', reason: `could not start the binary: ${trace.startError}` }
+  const init = trace.lines.find((line) => line.type === 'system' && line.subtype === 'init')
+  const stderr = `stderr: ${tail(trace.stderr)}`
+  if (init === undefined)
+    return { status: 'not-run', reason: `Claude Code printed no system/init (${trace.timedOut ? `stopped at the limit of ${trace.limitMs} ms` : `exit code ${String(trace.exitCode)}`}); ${stderr}` }
+  const blocked = blockingHooks(trace.lines)
+  const holding = blocked.length === 0 ? '' : `; hooks of the plugin blocked: ${[...new Set(blocked)].join('; ')}`
+  if (trace.requests === 0) return { status: 'failed', reason: `Claude Code started with the plugin but asked the stand-in no turn (exit code ${String(trace.exitCode)})${holding}; ${stderr}` }
+  const result = trace.lines.find((line) => line.type === 'result')
+  const ended = trace.timedOut
+    ? `Claude Code did not finish in ${trace.limitMs} ms and was stopped; ${trace.requests} turns asked the stand-in`
+    : result === undefined
+      ? `Claude Code printed no result (exit code ${String(trace.exitCode)})`
+      : result.is_error === true
+        ? `the turn ended with an error of the API or of Claude Code: ${tail(JSON.stringify(result), 400)}`
+        : undefined
+  if (ended === undefined) return { status: 'ran', init }
+  return blocked.length > 0 ? { status: 'failed', reason: `${ended}${holding}` } : { status: 'not-run', reason: `${ended}; ${stderr}` }
 }
 
 /** Runs one case and says what came of it; never throws for a run that went wrong. */
@@ -145,32 +209,41 @@ export async function runContractCase(contractCase: ContractCase, options: Contr
     const context: CaseContext = { cwd: join(root, 'cwd'), home: join(root, 'home'), harnessHome: join(root, 'home', 'harness'), scratch: join(root, 'scratch'), pluginDir: options.pluginDir }
     for (const dir of [context.cwd, context.home, context.harnessHome, context.scratch]) mkdirSync(dir, { recursive: true })
     let extra: Record<string, string> = {}
+    let chains: ScriptedChain[] = []
     try {
       extra = contractCase.prepare?.(context) ?? {}
+      chains = typeof contractCase.chains === 'function' ? contractCase.chains(context) : (contractCase.chains ?? [])
     } catch (e) {
-      return notRun(`could not prepare the run: ${String((e as Error).message ?? e)}`)
+      return notRun(`could not prepare the run: ${message(e)}`)
     }
-    const chains = typeof contractCase.chains === 'function' ? contractCase.chains(context) : (contractCase.chains ?? [])
     try {
       standIn = await startScriptedStandIn(chains)
     } catch (e) {
-      return notRun(`the stand-in of the Messages API could not listen: ${String((e as Error).message ?? e)}`)
+      return notRun(`the stand-in of the Messages API could not listen: ${message(e)}`)
     }
     const env = { ...claudeEnv(standIn, context.home), HARNESS_HOME: context.harnessHome, ...extra }
     const args = ['-p', contractCase.prompt, '--output-format', 'stream-json', '--verbose', '--include-hook-events', '--model', MODEL, '--setting-sources', '', '--permission-mode', 'bypassPermissions', '--plugin-dir', options.pluginDir]
     const spawned = await runBinary(options.binary, args, context.cwd, env, options.runLimitMs)
-    if (spawned.error !== undefined) return notRun(`could not start ${options.binary}: ${spawned.error.code ?? spawned.error.message}`)
     const lines = parseLines(spawned.out)
     const requests = standIn.requests()
-    if (spawned.timedOut) return notRun(`Claude Code did not finish in ${options.runLimitMs} ms and was stopped; ${requests.length} turns asked the stand-in; stderr: ${tail(spawned.err)}`)
-    const init = lines.find((line) => line.type === 'system' && line.subtype === 'init')
-    if (init === undefined) return notRun(`Claude Code printed no system/init (exit code ${String(spawned.code)}); stderr: ${tail(spawned.err)}`)
-    if (requests.length === 0) return notRun(`Claude Code never asked the stand-in of the Messages API (exit code ${String(spawned.code)}); stderr: ${tail(spawned.err)}`)
-    const result = lines.find((line) => line.type === 'result')
-    if (result === undefined) return notRun(`Claude Code printed no result (exit code ${String(spawned.code)}); stderr: ${tail(spawned.err)}`)
-    if (result.is_error === true) return notRun(`the turn ended with an error of the API or of Claude Code: ${tail(JSON.stringify(result), 400)}`)
-    const run: CaseRun = { ...context, lines, init, requests, toolResult: (callId) => standIn?.toolResult(callId), exitCode: spawned.code, stderr: spawned.err }
-    const why = contractCase.check(run)
+    const verdict = judgeRun({
+      ...(spawned.error === undefined ? {} : { startError: `${options.binary}: ${spawned.error.code ?? spawned.error.message}` }),
+      timedOut: spawned.timedOut,
+      limitMs: options.runLimitMs,
+      exitCode: spawned.code,
+      lines,
+      stderr: spawned.err,
+      requests: requests.length,
+    })
+    if (verdict.status !== 'ran') return { id, title, status: verdict.status, reason: verdict.reason }
+    const run: CaseRun = { ...context, lines, init: verdict.init, requests, toolResult: (callId) => standIn?.toolResult(callId), exitCode: spawned.code, stderr: spawned.err }
+    let why: string | null
+    try {
+      why = contractCase.check(run)
+    } catch (e) {
+      // The check reads the plugin folder (its manifest, rules, agents): a Harness copy it cannot read is a broken Harness.
+      why = `the check threw: ${message(e)}`
+    }
     return why === null ? { id, title, status: 'passed' } : { id, title, status: 'failed', reason: why }
   } finally {
     await standIn?.close()

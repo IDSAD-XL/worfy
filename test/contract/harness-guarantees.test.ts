@@ -5,12 +5,14 @@
 // The cases and the runner live in src/main/harness/contract/, so worfy runs the same set (Health,
 // ticket 09); this file runs each case on its own and checks that the runner tells a broken
 // Harness (a red case) from a run that never started.
-import { cpSync, mkdtempSync } from 'node:fs'
+import { cpSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { request } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
-import { CONTRACT_CASES, PLUGIN_LOADED } from '../../src/main/harness/contract/cases'
-import { runContractCase, type CaseOutcome, type ContractSetOptions } from '../../src/main/harness/contract/runner'
+import { CONTRACT_CASES, PLUGIN_LOADED, SUBAGENT_AGENT_ID } from '../../src/main/harness/contract/cases'
+import { startScriptedStandIn } from '../../src/main/harness/contract/messages-api-stand-in'
+import { runContractCase, runContractSet, type CaseOutcome, type ContractCase, type ContractSetOptions } from '../../src/main/harness/contract/runner'
 import { bundledClaudeBinary } from '../../src/main/vendors/claude/options'
 import { removeTestTree } from '../remove'
 import { ms } from '../time-scale'
@@ -56,4 +58,66 @@ describe('the runner tells a broken Harness from a run that never started', () =
     expectStatus(outcome, 'not-run')
     expect(outcome.status === 'not-run' && outcome.reason).toMatch(/could not start/)
   })
+
+  // Review round 1 of PR #2345: a hook that blocks every prompt left Claude Code with no turn to ask the
+  // stand-in, and the runner called that "not run".
+  it('a UserPromptSubmit hook that blocks every prompt: a red case naming the hook, not "not run"', async () => {
+    const outcome = await runContractCase(PLUGIN_LOADED, options(harnessCopy('prompt-blocked', 'hooks/stage-lines.mjs', 'process.stderr.write("blocked by the contract test\\n")\nprocess.exitCode = 2\n')))
+    expectStatus(outcome, 'failed')
+    expect(outcome.status === 'failed' && outcome.reason).toMatch(/UserPromptSubmit/)
+  })
+
+  // Review round 1: a Stop hook that holds every turn keeps Claude Code asking the stand-in until the
+  // runner's limit, and the runner called that "not run". The limit is short here: the run is expected to reach it.
+  it('a Stop hook that holds every turn: the run reaches the limit and the case is red, naming the hook', async () => {
+    const pluginDir = harnessCopy('stop-always-held', 'hooks/stop.mjs', 'process.stderr.write("held by the contract test\\n")\nprocess.exitCode = 2\n')
+    const outcome = await runContractCase(SUBAGENT_AGENT_ID, { ...options(pluginDir), runLimitMs: ms(5_000) })
+    expectStatus(outcome, 'failed')
+    expect(outcome.status === 'failed' && outcome.reason).toMatch(/Stop/)
+  })
+
+  // Review round 1: a check that throws (a manifest that is not JSON) rejected the whole set.
+  it('a check that throws: a red case with the error, and the set still answers for every case', async () => {
+    const throwing: ContractCase = { ...PLUGIN_LOADED, id: 'check-throws', check: () => JSON.parse('not json') as null }
+    const outcomes = await runContractSet([throwing, PLUGIN_LOADED], options(HARNESS))
+    expect(outcomes.map((o) => [o.id, o.status])).toEqual([
+      ['check-throws', 'failed'],
+      ['plugin-loaded', 'passed'],
+    ])
+    expect(outcomes[0]!.status === 'failed' && outcomes[0]!.reason).toMatch(/the check threw/)
+  })
 })
+
+describe('the scripted stand-in of the Messages API', () => {
+  // Review round 1: each chunk of a request body was decoded on its own, so a character split between two
+  // chunks came out as U+FFFD and a marker or a rules heading with it was not found.
+  it('reads a character split between two chunks of the request body', async () => {
+    const standIn = await startScriptedStandIn([])
+    try {
+      const body = Buffer.from(JSON.stringify({ stream: false, tools: [{ name: 'Bash' }], messages: [{ role: 'user', content: 'MARKER — split' }] }))
+      const cut = body.indexOf(Buffer.from('—')) + 1
+      await new Promise<void>((resolve, reject) => {
+        const req = request(`${standIn.url}/v1/messages`, { method: 'POST', headers: { 'content-type': 'application/json' } }, (res) => {
+          res.resume()
+          res.on('end', resolve)
+        })
+        req.on('error', reject)
+        req.flushHeaders()
+        req.write(body.subarray(0, cut))
+        // A pause between the two writes, so the server reads them as two chunks.
+        setTimeout(() => req.end(body.subarray(cut)), 50)
+      })
+      expect(standIn.requests().map((r) => r.first)).toEqual(['MARKER — split'])
+    } finally {
+      await standIn.close()
+    }
+  })
+})
+
+/** A copy of the Harness with one file replaced by `content`. */
+function harnessCopy(name: string, file: string, content: string): string {
+  const dir = join(scratch, name)
+  cpSync(HARNESS, dir, { recursive: true })
+  writeFileSync(join(dir, file), content)
+  return dir
+}
