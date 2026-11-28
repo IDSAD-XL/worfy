@@ -1480,7 +1480,7 @@ const profileAt = (file) => (existsSync(file) ? JSON.parse(readFileSync(file, 'u
 const fieldsOf = (p) => (p ? { agents: p.workflow && p.workflow.agents !== undefined ? p.workflow.agents : null, roles: p.agents !== undefined ? p.agents : 'absent' } : null)
 const args = process.argv.slice(2)
 if (args[0] === '--version') { console.log(process.env.STUB_VERSION + ' (Claude Code)'); process.exit(0) }
-appendFileSync(process.env.STUB_LOG, JSON.stringify({ args, evalGit: process.env.EVAL_GIT || null, evalHarnessHome: process.env.EVAL_HARNESS_HOME || null, claudecode: process.env.CLAUDECODE || null, path: process.env.PATH }) + '\\n')
+appendFileSync(process.env.STUB_LOG, JSON.stringify({ args, evalGit: process.env.EVAL_GIT || null, evalHarnessHome: process.env.EVAL_HARNESS_HOME || null, claudecode: process.env.CLAUDECODE || null, path: process.env.PATH, apiKey: process.env.ANTHROPIC_API_KEY ?? null }) + '\\n')
 const opt = (name) => args[args.indexOf(name) + 1]
 const target = args[2]
 const evalDir = join(target, opt('--eval-dir'))
@@ -1526,6 +1526,8 @@ interface StubCall {
   evalHarnessHome: string | null
   claudecode: string | null
   path: string
+  /** ANTHROPIC_API_KEY of the call, null when unset. */
+  apiKey: string | null
 }
 
 /** The profile fields a stub run found after its scaffold, in .git/worfy-harness and in its HOME. */
@@ -1667,9 +1669,27 @@ describe('pnpm eval:outcome (scripts/eval-outcome.mjs, claude replaced by a stub
   }, RUN_TIMEOUT)
 
   const FAKE_PLUGIN_BIN = join(tmpdir(), 'elsewhere', 'harness', 'bin')
+  // --billing (ticket worfy-harness-eval/01): a fake key in a temporary HARNESS_HOME.
+  const KEY = 'fake-console-key-0123456789abcdef'
+  /** A temporary HARNESS_HOME whose secrets/anthropic-api-key holds `text`; without `text`, no key file. */
+  const keyHome = (text?: string): string => {
+    const home = tempDir('outcome-key-')
+    if (text !== undefined) {
+      mkdirSync(join(home, 'secrets'))
+      writeFileSync(join(home, 'secrets', 'anthropic-api-key'), text)
+    }
+    return home
+  }
   const full = (() => {
     let cache: ReturnType<typeof stubRun> | null = null
-    return () => (cache ??= stubRun(['--', '--max-cost-usd', '5', '--runs', '1'], true, { CLAUDECODE: '1', PATH: `${FAKE_PLUGIN_BIN}${delimiter}${process.env.PATH ?? ''}` }))
+    // A key file and a key the shell exports: a run without --billing gets neither.
+    return () =>
+      (cache ??= stubRun(['--', '--max-cost-usd', '5', '--runs', '1'], true, {
+        CLAUDECODE: '1',
+        PATH: `${FAKE_PLUGIN_BIN}${delimiter}${process.env.PATH ?? ''}`,
+        HARNESS_HOME: keyHome(KEY),
+        ANTHROPIC_API_KEY: 'shell-key',
+      }))
   })()
   beforeBlock(full, SETUP_TIMEOUT)
 
@@ -1701,6 +1721,43 @@ describe('pnpm eval:outcome (scripts/eval-outcome.mjs, claude replaced by a stub
     expect(calls[0]!.claudecode).toBeNull()
     expect(calls[0]!.path.split(delimiter)).not.toContain(FAKE_PLUGIN_BIN)
   })
+
+  it('by default bills the sign-in: the call gets neither the key of the file nor the API key of the shell', () => {
+    const { calls, run } = full()
+    expect(calls[0]!.apiKey).toBeNull()
+    expect(run.stdout).toContain('billing subscription')
+  })
+
+  it('--billing credits gives the call the key of the file and prints it nowhere', () => {
+    const home = keyHome(`${KEY}\n`)
+    const { run, calls, results } = stubRun(['--max-cost-usd', '5', '--billing', 'credits', '--no-score'], true, { HARNESS_HOME: home })
+    expect(run.status, run.stderr).toBe(0)
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.apiKey).toBe(KEY)
+    expect(calls[0]!.args).not.toContain('--billing')
+    expect(run.stdout).toContain(`billing credits: ANTHROPIC_API_KEY=<hidden> from ${join(home, 'secrets', 'anthropic-api-key')}`)
+    expect(run.stdout + run.stderr).not.toContain(KEY)
+    const written = readdirSync(results, { recursive: true, encoding: 'utf8' })
+      .map((name) => join(results, name))
+      .filter((path) => !lstatSync(path).isSymbolicLink() && statSync(path).isFile() && readFileSync(path, 'utf8').includes(KEY))
+    expect(written).toEqual([])
+  }, RUN_TIMEOUT)
+
+  it('--billing credits without the key file exits 1 before claude; --dry-run names the billing and hides the key', () => {
+    const missing = stubRun(['--max-cost-usd', '5', '--billing=credits'], true, { HARNESS_HOME: keyHome() })
+    expect(missing.run.status).toBe(1)
+    expect(missing.run.stderr).toContain(join('secrets', 'anthropic-api-key'))
+    expect(missing.calls).toEqual([])
+    const dry = stubRun(['--max-cost-usd', '2', '--billing', 'credits', '--dry-run'], true, { HARNESS_HOME: keyHome(KEY) })
+    expect(dry.run.status, dry.run.stderr).toBe(0)
+    expect(dry.calls).toEqual([])
+    expect(dry.run.stdout).toContain('billing credits: ANTHROPIC_API_KEY=<hidden>')
+    expect(dry.run.stdout).not.toContain(KEY)
+    const unknown = stubRun(['--max-cost-usd', '5', '--billing', 'console'], true)
+    expect(unknown.run.status).toBe(2)
+    expect(unknown.run.stderr).toContain('--billing')
+    expect(unknown.calls).toEqual([])
+  }, RUN_TIMEOUT)
 
   it('evaluates a removed copy of the plugin without dependencies, and gives the run a copy of git and the eval state folder', () => {
     const { calls, harness } = full()

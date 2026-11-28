@@ -4,7 +4,7 @@
 // cases and their fixtures are checked in harness-evals.test.ts; the helpers both files need are in
 // harness-evals-shared.ts.
 import { spawn, spawnSync, type SpawnSyncReturns } from 'node:child_process'
-import { appendFileSync, chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs'
+import { appendFileSync, chmodSync, copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { constants, homedir } from 'node:os'
 import { delimiter, dirname, join, relative, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -29,6 +29,9 @@ interface StubCall {
   execPath: string
   systemConfig: number | null
   gitFiles: string[]
+  /** ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN of the call, null when unset. */
+  apiKey: string | null
+  authToken: string | null
 }
 
 const loggedCalls = (log: string): StubCall[] =>
@@ -1518,5 +1521,90 @@ describe('harness/evals stays out of the app', () => {
   it('the run results are ignored by git', () => {
     const ignored = spawnSync('git', ['check-ignore', '-q', `harness${sep}evals${sep}results${sep}x${sep}report.html`], { cwd: REPO })
     expect(ignored.status).toBe(0)
+  })
+})
+
+// --billing (ticket worfy-harness-eval/01): who pays for the calls. The key is a fake one in a
+// temporary HARNESS_HOME; the real key file of the machine is never read.
+describe('pnpm eval:harness -- --billing (claude replaced by a stub, a fake key in a temporary HARNESS_HOME)', () => {
+  const KEY = 'fake-console-key-0123456789abcdef'
+  /** A temporary HARNESS_HOME whose secrets/anthropic-api-key holds `text`; without `text`, no key file. */
+  const harnessHome = (text?: string): string => {
+    const home = tempDir('worfy-eval-key-')
+    if (text !== undefined) {
+      mkdirSync(join(home, 'secrets'))
+      writeFileSync(join(home, 'secrets', 'anthropic-api-key'), text)
+    }
+    return home
+  }
+  /** Every file under `dir` but the stub's own log, whose text holds `text`. */
+  const filesWith = (dir: string, text: string, skip: string[] = []): string[] =>
+    existsSync(dir)
+      ? readdirSync(dir, { recursive: true, encoding: 'utf8' })
+          .map((name) => join(dir, name))
+          .filter((path) => !skip.includes(path) && !lstatSync(path).isSymbolicLink() && statSync(path).isFile() && readFileSync(path, 'utf8').includes(text))
+      : []
+
+  it('by default bills the sign-in: no call gets the key of the file or the API key and token of the shell', () => {
+    const home = harnessHome(KEY)
+    const { run, calls } = evalHarness('2.1.289', '0,0', [], undefined, { HARNESS_HOME: home, ANTHROPIC_API_KEY: 'shell-key', ANTHROPIC_AUTH_TOKEN: 'shell-token' })
+    expect(run.status, run.stderr).toBe(0)
+    expect(calls).toHaveLength(2)
+    for (const call of calls) expect([call.apiKey, call.authToken]).toEqual([null, null])
+    expect(run.stdout).toContain('billing subscription')
+  })
+
+  it('--billing credits gives every call the key of the file, trimmed, and prints it nowhere', () => {
+    const home = harnessHome(`  ${KEY}\n`)
+    const { run, calls, home: stub } = evalHarness('2.1.289', '0,0', ['--billing', 'credits'], undefined, { HARNESS_HOME: home, ANTHROPIC_AUTH_TOKEN: 'shell-token' })
+    expect(run.status, run.stderr).toBe(0)
+    expect(calls).toHaveLength(2)
+    for (const call of calls) {
+      expect(call.apiKey).toBe(KEY)
+      expect(call.authToken).toBeNull()
+      expect(call.args).not.toContain('--billing')
+      expect(call.args).not.toContain('credits')
+    }
+    expect(run.stdout).toContain(`billing credits: ANTHROPIC_API_KEY=<hidden> from ${join(home, 'secrets', 'anthropic-api-key')}`)
+    expect(run.stdout + run.stderr).not.toContain(KEY)
+    // What the run wrote: the reports in the results folder and everything in the stub's home folder
+    // but the stub's own log, which records the environment the call got.
+    expect(filesWith(join(evaluated(), 'evals', 'results'), KEY)).toEqual([])
+    expect(filesWith(stub, KEY, [join(stub, 'calls.log')])).toEqual([])
+  })
+
+  it('--billing=credits without the key file, or with an empty one, exits 1 before claude, not even --version', () => {
+    for (const home of [harnessHome(), harnessHome(' \n')]) {
+      const { dir, log, env } = stubSetup('2.1.289', '0,0', () => process.env.PATH ?? '', { HARNESS_HOME: home })
+      const versionLog = join(dir, 'version.log')
+      const run = spawnSync(scriptNode(), [EVAL_HARNESS, '--billing=credits'], { env: { ...env, STUB_VERSION_LOG: versionLog }, encoding: 'utf8', timeout: SCAFFOLD_TIMEOUT_MS })
+      expect(run.status).toBe(1)
+      expect(run.stderr).toContain(join(home, 'secrets', 'anthropic-api-key'))
+      expect(loggedCalls(log)).toEqual([])
+      expect(existsSync(versionLog)).toBe(false)
+    }
+  })
+
+  it('--dry-run names the billing and hides the key', () => {
+    const home = harnessHome(KEY)
+    const { run, calls } = evalHarness('2.1.289', '0,0', ['--dry-run', '--billing', 'credits', '--case', 'status-block', '--max-cost-usd', '2'], undefined, { HARNESS_HOME: home })
+    expect(run.status, run.stderr).toBe(0)
+    expect(calls).toEqual([])
+    expect(run.stdout).toContain('billing credits: ANTHROPIC_API_KEY=<hidden>')
+    expect(run.stdout).not.toContain(KEY)
+    expect(run.stdout).not.toContain('--billing')
+  })
+
+  it.each([[['--billing', 'console']], [['--billing']], [['--billing', 'credits', '--billing=subscription']]])('refuses %j with exit 1 and calls no claude', (args) => {
+    const { run, calls } = evalHarness('2.1.289', '0,0', args, undefined, { HARNESS_HOME: harnessHome(KEY) })
+    expect(run.status).toBe(1)
+    expect(run.stderr).toContain('--billing')
+    expect(calls).toEqual([])
+  })
+
+  it('the key file is secrets/anthropic-api-key of HARNESS_HOME, else of ~/.claude/worfy-harness', async () => {
+    const { apiKeyFile } = (await import(pathToFileURL(join(REPO, 'scripts', 'eval-run-env.mjs')).href)) as { apiKeyFile: (env: NodeJS.ProcessEnv) => string }
+    expect(apiKeyFile({ HARNESS_HOME: join(sep, 'state') })).toBe(join(sep, 'state', 'secrets', 'anthropic-api-key'))
+    expect(apiKeyFile({})).toBe(join(homedir(), '.claude', 'worfy-harness', 'secrets', 'anthropic-api-key'))
   })
 })

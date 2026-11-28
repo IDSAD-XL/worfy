@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// pnpm eval:outcome -- --max-cost-usd <usd> [--compare-profiles] [--dry-run] [<claude plugin eval options>] [--no-score]
+// pnpm eval:outcome -- --max-cost-usd <usd> [--billing subscription|credits] [--compare-profiles] [--dry-run] [<claude plugin eval options>] [--no-score]
 //
 // Runs the outcome eval (scripts/eval-outcome/README.md): every task twice on the same model, with
 // the plugin under test and without any plugin, through one `claude plugin eval --ablation
@@ -33,6 +33,14 @@
 // and exits 0 before any plugin copy and before `claude plugin eval`: the price is read from the
 // command eval really runs. It does run `claude --version` (free), as every run does.
 //
+// --billing <subscription|credits> (ticket worfy-harness-eval/01) is this script's own: who pays for
+// the plugin eval calls, as in `pnpm eval:harness` (scripts/eval-run-env.mjs, billingFor). Credits
+// give the claude call ANTHROPIC_API_KEY from <HARNESS_HOME or ~/.claude/worfy-harness>/secrets/
+// anthropic-api-key and print it hidden; no key file — exit 1 before claude, an unknown name — exit 2.
+// --billing does not reach the judge calls of the score (scripts/eval-outcome-lib.mjs, judgeCommand):
+// they keep the environment of this process, so on credits they still bill the sign-in (or a key
+// the shell exports).
+//
 // --max-cost-usd is required: every call is paid; a plain decimal above 0 and at most 1000, passed on
 // as a number. --ablation, --eval-dir, --output-dir, --model and
 // --judge-model are fixed and refused. With no task folder in harness/evals-outcome/ it says so and
@@ -55,7 +63,7 @@ import { setImmediate } from 'node:timers'
 import { fileURLToPath } from 'node:url'
 import { copyKeptRun, judgeCommand, readTrace, scoreResults, taskFolders } from './eval-outcome-lib.mjs'
 import { fisherExact, newcombe } from './eval-outcome-stats.mjs'
-import { checkVersion, claudeBinary, cleanEnv, gitFolder, gitForRuns, JUDGE_MODEL, pluginCopy, REGULAR_MODEL, runClaude } from './eval-run-env.mjs'
+import { billingFor, checkVersion, claudeBinary, cleanEnv, gitFolder, gitForRuns, JUDGE_MODEL, pluginCopy, REGULAR_MODEL, runClaude, takeBilling } from './eval-run-env.mjs'
 import { removeTree } from './remove-tree.mjs'
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -67,7 +75,7 @@ const stop = (code, message) => {
   process.stderr.write(`eval:outcome: ${message}\n`)
   process.exit(code)
 }
-const usage = 'usage: pnpm eval:outcome -- --max-cost-usd <usd> [--compare-profiles] [--dry-run] [<claude plugin eval options>] [--no-score]'
+const usage = 'usage: pnpm eval:outcome -- --max-cost-usd <usd> [--billing subscription|credits] [--compare-profiles] [--dry-run] [<claude plugin eval options>] [--no-score]'
 
 /**
  * The profiles of --compare-profiles, in the order they run: the values of `workflow.agents` and
@@ -273,6 +281,8 @@ const score = !given.includes('--no-score')
 const compare = given.includes('--compare-profiles')
 const dryRun = given.includes('--dry-run')
 const passThrough = given.filter((arg) => !OWN_FLAGS.includes(arg))
+// --billing: who pays for the call (scripts/eval-run-env.mjs, BILLINGS); it does not reach claude.
+const billingName = takeBilling(passThrough, (message) => stop(2, `${message}; ${usage}`))
 const named = (name) => passThrough.some((arg) => arg === name || arg.startsWith(`${name}=`))
 for (const fixed of ['--ablation', '--eval-dir', '--output-dir', '--model', '--judge-model']) if (named(fixed)) stop(2, `${fixed} is fixed by this script and cannot be given; ${usage}`)
 // `--dry-run=<anything>` is no dry run, and as an unknown option it would reach a paid call.
@@ -299,6 +309,9 @@ if (tasks.length === 0) stop(1, `no task folder in ${OUTCOME}: nothing to run (t
 
 const childEnv = cleanEnv()
 const fail = (message) => stop(1, message)
+// The key of a credits run goes only into the environment of the claude call, below.
+const billing = billingFor(billingName, childEnv, fail)
+say(billing.line)
 const claude = claudeBinary(REPO, fail)
 const version = checkVersion(claude, childEnv, fail)
 const stamp = new Date().toISOString().replace(/[:.]/g, '-')
@@ -377,7 +390,7 @@ try {
       say(`plugin under test — ${harness} (a copy of ${SOURCE} without dependencies${run.name ? `, profile ${run.name}: ${JSON.stringify(run.fields)}` : ''}); git for the runs — ${evalGit}`)
       const args = argsOf(run, harness)
       say(`claude ${args.join(' ')}`)
-      const call = runClaude(claude, args, { stdio: 'inherit', cwd: REPO, env: childEnv })
+      const call = runClaude(claude, args, { stdio: 'inherit', cwd: REPO, env: { ...childEnv, ...billing.vars } })
       // A claude that did not start (call.error, no status and no signal) is exit 1, not a signal.
       const code = call.status ?? (call.signal ? 128 + (constants.signals[call.signal] ?? constants.signals.SIGTERM) : 1)
       worst = Math.max(worst, code)

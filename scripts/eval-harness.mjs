@@ -34,7 +34,14 @@
 // `--output-dir` is this script's own for each call: exit 1 without claude.
 // `--max-cost-usd <x>` (or `=<x>`) does not reach claude either: it lowers the budget of the run to
 // min(BUDGET_USD, x) and never raises it; not a number above 0, no value or given twice — exit 1
-// without claude. Each call gets what is left of the budget, rounded down to the cent. `--dry-run`
+// without claude. Each call gets what is left of the budget, rounded down to the cent.
+// `--billing <subscription|credits>` (or `=<name>`, ticket worfy-harness-eval/01) does not reach claude
+// either: who pays for the calls. `subscription`, the default, is the claude sign-in of this machine;
+// `credits` gives each claude call, and nothing else, ANTHROPIC_API_KEY from
+// <HARNESS_HOME or ~/.claude/worfy-harness>/secrets/anthropic-api-key, the key of the Console
+// organisation. ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN of the shell reach no call. The run prints a
+// `billing …` line with the key hidden, a dry run too; credits without the key file, or with an empty
+// one, an unknown name or the option twice — exit 1 without claude. `--dry-run`
 // (`--dry-run=<value>` is exit 1) does what costs nothing — the arguments, --changed, the plan of the calls,
 // the budget — prints the command line of each call as the first call would get it, and exits 0: no
 // claude (not even `claude --version`), no copy of the plugin or of git, no results folder.
@@ -81,7 +88,7 @@ import process from 'node:process'
 import { setImmediate } from 'node:timers'
 import { fileURLToPath } from 'node:url'
 import { casesFor, coverageProblems, fixtureUsers, readCoverage } from './eval-harness-coverage.mjs'
-import { checkVersion, claudeBinary, cleanEnv, gitFolder, gitForRuns, JUDGE_MODEL, pluginCopy, REGULAR_MODEL, runClaude } from './eval-run-env.mjs'
+import { billingFor, checkVersion, claudeBinary, cleanEnv, gitFolder, gitForRuns, JUDGE_MODEL, pluginCopy, REGULAR_MODEL, runClaude, takeBilling } from './eval-run-env.mjs'
 import { removeTree } from './remove-tree.mjs'
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -308,6 +315,8 @@ if (limits.length === 1 && (limits[0].trim() === '' || !Number.isFinite(limit) |
   fail(`--max-cost-usd needs a number of USD above 0 (--max-cost-usd 3), not "${limits[0]}"`)
 }
 const budget = limit === null ? BUDGET_USD : Math.min(BUDGET_USD, limit)
+// --billing of the user: who pays for the calls (scripts/eval-run-env.mjs, BILLINGS); it does not reach claude.
+const billingName = takeBilling(passThrough, fail)
 
 // --changed <base> or --changed=<base>: taken out of the arguments for claude.
 let chosen = null // the cases --changed chose; null without --changed
@@ -389,6 +398,9 @@ const callArgs = (call, harness, outputDir, left) => [
 
 const claude = claudeBinary(REPO, fail)
 const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+// The key of a credits run goes only into the environment of each claude call, below.
+const billing = billingFor(billingName, childEnv, fail)
+process.stdout.write(`eval:harness: ${billing.line}\n`)
 if (dryRun) {
   const copy = '<plugin-copy>'
   process.stdout.write(`eval:harness: dry run, nothing is started: claude (${claude}) is not called; ${copy} stands for the temporary copy of ${SOURCE}\n`)
@@ -439,7 +451,7 @@ try {
     const outputDir = join(EVALS, 'results', `${stamp}-${call.name}`)
     const args = callArgs(call, harness, outputDir, left)
     process.stdout.write(`eval:harness: ${call.name} — ${envPrefix(call)}claude ${args.join(' ')}\n`)
-    const run = runClaude(claude, args, { stdio: 'inherit', cwd: REPO, env: { ...childEnv, ...call.vars } })
+    const run = runClaude(claude, args, { stdio: 'inherit', cwd: REPO, env: { ...childEnv, ...billing.vars, ...call.vars } })
     const code = run.status ?? 128 + (constants.signals[run.signal] ?? constants.signals.SIGTERM)
     process.stdout.write(`eval:harness: ${call.name} exited ${code}\n`)
     worst = Math.max(worst, code)

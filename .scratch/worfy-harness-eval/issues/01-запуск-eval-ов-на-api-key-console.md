@@ -1,7 +1,8 @@
 # 01: Запуск eval-ов на API key организации Console и проверка расхода одним коротким run-ом
 
 Type: task
-Status: open
+Status: claimed 2026-11-28T04:38Z
+Branch: worfy-harness-eval/01
 Blocked by: None — can start immediately
 Source: [spec.md](../spec.md), «Ticket-ы», 01; «Решения владельца», «Деньги» (Ticket 02 темы, «все да»); «Решено
 советником» («Счёт за запуск выбирается явно»); «Решения по реализации» («Счёт за запуск»); «Решения по test-ам»

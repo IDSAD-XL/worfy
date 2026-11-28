@@ -85,6 +85,71 @@ export function cleanEnv(env = process.env) {
   return clean
 }
 
+/**
+ * Who pays for the runs (`--billing <name>` of both evals, ticket worfy-harness-eval/01):
+ *   subscription — the claude sign-in of this machine, the default;
+ *   credits      — the API key of the Console organisation, from the file apiKeyFile() names.
+ */
+export const BILLINGS = ['subscription', 'credits']
+
+/**
+ * The variables that make claude bill an API key instead of the sign-in. They are taken out of every
+ * run, so a key the shell exports does not turn a subscription run into a paid one; a credits run
+ * gets ANTHROPIC_API_KEY back from the key file.
+ */
+export const KEY_VARIABLES = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN']
+
+/**
+ * The file of the Console API key: <Harness state>/secrets/anthropic-api-key, the state folder being
+ * HARNESS_HOME or ~/.claude/worfy-harness (as harness/hooks/eval-env.cjs reads it outside a run). It
+ * is never in a repository.
+ */
+export const apiKeyFile = (env = process.env) => join(env.HARNESS_HOME || join(homedir(), '.claude', 'worfy-harness'), 'secrets', 'anthropic-api-key')
+
+/**
+ * Takes `--billing <name>` (or `--billing=<name>`) out of `args` in place and returns the name,
+ * `subscription` when it is absent; `fail` when it is given twice, has no value or names no entry of
+ * BILLINGS: an unknown option would reach a paid call.
+ */
+export function takeBilling(args, fail) {
+  const values = []
+  for (let i = 0; i < args.length; ) {
+    if (args[i] === '--billing') {
+      const value = args[i + 1]
+      const has = value !== undefined && !value.startsWith('--')
+      values.push(has ? value : '')
+      args.splice(i, has ? 2 : 1)
+    } else if (args[i].startsWith('--billing=')) values.push(args.splice(i, 1)[0].slice('--billing='.length))
+    else i++
+  }
+  if (values.length > 1) return fail(`--billing is given ${values.length} times; give it once`)
+  const billing = values[0] ?? 'subscription'
+  if (!BILLINGS.includes(billing)) return fail(`--billing takes ${BILLINGS.join(' or ')}, not "${billing}"`)
+  return billing
+}
+
+/**
+ * The variables `billing` adds to the environment of a claude call, and a line that says who pays.
+ * The key goes only into `vars`, which the caller spreads over the environment of claude alone, and
+ * never into the line: the line names the file and says the key is hidden. Takes KEY_VARIABLES out
+ * of `env` in place. For credits, `fail` when the key file is missing or empty — before any claude.
+ */
+export function billingFor(billing, env, fail) {
+  for (const key of KEY_VARIABLES) delete env[key]
+  if (billing !== 'credits') {
+    return { vars: {}, line: `billing subscription: the runs use the claude sign-in of this machine (${KEY_VARIABLES.join(' and ')} taken out)` }
+  }
+  const file = apiKeyFile()
+  let key
+  try {
+    key = readFileSync(file, 'utf8').trim()
+  } catch (error) {
+    return fail(`--billing credits needs the Console API key in ${file}: ${error?.code === 'ENOENT' ? 'no such file' : error instanceof Error ? error.message : String(error)}`)
+  }
+  if (key === '') return fail(`--billing credits needs the Console API key in ${file}: the file is empty`)
+  return { vars: { ANTHROPIC_API_KEY: key }, line: `billing credits: ANTHROPIC_API_KEY=<hidden> from ${file}` }
+}
+
 /** $CLAUDE_BIN, else the claude binary of the Agent SDK in node_modules of `repo`. */
 export function claudeBinary(repo, fail) {
   if (process.env.CLAUDE_BIN) return process.env.CLAUDE_BIN

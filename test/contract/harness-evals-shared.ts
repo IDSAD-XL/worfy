@@ -105,7 +105,8 @@ export const childEnv = (home: string, vars: NodeJS.ProcessEnv = {}): NodeJS.Pro
 
 // A stand-in for claude: prints STUB_VERSION for --version; for every other call appends to
 // STUB_LOG its arguments, what the target plugin folder holds (manifest, eval folder), PATH, the
-// EVAL_* variables, CLAUDE_CODE_AUTO_COMPACT_WINDOW and CLAUDE_AUTOCOMPACT_PCT_OVERRIDE, the answers of "$EVAL_GIT" --version and --exec-path with PATH=/usr/bin:/bin,
+// EVAL_* variables, CLAUDE_CODE_AUTO_COMPACT_WINDOW and CLAUDE_AUTOCOMPACT_PCT_OVERRIDE, ANTHROPIC_API_KEY and
+// ANTHROPIC_AUTH_TOKEN, the answers of "$EVAL_GIT" --version and --exec-path with PATH=/usr/bin:/bin,
 // the exit code of "$EVAL_GIT" config --get worfy.probe with STUB_SYSTEM_CONFIG as the system
 // gitconfig, and the files of the copy of git; it exits with the next code from STUB_CODES
 // (comma-separated, one per call). STUB_LOCK: the first call makes the plugin copy read-only.
