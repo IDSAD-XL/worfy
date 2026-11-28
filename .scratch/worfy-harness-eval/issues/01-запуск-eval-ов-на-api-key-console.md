@@ -1,7 +1,8 @@
 # 01: Запуск eval-ов на API key организации Console и проверка расхода одним коротким run-ом
 
 Type: task
-Status: claimed 2026-11-28T04:38Z
+Status: done 2026-11-28T10:35Z
+PR: #2364
 Branch: worfy-harness-eval/01
 Blocked by: None — can start immediately
 Source: [spec.md](../spec.md), «Ticket-ы», 01; «Решения владельца», «Деньги» (Ticket 02 темы, «все да»); «Решено
@@ -69,23 +70,28 @@ Source: [spec.md](../spec.md), «Ticket-ы», 01; «Решения владел�
   - evidence: test-run pass · `pnpm test test/contract/harness-evals-run.test.ts test/contract/harness-evals-outcome.test.ts` exit 0 · mac - · 4c8964b60
   - evidence: test-run pass · `pnpm test test/contract/harness-evals-run.test.ts test/contract/harness-evals-outcome.test.ts` exit 0 · mac - · f4c77013e
   - evidence: test-run pass · `pnpm test test/contract/harness-evals-run.test.ts test/contract/harness-evals-outcome.test.ts` exit 0 · mac - · 15f7de442
+  - evidence: review pass · PR #2364 · - - · d3e85b542681b2a7e1f14c88e137242812990557
 - [ ] Ключ — только в папке состояния Harness и в окружении дочернего `claude` при запуске на кредитах; contract test-ы
       это проверяют.
   - evidence: test-run pass · `pnpm test test/contract/harness-evals-run.test.ts test/contract/harness-evals-outcome.test.ts` exit 0 · mac - · 75b01732e6887fad8efc6c9fa1ab04fa40a7259c
   - evidence: test-run pass · `pnpm test test/contract/harness-evals-run.test.ts test/contract/harness-evals-outcome.test.ts` exit 0 · mac - · 4c8964b60
   - evidence: test-run pass · `pnpm test test/contract/harness-evals-run.test.ts test/contract/harness-evals-outcome.test.ts` exit 0 · mac - · f4c77013e
   - evidence: test-run pass · `pnpm test test/contract/harness-evals-run.test.ts test/contract/harness-evals-outcome.test.ts` exit 0 · mac - · 15f7de442
+  - evidence: review pass · PR #2364 · - - · d3e85b542681b2a7e1f14c88e137242812990557
 - [ ] `--dry-run` с теми же аргументами прошёл до платного запуска; один run `status-block` на кредитах с потолком
       `--max-cost-usd 2`; строка `eval:harness …` в описании PR.
   - evidence: test-run pass · `pnpm eval:harness -- --case status-block --billing credits --max-cost-usd 2` exit 0 after the same with --dry-run exit 0; costUsd 0.31 · mac - · 75b01732e6887fad8efc6c9fa1ab04fa40a7259c
+  - evidence: review pass · PR #2364 · - - · d3e85b542681b2a7e1f14c88e137242812990557
 - [x] (вручную) Сделай: открой Console → Usage после run-а из «Итога» → Должно быть: расход этого run-а за дату run-а
       в организации, привязанной к подписке; баланс кредитов уменьшился, auto-reload выключен.
   - needs: mac
   - evidence: owner-check pass · 2026-11-28: все верно (Console → Usage 2026-11-28 ~05:03 UTC shows the ~0.31 USD run on the API key credits) · mac stable · 5bf665f77
 - [ ] «Итог» называет, куда ушёл расход `claude plugin eval` с ключом: в кредиты или в лимит подписки.
+  - evidence: review pass · PR #2364 · - - · d3e85b542681b2a7e1f14c88e137242812990557
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 75b01732e6887fad8efc6c9fa1ab04fa40a7259c
   - evidence: gate pass · `gate fast` exit 0 · mac - · 71628f267
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/46123462668/job/140930784611 · ci - · d3e85b542681b2a7e1f14c88e137242812990557
 
 ## Итог
 
