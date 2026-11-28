@@ -156,3 +156,97 @@ test теперь приводит концы строк к LF (`read` в `test/
    - Ответ: Chromium тогда не применяет `::-webkit-scrollbar` к этому элементу, и там снова native scrollbar;
      test ловит такую строку.
    - Строки: `test/unit/scrollbars-css.test.ts:58`
+
+## 8. Что нашёл review и что осталось
+
+> VERIFIED
+>
+> Блокирующих дефектов в PR #2360 (свой тонкий scrollbar на всём renderer, worfy-polish 170) нет, ниже два `[low]`.
+>
+> - `src/renderer/canvas/nodes/TerminalNode.tsx:115-116` [low] — в светлой теме фон Terminal тёмный (`--terminal-bg: #1d1d1f`, `src/renderer/theme/tokens.css:95`). Hover-цвет `#8e8e93` темнее цвета покоя. Под курсором контраст thumb-а Terminal падает с 8,5:1 до 5,2:1, то есть thumb блекнет, а должен выделяться. `test/unit/contrast.test.ts:102` проверяет только фоны приложения, `--terminal-bg` в список не входит. Исправление: для светлой темы Terminal брать более светлый hover-цвет или полупрозрачные цвета от `--terminal-text`.
+> - `test/unit/scrollbars-css.test.ts:44-50` [low] — test не проверяет правило `*:hover::-webkit-scrollbar-thumb` и прозрачность thumb-а в покое (`src/renderer/theme/scrollbars.css:30-40`). Если удалить hover-правило (thumb перестанет появляться при наведении) или сделать thumb видимым в покое, test останется зелёным.
+>
+> Вопросы из брифа (ни один дефектом не оказался):
+> - Слушатель scroll на `document` в фазе capture один на окно. На одно событие — `Map.get` и пара `clearTimeout`/`setTimeout`. Метка на отсоединённом от DOM элементе живёт до 800 ms, потом таймер снимает её вместе с записью в Map.
+> - Ни один MutationObserver renderer-а не слушает атрибут `data-scrolling`: в `src/renderer/focus/cover.ts:74`, `src/renderer/getting-started/GettingStartedPanel.tsx:319` и `src/renderer/theme/kit/layer.ts:104` стоит `attributeFilter`.
+> - Намеренно скрытые scrollbar-ы остаются скрытыми. Правило `src/renderer/shell/shell.css:100` специфичнее общего, `scrollbar-width: none` в focus и stories и класс base-ui `scrollbar-width:none` выключают стиль, как и задумано.
+> - В CSS React Flow и xterm нет ни `scrollbar-color`, ни `scrollbar-width`.
+> - У `.xterm-viewport` в xterm 6.0.0 нет прокручиваемого содержимого, свой scrollbar xterm рисует divs. Второго thumb-а в Terminal не будет.
+> - Monaco в зависимостях нет.
+> - На Windows thumb в покое не виден, подсказку о прокрутке даёт только hover. Это решение из тикета (вид как у overlay scrollbar на Mac), поэтому не дефект.
+>
+> Пункты «Готово, когда»:
+> 1. Выполнен: `src/renderer/theme/scrollbars.css`, импорт в `src/renderer/main.tsx:5`, tokens в `tokens.css:72-73` и `:206-207`, строка в таблице `docs/design/F-SPEC.md:29`.
+> 2. По коду выполнен: `scrollbars.css:30-44`, hook `src/renderer/theme/scrolling-mark.ts:15-42`, вызов в `main.tsx:74`. Как это рисуется в Electron, я не видел.
+> 3. Выполнен: оба новых test-а есть, новые tokens в `test/e2e/theme.spec.ts:21-22` и `:57-58`. Что test-ы были красными до правки, я сам не перепроверял.
+> 4. Выполнен: `TerminalNode.tsx:114-116`.
+> 5. Выполнен: в «Итог» записано мнение об overlay — отдельный Ticket сейчас не нужен.
+> 6. `ci-ok` — pass на head d65ea3b5f (`gh pr checks 2360`, exit 0).
+>
+> Что запускал:
+> - `pnpm install --frozen-lockfile` — exit 0.
+> - Три test-файла по команде из брифа с `run` — exit 0, но прошло 18 файлов: скрипт-обёртка vitest передаёт `run` как фильтр имён файлов. Без `run` — 3 файла, 140 test-ов, exit 0.
+> - Мутанты `scrolling-mark.ts` — все три пойманы (exit 1):
+>   - таймер не сбрасывается при новой прокрутке;
+>   - слушатель в фазе bubble вместо capture;
+>   - cleanup при unmount не снимает метки.
+> - Файл восстановлен из копии, `cmp` — exit 0.
+>
+> Что не проверил:
+> - Перерисовывает ли Chromium thumb, когда меняется только `:hover` или `data-scrolling`, и прячет ли его после снятия метки без нового движения курсора. Это ручной пункт 7, Electron по брифу запрещён.
+> - Вид на Windows.
+> - Полные `pnpm lint`, `pnpm typecheck`, `pnpm test` локально — сужу по зелёному `ci-ok`.
+> - Gate не запускал.
+>
+> [line 40 of the verdict is not quoted: personal data (home-path)]
+>
+> Orchestrator: both lows are not blockers (the Terminal thumb on hover still has 5.2:1 contrast); landing as is.
+>
+> Review depth: medium — ticket
+
+Code: `src/renderer/canvas/nodes/TerminalNode.tsx:115-116` · key lines: 115
+
+```tsx
+    scrollbarSliderHoverBackground: token('--scrollbar-thumb-hover'),
+    scrollbarSliderActiveBackground: token('--scrollbar-thumb-hover'),
+```
+
+Code: `src/renderer/theme/tokens.css:95-95` · key lines: 95
+
+```css
+  --terminal-bg: #1d1d1f;
+```
+
+Code: `test/unit/contrast.test.ts:102-102` · key lines: 102
+
+```ts
+    it.each(grounds)('the scrollbar thumb shows on %s and darkens or lightens under the pointer', (ground) => {
+```
+
+Code: `test/unit/scrollbars-css.test.ts:44-50` · key lines: 44
+
+```ts
+  it('styles every element and takes its colours from the tokens', () => {
+    const css = read(join(RENDERER, 'theme/scrollbars.css'))
+    expect(css).toContain('*::-webkit-scrollbar {')
+    expect(css).toContain('var(--scrollbar-thumb)')
+    expect(css).toContain('var(--scrollbar-thumb-hover)')
+    expect(css).toContain('[data-scrolling]::-webkit-scrollbar-thumb')
+  })
+```
+
+Code: `src/renderer/theme/scrollbars.css:30-40` · key lines: 30
+
+```css
+  border: 1.5px solid transparent;
+  border-radius: 999px;
+  background-color: transparent;
+  background-clip: padding-box;
+}
+
+*:hover::-webkit-scrollbar-thumb,
+[data-scrolling]::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb);
+}
+
+```
