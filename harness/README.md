@@ -161,8 +161,8 @@ run (cost ceiling, the account refused), 128 + the signal number — stopped by 
 SIGINT, `129` SIGHUP, `143` SIGTERM); after a signal the remaining calls are not started.
 
 Every run and every `llm` grader is a real model call on your account. The agent runs on
-`claude-sonnet-5-5` and the judge on `claude-opus-5-5` (`REGULAR_MODEL` and `JUDGE_MODEL` in
-`scripts/eval-run-env.mjs`; `PILOT_MODEL`, `claude-opus-5-5`, is the agent of the pilot). The full set (ten
+`claude-sonnet-5-5` and the judge on `claude-opus-5-5` (`REGULAR_MODEL` and `JUDGE_MODEL`; `PILOT_MODEL`,
+`claude-opus-5-5`, is the agent of the pilot). The full set (ten
 cases, 25 runs, then on `claude-sonnet-5` with a `claude-haiku-4-5` judge) cost 15 USD and took an hour on 2026-10-18: an `epic-wave` or `ship-ticket` run costs 0.4–1.9 USD, a
 `reviewer` run about 0.25 USD, a `status-block` run about 0.12 USD. The first full run on the
 new models is the new baseline; its cost replaces these figures.
@@ -247,8 +247,8 @@ run, and as an unknown option it would reach a paid call.
 - A case below the threshold: compare it with the last full run. A case that failed there too does
   not hold the merge, but the PR description names it; a case that passed there is fixed before the
   merge.
-- The full set, `pnpm eval:harness`, on three events: a change of `REGULAR_MODEL` or `JUDGE_MODEL` in
-  `scripts/eval-run-env.mjs`; a new version of `@anthropic-ai/claude-agent-sdk` in `package.json`
+- The full set, `pnpm eval:harness`, on three events: a change of `REGULAR_MODEL` or `JUDGE_MODEL`
+  (in `eval-run-env.mjs`, the run environment `scripts/eval-harness.mjs` imports); a new version of `@anthropic-ai/claude-agent-sdk` in `package.json`
   (it brings a new Claude Code); before an update of the Stable copy. Its lines go into the PR that
   changes the model or the version, or into `HANDOFF.md` for the Stable copy.
 - CI and the gate still run no evals; the cost of a run is above.
