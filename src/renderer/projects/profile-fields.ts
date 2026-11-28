@@ -1,7 +1,9 @@
 // The values and the look of a Profile form, shared by the Review step of "Add project" (ConnectProject.tsx)
 // and "Edit profile" of Project settings (EditProfile.tsx, worfy-polish ticket 78): the styles of a field,
-// and the helpers that read and set a dotted path of a Profile. The fields themselves are ProfileFields.tsx.
+// the helpers that read and set a dotted path of a Profile, and the line Edit profile shows instead of the
+// verification paths when there are none. The fields themselves are ProfileFields.tsx.
 import type { CSSProperties } from 'react'
+import type { ProfileEditRead } from '../../shared/ipc/profile-edit'
 
 export const fieldStyles = {
   section: { margin: '0 0 var(--space-4)' },
@@ -63,3 +65,13 @@ export const words = (input: string, split: RegExp): string[] =>
 export const issuesAt = <T extends FieldIssue>(issues: readonly T[], path: string): T[] =>
   issues.filter((issue) => issue.path === path || issue.path.startsWith(`${path}.`) || issue.path.startsWith(`${path}[`))
 
+/** Instead of the list when there is none, by why: the Harness refused the Profile, does not know the field, the read failed, or that Machine's worfy does not read them. */
+export const VERIFICATION_MISSING = {
+  profile: "The Harness refused the profile's verification paths: fix the profile field verification.paths.",
+  harness: 'The Harness printed no verification paths: update the Harness.',
+  failed: 'The verification paths could not be read.',
+  linked: "That machine's worfy does not read the verification paths: update worfy on that machine.",
+} as const
+/** The line instead of the list for a read without paths. */
+export const verificationMissing = (read: Pick<Extract<ProfileEditRead, { available: true }>, 'verificationPaths' | 'verificationPathsMiss'>): string =>
+  read.verificationPaths === undefined ? VERIFICATION_MISSING.linked : VERIFICATION_MISSING[read.verificationPathsMiss ?? 'failed']

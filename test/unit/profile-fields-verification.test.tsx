@@ -27,7 +27,8 @@ vi.mock('../../src/renderer/ipc', () => ({
   hasPreloadBridge: () => false,
 }))
 
-const { EditProfile, VERIFICATION_MISSING, VERIFICATION_NOTE } = await import('../../src/renderer/projects/EditProfile')
+const { EditProfile, VERIFICATION_NOTE } = await import('../../src/renderer/projects/EditProfile')
+const { VERIFICATION_MISSING } = await import('../../src/renderer/projects/profile-fields')
 
 const DEFAULTS = ['.github/workflows/**', '.github/actions/**', 'CLAUDE.md', 'AGENTS.md', '.claude/**', '.codex/**', '.mcp.json']
 const ADDED = ['scripts/ci-*.mjs', 'test/quarantine/**']

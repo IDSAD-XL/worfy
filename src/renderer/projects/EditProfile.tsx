@@ -42,7 +42,7 @@ import { McpProfileStatus } from '../session/McpChip'
 import { Dialog } from '../theme/kit/Dialog'
 import { GithubAccount } from './GithubAccount'
 import { MoveWorkflow } from './MoveWorkflow'
-import { fieldStyles, issuesAt, text } from './profile-fields'
+import { fieldStyles, issuesAt, text, VERIFICATION_MISSING, verificationMissing } from './profile-fields'
 import { ListField, ReadOnlyList, SelectField, TextField } from './ProfileFields'
 
 export interface EditProfileProps {
@@ -91,16 +91,6 @@ export const CHECK_DELAY_MS = 350
 const FIXED_NOTE = 'Changed by moving the workflow files'
 /** Under the verification paths: what they are, and that the form never writes them. */
 export const VERIFICATION_NOTE = "The files that judge work: the Harness's defaults, then the profile's verification.paths. Only the owner changes them, in profile.json."
-/** Instead of the list when there is none, by why: the Harness refused the Profile, does not know the field, the read failed, or that Machine's worfy does not read them. */
-export const VERIFICATION_MISSING = {
-  profile: "The Harness refused the profile's verification paths: fix the profile field verification.paths.",
-  harness: 'The Harness printed no verification paths: update the Harness.',
-  failed: 'The verification paths could not be read.',
-  linked: "That machine's worfy does not read the verification paths: update worfy on that machine.",
-} as const
-/** The line instead of the list for a read without paths. */
-export const verificationMissing = (read: Pick<Extract<ProfileEditRead, { available: true }>, 'verificationPaths' | 'verificationPathsMiss'>): string =>
-  read.verificationPaths === undefined ? VERIFICATION_MISSING.linked : VERIFICATION_MISSING[read.verificationPathsMiss ?? 'failed']
 
 const FIELD_SET = new Set<string>(PROFILE_EDIT_FIELDS)
 /**
