@@ -112,6 +112,9 @@ interface Row {
   differs?: { policy: string | null; guard: string | null; why: string }
 }
 
+/** `path` as a shell command spells it: forward slashes, so that the shell does not take a Windows backslash for an escape. */
+const slashed = (path: string): string => path.replaceAll('\\', '/')
+
 describe('one table of commands, one hard decision in the policy and in the guard', () => {
   let root = ''
   let home = ''
@@ -185,8 +188,9 @@ describe('one table of commands, one hard decision in the policy and in the guar
     { command: 'echo x >> ~/.npmrc', hard: 'npmrc' },
     { command: 'echo x >> ~/.zshrc', hard: 'shell-rc' },
     { command: 'rm -rf ~/Library/Caches/demo', hard: 'library' },
-    { command: `echo on > ${data}/app-settings.json`, hard: 'worfy-data' },
-    { command: `touch ${harness}/user.json`, hard: 'harness-home' },
+    // A shell takes a backslash for an escape: a Windows path goes into a command with forward slashes.
+    { command: `echo on > ${slashed(data)}/app-settings.json`, hard: 'worfy-data' },
+    { command: `touch ${slashed(harness)}/user.json`, hard: 'harness-home' },
     { command: 'echo x > build/sub/.git/hooks/pre-commit', hard: 'git-files' },
     { command: 'echo x > build/sub/.git/config', hard: 'git-files' },
     // os-settings

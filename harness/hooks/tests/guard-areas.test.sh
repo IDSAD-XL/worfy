@@ -62,7 +62,8 @@ rule() {
     else bad "$1: want deny by $2, got: ${got:0:300} (logged rule: ${logged:-none})"; fi
 }
 q() { jq -Rn --arg v "$1" '$v'; }   # a JSON string
-bash_() { printf '{"tool_name":"Bash","tool_input":{"command":%s},"cwd":%s,"permission_mode":"bypassPermissions"%s}' "$(q "$1")" "$(q "${2:-$R}")" "${3:+,$3}"; }
+# The command goes to jq as it is: Git Bash would rewrite a command that starts with /usr/… into a Windows path.
+bash_() { printf '{"tool_name":"Bash","tool_input":{"command":%s},"cwd":%s,"permission_mode":"bypassPermissions"%s}' "$(MSYS2_ARG_CONV_EXCL='*' MSYS_NO_PATHCONV=1 q "$1")" "$(q "${2:-$R}")" "${3:+,$3}"; }
 write() { printf '{"tool_name":"Write","tool_input":{"file_path":%s,"content":"x"},"cwd":%s,"permission_mode":"bypassPermissions"%s}' "$(q "$1")" "$(q "$R")" "${2:+,$2}"; }
 edit()  { printf '{"tool_name":"Edit","tool_input":{"file_path":%s,"old_string":"a","new_string":"b"},"cwd":%s,"permission_mode":"bypassPermissions"}' "$(q "$1")" "$(q "$R")"; }
 CODEX='"turn_id":"turn-1"'
