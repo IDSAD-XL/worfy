@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { canvasReady, launchApp, type LaunchedApp } from './helpers'
+import { quarantined } from './quarantine'
 import { snapshotThemes } from './snapshots'
 
 // A Session drives a Browser through the MCP server `worfy-browser` (worfy-browser ticket 04,
@@ -403,7 +404,9 @@ test('a click of the Session leaves the keyboard focus of the window where the u
   expect(await window.evaluate('document.activeElement && document.activeElement.localName')).toBe('webview')
 })
 
-test("a service worker of another site does not let the Session's navigation past the origins", async () => {
+// Quarantined (test/quarantine/browser-mcp-service-worker-origins.json): on the macOS runner the user's
+// click into the page sometimes never takes the Browser over; worfy-polish 174 fixes it.
+quarantined('browser-mcp-service-worker-origins')("a service worker of another site does not let the Session's navigation past the origins", async () => {
   const window = await start()
   const { id } = await ok<{ id: string }>('browser_open', { profile: PROFILE, url: `${origin}/` })
   const frame = window.locator(`[data-testid="browser-frame"][data-node-id="${id}"]`)

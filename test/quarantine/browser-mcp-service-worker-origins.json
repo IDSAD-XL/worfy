@@ -1,0 +1,13 @@
+{
+  "kind": "quarantine",
+  "runner": "playwright",
+  "file": "test/e2e/browser-mcp.spec.ts",
+  "test": "a service worker of another site does not let the Session's navigation past the origins",
+  "reason": "Flaky on the GitHub macOS runner (macos-e2e): the user's click into the Browser's page (window.mouse.click after pagePainted, browser-mcp.spec.ts:413) sometimes never takes the Browser over, and expect(browser-taken-over).toBeVisible() at :414 fails after 15 s while the page is painted and the badge still says «Claude is driving». Red on both attempts in PR #2341 run 46105332190 job 140856752338 (head f15220b99; the PR touches only the Harness verification paths, profile fields and the Edit profile form, nothing of the Browser); FLAKY (first attempt red at :414, retry green) on main push run 46029852347 job 140610887080 (4987d504d); 1 of 15 main push runs that ran it 2026-11-27T03:53Z..2026-11-28T04:22Z; macOS FLAKY 5 times 2026-11-01..11-05 (worfy-polish 66). Hypotheses, not established: the guest's input-event does not arrive for a click made right after paint, or the click lands before main put the Browser in mode claude and takeOver returns false. The neighbouring test :430 clicks the same way after waiting for the «Claude is driving» badge. The service-worker bypass stays covered by test/contract/browser-tools.test.ts:624. No timeout raised.",
+  "platforms": [
+    "darwin"
+  ],
+  "owner": "worfy-polish 174",
+  "since": "2026-11-28",
+  "until": "2026-12-12"
+}
