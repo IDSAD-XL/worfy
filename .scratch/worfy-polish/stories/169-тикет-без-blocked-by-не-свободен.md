@@ -13,7 +13,7 @@ Kind: pr · Epic: worfy-polish · Ticket: 169 · PR: - · Language: ru
 
 ## 2. Нет строки — тот же дефект, что нечитаемая строка
 
-Code: `src/shared/workflow/waves.ts:135-136` · key lines: 136
+Code: `src/shared/workflow/waves.ts:136-137` · key lines: 137
 
 ```ts
 function ownProblem(ticket: WaveTicket, tickets: Map<number, WaveTicket>, cycleOf: Map<number, number[]>): Problem | null {
@@ -33,15 +33,15 @@ function ownProblem(ticket: WaveTicket, tickets: Map<number, WaveTicket>, cycleO
 
 ## 3. Текст, который видит человек
 
-Code: `src/shared/workflow/waves.ts:26-27` · key lines: 27
+Code: `src/shared/workflow/waves.ts:27-28` · key lines: 28
 
 ```ts
-/** What a person reads for an `unparsed` Level: the value that is not a list, or the missing line. */
-export const unparsedText = (raw: string | null): string => (raw === null ? 'no “Blocked by:” line' : `“Blocked by: ${raw}” is not a list of tickets`)
+/** What a person reads for an `unparsed` Level: the value that is not a list, or the empty or missing line. */
+export const unparsedText = (raw: string | null): string => (raw === null ? 'empty or missing “Blocked by:” line' : `“Blocked by: ${raw}” is not a list of tickets`)
 ```
 
-- Что делает: одна функция текста для `unparsed`. Без строки — «no “Blocked by:” line»; с нечитаемой строкой — прежний
-  текст. Её зовут строка карточки Ticket-а (`attentionText`, `src/renderer/canvas/ticket-card.ts:405`) и причина
+- Что делает: одна функция текста для `unparsed`. Без строки и с пустой строкой — «empty or missing “Blocked by:”
+  line» (Harness отдаёт обе как `blockedRaw: null`, `bin/epic-status:421`); с нечитаемой строкой — прежний текст. Её зовут строка карточки Ticket-а (`attentionText`, `src/renderer/canvas/ticket-card.ts:405`) и причина
   неактивной кнопки Ship ticket (`src/shared/actions/render-template.ts:163`); раньше обе писали
   «“Blocked by: ” is not a list of tickets».
 - Почему здесь: Ticket: «Текст, который видит человек, называет, чего не хватает». `render-template.ts:163` Ticket
@@ -114,23 +114,59 @@ Blocked by: None — can start immediately
 - Риски и пробелы test-ов: зависимости этих трёх Ticket-ов не записаны нигде; все три уже влиты и ждут взгляда
   владельца, так что Wave они не меняют.
 
-## 7. Что сознательно не меняли
+## 7. Ревью, раунд 1: план Wave не теряет номера из-за старых завершённых Ticket-ов
+
+Code: `src/shared/actions/render-template.ts:111-122` · key lines: 119
+
+```ts
+  // A done Ticket without a "Blocked by" line was taken without one: in the plan it has no blockers,
+  // or it and every Ticket after it would lose their number (worfy-polish ticket 169).
+  const plan = waveNumbers(
+    tickets
+      .filter((ticket) => ticket.epic === epic)
+      .map((ticket) => ({
+        ...ticket,
+        state: 'open' as const,
+        ...(ticket.state === 'done' && ticket.blockedRaw === null && !ticket.blockedParsed ? { blockedParsed: true, blockedNums: [] } : {}),
+      })),
+    epic,
+  )
+```
+
+- Что делает: план Wave (`planWaveNumber` — номер Wave «как в таблице spec-а» для `{wave}` шаблона Run wave) делает
+  все Ticket-ы открытыми и нумерует их `waveNumbers`. У завершённого Ticket-а без строки `Blocked by:` в плане теперь
+  блокеров нет; у открытого строки по-прежнему не хватает.
+- Почему здесь: замечание [med] ревью: 39 завершённых Ticket-ов в пяти Epic-ах без строки (worfy-harness 28–48,
+  worfy-multi-vendor 1–5 и 46–48, worfy-polish 51–60 и другие); у worfy-multi-vendor номер Wave стал `null` вместо 11,
+  и шаблон с `{wave}` не отрисовался бы. Правка здесь, а не в `ownProblem`: план переписывает `state` в `open` до
+  `waveNumbers`, и `ownProblem` уже не видит, что Ticket завершён; вне плана `readyWave` до `ownProblem` завершённый
+  Ticket не доводит.
+- Без него: номер Wave плана — `null` у Epic-а с одним старым завершённым Ticket-ом без строки выше по цепочке.
+- Требование: [Что строить, п. 1](../issues/169-тикет-без-blocked-by-не-свободен.md#что-строить)
+- Риски и пробелы test-ов: test `readyWaveNumber` в `test/unit/render-template.test.ts` («counts a done Ticket without
+  a "Blocked by" line…») красный на коде первого раунда (exit 1), зелёный после. На данных `epic-status --json` (снимок
+  этого дня) worfy-multi-vendor снова даёт 11. Завершённый Ticket с нечитаемой (не пустой) строкой по-прежнему без
+  номера в плане — так было и до этого Ticket-а.
+
+## 8. Что сознательно не меняли
 
 Новый `kind` в `Level`, `WaitReason` и `Attention` не заводили. Harness (`harness/bin/epic-status`) не трогали: он
 уже не считает Ticket без строки свободным. Страницы `docs/features/workflow.md` и `epic-frames.md` (и их `ru/`)
 теперь называют отсутствие строки среди причин «Needs attention» и условий Wave.
 
-## 8. Как проверено
+## 9. Как проверено
 
 До правки четыре новые проверки красные (`pnpm test` по `waves`, `epic-layout`, `launch` — exit 1), после — exit 0.
 `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; gate fast — exit 0. e2e и Electron локально не запускали.
+Раунд 1: test плана красный на коде первого раунда (exit 1); mutant со старым текстом даёт два красных test-а
+(`epic-layout`, `launch`, exit 1); девять файлов unit-test-ов, `pnpm lint`, `pnpm typecheck`, gate fast — exit 0.
 
 ## Проверить себя
 
 1. Почему Ticket без строки «Blocked by:» нельзя считать Ticket-ом без блокеров?
    - Ответ: «нет блокеров» пишут явно (`None`); строки нет — значит, никто не решил, и Harness такой Ticket не берёт.
      worfy, взяв его, разошёлся бы с Wave Harness-а.
-   - Строки: `src/shared/workflow/waves.ts:136`
+   - Строки: `src/shared/workflow/waves.ts:137`
 2. Почему заблокированный Ticket без строки не попадает в `skipped`?
    - Ответ: `skipped` берёт только Ticket без своего дефекта (или с циклом); `unparsed` — дефект.
    - Строки: `test/unit/waves.test.ts:270`
