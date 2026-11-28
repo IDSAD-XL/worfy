@@ -1,9 +1,7 @@
 # 52 — Сравнительный eval исходов: plugin worfy против Claude Code без plugin-а (пилот), позже — против чужих plugin-ов
 
 Type: spike
-Status: blocked 2026-10-21T12:21Z
-Blocked reason: 4 tasks + graders to be written by a plain Claude Code session (brief-52-plain-session.md); owner's list. Infrastructure (fixture, eval:outcome, score, empty slot) in its own PR after 29
-Waits: owner
+Status: done 2026-11-28T02:59Z
 Blocked by: 27
 Source: вопрос владельца 2026-10-19 — можно ли прогнать конкурентов через наши eval и получить числом, что worfy лучше
 набора разрозненных skills-plugin-ов. Ответ Orchestrator-а: кейсы Ticket-а 27 (eval-кейсы Harness через `claude plugin
@@ -348,3 +346,7 @@ Gate full Mac зелёный; check/windows — runner и ПК зелёные. �
   список, сейчас делайте только инфраструктуру.»
 - Шаги 2б, 4 и 5 (судья на эталонах, 8 run-ов, пилот) — платные, только по слову владельца.
 - До заморозки задач закрыть Ticket 65.
+
+## Закрыт 2026-11-28
+
+Заменён Epic-ом worfy-harness-eval, Ticket-ы 08–12 (runner пилота, ветка Autopilot, задачи, отбор, пилот); задачи этого Ticket-а заменяет worfy-harness-eval 10. Решение владельца 2026-11-28: «Да, закрыть».
