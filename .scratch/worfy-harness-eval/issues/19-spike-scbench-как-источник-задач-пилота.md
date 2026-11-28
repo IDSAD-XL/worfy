@@ -54,8 +54,10 @@ Codex не запускается. Чтение кода и документац
 ## Готово, когда
 
 - [ ] «Итог» отвечает на вопросы 1–8 со ссылками; commit-ы обоих репозиториев SCBench названы.
+  - evidence: commit pass · worfy-harness-eval/19: SCBench spike answers in the ticket summary · - - · 29b37c30b23f30b28162526d3f38ff76eaa3cf90
 - [ ] «Итог» предлагает одно из трёх: SCBench — пятое семейство пилота, замена одного семейства или не берём, с
       причиной и ценой платной пробы.
+  - evidence: commit pass · worfy-harness-eval/19: SCBench spike answers in the ticket summary · - - · 29b37c30b23f30b28162526d3f38ff76eaa3cf90
 - [ ] (вручную) Сделай: прочитай «Итог» и выбери: пятое семейство, замена семейства или не берём → Должно быть:
       решение записано в «Решения» Ticket-а 10 до его claim.
   - needs: mac
