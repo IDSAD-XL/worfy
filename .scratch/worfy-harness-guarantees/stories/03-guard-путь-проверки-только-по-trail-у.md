@@ -26,10 +26,12 @@ Code: `harness/hooks/hooks.json:186-187` · key lines: 187
 - Требование: [Что строить](../issues/03-guard-путь-проверки-только-по-trail-у.md#что-строить)
 - Риски и пробелы test-ов: `MultiEdit` в Claude Code 2.1.322 нет (spike 01); строка matcher-а нужна новой версии,
   которая его вернёт. Новый tool записи под другим именем guard не увидит — это ловит contract set Ticket-а 08.
+  Цена: каждый Edit и Write теперь запускает node с guard-ом (около 30 ms, с чтением профиля и git — около 110 ms;
+  feature page `skills-agents-and-hooks.md`).
 
 ## 3. Кто Subagent и какие tool-ы доходят до раздела 4
 
-Code: `harness/hooks/guard.mjs:117-135` · key lines: 123, 131, 133
+Code: `harness/hooks/guard.mjs:122-140` · key lines: 128, 136, 138
 
 ```js
 const agent = codex ? codexAgent(payload) : ""
@@ -65,7 +67,7 @@ if (bash && !cmd.trim()) ok()
 
 ## 4. Решение — правило `land`
 
-Code: `harness/hooks/guard.mjs:1353-1391` · key lines: 1358, 1359, 1371, 1374, 1380, 1389, 1390
+Code: `harness/hooks/guard.mjs:1384-1431` · key lines: 1393, 1401, 1407, 1410, 1419, 1429
 
 ```js
 function verificationSection() {
@@ -79,22 +81,31 @@ function verificationSection() {
         // is read by the profile of the folder the call runs in
         const read = tree ? projectProfile(tree.top) : null
         const own = read?.profile ? read : projectProfile(cwdOf())
-        if (own?.profile) {
+        if (own?.profile && checksPaths(own.profile)) {
             const { folder } = ticketsPlace(own.profile, tree?.top || cwdOf())
             if (folder) trailEdit(t, realTarget(folder).real, own.profile.tickets?.trail_section)
         }
-        // a folder no profile covers: the section is silent, as section 3 is
-        if (!tree || read === null) continue
+        // a folder no profile covers: the section is silent, as section 3 is; a profile that could not be read (a
+        // failure or the end of the budget) lets the call through, and land checks the PR at merge
+        if (!tree || !read?.profile || !checksPaths(read.profile)) continue
         const profile = read.profile
         const list = verificationPaths(profile)
         // an absolute root: a relative one would resolve from the working directory (a realpath on macOS)
         const opts = { root: tree.top }
-        // the rule of bin/land: a verification path, or any symbolic link; and the folder above one a command removes
-        if (!(touchesVerificationPath(t.real, list, { ...opts, symlink: t.symlink === true }) || (t.removes && isVerificationParent(t.real, list, opts)))) continue
+        // the rule of bin/land: a verification path, or any symbolic link; and the folder above one a command may write or remove whole
+        if (!(touchesVerificationPath(t.real, list, { ...opts, symlink: t.symlink === true }) || (t.folder && isVerificationParent(t.real, list, opts)))) continue
         const rel = normalizePath(t.real, opts) + (t.symlink ? " (a symbolic link, which may point anywhere)" : "")
-        if (!profile)
-            deny(`${rel} is a verification path, and the profile of this project could not be read (bin/profile ${read.unread}), so no trail tells whether this ticket may edit it. ${PATH_STEP}.`, "verification-path-profile")
+        // a detached HEAD is a review tree (worktree.reviewer): no ticket, and a reviewer adds nothing to a trail
+        if (tree.branch === "HEAD")
+            deny(
+                `${rel} is a verification path, and this work tree is on a detached HEAD: a subagent edits no verification path in a review tree. ` +
+                    "Mutate a copy outside the repository (copy the folder into a temporary directory and run the test against the copy), " +
+                    "or name the change in your report.",
+                "verification-path-detached"
+            )
         const trail = trailOf(profile, tree)
+        // git did not answer (a failure, the end of the budget): the guard cannot tell, land decides at merge
+        if (trail.unread) continue
         if (trail.ticket) refusedTicket = `${trail.ticket.epic}/${trail.ticket.nn}`
         if (!trail.ticket)
             deny(
@@ -110,20 +121,81 @@ function verificationSection() {
 ```
 
 - Что делает: для каждого файла вызова — realpath ближайшей существующей папки, дерево git этой папки и его ветка,
-  профиль дерева; путь проверки (или любая символическая ссылка, или папка над путём при удалении) сверяется с trail-ом
-  Ticket-а ветки на вершине `worktree.base` через `readTrail`/`namedByTrail` — те же helper-ы, что у `land`.
+  профиль дерева; путь проверки (или любая символическая ссылка, или папка, которую команда пишет или удаляет целиком)
+  сверяется с trail-ом Ticket-а ветки на вершине `worktree.base` через `readTrail`/`namedByTrail` — те же helper-ы, что
+  у `land`. Дерево на detached HEAD (дерево reviewer-а) получает свой отказ: мутировать копию вне репозитория.
 - Почему здесь: Ticket велит переиспользовать `verification-paths.cjs` и helper trail-а Ticket-а 04 («только вызов»);
   корень — дерево файла, потому что worktree лежат в `.claude/worktrees/`, а `.claude/**` — путь проверки по умолчанию.
-- Без него: Edit в `.github/workflows/…` вне trail-а проходил (первый test, красный на старом коде); с корнем от cwd
-  главного checkout-а любой файл worktree считался бы путём `.claude/**` (test «taken from the worktree's root»).
+  Текст для detached HEAD — решение review round 1 (reviewer-у не нужен trail, ему нужна копия).
+- Без него: Edit в `.github/workflows/…` вне trail-а проходил (первый test, красный на старом коде); trail, прочитанный
+  на HEAD ветки, разрешал бы Subagent-у путь, который он сам дописал в свой trail (test «the branch's own edit of its
+  trail allows nothing (read on origin/main)» краснеет на мутанте, 32 FAIL).
 - Требование: [Готово, когда, п. 1–2](../issues/03-guard-путь-проверки-только-по-trail-у.md#готово-когда)
 - Риски и пробелы test-ов: разбор shell-команды лексический — скрипт, который пишет файл сам, guard не видит; это
-  закрывает `land`. Чтение, не ответившее за 8 s, пропускает (как упавший hook). Профиль берётся у дерева файла, а не
-  у списка репозиториев Project-а: файл в чужом репозитории с веткой без Ticket-а тоже отказан.
+  закрывает `land`. Профиль берётся у дерева файла, а не у списка репозиториев Project-а.
 
-## 5. Silent mode: правка trail-а в папке Ticket-ов
+## 5. Какие профили проверяются
 
-Code: `harness/hooks/guard.mjs:1331-1351` · key lines: 1338, 1342, 1343
+Code: `harness/hooks/guard.mjs:1372-1382` · key lines: 1381
+
+```js
+// Whether the guard checks verification paths for a project: a ticket branch template (tickets.branch with <epic> and
+// <NN>) and one repository.
+// shortcut: a project of several repositories is not checked — its trail entries start with the repository's name and
+// the guard compares paths from the root of one tree (lib/ticket-trail.cjs, the shortcut on several repositories: redo
+// when a project with several repositories gets a verification path check); nor is a profile without a ticket branch
+// template, where no branch can name a ticket. bin/land still checks their PRs at merge.
+function checksPaths(profile) {
+    const template = profile?.tickets?.branch
+    const repos = profile?._resolved?.repos
+    return typeof template === "string" && template.includes("<epic>") && template.includes("<NN>") && !(Array.isArray(repos) && repos.length > 1)
+}
+```
+
+- Что делает: пути проверок проверяются только у профиля с шаблоном ветки `tickets.branch` (`<epic>` и `<NN>`) и одним
+  репозиторием; у остальных раздел путей молчит, `land` проверяет их PR при merge.
+- Почему здесь: review round 1: у профиля с несколькими репозиториями запись trail-а начинается с имени репозитория,
+  а у профиля без шаблона ни одна ветка не называет Ticket — без пропуска guard отказывал бы там всем. Условие переделки
+  — то же, что у shortcut-а в `lib/ticket-trail.cjs`.
+- Без него: test-ы «a profile of several repositories» и «a profile with no tickets.branch template» красные
+  (мутанты «шаблон не проверяется» и «несколько репозиториев не проверяются»).
+- Требование: [Готово, когда, п. 1](../issues/03-guard-путь-проверки-только-по-trail-у.md#готово-когда)
+- Риски и пробелы test-ов: это известный предел, а не защита: Subagent проекта с несколькими репозиториями правит путь
+  проверки без отказа до merge.
+
+## 6. Сбой открывает проход
+
+Code: `harness/hooks/guard.mjs:1006-1016` · key lines: 1013, 1016
+
+```js
+// The time all the reads of this section share — bin/profile, git rev-parse, git symbolic-ref and the git calls of the
+// trail read — well inside the hook's limit with section 3's two tries after it (8 + 2 × 10 s of 30 s). A read that fails
+// or runs out of it counts as not answered: the call is let through, as when the hook itself fails (the spec's
+// risks: a failure of the guard opens the way; bin/land checks the PR's diff at merge). A test may shorten it, never lengthen it.
+const SECTION4_MS = (() => {
+    const DEFAULT = 8000
+    const v = Number(process.env.CLAUDE_GUARD_READ_MS)
+    return Number.isInteger(v) && v > 0 ? Math.min(v, DEFAULT) : DEFAULT
+})()
+const section4Until = Date.now() + SECTION4_MS
+const section4Left = () => Math.max(1, section4Until - Date.now())
+```
+
+- Что делает: все чтения раздела 4 — `bin/profile`, `git rev-parse`, `git symbolic-ref`, оба вызова git в `readTrail`
+  (новый параметр `timeout`) — делят один бюджет 8 s; чтение, которое упало или не уложилось, пропускает вызов.
+  `CLAUDE_GUARD_READ_MS` в test-е только сокращает бюджет. Вызов раздела обёрнут в `try {} catch {}`, раздел 3 после
+  него работает.
+- Почему здесь: spec, «Риски»: «Сбой guard открывает проход», страховка — `land`; лимит hook-а — 30 s, раздел 3 после
+  него берёт до 2 × 10 s.
+- Без него: зависший git держал бы каждый Edit до лимита hook-а (test «a git that does not answer the trail read within
+  the budget» шёл 20 s и краснел до правки); непрочитанный профиль отказывал бы всем правкам путей проверок.
+- Требование: [Готово, когда, п. 1](../issues/03-guard-путь-проверки-только-по-trail-у.md#готово-когда)
+- Риски и пробелы test-ов: мутант «исключение раздела 4 → отказ» выживает — ни один вход раздел не роняет, мутант
+  эквивалентный. Медленный git проверен только на POSIX (shell-скрипт не запускается как программа на Windows).
+
+## 7. Silent mode: правка trail-а в папке Ticket-ов
+
+Code: `harness/hooks/guard.mjs:1350-1370` · key lines: 1357, 1361, 1362
 
 ```js
 function trailEdit(t, folder, heading) {
@@ -143,7 +215,7 @@ function trailEdit(t, folder, heading) {
         `This edit ${afterTrail === undefined ? "may change" : "changes"} the trail section of ${rel} (${JSON.stringify(heading)}) in the tickets folder: ` +
             "outside the repository the guard and land read the trail from that file, so a subagent does not edit it. " +
             "Write the need into your report; the Orchestrator edits the trail." +
-            (afterTrail === undefined ? " Edit the other sections of the ticket with the Edit tool." : ""),
+            (afterTrail === undefined ? " Edit the other sections of the ticket with an edit whose old and new text the guard can read (a file edit, not a shell command)." : ""),
         "ticket-trail-edit"
     )
 }
@@ -160,9 +232,9 @@ function trailEdit(t, folder, heading) {
 - Риски и пробелы test-ов: слабее Full mode — записано в spec-е («Silent mode слабее»); переименование Ticket-а
   shell-командой не разобрано.
 
-## 6. `ticket mark` и `profile-set`
+## 8. `ticket mark` и `profile-set`
 
-Code: `harness/hooks/guard.mjs:1160-1172` · key lines: 1164, 1165, 1166
+Code: `harness/hooks/guard.mjs:1178-1190` · key lines: 1182, 1183, 1184
 
 ```js
 function marksAndFields() {
@@ -181,18 +253,19 @@ function marksAndFields() {
 ```
 
 - Что делает: `ticket mark` (кроме `--contexts`) из Subagent-а отказан; ниже в той же функции — `profile-set --set` или
-  `--reset` полей `verification.*`, `workflow.ci_check`, `workflow.pipeline`, `workflow.merge` (и Pipeline без
-  `--field`) отказан любой Session агента.
+  `--reset` полей `verification`, `verification.*`, `workflow`, `workflow.ci_check`, `workflow.pipeline`,
+  `workflow.merge` (и Pipeline без `--field`) отказан любой Session агента. heredoc, где в тексте есть `ticket mark`,
+  проходит: тело heredoc-а — данные.
 - Почему здесь: Ticket: «Тот же раздел отказывает…»; поля меняет владелец формой Edit profile или в терминале.
 - Без него: Subagent мог бы сам поставить себе `review success`, а агент — выключить условие merge (tests «ticket mark
-  from a subagent», «profile-set --field workflow.merge» красные на мутантах).
+  from a subagent», «profile-set --field workflow.merge», «--field workflow» красные на мутантах).
 - Требование: [Готово, когда, п. 4](../issues/03-guard-путь-проверки-только-по-trail-у.md#готово-когда)
 - Риски и пробелы test-ов: имя программы — по basename (`ticket`, `profile-set`, через `node <path>`); копия скрипта под
   другим именем не узнаётся.
 
-## 7. Один `deny()` и строка в `WORFY_GUARD_LOG`
+## 9. Один `deny()` и строка в `WORFY_GUARD_LOG`
 
-Code: `harness/hooks/guard.mjs:88-108` · key lines: 93, 94, 95, 96, 97
+Code: `harness/hooks/guard.mjs:93-113` · key lines: 98, 99, 100, 101, 102
 
 ```js
 let refusedTicket = null
@@ -220,25 +293,30 @@ const deny = (reason, rule) => {
 
 - Что делает: каждый отказ называет id правила; с `WORFY_GUARD_LOG` дописывается строка JSON (формат — в шапке
   `guard.mjs`), без переменной guard ничего не пишет; файл, который не пишется, отказ не отменяет.
-- Почему здесь: Ticket: «Один helper отказа `deny()` в guard.mjs»; строку читает Ticket 10 (Journal и Run history).
+- Почему здесь: Ticket: «Один helper отказа `deny()` в guard.mjs»; переменную задаёт и строку читает Ticket 10 (Journal
+  и Run history).
 - Без него: Ticket 10 не узнал бы, какое правило отказало (tests «WORFY_GUARD_LOG» красные).
 - Требование: [Готово, когда, п. 5](../issues/03-guard-путь-проверки-только-по-trail-у.md#готово-когда)
 - Риски и пробелы test-ов: `ticket` в строке — только когда раздел 4 читал trail; у остальных правил `null`.
 
-## 8. Как проверено
+## 10. Как проверено
 
-`bash harness/hooks/tests/guard-verification.test.sh` — exit 0 (89 проверок; на старом guard-е — 57 FAIL из 85);
-копия Harness, где `deny()` пропускает одно из шести новых правил, — test красный для каждого; `guard-silent.test.sh`,
-`rules-hooks.test.sh`, `session-hooks.test.sh`, `harness-home.test.sh`, `plugin-neutral.test.sh` — exit 0;
-`test/contract/harness-codex-hooks.test.ts`, `harness-guarantees.test.ts`, `harness-evals-run.test.ts` и соседние —
-exit 0; `pnpm lint`, `pnpm typecheck` — exit 0. Windows и Git Bash — только CI.
+`bash harness/hooks/tests/guard-verification.test.sh` — exit 0 (107 проверок; на старом guard-е — 57 FAIL из 85, test-ы
+review round 1 до правки — 14–15 FAIL); копия Harness с мутантом — test красный для каждого нового правила и каждой
+правки round 1, кроме эквивалентного «исключение → отказ»; `guard-silent.test.sh`, `rules-hooks.test.sh`,
+`session-hooks.test.sh`, `harness-home.test.sh`, `plugin-neutral.test.sh`, `land-verification.test.sh` — exit 0;
+`test/contract/harness-codex-hooks.test.ts`, `harness-guarantees.test.ts`, `harness-evals-run.test.ts`,
+`test/unit/ticket-trail.test.ts`, `verification-paths.test.ts` — exit 0; `pnpm lint`, `pnpm typecheck` — exit 0.
+Windows и Git Bash — только CI.
 
 ## Проверить себя
 
-1. Почему корень пути — `git rev-parse --show-toplevel` папки файла, а не cwd вызова?
-   - Ответ: worktree лежит в `.claude/worktrees/` главного checkout-а; от его корня любой файл worktree был бы путём
-     `.claude/**`, а ветка — `main` без Ticket-а.
-   - Строки: `harness/hooks/guard.mjs:1359-1371`
-2. Почему Edit главного потока Session, запущенной с `--agent`, не отказан, хотя в нём есть `agent_type`?
+1. Почему trail читается на `origin/main`, а не на HEAD ветки дерева?
+   - Ответ: trail на ветке пишет сам Subagent; прочитанный там, он разрешал бы путь, который Subagent себе дописал.
+   - Строки: `harness/hooks/guard.mjs:1297-1310`
+2. Что делает guard, когда git не ответил за бюджет раздела?
+   - Ответ: пропускает вызов — сбой открывает проход, путь закрывает `land` при merge.
+   - Строки: `harness/hooks/guard.mjs:1416-1419`
+3. Почему Edit главного потока Session, запущенной с `--agent`, не отказан, хотя в нём есть `agent_type`?
    - Ответ: Subagent на Claude Code узнаётся по `agent_id`, который есть только внутри Subagent-а.
-   - Строки: `harness/hooks/guard.mjs:119-123`
+   - Строки: `harness/hooks/guard.mjs:124-128`

@@ -27,7 +27,7 @@
 // tickets outside the repository (Silent mode) a subagent's edit that changes the trail section of a
 // ticket there is refused too. A read that fails or runs out of the section's 8 s budget (bin/profile,
 // git, the trail read), and a failure inside the section, let the call through, as the spec has it
-// («Риски»: «Сбой guard открывает проход»): bin/land checks the PR's diff at merge.
+// (its risks: a failure of the guard opens the way): bin/land checks the PR's diff at merge.
 //
 // The refusal log. With WORFY_GUARD_LOG set (a later ticket of the Harness guarantees epic, Journal and
 // Run history, has worfy set it for the Sessions it starts), every refusal appends one line of JSON to
@@ -1005,8 +1005,8 @@ const MERGE_FIELDS = ["workflow.ci_check", "workflow.pipeline", "workflow.merge"
 const guardedField = (f) => f === "verification" || f.startsWith("verification.") || f === "workflow" || MERGE_FIELDS.includes(f)
 // The time all the reads of this section share — bin/profile, git rev-parse, git symbolic-ref and the git calls of the
 // trail read — well inside the hook's limit with section 3's two tries after it (8 + 2 × 10 s of 30 s). A read that fails
-// or runs out of it counts as not answered: the call is let through, as when the hook itself fails (spec, «Риски»:
-// «Сбой guard открывает проход»; bin/land checks the PR's diff at merge). A test may shorten it, never lengthen it.
+// or runs out of it counts as not answered: the call is let through, as when the hook itself fails (the spec's
+// risks: a failure of the guard opens the way; bin/land checks the PR's diff at merge). A test may shorten it, never lengthen it.
 const SECTION4_MS = (() => {
     const DEFAULT = 8000
     const v = Number(process.env.CLAUDE_GUARD_READ_MS)
@@ -1430,8 +1430,8 @@ function verificationSection() {
     }
 }
 
-// A failure inside section 4 lets the call through (spec, «Риски»: «Сбой guard открывает проход»; land checks the diff
-// at merge), and section 3 still runs: process.exit inside deny() ends the hook before this catch.
+// A failure inside section 4 lets the call through (the spec's risks: a failure of the guard opens the way; land checks
+// the diff at merge), and section 3 still runs: process.exit inside deny() ends the hook before this catch.
 try {
     verificationSection()
 } catch {}

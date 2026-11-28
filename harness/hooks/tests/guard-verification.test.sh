@@ -165,7 +165,7 @@ expect "a subagent on a detached HEAD (a review tree) -> deny with its own next 
     "CLAUDE.md is a verification path, and this work tree is on a detached HEAD: a subagent edits no verification path in a review tree. Mutate a copy outside the repository"
 expect "a profile of several repositories: verification paths are not checked -> allow" allow "$(edit "$M/CLAUDE.md" "$M" "$IMPL")"
 expect "a profile with no tickets.branch template: verification paths are not checked -> allow" allow "$(edit "$P/CLAUDE.md" "$P" "$IMPL")"
-# A read that fails or runs out of time lets the call through (spec, «Риски»: land checks the diff at merge).
+# A read that fails or runs out of time lets the call through (the spec's risks: land checks the diff at merge).
 expect "a profile that cannot be read: a verification path -> allow, land checks at merge" allow "$(edit "$B/CLAUDE.md" "$B" "$IMPL")"
 expect "a profile that cannot be read: any other file -> allow" allow "$(edit "$B/a.ts" "$B" "$IMPL")"
 SLOW="$T/slow-profile.mjs"
