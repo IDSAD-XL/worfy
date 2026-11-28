@@ -2,6 +2,7 @@ import { StrictMode, type CSSProperties } from 'react'
 import { createRoot } from 'react-dom/client'
 // Tokens first: every other stylesheet reads its variables.
 import './theme/tokens.css'
+import './theme/scrollbars.css'
 import { AppShell } from './shell/AppShell'
 import { ErrorBoundary } from './shell/ErrorBoundary'
 import { installAssistantOffer } from './assistant/offer-notice'
@@ -25,6 +26,7 @@ import { installQuestionToasts } from './session/question-toast'
 import { SessionView } from './session/SessionView'
 import { useStoryToasts } from './stories/use-story-toasts'
 import { HintTooltips } from './theme/kit/Tooltip'
+import { useScrollingMark } from './theme/scrolling-mark'
 import { ToastRegion } from './toast/ToastRegion'
 import { installPrInboxDigest } from './pr-inbox/digest'
 import { installUpdateToasts } from './update/toasts'
@@ -68,6 +70,8 @@ export function App() {
   const active = activeProject(useProjects())
   // The toast of an Epic's Code story, once per Epic (worfy-code-stories ticket 10).
   useStoryToasts(active)
+  // The thumb of the app's scrollbar while a container scrolls (theme/scrollbars.css), one listener per window.
+  useScrollingMark()
   const shown = useShownMachine()
   const project = active ? { id: active.id, name: shown ? `${active.name} · ${shown.name}` : active.name, branch: active.branch ?? '—' } : undefined
   // The view is the app's, not the shell's: a double click on a Session's Node switches to the

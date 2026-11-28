@@ -26,6 +26,7 @@ The user picked a merge of A (Graphite) and E (Native). Rules of the merge:
 | surface raised / hover row | #F2F2F5 | #22201E |
 | selected row | #E1ECFB | #2A2825 |
 | border | #E2E2E6 (strong #CFCFD4) | #2E2B28 (strong #3B3834) |
+| scrollbar-thumb (the app's scrollbar and a Terminal's; hover = under the pointer) | #B8B8BE, hover #8E8E93 | #4A4640, hover #6E685F |
 | text | #1D1D1F | #ECE8E1 |
 | secondary text | #48484A | #C2BCB2 |
 | muted / captions | #636366 | #9C968D |
@@ -43,6 +44,8 @@ The user picked a merge of A (Graphite) and E (Native). Rules of the merge:
 | kind-epic (Epic frame, ochre / yellow) | band #9A7A00, tint #F6F0D9 | band #F0E442, tint #2A2716 |
 
 Always pair status color with a text label or icon. Contrast ≥ 4.5:1 for text.
+
+**Scrollbar.** Every scrolling container has the app's own scrollbar, the same on macOS and Windows (`src/renderer/theme/scrollbars.css`): 8px wide, a round thumb about 5px wide in `scrollbar-thumb`, no track and no arrows; the thumb shows while the pointer is over the container or it scrolls, is hidden at rest, and takes the hover colour under the pointer. A Terminal keeps the scrollbar of xterm in the same colours.
 
 **Kind colours (`kind-*`, ADR-0077).** Each coloured Node kind has a `band` (saturated) and a `tint` (pale header ground) per theme. Use them only for: the 4px band in a Node's header, the kind icon, the minimap (`minimapColor`; the Epic frame's rectangle there too). Never use them for status text or a status chip, a Node's body, or Edges: status stays on ready, working, blocked and done, always with a word. A finished Session is shown by opacity (about 60 %) and the word in its chip, not by a hue. Ticket, Card, Note, Terminal and HANDOFF are neutral (surface); a new Node kind is neutral unless a new ADR gives it a colour with the same checks. The values pass the checks of `test/unit/kind-tokens.test.ts`: band ≥ 3:1 to surface and surface raised, text, secondary and muted text ≥ 4.5:1 on tint, every pair of kind colours ΔE (CIE76) ≥ 15 under protanopia, deuteranopia and tritanopia (Machado 2009), and each band ΔE ≥ 15 from the ready, working and blocked colours. Known trade-off: under protanopia the dark Epic yellow and the dark ready lime are close (ΔE about 8); acceptable, since Epic colour is never a status.
 

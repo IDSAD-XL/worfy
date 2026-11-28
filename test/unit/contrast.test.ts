@@ -96,6 +96,15 @@ for (const [scheme, tokens] of [['light', light], ['dark', dark]] as const) {
       expect(luminance(dim), `${dim} between ${ground} and ${text}`).toBeGreaterThan(luminance(ground))
       expect(contrast(dim, text), `${dim} against ${text}`).toBeGreaterThanOrEqual(1.6)
     })
+
+    // The thumb of the app's scrollbar (theme/scrollbars.css) shows on every ground a container can have,
+    // and under the pointer it stands out more than at rest.
+    it.each(grounds)('the scrollbar thumb shows on %s and darkens or lightens under the pointer', (ground) => {
+      const [thumb, hover, plain] = [tokens['--scrollbar-thumb'] ?? '', tokens['--scrollbar-thumb-hover'] ?? '', tokens[ground] ?? '']
+      expect(thumb, '--scrollbar-thumb').toMatch(/^#[0-9a-f]{6}$/i)
+      expect(contrast(thumb, plain), `${thumb} on ${ground} ${plain}`).toBeGreaterThanOrEqual(1.5)
+      expect(contrast(hover, plain), `${hover} on ${ground} ${plain}`).toBeGreaterThan(contrast(thumb, plain))
+    })
   })
 }
 

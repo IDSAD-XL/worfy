@@ -110,6 +110,10 @@ function themeOf(element: Element): ITheme {
     cursor: foreground,
     cursorAccent: background,
     selectionBackground: 'rgba(152, 152, 157, 0.4)',
+    // xterm draws its own scrollbar; its thumb takes the colours of the app's (theme/scrollbars.css).
+    scrollbarSliderBackground: token('--scrollbar-thumb'),
+    scrollbarSliderHoverBackground: token('--scrollbar-thumb-hover'),
+    scrollbarSliderActiveBackground: token('--scrollbar-thumb-hover'),
   }
 }
 

@@ -1,7 +1,9 @@
 # 170 — Свой тонкий scrollbar во всём приложении, один и тот же на macOS и Windows
 
 Type: polish
-Status: open
+Status: claimed 2026-11-28T04:03Z
+PR: #2360
+Branch: worfy-polish/170
 Blocked by: None — can start immediately
 Source: просьба владельца 2026-11-28 со screenshot-ом панели Assistant (вкладки Waits / Summary / Journal / Chat): во
 вкладке Chat справа стоит широкий серый scrollbar macOS по умолчанию, с дорожкой. Слова владельца: «везде где есть
@@ -150,12 +152,18 @@ Source: просьба владельца 2026-11-28 со screenshot-ом пан
 
 - [ ] Общий стиль scrollbar-а лежит в `src/renderer/theme/scrollbars.css`, подключён в `main.tsx`; tokens
       `--scrollbar-thumb` и `--scrollbar-thumb-hover` есть в light и в dark, они же — в таблице F-SPEC.
+  - evidence: commit pass · worfy-polish/170: the app's own thin scrollbar everywhere · - - · f353029649ccf66d7a7aeca7d938e32f232cbc52
 - [ ] Thumb виден при наведении на контейнер и во время прокрутки (общий hook, один на окно); в покое не виден.
 - [ ] Unit test на CSS (импорт есть, `scrollbar-color` нет, `scrollbar-width` только `none`) и unit test на hook
       красные до правки и зелёные после; `test/e2e/theme.spec.ts` знает новые tokens.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/scrollbars-css.test.ts test/unit/scrolling-mark.test.tsx test/unit/contrast.test.ts` exit 0; the two new files exit 1 before the change · mac - · f353029649ccf66d7a7aeca7d938e32f232cbc52
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/scrollbars-css.test.ts` exit 0 with CRLF-safe reads · mac - · 8143cca777018603cb1c6b1f3e1c8ea2033a9fc7
 - [ ] У Terminal цвета thumb-а берутся из тех же tokens.
+  - evidence: commit pass · worfy-polish/170: the app's own thin scrollbar everywhere · - - · f353029649ccf66d7a7aeca7d938e32f232cbc52
 - [ ] В «Итог» — нужен ли Ticket на настоящий overlay (шаг 6), по впечатлению исполнителя.
+  - evidence: commit pass · worfy-polish/170: the app's own thin scrollbar everywhere · - - · f353029649ccf66d7a7aeca7d938e32f232cbc52
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: gate pass · `gate fast` exit 0 (lint, typecheck, test) · mac - · f353029649ccf66d7a7aeca7d938e32f232cbc52
 - [ ] (вручную) Сделай: в Stable worfy на Mac открой панель Assistant → Chat с длинной перепиской, chat Session,
       Settings, Pull requests и diff в Changes. Проверь при Show scroll bars = «Always» (как с мышью) и при
       «Automatically» с trackpad-ом, в light и в dark; прокрути колесом и клавишами, наведи курсор → Должно быть:
@@ -165,3 +173,29 @@ Source: просьба владельца 2026-11-28 со screenshot-ом пан
 - [ ] (вручную, после merge) Сделай: в Stable worfy на Windows открой те же места → Должно быть: тот же тонкий thumb,
       что на Mac, без classic-scrollbar-ов со стрелками.
   - needs: windows stable
+
+## Итог
+
+- Общий стиль — `src/renderer/theme/scrollbars.css`, импорт в `main.tsx` сразу после `tokens.css`. Правила на
+  `*::-webkit-scrollbar`: 8 px, дорожка и угол прозрачны, кнопок нет; thumb скруглён (999 px), рамка 1,5 px
+  прозрачная с `background-clip: padding-box` (видимая полоса около 5 px). В покое thumb прозрачен; виден при
+  `*:hover` контейнера и у `[data-scrolling]`; под курсором — `--scrollbar-thumb-hover`.
+- Hook `useScrollingMark` (`src/renderer/theme/scrolling-mark.ts`) — один на окно, в `App` (`main.tsx`): слушает
+  `scroll` на `document` в фазе capture, ставит прокрученному элементу `data-scrolling` и снимает через 800 ms
+  (`SCROLLING_MARK_MS`) после последнего события; на unmount снимает слушатель, таймеры и метки.
+- Tokens `--scrollbar-thumb` / `--scrollbar-thumb-hover`: light `#b8b8be` / `#8e8e93`, dark `#4a4640` / `#6e685f`;
+  строка в таблице Tokens F-SPEC и абзац «Scrollbar» под ней; значения — в `test/e2e/theme.spec.ts`;
+  `test/unit/contrast.test.ts` проверяет, что thumb виден на каждом фоне (≥ 1,5:1), а hover контрастнее покоя.
+- Terminal: `themeOf` (`TerminalNode.tsx`) задаёт `scrollbarSlider*Background` из тех же tokens.
+- `scrollbar-width: thin` у toolbar Mind map убран; `scrollbar-width: none` (focus, stories) и `width: 0` у rail
+  sidebar не тронуты.
+- Test-ы первыми: `test/unit/scrollbars-css.test.ts` (импорт, нет `scrollbar-color`, `scrollbar-width` только
+  `none`; комментарии не считаются) и `test/unit/scrolling-mark.test.tsx` (jsdom, fake timers) — красные до правки
+  (exit 1: нет файла стиля и hook-а, `mind-map.css:55`), зелёные после.
+- Padding узких контейнеров (body Assistant, menu, popover, select, CommandPalette) не менял: «только там, где видно
+  на глаз», а Electron и снимки мне по брифу запрещены. Это — часть ручного пункта на Mac Stable.
+- Перерисовку thumb-а по `:hover` и `data-scrolling` в Electron не проверял (нет Electron локально). Если thumb не
+  появляется на Mac Stable, запасной путь из Ticket-а — custom property на самом элементе.
+- Overlay (шаг 6): по впечатлению исполнителя отдельный Ticket сейчас не нужен — 8 px с прозрачной дорожкой почти не
+  отнимают ширины. Заводить его, только если владелец на Mac Stable скажет, что ширина мешает; начинать с body
+  Assistant-а.
