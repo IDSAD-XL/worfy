@@ -178,10 +178,12 @@ The record of a full run. A run without `--case`, `--tag` and `--changed` that g
 to the `HARNESS_DIR` copy when that is set): `<time>-<commit>.json` and a short summary
 `<time>-<commit>.md`. The record holds the start time, the commit of
 the repository at the start and whether `harness/` had uncommitted changes, the Claude Code version,
-the agent and judge models of the report, the threshold, the cost, and for each case its tag, k
+the agent and judge models of the report, the threshold of the report (a `--threshold` of the user
+included), the cost of the runs and of their judge, and for each case its tag, k
 passed runs of n, the mean score, the 95 % Wilson interval of k of n (the `wilson` function the
 outcome eval already uses) and the cost of its runs and of their judge. It is marked
-`partial` when a call was not started (cost ceiling, signal), wrote no report or a partial one. The
+`partial` when a call was not started (cost ceiling, signal), wrote no report or a partial one, or
+when a report leaves a chosen case out; `missing` and the summary name such cases. The
 summary compares the run with the latest earlier record of the same agent and judge models and names
 each case whose k of n fell; records of other models, those from before the baseline run after a
 model change among them, are not compared. `compaction-state` (tag `alone`) is not part of a full run

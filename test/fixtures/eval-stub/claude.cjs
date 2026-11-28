@@ -89,9 +89,11 @@ const casesRun = () => {
 if (process.env.STUB_REPORT) {
   // A report of every case this call ran, as claude writes one: the runs of each case from `runs`
   // (passed or not), three passed runs for a case it does not name; each run costs 0.1 USD and its
-  // judge 0.01 USD, a passed run scores 1 and another 0.5.
+  // judge 0.01 USD, a passed run scores 1 and another 0.5; a case whose runs are null is left out of
+  // the report. A given `suite` gets the threshold of the call, the last --threshold, as claude's does.
   const { runs = {}, partial = false, suite } = JSON.parse(process.env.STUB_REPORT)
-  const cases = casesRun().map((name) => {
+  const thresholds = options.flatMap((arg, at) => (arg === '--threshold' ? [Number(options[at + 1])] : []))
+  const cases = casesRun().filter((name) => runs[name] !== null).map((name) => {
     const arm = (runs[name] ?? [true, true, true]).map((passed) => ({ score: passed ? 1 : 0.5, passed, costUsd: 0.1, judgeCostUsd: 0.01, error: null }))
     const score = arm.length > 0 ? arm.reduce((total, run) => total + run.score, 0) / arm.length : 0
     return { name, arms: { with: arm }, aggregates: { score, passRate: arm.filter((run) => run.passed).length / Math.max(1, arm.length) } }
@@ -100,7 +102,7 @@ if (process.env.STUB_REPORT) {
     claudeVersion: '2.1.289',
     costUsd: cases.reduce((total, one) => total + one.arms.with.length * 0.1, 0),
     partial,
-    ...(suite ? { suite } : {}),
+    ...(suite ? { suite: { ...(thresholds.length > 0 ? { threshold: thresholds.at(-1) } : {}), ...suite } } : {}),
     cases,
     aggregates: { casesTotal: cases.length, casesPassed: cases.filter((one) => one.aggregates.score >= 0.8).length, overallScore: 1 },
   }

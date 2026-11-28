@@ -515,14 +515,14 @@ if (!full) {
   if (ran.every((call) => call.report === null)) {
     process.stdout.write('eval:harness: no run record: no call wrote an aggregate-result.json\n')
   } else {
-    const threshold = Number(COMMON[COMMON.indexOf('--threshold') + 1])
     const record = historyRecord({
       startedAt: started.toISOString(),
       commit,
       harnessDirty,
       claudeVersion: version,
       fallbackModels: { agent: REGULAR_MODEL, judge: JUDGE_MODEL },
-      threshold,
+      // The report names the threshold of the run, a --threshold of the user included; this is the fallback.
+      fallbackThreshold: Number(COMMON[COMMON.indexOf('--threshold') + 1]),
       calls: ran,
     })
     const written = writeHistory(join(HISTORY_ROOT, HISTORY_FOLDER), record)

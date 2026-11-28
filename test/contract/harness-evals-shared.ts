@@ -115,8 +115,8 @@ export const childEnv = (home: string, vars: NodeJS.ProcessEnv = {}): NodeJS.Pro
 // this text as aggregate-result.json into its --output-dir, as claude plugin eval does; a JSON report
 // that names neither its cases nor aggregates.casesTotal gets both, from the cases the call would run.
 // STUB_REPORT (in place of STUB_AGGREGATE): every call writes a report of the cases it ran, each with
-// its runs — JSON `{ runs: { <case>: [passed, …] }, partial, suite }`; a case not in `runs` gets three
-// passed runs.
+// its runs — JSON `{ runs: { <case>: [passed, …] | null }, partial, suite }`; a case not in `runs` gets
+// three passed runs, a case whose runs are null is left out; `suite` gets the last --threshold of the call.
 // The stub parses its arguments as claude does: nothing after a `--` is an option.
 // STUB_VERSION_LOG: every `claude --version` appends a line there, a JSON object with its
 // ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN (null when unset).

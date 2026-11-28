@@ -1527,7 +1527,10 @@ interface HistoryRecord {
   models: { agent: string; judge: string }
   threshold: number
   partial: boolean
+  /** The chosen cases no report holds, by name. */
+  missing: string[]
   costUsd: number
+  judgeCostUsd: number
   casesPassed: number
   cases: { name: string; tag: string; k: number; n: number; score: number | null; wilson: { low: number | null; high: number | null }; costUsd: number; judgeCostUsd: number }[]
   comparison: { with: string | null; fell: { name: string; before: { k: number; n: number }; now: { k: number; n: number } }[] }
@@ -1593,6 +1596,92 @@ describe('pnpm eval:harness: the record of a full run in evals-history/ (claude 
     expect(text).toContain('- Partial: no')
     expect(text).toContain(`| status-block | main | 2 of 3 | ${wilson(2, 3).low?.toFixed(2)}–${wilson(2, 3).high?.toFixed(2)} | 0.83 | 0.33 |`)
     expect(text).toMatch(/No earlier record of agent claude-sonnet-5-5 and judge claude-opus-5-5: nothing to compare/)
+    expect(record.missing).toEqual([])
+    expect(text).not.toContain('- Not in the reports:')
+    // The Cost line and the Cost column count the same: the runs and their judge.
+    expect(record.judgeCostUsd).toBeCloseTo(0.01 * (3 * (general.length - 1) + 2))
+    expect(text).toContain('| Cost USD (runs + judge) |')
+    const total = /^- Cost: (\d+\.\d\d) USD — runs (\d+\.\d\d), judge (\d+\.\d\d)$/m.exec(text)
+    if (!total) throw new Error(`no Cost line in:\n${text}`)
+    expect(Number(total[1])).toBeCloseTo(record.costUsd + record.judgeCostUsd, 2)
+    const column = text.split('\n').filter((line) => /^\| [a-z]/.test(line)).map((line) => Number(line.split('|').at(-2)))
+    expect(column).toHaveLength(record.cases.length)
+    expect(column.reduce((sum, value) => sum + value, 0)).toBeCloseTo(Number(total[1]), 2)
+  })
+
+  it('marks the record partial and names the case when a report leaves a chosen case out', () => {
+    const { repo } = changedRepo()
+    const { run } = evalIn(repo, [], reports({ 'status-block': null }))
+    // The line of the main call says so as well, and the run exits 1.
+    expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(1)
+    expect(run.stdout).toMatch(/cases mismatch/)
+    const [name] = records(repo)
+    if (!name) throw new Error(`no record: ${run.stdout}`)
+    const record = read(repo, name)
+    expect(record.partial).toBe(true)
+    expect(record.missing).toEqual(['status-block'])
+    expect(record.cases.map((row) => row.name)).not.toContain('status-block')
+    const text = summary(repo, name)
+    expect(text).toMatch(/- Partial: yes/)
+    expect(text).toContain('- Not in the reports: status-block')
+  })
+
+  it('records the threshold of the report, so a --threshold of the user counts the cases passed', () => {
+    const { repo } = changedRepo()
+    // status-block scores 2.5 / 3: at or above 0.8, below 0.9; every other case scores 1.
+    const { run, calls } = evalIn(repo, ['--threshold', '0.9'], reports({ 'status-block': [true, true, false] }))
+    expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
+    expect(calls.every((call) => call.args.lastIndexOf('0.9') === call.args.lastIndexOf('--threshold') + 1)).toBe(true)
+    const [name] = records(repo)
+    if (!name) throw new Error(`no record: ${run.stdout}`)
+    const record = read(repo, name)
+    expect(record.threshold).toBe(0.9)
+    expect(record.casesPassed).toBe(general.length - 1)
+    expect(summary(repo, name)).toContain(`- Cases at or above 0.9: ${general.length - 1} of ${general.length}`)
+  })
+
+  it('historyRecord takes the threshold it is given for a report that names none', async () => {
+    const { historyRecord } = (await import(pathToFileURL(join(REPO, 'scripts', 'eval-history.mjs')).href)) as {
+      historyRecord: (input: Record<string, unknown>) => HistoryRecord
+    }
+    const report = { costUsd: 0.2, cases: [{ name: 'a', arms: { with: [{ passed: true, costUsd: 0.1 }, { passed: false, costUsd: 0.1 }] }, aggregates: { score: 0.75 } }] }
+    const record = historyRecord({
+      startedAt: '2026-11-28T10:00:00.000Z',
+      commit: null,
+      harnessDirty: false,
+      claudeVersion: '2.1.300',
+      fallbackModels: { agent: 'agent-model', judge: 'judge-model' },
+      fallbackThreshold: 0.7,
+      calls: [{ tag: 'main', cases: ['a'], report }],
+    })
+    expect(record).toMatchObject({ threshold: 0.7, casesPassed: 1, partial: false, missing: [], models: { agent: 'agent-model', judge: 'judge-model' } })
+  })
+
+  it('writeHistory never writes over a record: a taken name gets the next suffix', async () => {
+    const { historyRecord, writeHistory } = (await import(pathToFileURL(join(REPO, 'scripts', 'eval-history.mjs')).href)) as {
+      historyRecord: (input: Record<string, unknown>) => HistoryRecord
+      writeHistory: (dir: string, record: HistoryRecord) => { json: string; markdown: string }
+    }
+    const dir = join(tempDir('eval-history-'), 'evals-history')
+    mkdirSync(dir)
+    const record = historyRecord({
+      startedAt: '2026-11-28T10:00:00.000Z',
+      commit: '0123456789abcdef',
+      harnessDirty: false,
+      claudeVersion: '2.1.300',
+      fallbackModels: { agent: 'agent-model', judge: 'judge-model' },
+      fallbackThreshold: 0.8,
+      calls: [{ tag: 'main', cases: [], report: { costUsd: 0, cases: [] } }],
+    })
+    const taken = join(dir, '2026-11-28T10-00-00Z-0123456789ab.json')
+    writeFileSync(taken, 'an earlier record\n')
+    const second = writeHistory(dir, record)
+    const third = writeHistory(dir, record)
+    expect(readFileSync(taken, 'utf8')).toBe('an earlier record\n')
+    expect([second.json, third.json]).toEqual([taken.replace(/\.json$/, '-2.json'), taken.replace(/\.json$/, '-3.json')])
+    expect(readdirSync(dir).sort()).toEqual(
+      ['2026-11-28T10-00-00Z-0123456789ab.json', '2026-11-28T10-00-00Z-0123456789ab-2.json', '2026-11-28T10-00-00Z-0123456789ab-2.md', '2026-11-28T10-00-00Z-0123456789ab-3.json', '2026-11-28T10-00-00Z-0123456789ab-3.md'].sort(),
+    )
   })
 
   it('marks the record partial: a partial report, or a call the budget left unstarted; and an uncommitted harness/', () => {
@@ -1614,7 +1703,9 @@ describe('pnpm eval:harness: the record of a full run in evals-history/ (claude 
     expect(record.partial).toBe(true)
     expect(record.harnessDirty).toBe(true)
     expect(record.cases.map((row) => row.name)).not.toContain('no-os-screen-capture')
+    expect(record.missing).toEqual(['no-os-screen-capture'])
     expect(summary(repo, two)).toContain('(with uncommitted changes in harness/)')
+    expect(summary(repo, two)).toContain('- Not in the reports: no-os-screen-capture')
   })
 
   it.each([
@@ -1644,10 +1735,21 @@ describe('pnpm eval:harness: the record of a full run in evals-history/ (claude 
     if (!old || !first) throw new Error(`expected two records: ${names(repo).join(', ')}`)
     // Only a record of other models before it: the baseline compares with nothing.
     expect(read(repo, first).comparison).toEqual({ with: null, fell: [] })
+    // Two later records that share one model of the two, each with status-block at 3 of 3: neither is
+    // the record to compare with, or status-block would have fallen against it.
+    for (const suite of [
+      { modelOverride: 'claude-sonnet-5', judgeModel: SUITE.judgeModel },
+      { modelOverride: SUITE.modelOverride, judgeModel: 'claude-haiku-4-5' },
+    ]) {
+      const other = evalIn(repo, [], { STUB_REPORT: JSON.stringify({ runs: { 'status-block': [true, true, true] }, suite }) })
+      expect(other.run.status, other.run.stderr).toBe(0)
+    }
+    expect(records(repo)).toHaveLength(4)
     const after = evalIn(repo, [], reports({ 'reviewer-verdict': [true, false, false], 'status-block': [true, false, false] }))
     expect(after.run.status, after.run.stderr).toBe(0)
-    const last = records(repo).find((name) => name !== old && name !== first)
-    if (!last) throw new Error(`expected three records: ${names(repo).join(', ')}`)
+    const latest = (): string | undefined => records(repo).sort((a, b) => (read(repo, a).startedAt < read(repo, b).startedAt ? -1 : 1)).at(-1)
+    const last = latest()
+    if (!last || records(repo).length !== 5) throw new Error(`expected five records: ${names(repo).join(', ')}`)
     const record = read(repo, last)
     // status-block rose from 0 of 3 to 1 of 3; reviewer-verdict fell from 3 of 3.
     expect(record.comparison).toEqual({ with: first, fell: [{ name: 'reviewer-verdict', before: { k: 3, n: 3 }, now: { k: 1, n: 3 } }] })

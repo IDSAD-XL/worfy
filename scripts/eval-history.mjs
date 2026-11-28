@@ -23,7 +23,7 @@ const object = (value) => (typeof value === 'object' && value !== null ? value :
 /**
  * The rows of the cases a call chose, from its aggregate-result.json: k passed runs of n, the mean
  * score of the report, the Wilson interval of k of n and the cost of the runs. A chosen case the
- * report does not hold has no row (the run is partial then); a case the call did not choose is left out.
+ * report does not hold has no row (historyRecord marks the run partial then); a case the call did not choose is left out.
  */
 export function caseRows(report, tag, chosen) {
   const cases = Array.isArray(report?.cases) ? report.cases : []
@@ -51,18 +51,27 @@ export function caseRows(report, tag, chosen) {
   return rows
 }
 
+const byName = (a, b) => (a < b ? -1 : a > b ? 1 : 0)
+
 /**
  * The record of a full run. `calls`: every call the run planned, `{ tag, cases, report }`, with the
  * parsed aggregate-result.json as `report` (null when the call did not start or wrote none).
- * `fallbackModels`: the pinned models, for a report that does not name its own. The record is
- * partial when a call did not start, wrote no report, or wrote a partial one.
+ * `fallbackModels` and `fallbackThreshold`: the pinned models and threshold, for a report that does
+ * not name its own (claude names them in `suite`, a --threshold of the user included). The record is
+ * partial when a call did not start, wrote no report, wrote a partial one, or left a chosen case out;
+ * `missing` names the chosen cases no report holds.
  */
-export function historyRecord({ startedAt, commit, harnessDirty, claudeVersion, fallbackModels, threshold, calls }) {
+export function historyRecord({ startedAt, commit, harnessDirty, claudeVersion, fallbackModels, fallbackThreshold, calls }) {
   const reports = calls.map((call) => call.report).filter((report) => typeof report === 'object' && report !== null)
   const suite = object(reports[0]?.suite)
+  const threshold = typeof suite.threshold === 'number' ? suite.threshold : fallbackThreshold
   const cases = calls
     .flatMap((call) => (call.report ? caseRows(call.report, call.tag, call.cases) : []))
-    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+    .sort((a, b) => byName(a.name, b.name))
+  const missing = calls
+    .flatMap((call) => call.cases)
+    .filter((name) => !cases.some((row) => row.name === name))
+    .sort(byName)
   return {
     schema: HISTORY_SCHEMA,
     startedAt,
@@ -74,8 +83,11 @@ export function historyRecord({ startedAt, commit, harnessDirty, claudeVersion, 
       judge: typeof suite.judgeModel === 'string' ? suite.judgeModel : fallbackModels.judge,
     },
     threshold,
-    partial: calls.some((call) => !call.report || call.report.partial === true),
+    partial: missing.length > 0 || calls.some((call) => !call.report || call.report.partial === true),
+    missing,
+    // The cost of the runs as the reports give it; the judge cost is not in it, it is counted from the runs.
     costUsd: sum(reports.map((report) => report.costUsd)),
+    judgeCostUsd: sum(cases.map((row) => row.judgeCostUsd)),
     casesPassed: cases.filter((row) => row.score !== null && row.score >= threshold).length,
     cases,
   }
@@ -129,10 +141,11 @@ export function summaryMarkdown(record) {
     `- Claude Code: ${record.claudeVersion ?? 'unknown'}`,
     `- Models: agent ${record.models.agent}, judge ${record.models.judge}`,
     `- Cases at or above ${record.threshold}: ${record.casesPassed} of ${record.cases.length}`,
-    `- Cost: ${money(record.costUsd)} USD`,
-    `- Partial: ${record.partial ? 'yes — a call hit the cost ceiling, did not start or wrote no report' : 'no'}`,
+    `- Cost: ${money(record.costUsd + record.judgeCostUsd)} USD — runs ${money(record.costUsd)}, judge ${money(record.judgeCostUsd)}`,
+    `- Partial: ${record.partial ? 'yes — a call hit the cost ceiling, did not start, wrote no report or left a chosen case out' : 'no'}`,
+    ...(record.missing.length > 0 ? [`- Not in the reports: ${record.missing.join(', ')}`] : []),
     '',
-    '| Case | Tag | k of n | Wilson 95 % | Score | Cost USD |',
+    '| Case | Tag | k of n | Wilson 95 % | Score | Cost USD (runs + judge) |',
     '| --- | --- | --- | --- | --- | --- |',
     ...record.cases.map(
       (row) => `| ${row.name} | ${row.tag} | ${row.k} of ${row.n} | ${share(row.wilson.low)}–${share(row.wilson.high)} | ${share(row.score)} | ${money(row.costUsd + row.judgeCostUsd)} |`,
@@ -158,16 +171,26 @@ export function summaryMarkdown(record) {
 /**
  * Writes `record`, compared with the earlier records of `dir`, as `<time>-<commit>.json` and `.md`
  * into `dir`; a second record of the same second and commit gets `-2`, `-3`… Returns both paths.
+ * The `.json` is created with flag `wx`: of two runs that finish in the same second, the second one
+ * takes the next suffix instead of writing over the first.
  */
 export function writeHistory(dir, record) {
   const compared = { ...record, comparison: compareWithEarlier(record, readHistory(dir)) }
   mkdirSync(dir, { recursive: true })
   const base = `${record.startedAt.slice(0, 19).replace(/:/g, '-')}Z-${(record.commit ?? 'no-commit').slice(0, 12)}`
-  let name = base
-  for (let i = 2; existsSync(join(dir, `${name}.json`)); i++) name = `${base}-${i}`
-  const json = join(dir, `${name}.json`)
-  const markdown = join(dir, `${name}.md`)
-  writeFileSync(json, `${JSON.stringify(compared, null, 2)}\n`)
-  writeFileSync(markdown, summaryMarkdown(compared))
-  return { json, markdown, record: compared }
+  for (let i = 1; ; i++) {
+    const name = i === 1 ? base : `${base}-${i}`
+    const json = join(dir, `${name}.json`)
+    const markdown = join(dir, `${name}.md`)
+    // A summary left without its record still holds the name.
+    if (existsSync(markdown)) continue
+    try {
+      writeFileSync(json, `${JSON.stringify(compared, null, 2)}\n`, { flag: 'wx' })
+    } catch (error) {
+      if (error?.code === 'EEXIST') continue
+      throw error
+    }
+    writeFileSync(markdown, summaryMarkdown(compared), { flag: 'wx' })
+    return { json, markdown, record: compared }
+  }
 }
