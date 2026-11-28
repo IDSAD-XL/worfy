@@ -118,12 +118,17 @@ Root cause у обоих bug-ов один: тема, чей Mind map рисуе
 
 - [ ] Панель Product Session и её заголовок показывают тему последнего вызова `mind_map_*` своей Session. При
       переключении на другую Session карта переключается; запись другой Session в её тему карту не меняет.
+  - evidence: test-run pass · `pnpm test` exit 0 (test/unit/product-session-panel.test.tsx, test/unit/node-chips.test.tsx) · mac - · 507b2176c072904ec0d5fd16ecdea35946597e4d
 - [ ] Session, запущенная на другой машине, при первом открытии на этой показывает свою карту без клика по идее.
+  - evidence: test-run pass · `pnpm test` exit 0 (test/unit/product-session-panel.test.tsx, test/unit/node-chips.test.tsx) · mac - · 507b2176c072904ec0d5fd16ecdea35946597e4d
 - [ ] Чип другой темы переключает карту и выделяет узел; следующий вызов Session возвращает карту на её тему.
+  - evidence: test-run pass · `pnpm test` exit 0 (test/unit/product-session-panel.test.tsx, test/unit/node-chips.test.tsx) · mac - · 507b2176c072904ec0d5fd16ecdea35946597e4d
 - [ ] Unit test-ы на оба bug-а, в том числе в окне гостя через stub Link bridge, красные до правки; test `:955`
       переписан под новое поведение.
+  - evidence: test-run pass · `pnpm test` test/unit/product-session-panel.test.tsx exit 1 on origin/main panel (10 red), exit 0 after the change · mac - · 507b2176c072904ec0d5fd16ecdea35946597e4d
 - [ ] Абзац «Which topic shows» в `docs/features/product-session.md` и `docs/features/ru/product-session.md` говорит,
       откуда берётся тема.
+  - evidence: commit pass · worfy-polish/173: a Product Session's Mind map shows the topic of its own calls · - - · 507b2176c072904ec0d5fd16ecdea35946597e4d
 - [ ] (вручную) Сделай: на Mac в Stable worfy (хост) открой Project с двумя Product Session, у которых разные темы;
       на ПК открой этот Project через Link. На ПК переключись с первой Session на вторую и обратно, пока advisor
       первой ещё пишет → Должно быть: каждый раз граф своей Session, и запись первой не перекидывает вторую. Затем
@@ -131,6 +136,7 @@ Root cause у обоих bug-ов один: тема, чей Mind map рисуе
       сразу, без клика по идее в чате.
   - needs: mac stable, windows stable
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 507b2176c072904ec0d5fd16ecdea35946597e4d
 
 ## Итог
 
