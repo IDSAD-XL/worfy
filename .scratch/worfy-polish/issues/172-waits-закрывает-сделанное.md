@@ -1,7 +1,8 @@
 # 172 — Waits сам закрывает то, что пользователь уже сделал
 
 Type: polish
-Status: claimed 2026-11-28T03:27Z
+Status: done 2026-11-28T10:41Z
+PR: #2362
 Branch: worfy-polish/172
 Blocked by: None — can start immediately
 Source: просьба владельца 2026-11-28 со screenshot-ом панели Assistant: на вкладке «Waits 6» висят, например, «Resolve
@@ -187,22 +188,29 @@ Unit test-ы, по три случая на каждый вид: условие 
 - [ ] Пункт PR, которого нет в полном удачном поиске PR inbox, закрывается после очередного чтения; при ошибке,
       неполном поиске или PR, ушедшем только из cache, пункт остаётся. Новых вызовов GitHub нет.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/pr-inbox.test.ts test/unit/assistant-attention-sources.test.ts` (in the run of 12 files) exit 0 · mac - · 55a38d2018f094e3589704a7f8ec3d16d1fdd16e
+  - evidence: review pass · PR #2362 · - - · 118f9e51637be298370f3f431ae0341d34b51290
 - [ ] Пункт строки Health check `harness` закрывается после Install, Update или Replace и после Replace в терминале
       (re-check на focus); при непрочитанном статусе остаётся.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/health-harness-row.test.ts test/contract/health-reports.test.ts test/contract/first-run-checks.test.ts` (in the run of 12 files) exit 0 · mac - · 55a38d2018f094e3589704a7f8ec3d16d1fdd16e
+  - evidence: review pass · PR #2362 · - - · 118f9e51637be298370f3f431ae0341d34b51290
 - [ ] На автоматическом wake-е model получает до 10 открытых пунктов Slack, Jira и Autopilot и может закрыть
       сделанные (`item_close`) и свои предложения без пункта (`proposal_remove` с `why`); у закрытого записана
       причина; новых wake-ов нет, daily limit и правило 80 % не тронуты.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-session.test.ts test/contract/worfy-app-tools.test.ts test/unit/assistant-wake-planner.test.ts test/contract/assistant-two-machines.test.ts` (in the run of 12 files) exit 0 · mac - · 55a38d2018f094e3589704a7f8ec3d16d1fdd16e
+  - evidence: review pass · PR #2362 · - - · 118f9e51637be298370f3f431ae0341d34b51290
 - [ ] Что осталось открытым, старше 6 дней показывает дату.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/assistant-short-time.test.tsx` (in the run of 12 files) exit 0 · mac - · 55a38d2018f094e3589704a7f8ec3d16d1fdd16e
+  - evidence: review pass · PR #2362 · - - · 118f9e51637be298370f3f431ae0341d34b51290
 - [ ] Unit test-ы на каждый вид («держится», «ушло», «нельзя проверить») и на уборку model-ю (stub ответа model-и)
       красные до правки там, где закрытия не было.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs <54 assistant, health, first-run, pr-inbox and worfy-app test files>` exit 0; closing tests red before the change · mac - · 55a38d2018f094e3589704a7f8ec3d16d1fdd16e
+  - evidence: review pass · PR #2362 · - - · 118f9e51637be298370f3f431ae0341d34b51290
 - [ ] `harness/hooks/rules/assistant.md`, `docs/features/assistant.md` и `docs/features/ru/assistant.md` говорят, что
       закрывает worfy, что — model на wake-е, а что — только пользователь.
   - evidence: commit pass · worfy-polish/172: a PR found again after one missed search waits again · - - · 55a38d2018f094e3589704a7f8ec3d16d1fdd16e
+  - evidence: review pass · PR #2362 · - - · 118f9e51637be298370f3f431ae0341d34b51290
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/46124074669/job/140933014028 · ci - · 118f9e51637be298370f3f431ae0341d34b51290
 - [ ] (вручную) Сделай: в Stable worfy дождись пункта Waits о своём PR, смержи или закрой PR на GitHub и подожди до
       5 мин (или открой вид Pull requests) → Должно быть: пункт и его предложение ушли из Waits. Затем при пункте
       «Replace Harness» нажми Replace в popover-е версии → Должно быть: пункт ушёл.
