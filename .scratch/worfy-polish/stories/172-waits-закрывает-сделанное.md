@@ -157,3 +157,115 @@ daily limit и правило 80 % не тронуты. Новых вызово�
 3. Почему run на сообщение пользователя не получает раздел с открытыми пунктами?
    - Ответ: пользователь ждёт ответа; уборка едет только на автоматических wake-ах — `unchecked` возвращает пустой список при `reason === 'user'`.
    - Строки: `src/main/assistant/session/runner.ts:94-98`
+
+## 10. Что нашёл review и что осталось
+
+> VERIFIED
+>
+> **Round-1 findings**
+> - [med] A PR item closed because one search missed the PR never reopened: fixed. `src/main/assistant/core/attention-core.ts:244-254` adds `resolveGone`. It closes the PR's items and drops only that PR's `pr-inbox` seen keys, the prefix `pr-inbox\0<repo>#<n>:`. `#1:` cannot match `#12:`, and condition keys and other sources' keys stay. `src/main/assistant/core/sources.ts:188` calls it only for items that are still open. The test at `test/unit/assistant-attention-sources.test.ts:179-188` fails without the fix (mutant 1).
+> - [low] No test for `recheckNow` waiting for a re-check already running: fixed. The test is `test/contract/health-harness-row.test.ts:136-153`, and it fails without the wait at `src/main/first-run/health-reports.ts:194` (mutant 3).
+> - [low] Evidence lines cited a commit not on the branch: fixed. Ticket lines 189-204 cite `55a38d201`, and `git merge-base --is-ancestor 55a38d201 118f9e516` exits 0.
+>
+> **New defects I looked for, none found**
+> - An unchanged PR is not taken in again on every read. The keys are dropped once, when the item closes. After that the item is closed, so later reads that miss the PR call nothing. The next read that finds the PR stores its key again, and a repeat of that read returns null. The new test checks this with `events: 2`.
+> - Items closed by the Assistant (`item_close`), by an action, or dismissed are not open, so `resolveGone` never touches their keys. They stay closed while the PR is unchanged.
+> - Restart: the dropped keys are written with the batch, so after a restart the PR reopens the same way.
+> - Only `pr-inbox` makes PR subjects (`sources.ts:175`), so no other source's keys are involved. The `found` keys use the same `repo.toLowerCase()#N` form as the item subject (`src/main/github/inbox.ts:118`).
+> - No wake spam: an item reopens only when its row reads again, and a row needs the PR's details in the cache.
+>
+> **New findings (debt)**
+> - [low] debt: `test/unit/assistant-attention-sources.test.ts:179` — nothing checks that only this PR's keys go. Mutant 2 dropped every `pr-inbox` key and all 109 tests stayed green. Scenario: a future edit widens the prefix, and every other unchanged PR reopens its items, including ones the Assistant closed. Fix: add a second PR to the test and check that its closed item stays closed.
+> - [low] debt: `src/main/assistant/core/attention-core.ts:246` — a snoozed item that one search misses is closed. When the PR is found again, the item comes back as `new` and its snooze is lost, so it returns to Waits before its snooze time. Before the rework the item stayed closed for good, which was worse.
+>
+> **Commands**
+> - `pnpm install --frozen-lockfile`: exit 0.
+> - `pnpm typecheck`: exit 0.
+> - 43 test files of the assistant core, wake, health, first-run, PR inbox and worfy-app modules, run by file with `node scripts/vitest-electron.mjs` under a temporary HOME: exit 0, 943 tests passed.
+> - My first run of that set exited 1 with "No test files found", because of my own command. zsh passed the 43 file names to vitest as one filter, so no test ran. The same run with the names split exited 0.
+>
+> **Mutants** (each run on the worktree file, restored from a copy, checked with `cmp` = 0)
+> 1. The seen-key deletion in `resolveGone` removed: caught, the test at `assistant-attention-sources.test.ts:179` failed.
+> 2. The prefix widened to every `pr-inbox` key: survived (first debt finding above).
+> 3. The wait for the running re-check in `recheckNow` removed: caught, the test at `health-harness-row.test.ts:136` failed.
+>
+> **Not checked**
+> - `pnpm lint` and the full `pnpm test`.
+> - `test/contract/assistant-session-claude.test.ts`: it runs the real Claude Code, which the brief forbids.
+> - Feature pages and the Code story (another lens).
+> - CI status of the new head.
+> - The manual items that need the Stable build.
+>
+> My worktree is removed and no background processes are left.
+>
+> Nothing else found.
+>
+> Orchestrator: the two debt lows are not blockers.
+>
+> Review depth: medium — ticket
+
+Code: `src/main/assistant/core/attention-core.ts:244-254` · key lines: 244
+
+```ts
+  resolveGone(scope: string | null, subject: AttentionSubject, source: AttentionSource, idPrefix: string): void {
+    const file = this.load(scope)
+    let changed = this.settle(file, subject, 'closed')
+    const head = `${source}\0${idPrefix}`
+    for (const key of Object.keys(file.seen)) {
+      if (!key.startsWith(head)) continue
+      delete file.seen[key]
+      changed = true
+    }
+    if (changed) this.save(scope, file)
+  }
+```
+
+Code: `src/main/assistant/core/sources.ts:188-188` · key lines: 188
+
+```ts
+    if (item.source === 'pr-inbox' && item.subject.kind === 'pr' && OPEN_STATES.includes(item.state) && !found.has(item.subject.id)) core.resolveGone(snapshot.projectId, item.subject, 'pr-inbox', `${item.subject.id}:`)
+```
+
+Code: `test/unit/assistant-attention-sources.test.ts:179-188` · key lines: 179
+
+```ts
+    it('a PR one whole search missed and the next one finds again, unchanged, opens its item again', () => {
+      const { core, next, states, stop } = opened()
+      next(read({ rows: [], search: { complete: true, found: [] } }))
+      expect(states()).toEqual(['closed'])
+      next(read())
+      // The same read again is a repeat: nothing changes.
+      next(read())
+      expect(core.items(ALPHA.id).map((item) => [item.state, item.events])).toEqual([['new', 2]])
+      stop()
+    })
+```
+
+Code: `test/contract/health-harness-row.test.ts:136-153` · key lines: 136
+
+```ts
+  it('an Install that ends while a focus re-check still reads the old state: the install waits for it, then the row is ok', async () => {
+    const s = await setup()
+    let answer: (status: HarnessStatus) => void = () => undefined
+    const slow = new Promise<HarnessStatus>((resolve) => (answer = resolve))
+    s.slow(slow)
+    s.tick(RECHECK_ON_FOCUS_MS + 1)
+    const focus = s.health.focus()
+    await s.settle()
+    expect(s.reads()).toBe(1)
+    // The Install answers while the focus re-check waits for the installer.
+    const install = s.install(INSTALLED)
+    answer(SAME_SEMVER)
+    await focus
+    await install
+    await s.settle()
+    expect([s.row()?.status, s.item()]).toEqual(['ok', 'closed'])
+    s.stop()
+  })
+```
+
+Code: `src/main/first-run/health-reports.ts:194-194` · key lines: 194
+
+```ts
+    if (recheck === undefined || this.storedAt(key) === undefined) return
+```
