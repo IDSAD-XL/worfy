@@ -13,7 +13,7 @@ Kind: pr · Epic: worfy-harness-eval · Ticket: 19 · PR: - · Language: ru
 
 ## 2. Plugin worfy подключается флагом и монтированием, без правки runner-а
 
-Code: `.scratch/worfy-harness-eval/issues/19-spike-scbench-как-источник-задач-пилота.md:80-88` · key lines: 83, 85, 87
+Code: `.scratch/worfy-harness-eval/issues/19-spike-scbench-как-источник-задач-пилота.md:81-89` · key lines: 84, 86, 88
 
 ```md
    - Агент собирает командную строку сам: `claude --output-format stream-json --verbose [--model] [--max-turns]
@@ -38,7 +38,7 @@ Code: `.scratch/worfy-harness-eval/issues/19-spike-scbench-как-источни
 
 ## 3. Test-ы агента входят в erosion и verbosity
 
-Code: `.scratch/worfy-harness-eval/issues/19-spike-scbench-как-источник-задач-пилота.md:114-129` · key lines: 115, 117, 120, 126, 128
+Code: `.scratch/worfy-harness-eval/issues/19-spike-scbench-как-источник-задач-пилота.md:115-130` · key lines: 116, 118, 121, 127, 129
 
 ```md
 3. **Да: test-ы, которые пишет сам агент, входят в verbosity и erosion.**
@@ -68,7 +68,7 @@ Code: `.scratch/worfy-harness-eval/issues/19-spike-scbench-как-источни
 
 ## 4. Предложение владельцу
 
-Code: `.scratch/worfy-harness-eval/issues/19-spike-scbench-как-источник-задач-пилота.md:190-204` · key lines: 190, 199, 201, 202
+Code: `.scratch/worfy-harness-eval/issues/19-spike-scbench-как-источник-задач-пилота.md:191-205` · key lines: 191, 200, 202, 203
 
 ```md
 **Предложение: пятое семейство, малое; не замена.**
@@ -110,8 +110,8 @@ Docker SCBench не собирался, агент не запускался: н
 1. Почему файлы plugin-а worfy не исказят erosion и verbosity ветки worfy, а test-ы агента исказят?
    - Ответ: plugin монтируется на чтение вне `/workspace` и в snapshot не попадает; test-ы агента лежат в рабочей
      папке, а `scb-check` берёт каждый `.py` под snapshot-ом.
-   - Строки: `.scratch/worfy-harness-eval/issues/19-spike-scbench-как-источник-задач-пилота.md:86`, `.scratch/worfy-harness-eval/issues/19-spike-scbench-как-источник-задач-пилота.md:117`
+   - Строки: `.scratch/worfy-harness-eval/issues/19-spike-scbench-как-источник-задач-пилота.md:87`, `.scratch/worfy-harness-eval/issues/19-spike-scbench-как-источник-задач-пилота.md:118`
 2. Почему для SCBench не нужны несколько prompt-ов в одной Session?
    - Ответ: runner сбрасывает контекст на каждом checkpoint-е и переносит только рабочую папку; второй prompt в той
      же Session бывает только при повторе после ошибки.
-   - Строки: `.scratch/worfy-harness-eval/issues/19-spike-scbench-как-источник-задач-пилота.md:162`, `.scratch/worfy-harness-eval/issues/19-spike-scbench-как-источник-задач-пилота.md:164`
+   - Строки: `.scratch/worfy-harness-eval/issues/19-spike-scbench-как-источник-задач-пилота.md:163`, `.scratch/worfy-harness-eval/issues/19-spike-scbench-как-источник-задач-пилота.md:165`

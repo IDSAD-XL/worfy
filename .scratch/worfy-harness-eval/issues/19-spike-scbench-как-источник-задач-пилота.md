@@ -2,6 +2,7 @@
 
 Type: spike
 Status: claimed 2026-11-28T03:00Z
+PR: #2349
 Branch: worfy-harness-eval/19
 Blocked by: None — can start immediately
 Source: сообщение владельца 2026-11-28 (через Orchestrator-а при нарезке Epic-а): SCBench — кандидат в источник задач
