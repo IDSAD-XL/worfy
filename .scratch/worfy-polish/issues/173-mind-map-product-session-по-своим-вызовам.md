@@ -131,10 +131,12 @@ Root cause у обоих bug-ов один: тема, чей Mind map рисуе
   - evidence: commit pass · worfy-polish/173: a Product Session's Mind map shows the topic of its own calls · - - · 507b2176c072904ec0d5fd16ecdea35946597e4d
 - [ ] (вручную) Сделай: на Mac в Stable worfy (хост) открой Project с двумя Product Session, у которых разные темы;
       на ПК открой этот Project через Link. На ПК переключись с первой Session на вторую и обратно, пока advisor
-      первой ещё пишет → Должно быть: каждый раз граф своей Session, и запись первой не перекидывает вторую. Затем
-      запусти на ПК новую Product Session и дождись первого узла; на Mac открой эту Session → Должно быть: граф виден
-      сразу, без клика по идее в чате.
-  - needs: mac stable, windows stable
+      первой ещё пишет → Должно быть: каждый раз граф своей Session, и запись первой не перекидывает вторую.
+  - needs: windows stable
+- [ ] (вручную) Сделай: на ПК в Stable worfy открой через Link Project Mac-а (хост), запусти на ПК новую Product
+      Session и дождись первого узла; на Mac открой эту Session → Должно быть: граф виден сразу, без клика по идее в
+      чате.
+  - needs: mac stable
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 507b2176c072904ec0d5fd16ecdea35946597e4d
 
@@ -167,4 +169,9 @@ Root cause у обоих bug-ов один: тема, чей Mind map рисуе
   поведение «карта идёт за изменённой темой». Теперь в них сначала ход fake-агента `product-mind-map` (его
   `mind_map_add` называет тему `roadmap`), потом запись файла; проверки test-ов не менялись. Эти файлы вне
   «Где в коде», правка вынужденная. Локально e2e не запускались (бриф), решает CI.
-- Ручной пункт (Mac-хост и ПК-гость через Link) не проверялся: нужен владелец на обеих машинах.
+- Ревью, раунд 1 (VERIFIED с [low]): выбор чипа, сделанный, пока в загруженном транскрипте не было вызова
+  `mind_map_*`, больше не сбрасывает «Load earlier» со старым вызовом — выбор помнит последнее событие на момент
+  выбора, и сбрасывает его только вызов после этого события (`chipHolds`; test «a chip chosen while the loaded
+  transcript held no topic call…» был красным до правки); два пропущенных пробела исправлены; ручной пункт разбит на
+  два — `needs: windows stable` (ПК-гость) и `needs: mac stable` (Mac-хост), чтобы `ticket evidence` их читал.
+- Ручные пункты (Mac-хост и ПК-гость через Link) не проверялись: нужен владелец на обеих машинах.

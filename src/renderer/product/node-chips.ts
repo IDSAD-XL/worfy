@@ -89,7 +89,7 @@ export function sessionTopicCall(items: readonly TranscriptItem[]): SessionTopic
   return null
 }
 
-const KIND: Readonly<Record<NodeChip['node']['kind'], string>> ={ idea: 'Idea', question: 'Question', decision: 'Decision', objection: 'Objection' }
+const KIND: Readonly<Record<NodeChip['node']['kind'], string>> = { idea: 'Idea', question: 'Question', decision: 'Decision', objection: 'Objection' }
 
 /** The chip's line: what the calls did, the kind (a Decision with its status mark) and the node's text. */
 export function chipLabel({ node, change }: NodeChip): string {

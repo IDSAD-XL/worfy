@@ -1131,6 +1131,25 @@ describe('the Mind map pane of a Product Session', () => {
     await vi.waitFor(() => expect(heading()).toBe('Product Session · Demo roadmap'))
   })
 
+  it('a chip chosen while the loaded transcript held no topic call keeps the map when «Load earlier» brings an older call; a newer one takes it back', async () => {
+    otherTopics = { pricing: PRICING }
+    localStorage.setItem('worfy.productSession.topic:alpha:n1', 'demo-roadmap')
+    const shown: AgentEvent[] = [{ type: 'tool_use', id: 'read-1', name: 'Read', input: { file_path: '/demo/docs/product/pricing/map.md' }, parentToolUseId: null }, result('read-1')]
+    const show = await mountSession('n1', shown)
+    await mapText('Sell to small teams')
+    const { pickNode } = await import('../../src/renderer/product/node-chips')
+    act(() => pickNode({ projectId: 'alpha', topic: 'pricing', id: 'per-seat' }))
+    await mapText('Charge per seat')
+    // «Load earlier» puts the older part of the transcript in front: its call is no call the Session made since.
+    const older = mindCall('old-add', 'demo-roadmap')
+    await show('n1', [...older, ...shown])
+    await mapText('Charge per seat')
+    expect(heading()).toBe('Product Session · Pricing')
+    await show('n1', [...older, ...shown, ...mindCall('new-add', 'demo-roadmap', { tool: 'mind_map_update' })])
+    await mapText('Sell to small teams')
+    await vi.waitFor(() => expect(heading()).toBe('Product Session · Demo roadmap'))
+  })
+
   it('a chip of a topic that is gone keeps the map and says so in a toast with the topic’s name', async () => {
     otherTopics = { archived: null }
     const { toasts } = await import('../../src/renderer/toast/toasts')

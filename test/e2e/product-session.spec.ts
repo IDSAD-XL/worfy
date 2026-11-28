@@ -200,7 +200,7 @@ test('the advisor’s mind_map_add shows its node without a reload and a chip un
     await expect(view).not.toHaveAttribute('data-node-id', seen.nodeId)
     await expect(view.getByTestId('product-session-map-empty')).toBeVisible()
     await adviseOnce(view)
-    const node =view.getByTestId('product-session-map').locator(`[data-testid="mind-node"][data-id="${NODE.id}"]`)
+    const node = view.getByTestId('product-session-map').locator(`[data-testid="mind-node"][data-id="${NODE.id}"]`)
     await expect(node).toBeVisible()
     await expect.poll(() => drawnPlace(node)).toEqual(seen.written)
 

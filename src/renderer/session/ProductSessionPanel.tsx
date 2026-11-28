@@ -96,15 +96,37 @@ function keepTopicName(key: string, name: string): void {
 
 /**
  * The topic a chip of another topic switched each Node's Mind map to (useTopicOfChip), by `<projectId>:<nodeId>`,
- * with the id of the Session's last topic call at that moment (`since`): the choice holds until the Session calls again.
+ * with the id of the Session's last topic call at that moment (`since`) and the last of its events then (`anchor`):
+ * the choice holds until the Session calls again.
  */
-const useChosenTopics = create<Readonly<Record<string, { name: string; since: string | null }>>>(() => ({}))
+interface ChosenTopic {
+  name: string
+  since: string | null
+  anchor: AgentEvent | null
+}
+
+const useChosenTopics = create<Readonly<Record<string, ChosenTopic>>>(() => ({}))
 
 /** Switches the Node's Mind map to `name` until the Session's next call that names a topic. */
-function chooseTopic(key: string, name: string, since: string | null): void {
+function chooseTopic(key: string, chosen: ChosenTopic): void {
   const was = useChosenTopics.getState()[key]
-  if (was?.name !== name || was.since !== since) useChosenTopics.setState({ [key]: { name, since } })
-  keepTopicName(key, name)
+  if (was?.name !== chosen.name || was.since !== chosen.since || was.anchor !== chosen.anchor) useChosenTopics.setState({ [key]: chosen })
+  keepTopicName(key, chosen.name)
+}
+
+/**
+ * Whether a chip's choice still holds: the Session's last topic call (`last`) is the one it was made after, or one
+ * that was in its events already then. «Load earlier» puts older events in front, so an older call found there after
+ * the choice comes before its `anchor`; a call the Session made since comes after it. With the anchor gone from the
+ * events (they were read anew), any other call ends the choice.
+ */
+function chipHolds(chosen: ChosenTopic, events: readonly AgentEvent[], last: string | null): boolean {
+  if (chosen.since === last || last === null) return true
+  if (chosen.anchor === null) return false
+  const anchorAt = events.lastIndexOf(chosen.anchor)
+  if (anchorAt < 0) return false
+  const callAt = events.findIndex((event) => event.type === 'tool_use' && event.id === last)
+  return callAt >= 0 && callAt < anchorAt
 }
 
 /** The Session's last topic call in `events`, folded once per array: the pane and the header are given the same one. */
@@ -124,19 +146,25 @@ function topicCallOf(events: readonly AgentEvent[]): SessionTopicCall | null {
  * in its events — on this Machine and in a window on a Linked machine alike — unless a chip of another topic
  * switched it after that call; while the loaded events hold no such call, the one this window showed last for the
  * Node. A change of the Project's topics (`product.changed`), by any Session, does not switch it. `last` is the id
- * of that call, the moment a chip's choice is made at.
+ * of that call and `anchor` the last of the events: the moment a chip's choice is made at.
  */
-function useShownTopic(projectId: string, nodeId: string, events: readonly AgentEvent[] | undefined): { name: string | undefined; last: string | null } {
+function useShownTopic(
+  projectId: string,
+  nodeId: string,
+  events: readonly AgentEvent[] | undefined,
+): { name: string | undefined; last: string | null; anchor: AgentEvent | null } {
   const key = `${projectId}:${nodeId}`
-  const session = useMemo(() => topicCallOf(events ?? NO_EVENTS), [events])
+  const list = events ?? NO_EVENTS
+  const session = useMemo(() => topicCallOf(list), [list])
   const chosen = useChosenTopics((topics) => topics[key])
   const last = session?.call ?? null
   const own = session?.topic
   useEffect(() => {
     if (own !== undefined) keepTopicName(key, own)
   }, [key, own])
-  const name = chosen !== undefined && chosen.since === last ? chosen.name : (own ?? readTopicName(key))
-  return { name, last }
+  const holds = useMemo(() => chosen !== undefined && chipHolds(chosen, list, last), [chosen, list, last])
+  const name = holds && chosen !== undefined ? chosen.name : (own ?? readTopicName(key))
+  return { name, last, anchor: list.at(-1) ?? null }
 }
 
 /** The node of a chip whose topic the Node's Mind map is switching to, by `<projectId>:<nodeId>` (useTopicOfChip). */
@@ -156,9 +184,9 @@ function wantTopic(key: string, ref: NodeRef | null): void {
  * Mind map of `shown` acts only on its own nodes. This reads the chip's topic; once it is read the map follows it,
  * and once that map is drawn the node is picked again on it, which selects it and brings it into view. A topic that
  * is gone or cannot be read says so in a toast, and the map stays as it was. The map stays on the chip's topic until
- * the Session's next call that names a topic (`last`, useShownTopic; worfy-polish ticket 173).
+ * the Session's next call that names a topic (`last` and `anchor`, useShownTopic; worfy-polish ticket 173).
  */
-function useTopicOfChip(projectId: string, nodeId: string, shown: ProductTopicState | null | undefined, last: string | null): void {
+function useTopicOfChip(projectId: string, nodeId: string, shown: ProductTopicState | null | undefined, last: string | null, anchor: AgentEvent | null): void {
   const key = `${projectId}:${nodeId}`
   const wanted = useChipTopics((all) => all[key]) ?? null
   const latest = useRef(shown?.name)
@@ -184,7 +212,7 @@ function useTopicOfChip(projectId: string, nodeId: string, shown: ProductTopicSt
       pickNode(wanted)
       wantTopic(key, null)
     } else if (topic !== undefined && topic !== null) {
-      chooseTopic(key, wanted.topic, last)
+      chooseTopic(key, { name: wanted.topic, since: last, anchor })
     } else if (topic === null || error !== undefined) {
       showToast({
         kind: 'error',
@@ -193,7 +221,7 @@ function useTopicOfChip(projectId: string, nodeId: string, shown: ProductTopicSt
       })
       wantTopic(key, null)
     }
-  }, [key, shown, wanted, topic, error, last])
+  }, [key, shown, wanted, topic, error, last, anchor])
 }
 
 /**
@@ -474,7 +502,7 @@ export function ProductSessionPanel({ children, events, busy = false, ...rail }:
   const drafts = useMemo(() => draftsOf(events ?? [], root), [events, root])
   const shown = useShownTopic(rail.projectId, rail.nodeId, events)
   const { topic, error } = useMindMap(rail.projectId, shown.name)
-  useTopicOfChip(rail.projectId, rail.nodeId, topic, shown.last)
+  useTopicOfChip(rail.projectId, rail.nodeId, topic, shown.last, shown.anchor)
   return (
     <div className="w-product" data-testid="product-session-panel">
       <div className="w-product__split">
