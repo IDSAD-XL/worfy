@@ -1,7 +1,7 @@
 # 176 — `agents/openai.yaml` у skill-ов `human-review-setup` и `overnight-fix-loop`: Codex не вызывает их сам
 
 Type: task
-Status: claimed 2026-11-28T07:10Z
+Status: done 2026-11-28T10:03Z
 PR: #2371
 Branch: worfy-polish/176
 Blocked by: None — can start immediately
@@ -79,12 +79,16 @@ PR #2350, «Итог», «Вопросы владельцу», вопрос 1: �
 - [ ] У `human-review-setup` и `overnight-fix-loop` есть `agents/openai.yaml` с `allow_implicit_invocation: false` в
       форме файлов копии; запись в `coverage.json` `uncovered` у каждого.
   - evidence: commit pass · worfy-polish/176: Codex manifests keep human-review-setup and overnight-fix-loop manual-only · - - · 4e3debbaa0d3f54a0fce143313897a4c36e0474f
+  - evidence: review pass · PR #2371 · - - · 879e4121f41c91bbd9170ba140d302cf739671cc
 - [ ] Contract test правила «`disable-model-invocation: true` ⇔ `allow_implicit_invocation: false`» есть, красный до
       правки, зелёный после.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-plugin.test.ts -t manual-only` exit 1 before the change, exit 0 after · mac - · 4e3debbaa0d3f54a0fce143313897a4c36e0474f
+  - evidence: review pass · PR #2371 · - - · 879e4121f41c91bbd9170ba140d302cf739671cc
 - [ ] `pnpm eval:harness -- --changed origin/main --dry-run` — exit 0, ноль case-ов; вывод — в описании PR.
   - evidence: test-run pass · `pnpm eval:harness -- --changed origin/main --dry-run` exit 0, claude not called; selects 28 cases because coverage.json itself changed · mac - · 4e3debbaa0d3f54a0fce143313897a4c36e0474f
+  - evidence: review pass · PR #2371 · - - · 879e4121f41c91bbd9170ba140d302cf739671cc
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/46121901218/job/140913672117 · ci - · 879e4121f41c91bbd9170ba140d302cf739671cc
 
 ## Итог
 

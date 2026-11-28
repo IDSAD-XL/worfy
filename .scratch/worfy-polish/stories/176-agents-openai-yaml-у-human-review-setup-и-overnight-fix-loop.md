@@ -120,3 +120,65 @@ Code: `harness/bin/tests/start-context.test.sh:224-226` · key lines: 226
 3. Почему dry run eval выбирает case-ы, хотя новые файлы в `uncovered`?
    - Ответ: правка `coverage.json` — файла из `harness/evals/lib/`, а такой файл выбирает все case-ы.
    - Строки: `harness/evals/lib/coverage.json:36-37`
+
+## 8. Что нашёл review и что осталось
+
+> VERIFIED
+> - [low] `harness/bin/tests/start-context.test.sh:226`: the check that every file next to a `SKILL.md` is named somewhere now skips the whole `agents/` folder of an in-house skill, not just `agents/openai.yaml`. A future step file placed there (for example `agents/foo.md`) would be skipped silently. A narrower skip would be to ignore only `agents/openai.yaml`, or an `agents/` folder that holds nothing else.
+> - Format: both new manifests have the same `interface` (`display_name`, `short_description`) plus `policy: allow_implicit_invocation: false` shape as the 11 copied manifests, such as `harness/skills/to-spec/agents/openai.yaml`. Both skills have `disable-model-invocation: true` on line 4 of their `SKILL.md`. The copied skills are untouched.
+> - Test: `test/contract/harness-plugin.test.ts:102-125` checks the rule both ways for every `harness/skills/*/SKILL.md`: a skill marked manual-only in `SKILL.md` must have the Codex manifest with `allow_implicit_invocation: false`, and a skill without the mark must not.
+> - Mutant: I set `allow_implicit_invocation: true` in the `overnight-fix-loop` manifest. The new test went red (exit 1, `expected [ 'overnight-fix-loop' ] to deeply equal []`). I restored the file from a copy and the tree was clean afterwards.
+> - Item 1 (both manifests, plus an entry in `coverage.json` `uncovered` for each, with its own reason): met.
+> - Item 2 (contract test exists, red before the change, green after): met. I checked green after and the mutant; I did not rerun the "red before" claim on the base commit.
+> - Item 3 (eval dry run selects zero cases): not met as written. The report says the dry run selects 28 cases and gives a reason. The reason holds: any change in `harness/evals/lib/` selects every case (`scripts/eval-harness-coverage.mjs:103-105`), and item 2 of "Что строить" requires editing `coverage.json`, which lives there. So the ticket contradicts itself; this is not a code defect.
+> - Item 4 (lint, typecheck, `pnpm test` exit 0; green `ci-ok`): not met yet. On head 879e4121f the job `macos-e2e` is still pending and `ci-ok` is not reported yet. Every other job has passed: lint-typecheck, the four Linux shards, the Windows full suite and Windows e2e.
+> - Ran: `pnpm install --frozen-lockfile` exit 0. Under a temporary HOME, `node scripts/vitest-electron.mjs run` on `harness-plugin`, `harness-evals-run`, `harness-third-party-skills`, `harness-human-review-setup`, `codex-compat` and `harness-scripts-4` exit 0 (20 files, 764 passed, 8 skipped). `bash harness/bin/tests/plugin-neutral.test.sh` exit 0 (37 passed). The mutant run exit 1, as expected. `gh pr checks 2371` exit 8 (a check is pending).
+> - Could not verify: that Codex really honours `allow_implicit_invocation`, because the brief forbids running the real Codex. The only basis is that the 11 upstream manifests use the same field. I also did not run the eval dry run or local lint/typecheck, and `ci-ok` has not finished.
+> - The review worktree is removed and no background processes are left. Nothing else found.
+>
+> Orchestrator: item 3 (eval dry run selects zero cases) contradicts «Что строить» item 2 (coverage.json lives in harness/evals/lib/, which selects every case); accepted as written in «Итог». The low on start-context.test.sh:226 is not a blocker.
+>
+> Review depth: low — ticket
+
+Code: `harness/bin/tests/start-context.test.sh:226-226` · key lines: 226
+
+```sh
+        [ "$n" = agents ] && [ -d "$f" ] && continue
+```
+
+Code: `test/contract/harness-plugin.test.ts:102-125` · key lines: 102
+
+```ts
+describe('a manual-only skill is manual-only in Codex too', () => {
+  const SKILLS = join(HARNESS, 'skills')
+  const skills = readdirSync(SKILLS, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && existsSync(join(SKILLS, entry.name, 'SKILL.md')))
+    .map((entry) => entry.name)
+  const manualInClaude = (name: string): boolean => {
+    const front = /^---\r?\n([\s\S]*?)\r?\n---\r?(?:\n|$)/.exec(readFileSync(join(SKILLS, name, 'SKILL.md'), 'utf8'))?.[1] ?? ''
+    return /^disable-model-invocation:[ \t]*true[ \t]*\r?$/m.test(front)
+  }
+  const manualInCodex = (name: string): boolean => {
+    const manifest = join(SKILLS, name, 'agents', 'openai.yaml')
+    if (!existsSync(manifest)) return false
+    return /^policy:[ \t]*\r?\n(?:[ \t]+.*\r?\n)*?[ \t]+allow_implicit_invocation:[ \t]*false[ \t]*\r?$/m.test(readFileSync(manifest, 'utf8'))
+  }
+
+  it('reads the skills', () => {
+    expect(skills.length).toBeGreaterThan(30)
+    expect(skills.filter(manualInClaude).length).toBeGreaterThan(10)
+  })
+
+  it('has agents/openai.yaml with allow_implicit_invocation: false exactly where SKILL.md has disable-model-invocation: true', () => {
+    expect(skills.filter((name) => manualInClaude(name) !== manualInCodex(name))).toEqual([])
+  })
+})
+```
+
+Code: `scripts/eval-harness-coverage.mjs:103-105` · key lines: 103
+
+```mjs
+ * The cases to run for `changedPaths` (relative to the repository root, with `/`, as git prints
+ * them): a rule file of `coverage.cases` -> its cases; a file in harness/evals/<case>/ -> that case;
+ * a file in harness/evals/lib/ -> every case (the fixture and the map are shared). A rule file of
+```
