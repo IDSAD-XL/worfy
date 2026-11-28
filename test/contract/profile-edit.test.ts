@@ -23,7 +23,7 @@ vi.mock('electron', () => ({
 vi.mock('../../src/main/harness/script-env', () => ({ harnessScriptEnv: () => Promise.resolve(process.env) }))
 
 const { profileEditHandlers, PROFILE_SET_TOO_OLD } = await import('../../src/main/ipc/profile-edit')
-const { HarnessScriptStartError } = await import('../../src/main/workflow/profile')
+const { HarnessScriptStartError, readVerificationPaths } = await import('../../src/main/workflow/profile')
 type Handlers = ReturnType<typeof profileEditHandlers>
 type Run = { code: number | null; stdout: string; stderr: string }
 
@@ -71,7 +71,23 @@ function profileField(field: string): string {
   return spawnSync(NODE, [join(BIN, 'profile'), '-C', repo, '--field', field], { env: harnessEnv(), encoding: 'utf8', windowsHide: true }).stdout.trim()
 }
 
-const handlers = (run: (args: readonly string[], stdin?: string) => Promise<Run> = profileSet): Handlers => profileEditHandlers({ projects: () => [{ path: repo }], profileSet: run })
+/** The verification paths as the app reads them, from the real bin/profile in the temporary Harness home. */
+const verificationPaths = async (root: string): Promise<readonly string[] | null> =>
+  (
+    await readVerificationPaths({
+      root,
+      claudeHome: join(scratch, 'home', '.claude'),
+      env: harnessEnv(),
+      log: () => undefined,
+      run: (_cwd, args) => {
+        const done = spawnSync(NODE, [join(BIN, 'profile'), ...args], { env: harnessEnv(), encoding: 'utf8', windowsHide: true })
+        return Promise.resolve({ code: done.status, signal: done.signal, stdout: done.stdout, stderr: done.stderr })
+      },
+    })
+  ).paths
+
+const handlers = (run: (args: readonly string[], stdin?: string) => Promise<Run> = profileSet): Handlers =>
+  profileEditHandlers({ projects: () => [{ path: repo }], profileSet: run, verificationPaths })
 
 async function call(module: Handlers, channel: string, input: unknown): Promise<unknown> {
   const handler = module.find((entry) => entry.channel.name === channel)
@@ -129,6 +145,18 @@ describe('profileEdit over the real bin/profile-set', () => {
     expect(state.values).toMatchObject({ title: 'Demo', 'commands.verify': 'make check', 'tickets.path': '.scratch/<epic>/issues/NN-*.md', 'workflow.finish': 'pr-green-ci', 'github.account': 'demo-bot', 'docs.adr_dir': null })
     expect(state.fixed).toEqual({ mode: 'full', 'workflow.folder': null })
     expect(state.fingerprint).toMatch(/^sha256:[0-9a-f]{64}$/u)
+    expect(profileText()).toBe(before)
+  })
+
+  it('reads the verification paths as bin/profile resolves them: the defaults, then the Profile\'s globs', async () => {
+    const defaults = ['.github/workflows/**', '.github/actions/**', 'CLAUDE.md', 'AGENTS.md', '.claude/**', '.codex/**', '.mcp.json']
+    expect((await read(handlers())).verificationPaths).toEqual(defaults)
+    writeFileSync(profileJson, `${JSON.stringify({ ...PROFILE, verification: { paths: ['scripts/ci-*.mjs', 'test/quarantine/**'] } }, null, 2)}\n`)
+    const before = profileText()
+    const state = await read(handlers())
+    expect(state.verificationPaths).toEqual([...defaults, 'scripts/ci-*.mjs', 'test/quarantine/**'])
+    // Shown, never a field of the form: Save sends no verification path, and the read wrote nothing.
+    expect(Object.keys(state.values).filter((field) => field.startsWith('verification'))).toEqual([])
     expect(profileText()).toBe(before)
   })
 

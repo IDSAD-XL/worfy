@@ -125,11 +125,15 @@ function layoutCache(): { get: (root: string) => Promise<ProjectLayout>; forget:
 
 const profileField = (field: string): string => spawnSync(NODE, [join(BIN, 'profile'), '-C', repo, '--field', field], { env: harnessEnv(), encoding: 'utf8', windowsHide: true }).stdout.trim()
 
+/** The verification paths are not what a move is about: none, so no Harness of the machine is run for them. */
+const noVerificationPaths = (): Promise<null> => Promise.resolve(null)
+
 const handlers = (): Handlers =>
   profileEditHandlers({
     projects: () => [{ path: repo }],
     profileSet,
     layouts: layoutCache(),
+    verificationPaths: noVerificationPaths,
     sessions: () => Promise.resolve(sessions),
     holdWatches: (root) => {
       holds.push(`hold ${root}`)
@@ -296,6 +300,7 @@ describe('profileEdit.move over the real bin/profile-set --move', () => {
       layouts: layoutCache(),
       sessions: () => Promise.resolve([]),
       holdWatches: () => Promise.resolve(() => Promise.resolve()),
+      verificationPaths: noVerificationPaths,
     })
     expect(await move(module, 'silent')).toEqual({ status: 'failed', reason: 'failed at to-commit; the move was rolled back, except: …', left })
   })
@@ -319,6 +324,7 @@ describe('profileEdit.move over the real bin/profile-set --move', () => {
         layouts,
         sessions: () => Promise.resolve([]),
         holdWatches: (root) => holdProjectWatches({ workflowHub, docsHub, docsSource: (at) => docsSource(at, layouts) }, root, ['p1']),
+        verificationPaths: noVerificationPaths,
       })
       const ticketsSeen: number[][] = []
       const first = await workflowHub.open(repo, { id: 'window', send: (delta) => void ticketsSeen.push(delta.tickets.map((ticket) => ticket.num)) })

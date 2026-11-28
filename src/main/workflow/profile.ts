@@ -639,6 +639,44 @@ export async function readProfileFolder(options: ReadProfileOptions): Promise<Pr
   return { dir, reason: null }
 }
 
+// ── the verification paths ───────────────────────────────────────────────────
+
+/** The Profile field with the verification paths, which `bin/profile` prints resolved (harness/lib/verification-paths.cjs). */
+export const VERIFICATION_PATHS_FIELD = 'verification.paths'
+
+/** The verification paths of a Project, or null with the reason there are none to show. */
+export interface VerificationPaths {
+  paths: readonly string[] | null
+  reason: string | null
+}
+
+const globList = z.array(z.string().min(1))
+
+/**
+ * The verification paths of the Project at `root` (worfy-harness-guarantees ticket 02): the files that judge
+ * work, the Harness's defaults and then the Profile's own globs, as `bin/profile --field verification.paths`
+ * prints them. Without them — an older Harness (exit code 4), no Profile, a failed run, a value that is not
+ * a list of globs — the paths are null and the reason goes to the log in one line.
+ */
+export async function readVerificationPaths(options: ReadProfileOptions): Promise<VerificationPaths> {
+  const log = options.log ?? ((message: string) => console.warn(message))
+  const none = (reason: string): VerificationPaths => {
+    log(`[profile] verification paths of ${options.root}: none shown, because ${reason}`)
+    return { paths: null, reason }
+  }
+  const field = await readField(options, VERIFICATION_PATHS_FIELD)
+  if (!field.ok) return none(field.reason)
+  let json: unknown
+  try {
+    json = JSON.parse(field.stdout)
+  } catch {
+    return none(`${VERIFICATION_PATHS_FIELD} is not JSON: ${JSON.stringify(field.stdout.slice(0, 200))}`)
+  }
+  const parsed = globList.safeParse(json)
+  if (!parsed.success) return none(`${VERIFICATION_PATHS_FIELD} is not a list of globs: ${JSON.stringify(field.stdout.slice(0, 200))}`)
+  return { paths: parsed.data, reason: null }
+}
+
 // ── the GitHub account ───────────────────────────────────────────────────────
 
 /** The Profile field with the login of the GitHub account the Project's repository belongs to. */

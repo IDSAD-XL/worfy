@@ -38,6 +38,7 @@ const { resolvePipeline } = require("../lib/pipeline.cjs")
 // The rules of the gate, CI and cross-machine fields, one copy for this reader and bin/profile-set.
 const { profileProblems, expandHome } = require("../lib/profile-rules.cjs")
 const { englishPlaceholders, englishHeadings } = require("../lib/old-words.cjs")
+const { verificationPaths } = require("../lib/verification-paths.cjs")
 
 // os.homedir(): $HOME where it is set (macOS, Linux, Git Bash), %USERPROFILE% on Windows without it.
 const CLAUDE = path.join(os.homedir(), ".claude")
@@ -440,6 +441,11 @@ if (profile.workflow !== null && typeof profile.workflow === "object") {
     if (wf.e2e_lock !== undefined && wf.e2e_lock !== null) wf.e2e_lock = expandHome(wf.e2e_lock.trim())
     if (wf.ci === undefined || wf.ci === null) wf.ci = "pr"
 }
+// The verification paths, the files that judge work: the defaults of every project, then the globs of
+// verification.paths (lib/verification-paths.cjs, the one copy of the list). The field is
+// printed resolved, as workflow.ci is: `--field verification.paths` is the whole list, never only the
+// project's additions, and a profile without the field still has the defaults.
+profile.verification = { ...(profile.verification || {}), paths: verificationPaths(profile) }
 
 // The Pipeline of the project: its rules live in lib/pipeline.cjs, shared with bin/profile-set, which writes
 // the field. A broken one is a broken profile: a guessed Pipeline would show a

@@ -83,6 +83,13 @@ export const profileEditReadSchema = z.discriminatedUnion('available', [
     severalRepos: z.boolean(),
     /** The fingerprint of the fields of PROFILE_EDIT_FIELDS together. */
     fingerprint: pipelineFingerprintSchema,
+    /**
+     * The verification paths, shown and never written here: the Harness's defaults and then the Profile's
+     * globs, as `bin/profile --field verification.paths` prints them (worfy-harness-guarantees ticket 02). Only
+     * the owner changes them, by hand. null — the Harness printed none (an older one, or a failed run);
+     * absent — a Machine whose worfy does not read them.
+     */
+    verificationPaths: z.array(z.string()).nullable().optional(),
   }),
 ])
 export type ProfileEditRead = z.output<typeof profileEditReadSchema>

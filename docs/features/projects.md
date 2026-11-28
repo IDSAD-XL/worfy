@@ -454,6 +454,13 @@ Adding a listed Project the Harness knows selects it and says `<name> is already
   such Session, or for a Project of a Linked machine, nothing shows. A claude.ai connector the Session's popover may not
   list is allowed by typing its name into this list ([MCP servers of a Session](mcp-servers.md)). A Project of a Linked
   machine, or one shared read-only, shows the form without Save: a Profile is written only on its own machine.
+  "Verification paths" at the end of the form lists, read-only, the files that judge work (CI workflows, the scripts
+  that pick what CI runs, the Quarantine, the settings of tests and lint, the review agents, the Harness hooks): the
+  Harness's defaults `.github/workflows/**`, `.github/actions/**`, `CLAUDE.md`, `AGENTS.md`, `.claude/**`, `.codex/**`,
+  `.mcp.json`, then the globs of the Profile's `verification.paths`, as `harness/bin/profile --field verification.paths`
+  prints them (`harness/lib/verification-paths.cjs`). The form has no input for them and Save never sends them: only the
+  owner changes them, in `profile.json`, and the Profile only adds to the defaults. A Harness that prints no list shows
+  "The Harness printed no verification paths: update the Harness."
 - "Process gate queue" is there only when the Project's role in the cross-machine Gate queue is `serve`. It sends the template
   to the Orchestrator of the Project.
 - "Remove from list" acts at once, without a question. The Project leaves the list. If it was the active one, the first of
@@ -583,6 +590,8 @@ the new Project opens. The renderer takes the answer through `acceptProjectsStat
   team reviewer offer with "Later" and "Build".
 - `test/unit/use-projects.test.tsx`: revisions, the groups by Machine, windows on a Linked machine.
 - `test/unit/edit-profile.test.tsx`: the form's values, a refusal under its field, a refused fingerprint, the account step.
+  `test/unit/profile-fields-verification.test.tsx`: the verification paths listed read-only, never sent by Save.
+  `test/unit/verification-paths.test.ts`: the defaults, the Profile's globs, `\` and letter case.
   `test/contract/profile-edit.test.ts`: the channels over the real `bin/profile-set` and over a stand-in of it.
   `test/e2e/edit-profile.spec.ts`: the form in the built app. `harness/bin/tests/profile-set.test.sh`: `--field` of any field.
   `test/contract/profile-move.test.ts`: `profileEdit.move` over the real `bin/profile-set --move` in both directions, a

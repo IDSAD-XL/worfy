@@ -7,8 +7,11 @@ the plugin, where `lib/` lies next to `bin/` and `hooks/`.
 - `draft-schema.cjs` — the checker of `profiles/draft.schema.json`: `bin/project-connect` checks a whole draft
   with it, `bin/profile-set` one field of a profile, so both accept the same values.
 - `profile-rules.cjs` — the rules `bin/profile` reads `workflow.merge_gate`, `workflow.e2e_lock`, `workflow.ci`,
-  `workflow.ci_batch_run` and `cross_machine_gate` by; `bin/profile-set` checks the profile a write leaves with
-  them, so it never writes one `bin/profile` calls broken.
+  `workflow.ci_batch_run`, `workflow.ci_check`, `cross_machine_gate` and `verification` by; `bin/profile-set` checks
+  the profile a write leaves with them, so it never writes one `bin/profile` calls broken.
+- `verification-paths.cjs` — the verification paths, the files that judge work: the defaults of every project, the
+  globs of `verification.paths` that only add to them, and whether a path is one (`\` read as `/`, letter case
+  ignored on Windows and macOS); `bin/profile` prints the whole list; the guard hook and `bin/land` are to read it here, never from a copy.
 - `workflow-move.cjs` — the move of a project's workflow files between Full mode and Silent mode: the paths that
   move, the checks before it (clean trees, open PRs of the tickets' branches, Full mode for several repositories), the
   copy and the commit on each side, the rollback, and the marker of a move under way that the next move reads to

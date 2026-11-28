@@ -11,7 +11,8 @@
 // changes the form, never the load of the accounts, and Save waits while they load. `mode` and the Workflow
 // folder are shown, not edited: they change by moving the workflow files, the action beside them
 // (MoveWorkflow.tsx, `profileEdit.move`, ticket 81), after which the form reads the Profile again; the name
-// holds the Profile's folder and stays.
+// holds the Profile's folder and stays. The verification paths, the files that judge work, are shown as
+// `bin/profile` resolves them and never edited: only the owner changes them (worfy-harness-guarantees ticket 02).
 //
 // Beside the MCP servers list stands the status of each name in the newest Session of the Project on this
 // Machine (session/McpChip.tsx, McpProfileStatus; worfy-mcp-live ticket 04); without one, no status.
@@ -42,7 +43,7 @@ import { Dialog } from '../theme/kit/Dialog'
 import { GithubAccount } from './GithubAccount'
 import { MoveWorkflow } from './MoveWorkflow'
 import { fieldStyles, issuesAt, text } from './profile-fields'
-import { ListField, SelectField, TextField } from './ProfileFields'
+import { ListField, ReadOnlyList, SelectField, TextField } from './ProfileFields'
 
 export interface EditProfileProps {
   project: { name: string; path: string }
@@ -88,6 +89,10 @@ type Load = { kind: 'loading' } | { kind: 'failed'; reason: string } | { kind: '
 export const CHECK_DELAY_MS = 350
 /** Under `mode` and the Workflow folder: why the form does not edit them. */
 const FIXED_NOTE = 'Changed by moving the workflow files'
+/** Under the verification paths: what they are, and that the form never writes them. */
+export const VERIFICATION_NOTE = "The files that judge work: the Harness's defaults, then the profile's verification.paths. Only the owner changes them, in profile.json."
+/** Instead of the list when the Harness printed none: an older Harness, or a failed run. */
+export const VERIFICATION_MISSING = 'The Harness printed no verification paths: update the Harness.'
 
 const FIELD_SET = new Set<string>(PROFILE_EDIT_FIELDS)
 /**
@@ -437,6 +442,11 @@ export function EditProfile({ project, machine, readOnly, onClose, onSaved }: Ed
             {field('worktree.implementer', 'Implementer command')}
             {field('worktree.reviewer', 'Reviewer command')}
           </>,
+        )}
+        {section(
+          'Verification paths',
+          <ReadOnlyList label="Files that judge work" items={read?.verificationPaths ?? null} hint={VERIFICATION_NOTE} missing={VERIFICATION_MISSING} testId="edit-profile-verification" />,
+          1,
         )}
       </div>
     )
