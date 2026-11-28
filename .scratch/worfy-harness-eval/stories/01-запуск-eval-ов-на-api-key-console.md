@@ -11,7 +11,7 @@ Kind: pr · Epic: worfy-harness-eval · Ticket: 01 · PR: - · Language: ru
 
 ## 2. Кто платит — явный выбор, ключ только в одной переменной
 
-Code: `scripts/eval-run-env.mjs:129-149` · key lines: 130, 137, 145, 148
+Code: `scripts/eval-run-env.mjs:137-157` · key lines: 138, 145, 153, 156
 
 ```js
 export function billingFor(billing, env, fail) {
@@ -105,4 +105,4 @@ const judgeEnv = { ...childEnv, ...billing.vars }
 2. Почему ключ с NUL-байтом отказывается до `spawnSync`, а не ловится после?
    - Ответ: Node цитирует значение окружения в тексте ошибки `spawnSync`; проверка до запуска не даёт ключу попасть в
      текст вообще.
-   - Строки: `scripts/eval-run-env.mjs:142-147`
+   - Строки: `scripts/eval-run-env.mjs:150-155`
