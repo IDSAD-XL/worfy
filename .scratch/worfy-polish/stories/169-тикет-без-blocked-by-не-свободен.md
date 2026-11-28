@@ -173,3 +173,29 @@ Code: `src/shared/actions/render-template.ts:111-122` · key lines: 119
 3. Где ещё было то же условие, и что случилось бы, оставь его?
    - Ответ: в раскладке рамки Epic-а; Ticket стоял бы в Level 1 на холсте, хотя Wave его не берёт.
    - Строки: `src/renderer/canvas/epic-layout.ts:171`
+
+## 10. Что нашёл review и что осталось
+
+> VERIFIED — worfy-polish 169 round 2 (a Ticket with an empty or missing «Blocked by:» line needs attention and is not a free Ticket of the Wave; done Tickets without the line keep their plan Wave number; text says «empty or missing»), head 14a48667dbbde6184bc7f521e865255cc8cffedc
+>
+> Round 1 findings fixed: [med] plan Wave number of done Tickets without the line (src/shared/actions/render-template.ts:119, test/unit/render-template.test.ts:91 red on the mutant); [low] «empty or missing» text (src/shared/workflow/waves.ts:28).
+> Noted [low]: render-template.ts:119 covers only done Tickets; a claimed Ticket without the line still makes the plan number null (rare; none in today's data).
+> Checks by the reviewer: unit tests waves, epic-layout, launch, render-template, ticket-card, autopilot-forecast(-lines), card-bridge-overlay, workflow-reader contract — exit 0; typecheck 0; lint 0; two mutants red (exit 1).
+
+Code: `src/shared/actions/render-template.ts:119-119` · key lines: 119
+
+```ts
+        ...(ticket.state === 'done' && ticket.blockedRaw === null && !ticket.blockedParsed ? { blockedParsed: true, blockedNums: [] } : {}),
+```
+
+Code: `test/unit/render-template.test.ts:91-91` · key lines: 91
+
+```ts
+  it('counts a done Ticket without a "Blocked by" line as without blockers in the plan; an open one keeps no number (worfy-polish 169)', () => {
+```
+
+Code: `src/shared/workflow/waves.ts:28-28` · key lines: 28
+
+```ts
+export const unparsedText = (raw: string | null): string => (raw === null ? 'empty or missing “Blocked by:” line' : `“Blocked by: ${raw}” is not a list of tickets`)
+```

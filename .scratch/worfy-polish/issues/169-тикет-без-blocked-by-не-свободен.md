@@ -1,7 +1,8 @@
 # 169 — Ticket без строки «Blocked by:» не считается свободным в Wave worfy
 
 Type: bug
-Status: open
+Status: done 2026-11-28T02:00Z
+PR: #2336
 Blocked by: None — can start immediately
 Source: решение владельца 2026-11-28 (раунд по разборам critic-ов, Q3): worfy-plan-lint отложен, его единственный
 живой дефект — отдельным Ticket-ом; разбор `docs/product/critic/worfy-plan-lint-2026-11-28.md`, возражение 3.
@@ -40,10 +41,13 @@ Source: решение владельца 2026-11-28 (раунд по разбо
 - [ ] Ticket без строки `Blocked by:` worfy не ставит в Wave как свободный и показывает, чего не хватает; unit test
       красный до правки.
   - evidence: test-run pass · `pnpm test test/unit/waves.test.ts test/unit/epic-layout.test.ts test/unit/launch.test.ts` exit 0; 4 new checks exit 1 before the fix · mac - · 45a2d2738
+  - evidence: review pass · PR #2336 · - - · 14a48667dbbde6184bc7f521e865255cc8cffedc
 - [ ] У worfy-product-session 28, 30 и 31 есть строка `Blocked by:`, взятая из spec-а Epic-а.
   - evidence: test-run pass · `epic-status --json` reads 28, 30, 31 with blockedParsed true, blockedNums [] exit 0 · mac - · 45a2d2738
+  - evidence: review pass · PR #2336 · - - · 14a48667dbbde6184bc7f521e865255cc8cffedc
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: test-run pass · `pnpm lint && pnpm typecheck` exit 0; `pnpm test` 964 files, 21659 tests exit 0 · mac - · 45a2d2738
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/46093891007/job/140826659554 · ci - · 14a48667dbbde6184bc7f521e865255cc8cffedc
 
 ## Итог
 
