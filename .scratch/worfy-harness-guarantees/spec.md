@@ -33,8 +33,8 @@ Auto-approval, Approval policy, Vendor, Machine, Settings, Full mode, Silent mod
 [worfy-pipeline](../worfy-pipeline/spec.md) — Stage-и и отметки агентов на SHA (ADR-0067);
 [worfy-multi-vendor](../worfy-multi-vendor/spec.md) — Codex, вход его hook-ов и часть `harnessHooks` driver-а
 (ADR-0094).
-Связан с: [worfy-harness-eval](../../docs/product/harness-eval/drafts/worfy-harness-eval.md) (принят 2026-11-24) — его
-Ticket 15 (`:352`, платные case-ы hook-ов guard, stop и gate) берёт только то, что бесплатный contract set Ticket-а 08
+Связан с: [worfy-harness-eval](../worfy-harness-eval/spec.md) (принят 2026-11-24, разрезан 2026-11-28) — его
+[Ticket 15](../worfy-harness-eval/issues/15-case-ы-после-отказа-guard-и-stop-subagent-scout.md) (платные case-ы hook-ов guard, stop и gate) берёт только то, что бесплатный contract set Ticket-а 08
 проверить не может: что агент делает после отказа.
 Ticket-ы: Epic `worfy-harness-guarantees`, 12 Ticket-ов — `01`–`10`, `12`, `13` (11 снят по Q7 (б)), файлы —
 [issues/](issues/).
@@ -437,7 +437,7 @@ flowchart TD
     `agent_type`, если spike покажет, что stand-in ведёт ход Subagent-а. Ticket 06 добавляет case-ы своих областей и
     правила Ticket-а 03, Ticket 05 — case merge.
   - Case-ы (4) и (5) и case-ы отказов, которые добавляют 05 и 06, — бесплатная половина Ticket-а 15 worfy-harness-eval
-    (`docs/product/harness-eval/drafts/worfy-harness-eval.md:352`): на вопрос «отказал ли guard, держит ли Stop ход»
+    (`.scratch/worfy-harness-eval/issues/15-case-ы-после-отказа-guard-и-stop-subagent-scout.md`): на вопрос «отказал ли guard, держит ли Stop ход»
     отвечает этот набор, а платный case 15 берёт только то, для чего нужна модель, — что агент делает после отказа
     (critic 2026-11-28, возражение 3).
   - `test/contract/harness-guarantees.test.ts` запускает набор в `pnpm test` на binary SDK: PR, который поднимает SDK
