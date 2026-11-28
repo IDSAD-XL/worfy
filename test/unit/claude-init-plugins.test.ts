@@ -15,11 +15,13 @@ import type { SessionStart } from '../../src/main/vendors/session'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import { sdkMessageToEvents } from '../../src/shared/vendors/claude/events'
 
+type Message = Record<string, unknown>
+
 const FIXTURE = join(import.meta.dirname, '..', 'fixtures', 'sdk-messages', 'init-plugin-errors.jsonl')
 const [intact, brokenHooksJson, missingHookScript, enginesUnmet, enginesMet] = readFileSync(FIXTURE, 'utf8')
   .trim()
   .split('\n')
-  .map((line) => JSON.parse(line) as Record<string, unknown>) as [Record<string, unknown>, ...Record<string, unknown>[]]
+  .map((line) => JSON.parse(line) as Record<string, unknown>) as [Message, Message, Message, Message, Message]
 
 type Init = Extract<AgentEvent, { type: 'init' }>
 
@@ -57,7 +59,7 @@ describe('harnessLoadProblems: what went wrong with the Harness worfy gave', () 
   })
 
   it('the intact copy, a missing hook script and `engines` give no problem: system/init does not tell them', () => {
-    for (const message of [intact, missingHookScript, enginesUnmet, enginesMet]) expect(harnessLoadProblems(initOf(message!), givenOf(message!))).toEqual([])
+    for (const message of [intact, missingHookScript, enginesUnmet, enginesMet]) expect(harnessLoadProblems(initOf(message), givenOf(message))).toEqual([])
   })
 
   it('the plugin worfy missing counts only when worfy gave it; an error of another plugin never counts', () => {
@@ -121,6 +123,7 @@ const START: SessionStart = {
   permissions: { ask: () => Promise.reject(new Error('nothing is asked')) } as unknown as SessionStart['permissions'],
   refused: () => undefined,
   stderr: () => undefined,
+  spawned: () => undefined,
 }
 
 /** Every event of a Claude Session whose query plays `messages` and was told `given` as its Harness. */

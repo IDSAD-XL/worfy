@@ -133,7 +133,7 @@ describe('Autopilot on Claude Code (Orchestrators.unattendedRefusal)', () => {
       projectPath: () => '/repo',
       vendor: () => 'claude',
       capabilities: () => Promise.resolve(CLAUDE_CAPABILITIES),
-      harnessHooks: (vendor) => (vendor === 'claude' ? claudeHarnessHooksPart({ start, harnessPlugin: () => '/app/Resources/harness' }) : undefined),
+      harnessHooks: (vendor: string) => (vendor === 'claude' ? claudeHarnessHooksPart({ start, harnessPlugin: () => '/app/Resources/harness' }) : undefined),
     } as unknown as OrchestratorDeps)
 
   it('starts with the Harness`s hooks running, and refuses with the reason while they do not', async () => {
