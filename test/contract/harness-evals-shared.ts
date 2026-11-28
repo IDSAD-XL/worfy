@@ -105,7 +105,8 @@ export const childEnv = (home: string, vars: NodeJS.ProcessEnv = {}): NodeJS.Pro
 
 // A stand-in for claude: prints STUB_VERSION for --version; for every other call appends to
 // STUB_LOG its arguments, what the target plugin folder holds (manifest, eval folder), PATH, the
-// EVAL_* variables, CLAUDE_CODE_AUTO_COMPACT_WINDOW and CLAUDE_AUTOCOMPACT_PCT_OVERRIDE, the answers of "$EVAL_GIT" --version and --exec-path with PATH=/usr/bin:/bin,
+// EVAL_* variables, CLAUDE_CODE_AUTO_COMPACT_WINDOW and CLAUDE_AUTOCOMPACT_PCT_OVERRIDE, ANTHROPIC_API_KEY and
+// ANTHROPIC_AUTH_TOKEN, the answers of "$EVAL_GIT" --version and --exec-path with PATH=/usr/bin:/bin,
 // the exit code of "$EVAL_GIT" config --get worfy.probe with STUB_SYSTEM_CONFIG as the system
 // gitconfig, and the files of the copy of git; it exits with the next code from STUB_CODES
 // (comma-separated, one per call). STUB_LOCK: the first call makes the plugin copy read-only.
@@ -114,7 +115,8 @@ export const childEnv = (home: string, vars: NodeJS.ProcessEnv = {}): NodeJS.Pro
 // this text as aggregate-result.json into its --output-dir, as claude plugin eval does; a JSON report
 // that names neither its cases nor aggregates.casesTotal gets both, from the cases the call would run.
 // The stub parses its arguments as claude does: nothing after a `--` is an option.
-// STUB_VERSION_LOG: every `claude --version` appends a line there.
+// STUB_VERSION_LOG: every `claude --version` appends a line there, a JSON object with its
+// ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN (null when unset).
 // The stub is one file of the repository, test/fixtures/eval-stub/claude.cjs; each test reaches it
 // through a link. macOS checks every new executable before its first start (XprotectService, one
 // file at a time): a stub written anew for each test waited in that queue, up to seconds under a loaded

@@ -8,7 +8,9 @@ const { appendFileSync, chmodSync, existsSync, mkdirSync, readdirSync, readFileS
 const { dirname, join, resolve } = require('node:path')
 const args = process.argv.slice(2)
 if (args[0] === '--version') {
-  if (process.env.STUB_VERSION_LOG) appendFileSync(process.env.STUB_VERSION_LOG, '--version\n')
+  if (process.env.STUB_VERSION_LOG) {
+    appendFileSync(process.env.STUB_VERSION_LOG, JSON.stringify({ apiKey: process.env.ANTHROPIC_API_KEY ?? null, authToken: process.env.ANTHROPIC_AUTH_TOKEN ?? null }) + '\n')
+  }
   console.log(process.env.STUB_VERSION + ' (Claude Code)')
   process.exit(0)
 }
@@ -36,6 +38,7 @@ appendFileSync(log, JSON.stringify({
   args, manifest, evals, path: process.env.PATH, evalGit, evalHarnessHome: process.env.EVAL_HARNESS_HOME ?? null,
   compactWindow: process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW ?? null, compactPct: process.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE ?? null,
   gitVersion: version ? { status: version.status, stdout: version.stdout } : null, execPath, systemConfig, gitFiles,
+  apiKey: process.env.ANTHROPIC_API_KEY ?? null, authToken: process.env.ANTHROPIC_AUTH_TOKEN ?? null,
 }) + '\n')
 // As claude parses its arguments: whatever follows a '--' is a positional argument, no option.
 const dash = args.indexOf('--')
