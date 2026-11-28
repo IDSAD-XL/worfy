@@ -21,7 +21,8 @@ Source: [spec.md](../spec.md), «Ticket-ы», 09; «Решение», «Где �
   «≈41% of the week · cache losses ≈6%». Работа без Epic-а — `—`, последней, как у часов.
 - Щелчок по итогу открывает панель периода `LimitsPanel.tsx`: заголовок «Where the Limits went · <период> · estimate
   from tokens at this window's rate (week at N%)», вкладки Tickets, Roles, Rounds, Models, Vendors, Cache losses; строка
-  «Other Projects on this Machine» без имён.
+  «Other Projects on this Machine» без имён (решение владельца 2026-11-28, Q7 (а)). Во вкладке Roles — та же подсказка
+  про Eco mode, что в Run history (Q6 (а)).
 - Панель Span-а: token-ы, доля чтения из cache и оценка доли.
 - Без оценки — token-ы и «not enough data yet» с причиной. Тексты UI — английские (ADR-0074).
 

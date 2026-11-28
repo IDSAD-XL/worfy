@@ -1,6 +1,7 @@
 # worfy-limits-ledger: Куда ушли Limits: расход по Session, роли, Ticket-у и модели и потери prompt cache с их ценой
 
-Status: черновик, переписан 2026-11-28 по решению владельца (Split); ждёт приёмки владельцем. Первый черновик —
+Status: принят владельцем 2026-11-28 («Принимаю» — spec и 13 Ticket-ов, PR #2347); ответы на «Вопросы владельцу»:
+Q2 (а), Q4–Q8 (а) по рекомендациям («Все да»). Переписан 2026-11-28 по решению владельца (Split); первый черновик —
 2026-11-13 из исследования конкурентов.
 Critic: [docs/product/critic/worfy-limits-ledger-2026-11-28.md](../../docs/product/critic/worfy-limits-ledger-2026-11-28.md) — Split;
 возражения 1 (калибровка по текущему 7-дневному окну, а не по Wave-ам Autopilot), 2 (правило Autopilot-а Ticket-а 12 —
@@ -380,8 +381,8 @@ Token-ы к Ticket-у и раунду ревью не привязывает н�
 - **Assistant.** Строка Assistant-а в учёте — из `usage.json` (`appAssistantUsage`,
   `src/main/assistant/budget/ledger.ts`). Своя оценка доли Assistant-а (`cost-share`) делит окно только между ходами
   worfy и для тех же вызовов даёт больше, чем учёт, который видит и терминал. Что показывают раздел Assistant-а
-  (`src/renderer/assistant/AssistantPanel.tsx`) и Settings → Assistant (`src/renderer/settings/AssistantSection.tsx`) —
-  Q8.
+  (`src/renderer/assistant/AssistantPanel.tsx`) и Settings → Assistant (`src/renderer/settings/AssistantSection.tsx`), —
+  по Q8 (а): долю строки Assistant из учёта, когда у учёта есть оценка; `cost-share` — запасной (Ticket 10).
 - **Service и каналы.** `src/main/usage/service.ts` берёт записи ответов у readers Work track и Flight Recorder (их кэш
   в памяти), проход по чужим папкам, `usage.json` Assistant-а, состояние Limits, журналы и Codex. Каналы —
   `src/shared/ipc/ledger.ts` и `src/main/ipc/ledger.ts`, по образцу `src/shared/ipc/work-track.ts` и
@@ -401,7 +402,7 @@ Token-ы к Ticket-у и раунду ревью не привязывает н�
 - **Документация.** Новая страница Feature `docs/features/limits-ledger.md` и перевод
   `docs/features/ru/limits-ledger.md`; ссылки из `docs/features/transcripts-and-usage.md` (раздел Limits),
   `docs/features/run-planning.md`, `docs/features/flight-recorder.md`, `docs/features/work-track.md`; Cost в
-  `docs/features/sessions.md`; доля Assistant-а в `docs/features/assistant.md` — по Q8.
+  `docs/features/sessions.md`; доля Assistant-а из учёта в `docs/features/assistant.md` (Q8 (а)).
 
 ## Решения по test-ам
 
@@ -477,8 +478,8 @@ Token-ы к Ticket-у и раунду ревью не привязывает н�
 09. **Work track** — «Limits by Epic», итог периода, панель периода, token-ы в панели Span-а. Агент, review medium.
     Blocked by: 07.
 10. **Chip-ы и доля вместо Cost** — `LimitsShare` на карточке Ticket-а и на Node Session и Orchestrator-а, место в
-    `ticket-card.ts`; Cost шапки Session view и Node Orchestrator-а — доля недели, доллары по Q2; доля Assistant-а по
-    Q8. Агент, review medium. Blocked by: 07.
+    `ticket-card.ts`; Cost шапки Session view и Node Orchestrator-а — доля недели, доллары — в tooltip-е (Q2 (а)); доля
+    Assistant-а из учёта (Q8 (а)). Агент, review medium. Blocked by: 07.
 11. **Строки перед потерей cache** — picker модели, строка над полем ввода, Auto-continue, hook-и `SessionStart` и
     `PostModelSwitch`. Агент, review high. Blocked by: 07.
 13. **Документация и термины** — `docs/features/limits-ledger.md` en и ru, ссылки, два термина в CONTEXT.md. Агент,
@@ -529,8 +530,8 @@ Epic берут после worfy-harness-guarantees (решение владел
   сомнении ответ идёт в «No Ticket».
 - **Оценку примут за факт.** Везде «≈», в заголовке — доля окна, от которой посчитан `k`, в Run history — факт журнала
   рядом.
-- **Две оценки доли Assistant-а.** Раздел Assistant-а и учёт делят окно по разным делителям; без решения Q8 пользователь
-  увидит два разных числа для одних вызовов.
+- **Две оценки доли Assistant-а.** Раздел Assistant-а и учёт делят окно по разным делителям. По Q8 (а) раздел берёт
+  число учёта; `cost-share` виден только пока у учёта нет оценки, и тогда подпись говорит «estimate» как сейчас.
 - **Высота карточки Ticket-а.** Chip добавляет строку только карточкам с данными; `test/unit/ticket-card.test.tsx`
   держит высоту.
 - **Версия SDK.** Hook-и проверены в 0.3.322 (`package.json:29`), а `node_modules` основного checkout-а ещё держит
@@ -539,38 +540,49 @@ Epic берут после worfy-harness-guarantees (решение владел
 
 ## Вопросы владельцу
 
-Решение владельца 2026-11-28 (Split) уже ответило на часть вопросов черновика: Q1 следует из него, Q3 ушёл в Epic 2.
-Остальные ждут ответа при приёмке spec-а; у каждого — рекомендация.
+Решение владельца 2026-11-28 (Split) ответило на Q1 и увело Q3 в Epic 2. При приёмке spec-а 2026-11-28 владелец ответил
+Q2 (а) и Q4–Q8 (а) — по рекомендациям («Все да»). Строка «Решение владельца» под каждым вопросом называет, что из
+ответа следует для Ticket-ов.
 
 1. **Q1. Единица на экране.** Решено 2026-11-28: оценка доли недели «≈», откалиброванная по текущему 7-дневному окну;
    без оценки — token-ы. Так говорят toolbar и Epic forecast. Не спрашивается.
+   Решение владельца 2026-11-28: Q1 (а) — следует из Split. Ticket-ы 02, 07–11.
 2. **Q2. Доллары после замены Cost на долю недели** (Ticket 10; замену решил владелец).
    (а) Доллары — в tooltip-е поля Cost и Node, с пометкой «API-equivalent». Рекомендация: число полезно для сравнения с
    OpenHands и Orca и с отчётом `agent-cost.mjs`, а за долю его никто не примет.
    (б) Убрать доллары совсем.
+   Решение владельца 2026-11-28: (а). Доллары — только в tooltip-е поля Cost и Node Orchestrator-а и строк учёта, с
+   пометкой «API-equivalent». Ticket-ы 08, 09, 10, 13.
 3. **Q3.** Правило Autopilot-а после ожидания Limits — в Epic 2
    ([worfy-limits-autopilot-rule](../worfy-limits-autopilot-rule/spec.md), там его Q1). Здесь не спрашивается.
+   Решение владельца 2026-11-28: Split — правило в Epic 2, когда Cache losses покажет случай.
 4. **Q4. Строка перед потерей cache.**
    (а) Строка, ничего не блокирует. Рекомендация: смена модели и сообщение в остывшую Session — решения человека, ему
    нужна цена, а не ещё один диалог; так делают Devin Desktop и CLI Claude Code.
    (б) Подтверждение перед сменой модели и перед сообщением в остывшую Session.
+   Решение владельца 2026-11-28: (а). Строки ничего не блокируют. Ticket 11.
 5. **Q5. Chip на карточке Ticket-а.**
    (а) Всегда, когда есть данные; карточка с данными выше на строку. Рекомендация: история 4 — доля без Run history.
    (б) Без chip-а на карточке: доля только в Run history и в tooltip-е Node.
+   Решение владельца 2026-11-28: (а). Chip всегда, когда есть данные; карточка с данными выше на строку. Ticket 10.
 6. **Q6. Подсказка про Eco mode во вкладке Roles.**
    (а) Да, только текст со ссылкой на Modes. Рекомендация: учёт показывает, где Eco mode сэкономит, и не решает за
    человека.
    (б) Нет.
+   Решение владельца 2026-11-28: (а). Подсказка — только текст со ссылкой на Modes. Ticket-ы 08, 09.
 7. **Q7. Транскрипты других Project-ов этой Machine для калибровки.**
    (а) Да, только числа ответов, одна строка «Other Projects on this Machine». Рекомендация: окно Limits одно на
    аккаунт; без чужих папок `W` меньше, и `k` завышает долю на token на всю их работу.
    (б) Нет, только этот Project — оценка завышает долю на token.
+   Решение владельца 2026-11-28: (а). Только числа ответов, одна строка без имён. Ticket-ы 02, 03, 05, 09.
 8. **Q8. Доля Assistant-а в его разделе и в Settings → Assistant.** Сегодня там «≈N% · estimate» по своему методу
    `cost-share` (worfy-assistant Ticket 27): окно делится между ходами, которые видел worfy.
    (а) Показывать долю строки Assistant из учёта, когда у учёта есть оценка; `cost-share` — запасной, пока её нет.
    Делает Ticket 10. Рекомендация: учёт видит и терминал, его число точнее, а два разных числа для одних вызовов
    читаются как ошибка.
    (б) Оставить как есть; Feature page объясняет, почему числа разные.
+   Решение владельца 2026-11-28: (а). Раздел Assistant-а и Settings → Assistant берут долю учёта; `cost-share` —
+   запасной. Ticket-ы 10, 13.
 
 ## Готово, когда
 
@@ -585,7 +597,7 @@ Epic берут после worfy-harness-guarantees (решение владел
 - [ ] Оценка доли считается по текущему 7-дневному окну; без оценки (нет доли окна или она ниже порога) экраны
       показывают token-ы и «not enough data yet»; с оценкой — «≈» и долю окна, от которой она посчитана.
 - [ ] Chip `≈ · cached` есть на карточке Ticket-а и на Node Session и Orchestrator-а; Cost в шапке Session view и на
-      Node Orchestrator-а показывает долю недели, доллары — по Q2.
+      Node Orchestrator-а показывает долю недели, доллары — в tooltip-е «API-equivalent» (Q2 (а)).
 - [ ] Picker модели и Session после простоя показывают оценку перечитывания; у Orchestrator-а рядом «New Orchestrator
       Session» с оценкой нового старта.
 - [ ] Codex виден по token-ам и доле чтения из cache рядом с Claude.

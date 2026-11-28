@@ -22,9 +22,9 @@ history и Work track»); «Решения по test-ам», Seam 3; «Риск�
 - Итог: «≈22% of the week by tokens · actual 24% (journal)»; строка «Not counted (journal − estimate)» с tooltip-ом:
   other Machines, claude.ai, Live summary, Terminal AI.
 - Без оценки — token-ы и «not enough data yet» с причиной (например, «the week is at 2%»).
-- Вкладка Roles: подсказка про Eco mode со ссылкой на Modes (Q6).
+- Вкладка Roles: подсказка про Eco mode — только текст со ссылкой на Modes (решение владельца 2026-11-28, Q6 (а)).
 - Вкладка Rounds: строка Ticket-а с доработкой ведёт к его попыткам `#2`, `#3` на timeline.
-- Доллары — только в tooltip-е строки, «API-equivalent» (Q2). Тексты UI — английские (ADR-0074).
+- Доллары — только в tooltip-е строки, «API-equivalent» (решение владельца 2026-11-28, Q2 (а)). Тексты UI — английские (ADR-0074).
 
 ## Где в коде
 

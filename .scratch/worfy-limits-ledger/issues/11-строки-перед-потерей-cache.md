@@ -30,7 +30,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 11; «Решение», «Где �
   more: the next message re-reads ≈210K tokens (≈1.6% of the week)». У Orchestrator-а рядом — «New Orchestrator
   Session · starts with ≈30K» (оценка нового старта из Ticket-а 04).
 - Строка Auto-continue перед продолжением — та же оценка.
-- Строки ничего не блокируют (Q4 (а)). Renderer считает их сам по коэффициенту из канала учёта.
+- Строки ничего не блокируют (решение владельца 2026-11-28, Q4 (а)): ни подтверждения, ни диалога. Renderer считает их сам по коэффициенту из канала учёта.
 - Hook-и SDK: `SessionStart` (source `resume`) и `PostModelSwitch` добавляются к `toolUseHooks`, а не вместо; они
   уточняют причину и контекст. `estimated_cache_write_usd` не показывается. `PreModelSwitch` не ставится.
 - `test/contract/sdk-compat.test.ts` держит поля обоих hook-ов закреплённой версии.
