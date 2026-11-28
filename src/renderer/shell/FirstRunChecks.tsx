@@ -6,7 +6,9 @@
 // are its own: "Move…" opens the move form of the old Harness (src/renderer/harness/MigrationForm.tsx),
 // "Show log" of "worfy version" asks main for `update.showLog`, and a confirmed GitHub sign-in puts
 // a Terminal Node on the active Project's Canvas with `gh auth login` typed in. Without a Project
-// there is no Canvas for it: the row shows the command to copy instead.
+// there is no Canvas for it: the row shows the command to copy instead. The rows "Harness on Claude Code"
+// (worfy-harness-guarantees ticket 09) have three more of its own: "Run again" asks `firstRun.harnessClaude`, "Copy
+// details" copies the row's details, and "Changelog" opens its link in the browser.
 //
 // The checks and whether one is running are the store's (first-run-store.ts); the action that is
 // running is kept here, outside React. So both places show the same thing, and a section that left
@@ -105,6 +107,8 @@ const BUSY_LABEL: Record<FirstRunAction, string> = {
   'open-browser': 'Opening…',
   'link-machine': 'Opening…',
   'integration-sign-in': 'Signing in…',
+  'harness-claude-run': 'Running…',
+  'copy-details': 'Copying…',
 }
 const busyLabel = (action: Check['actions'][number]): string => (action.id === 'harness-install' && action.label === 'Update' ? 'Updating…' : BUSY_LABEL[action.id])
 
@@ -118,6 +122,7 @@ const PROGRESS: Partial<Record<FirstRunAction, string>> = {
   'qmd-install': 'Installing qmd with npm…',
   'qmd-models-download': 'Downloading models…',
   'qmd-collections': 'Setting up collections…',
+  'harness-claude-run': 'Running the Harness checks on Claude Code…',
 }
 const progressText = (action: Check['actions'][number]): string | undefined =>
   action.id === 'harness-install' && action.label === 'Update' ? 'Updating the Harness…' : PROGRESS[action.id]
@@ -472,9 +477,27 @@ export function FirstRunChecks({ onTerminalOpened, checkOnShow = false, children
       setLinking(true)
       return
     }
+    // "Copy details" of a row "Harness on Claude Code" (worfy-harness-guarantees ticket 09): the whole answer behind
+    // its short line, for a bug report. Copying changes nothing main checks, so it takes no lock.
+    if (action === 'copy-details') {
+      const clipboard = navigator.clipboard
+      if (check.details === undefined || clipboard === undefined) return
+      void clipboard.writeText(check.details).then(
+        () => showToast({ kind: 'success', key: 'copied', text: `Copied the details of ${check.title}` }),
+        () => setMessage({ error: true, text: 'The details could not be copied' }),
+      )
+      return
+    }
+    // A link of a row ("Changelog" of the terminal's Claude Code, ticket 09) opens in the browser. Without a `url`
+    // it is the SSO link, which worfy-auth-check ticket 06 wires.
+    if (action === 'open-link') {
+      const url = check.actions.find((each) => each.id === 'open-link')?.url
+      if (url === undefined) return
+      const opened = await invoke('shell.openExternal', { url })
+      if (!opened.ok) setMessage({ error: true, text: failureReason('shell.openExternal', opened.error) })
+      return
+    }
     if (useAction.getState().running !== null) return
-    // The SSO link is wired by worfy-auth-check ticket 06.
-    if (action === 'open-link') return
     // "Open Browser" of a Browser profile row (ticket 08): the Browser where the sign-in expired, on its
     // Project's Canvas; the place gets out of the way, as for the GitHub sign-in's Terminal.
     if (action === 'open-browser') {
@@ -528,6 +551,16 @@ export function FirstRunChecks({ onTerminalOpened, checkOnShow = false, children
       return
     }
     setMessage(null)
+    // "Run again" of a row "Harness on Claude Code" (ticket 09): main runs the contract set anew on that row's copy of
+    // Claude Code, with no dialog — it changes nothing but worfy's own cache — and answers the checks.
+    if (action === 'harness-claude-run') {
+      const result = await invoke('firstRun.harnessClaude', { id: check.id === 'harness-claude-terminal' ? 'harness-claude-terminal' : 'harness-claude' })
+      if (result.ok) useFirstRun.setState({ report: result.value })
+      useAction.setState(idle)
+      forgetWhenUnwatched()
+      if (!result.ok) setMessage({ error: true, text: failureReason('firstRun.harnessClaude', result.error) })
+      return
+    }
     // "Use <login>" sends the Project of its row and the login it showed: main writes exactly that one.
     const login = check.actions.find((each) => each.id === 'use-login')?.login
     const target = action === 'use-login' ? { projectId: check.project?.id, login } : {}

@@ -32,6 +32,10 @@ const LEVELS: Record<CheckId, Level> = {
   'worfy-update': 'non-critical',
   'legacy-harness': 'non-critical',
   'harness-dependencies': 'non-critical',
+  // Whether the Harness hooks hold on a Claude Code version (worfy-harness-guarantees ticket 09): a warning of what
+  // the guard and the gate may miss there, not a stop of the work.
+  'harness-claude': 'non-critical',
+  'harness-claude-terminal': 'non-critical',
   // Search falls back to grep.
   qmd: 'non-critical',
   'qmd-models': 'non-critical',

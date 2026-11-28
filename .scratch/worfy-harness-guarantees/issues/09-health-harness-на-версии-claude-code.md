@@ -1,7 +1,8 @@
 # 09: Health: Harness на версии Claude Code
 
 Type: task
-Status: open
+Status: claimed 2026-11-28T17:26Z
+Branch: worfy-harness-guarantees/09
 Blocked by: 08
 Source: [spec.md](../spec.md), «Ticket-ы», 09; «Решение», 4; «Набросок функции» (шаг 7, экран Settings → Health);
 «Решения по реализации» («Health: Harness на версии Claude Code»); «Решения по test-ам», Seams (e2e — строка Health и

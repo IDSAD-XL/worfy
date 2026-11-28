@@ -30,6 +30,7 @@ import { useScrollingMark } from './theme/scrolling-mark'
 import { ToastRegion } from './toast/ToastRegion'
 import { installPrInboxDigest } from './pr-inbox/digest'
 import { installUpdateToasts } from './update/toasts'
+import { installHarnessClaudeToasts } from './shell/harness-claude-toasts'
 
 const styles = {
   column: { display: 'flex', flexDirection: 'column', width: '100%', height: '100%' },
@@ -137,6 +138,9 @@ if (container) {
   // The sticky toasts of Update: a ready build, an Available update, a failed build, a Harness out of
   // date and the end of the last restart (worfy-update ticket 07).
   installUpdateToasts()
+  // A failed row "Harness on Claude Code" of Health: the Harness does not hold on a Claude Code version
+  // (worfy-harness-guarantees ticket 09).
+  installHarnessClaudeToasts()
   // The offer of the team reviewer after a Project is added (worfy-human-review ticket 09), and the
   // reminder to update it when a Project becomes active (ticket 10).
   installReviewOffers(followActiveProject)

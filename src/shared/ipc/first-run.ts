@@ -38,6 +38,10 @@ export const checkIdSchema = z.enum([
   'harness',
   'harness-dependencies',
   'harness-scripts',
+  // The contract set of the Harness (worfy-harness-guarantees ticket 09) on worfy's copy of Claude Code and on the
+  // terminal's: two rows "Harness on Claude Code" (src/main/first-run/harness-claude.ts).
+  'harness-claude',
+  'harness-claude-terminal',
   'legacy-harness',
   'qmd',
   'qmd-models',
@@ -68,6 +72,10 @@ export type CheckId = z.infer<typeof checkIdSchema>
  * ticket 06), `codex-sign-in` ("Sign in to Codex…"), `open-browser` ("Open Browser") and
  * `link-machine` ("Link a machine…", ticket 08). `integration-sign-in` ("Sign in", worfy-integrations ticket 09)
  * opens the OAuth sign-in window of the row's Integration through `integrations.signIn`; only a person presses it.
+ * The buttons of "Harness on Claude Code" (worfy-harness-guarantees ticket 09): `harness-claude-run` ("Run again")
+ * runs the contract set of its row anew through `firstRun.harnessClaude`, with no dialog: it changes nothing but
+ * worfy's own cache; `copy-details` ("Copy details") copies the row's `details`; `open-link` with a `url`
+ * ("Changelog") opens that page in the browser.
  */
 export const firstRunActionSchema = z.enum([
   'harness-install',
@@ -85,6 +93,8 @@ export const firstRunActionSchema = z.enum([
   'open-browser',
   'link-machine',
   'integration-sign-in',
+  'harness-claude-run',
+  'copy-details',
 ])
 export type FirstRunAction = z.infer<typeof firstRunActionSchema>
 
@@ -94,7 +104,7 @@ export type FirstRunAction = z.infer<typeof firstRunActionSchema>
  * goes through `vendors.startLogin`, "Open Browser" shows the Browser Node, "Link a machine…" opens
  * its dialog (ticket 08); `open-link` is not wired yet (ticket 06).
  */
-export const runnableActionSchema = firstRunActionSchema.exclude(['migration-form', 'update-log', 'open-link', 'codex-sign-in', 'open-browser', 'link-machine', 'integration-sign-in'])
+export const runnableActionSchema = firstRunActionSchema.exclude(['migration-form', 'update-log', 'open-link', 'codex-sign-in', 'open-browser', 'link-machine', 'integration-sign-in', 'harness-claude-run', 'copy-details'])
 
 /** A GitHub login as `github.account` takes it (src/main/workflow/profile.ts): never one gh could read as an option. */
 export const githubLoginSchema = z.string().regex(/^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/u)
@@ -147,8 +157,12 @@ export const checkSchema = z.object({
       node: z.string().min(1).max(200).optional(),
       /** `integration-sign-in` only: the id of the Integration the button signs in (worfy-integrations ticket 09). */
       integration: z.string().min(1).max(200).optional(),
+      /** `open-link` only: the https page the button opens (the changelog of Claude Code, worfy-harness-guarantees ticket 09). */
+      url: z.string().url().max(2000).optional(),
     }),
   ),
+  /** What "Copy details" (`copy-details`) copies: the whole answer behind a short `detail`. */
+  details: z.string().max(20_000).optional(),
   /**
    * What the row is about when one id and Project hold several rows: an Integration (worfy-integrations ticket 09), its
    * id and label. Absent for every other row.
@@ -245,6 +259,12 @@ export const firstRunRun = invokeChannel(
   'local',
 )
 
+/**
+ * "Run again" of a row "Harness on Claude Code" (worfy-harness-guarantees ticket 09): the contract set runs anew on
+ * that row's copy of Claude Code, whatever the cache holds; the merged report with the new row.
+ */
+export const firstRunHarnessClaude = invokeChannel('firstRun.harnessClaude', z.object({ id: z.enum(['harness-claude', 'harness-claude-terminal']) }), firstRunReportSchema, 'local')
+
 /** The screen was closed: main writes the mark, with the checks that failed at that moment. */
 export const firstRunClose = invokeChannel('firstRun.close', z.void(), z.void(), 'local')
 
@@ -255,6 +275,7 @@ declare module './channels' {
     'firstRun.health': typeof firstRunHealth
     'firstRun.reportChanged': typeof firstRunReportChanged
     'firstRun.run': typeof firstRunRun
+    'firstRun.harnessClaude': typeof firstRunHarnessClaude
     'firstRun.close': typeof firstRunClose
   }
 }
