@@ -1,6 +1,6 @@
 {
-  "sdk": "0.3.322",
-  "claudeCode": "2.1.322",
+  "sdk": "0.3.332",
+  "claudeCode": "2.1.332",
   "queryMethods": {
     "accountInfo": "accountInfo(): Promise<AccountInfo>;",
     "applyFlagSettings": "applyFlagSettings(settings: {[K in keyof Settings]?: K extends 'effortLevel' ? EffortLevel | null : Settings[K] | null;}): Promise<void>;",
@@ -15,7 +15,7 @@
     "reconnectMcpServer": "reconnectMcpServer(serverName: string): Promise<void>;",
     "reinitialize": "reinitialize(): Promise<SDKControlInitializeResponse>;",
     "reloadOutputStyles": "reloadOutputStyles(): Promise<SDKControlReloadOutputStylesResponse>;",
-    "reloadPlugins": "reloadPlugins(options?: {holdOnCacheImpact?: boolean; addPlugins?: SdkPluginConfig[];}): Promise<SDKControlReloadPluginsResponse>;",
+    "reloadPlugins": "reloadPlugins(options?: {holdOnCacheImpact?: boolean; addPlugins?: SdkPluginConfig[]; refuseIfBusy?: boolean;}): Promise<SDKControlReloadPluginsResponse>;",
     "reloadSkills": "reloadSkills(): Promise<SDKControlReloadSkillsResponse>;",
     "rewindFiles": "rewindFiles(userMessageId: string, options?: {dryRun?: boolean;}): Promise<RewindFilesResult>;",
     "seedReadState": "seedReadState(path: string, mtime: number): Promise<void>;",
@@ -23,7 +23,7 @@
     "setMcpPermissionModeOverride": "setMcpPermissionModeOverride(serverName: string, mode: 'default' | 'auto' | null): Promise<{warning?: string;}>;",
     "setMcpServers": "setMcpServers(servers: Record<string, McpServerConfig>): Promise<McpSetServersResult>;",
     "setModel": "setModel(model?: string): Promise<void>;",
-    "setPermissionMode": "setPermissionMode(mode: PermissionMode): Promise<void>;",
+    "setPermissionMode": "setPermissionMode(mode: PermissionMode): Promise<SDKControlSetPermissionModeResponse | undefined>;",
     "stopTask": "stopTask(taskId: string): Promise<void>;",
     "streamInput": "streamInput(stream: AsyncIterable<SDKUserMessage>): Promise<void>;",
     "supportedAgents": "supportedAgents(): Promise<AgentInfo[]>;",

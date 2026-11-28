@@ -41,12 +41,12 @@ describe('SDK messages → agent events', () => {
     expect(sdkMessageToEvents(message)).toEqual([
       {
         type: 'init',
-        sdkSessionId: '00000000-0000-4000-8000-000000000003',
+        sdkSessionId: '00000000-0000-4000-8000-000000000194',
         model: 'claude-haiku-5-5',
         permissionMode: 'bypassPermissions',
         apiKeySource: 'none',
         cwd: '<repo>',
-        claudeCodeVersion: '2.1.322',
+        claudeCodeVersion: '2.1.332',
         slashCommands: message.slash_commands,
         // The plugins it lists, with their errors (worfy-harness-guarantees ticket 07): none here.
         plugins: (message.plugins as { name: string; path: string }[]).map(({ name, path }) => ({ name, path })),
@@ -117,19 +117,19 @@ describe('SDK messages → agent events', () => {
   it('turns rate_limit_event into a limits event with the windows it carries', () => {
     const at = Date.UTC(2026, 10, 10, 15, 0)
     const window = { vendor: 'claude', receivedAt: at, source: 'sdk' }
-    // The account of the 2026-11-10 capture has a seven-day window only.
+    // The account of the 2026-11-28 capture has a seven-day window only, past its 75% warning threshold.
     expect(sdkMessageToEvents(first('controls.jsonl', (m) => m.type === 'rate_limit_event'), at)).toEqual([
       {
         type: 'limits',
         vendor: 'claude',
-        windows: [{ ...window, id: 'seven_day', label: '7-day', usedPercent: 34, windowMinutes: 10080, resetsAt: 1794801600, state: 'ok' }],
-        status: { text: 'allowed', state: 'ok', windowId: 'seven_day', resetsAt: 1794801600 },
+        windows: [{ ...window, id: 'seven_day', label: '7-day', usedPercent: 77, windowMinutes: 10080, resetsAt: 1796011200, state: 'warning' }],
+        status: { text: 'allowed_warning', state: 'warning', windowId: 'seven_day', resetsAt: 1796011200 },
       },
     ])
   })
 
   it('turns a rate_limit_event with both windows into a limits event with both', () => {
-    // As the 2026-10-05 capture (Claude Code 2.1.289) had it; the 2026-11-10 one has no five-hour window.
+    // As the 2026-10-05 capture (Claude Code 2.1.289) had it; the later ones have no five-hour window.
     const message = {
       type: 'rate_limit_event',
       rate_limit_info: {
@@ -168,8 +168,8 @@ describe('SDK messages → agent events', () => {
         isError: false,
         error: null,
         text: 'NO',
-        costUsd: 0.0034022000000000006,
-        durationMs: 2047,
+        costUsd: 0.00033404,
+        durationMs: 2392,
         numTurns: 1,
         usage: {
           inputTokens: expect.any(Number) as number,
@@ -220,11 +220,11 @@ describe('SDK messages → agent events', () => {
   })
 
   it('turns system/status, notification and commands_changed into their events', () => {
-    // The 2026-10-05 capture compacted (Claude Code 2.1.289); the 2026-11-10 one did not need to.
+    // The 2026-10-05 capture compacted (Claude Code 2.1.289); the later ones did not need to.
     const status = { type: 'system', subtype: 'status', status: 'compacting', session_id: '00000000-0000-4000-8000-000000000003', uuid: '00000000-0000-4000-8000-000000000044' }
     expect(sdkMessageToEvents(status)).toEqual([{ type: 'status', status: 'compacting', permissionMode: null }])
     const notification = first('stop-hook.jsonl', isSystem('notification'))
-    expect(sdkMessageToEvents(notification)).toEqual([{ type: 'notice', kind: 'notification', text: 'Stop hook error occurred · ctrl+o to see' }])
+    expect(sdkMessageToEvents(notification)).toEqual([{ type: 'notice', kind: 'notification', text: 'stop hook problem · ctrl+o to see' }])
     const commands = first('init.jsonl', isSystem('commands_changed'))
     const [event] = sdkMessageToEvents(commands)
     expect(event?.type).toBe('commands')
@@ -273,7 +273,7 @@ describe('SDK messages → agent events', () => {
   // worfy-daily ticket 29: test/fixtures/sdk-messages/background-tasks.jsonl, one Bash in the background.
   it('turns a background task start into a subagent event that says it runs in the background', () => {
     const [event] = sdkMessageToEvents(first('background-tasks.jsonl', isSystem('task_started')))
-    expect(event).toMatchObject({ type: 'subagent', phase: 'started', taskId: 'brllupirh', isBackgrounded: true, taskType: 'local_bash', ambient: null })
+    expect(event).toMatchObject({ type: 'subagent', phase: 'started', taskId: 'bvoqfkje9', isBackgrounded: true, taskType: 'local_bash', ambient: null })
     const restarted = { type: 'system', subtype: 'task_notification', task_id: 't9', status: 'stopped', reason: 'worker_restart', ambient: true, output_file: '/tmp/x', summary: 's', uuid: 'u', session_id: 's' }
     expect(sdkMessageToEvents(restarted)).toEqual([expect.objectContaining({ phase: 'finished', status: 'stopped', reason: 'worker_restart', ambient: true })])
   })
@@ -283,7 +283,7 @@ describe('SDK messages → agent events', () => {
       .filter(isSystem('background_tasks_changed'))
       .map((message) => sdkMessageToEvents(message))
     expect(levels).toEqual([
-      [{ type: 'background_tasks_changed', tasks: [{ taskId: 'brllupirh', taskType: 'local_bash', description: 'Run sleep for 5 seconds in background', ambient: false }] }],
+      [{ type: 'background_tasks_changed', tasks: [{ taskId: 'bvoqfkje9', taskType: 'local_bash', description: 'Wait 5 seconds in background', ambient: false }] }],
       [{ type: 'background_tasks_changed', tasks: [] }],
     ])
     const ambient = { type: 'system', subtype: 'background_tasks_changed', tasks: [{ task_id: 'w1', task_type: 'monitor', description: 'watch', ambient: true, secret: 'leak-me' }], uuid: 'u', session_id: 's' }
@@ -291,7 +291,7 @@ describe('SDK messages → agent events', () => {
   })
 
   it('turns task_updated and task_progress into task_activity; a move to the background is marked', () => {
-    expect(sdkMessageToEvents(first('background-tasks.jsonl', isSystem('task_updated')))).toEqual([{ type: 'task_activity', taskId: 'brllupirh', backgrounded: false }])
+    expect(sdkMessageToEvents(first('background-tasks.jsonl', isSystem('task_updated')))).toEqual([{ type: 'task_activity', taskId: 'bvoqfkje9', backgrounded: false }])
     const moved = { type: 'system', subtype: 'task_updated', task_id: 't2', patch: { is_backgrounded: true }, uuid: 'u', session_id: 's' }
     expect(sdkMessageToEvents(moved)).toEqual([{ type: 'task_activity', taskId: 't2', backgrounded: true }])
     const progress = { type: 'system', subtype: 'task_progress', task_id: 't3', description: 'd', usage: { total_tokens: 1, tool_uses: 1, duration_ms: 1 }, uuid: 'u', session_id: 's' }

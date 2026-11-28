@@ -7,6 +7,18 @@ JSON на строку, в том порядке, в каком их отдал 
 бинарник из пакета SDK), Electron 44.10.2, macOS arm64, вход по подписке. Первое снятие — 2026-10-05,
 SDK 0.3.289, Claude Code 2.1.289; что из него новое снятие не повторило, сказано у файлов ниже.
 
+2026-11-28 (worfy-polish 175) все файлы сняты заново: SDK 0.3.332, Claude Code 2.1.332, Electron 44.10.2, macOS
+arm64. Без модели и без входа, под обычным Node 24 (не Electron): `no-login.jsonl` (`node scripts/spikes/sdk-probe.ts
+no-login --env HOME=<пустая папка> --fixtures <папка>`), `init-plugin-errors.jsonl` (`node
+scripts/spikes/harness-hooks/probe.ts init-errors --fixtures <папка>`), `plugin-mcp-name-*.jsonl` и
+`plugin-mcp-live-*.jsonl` с `../mcp-live/*.json` (`node scripts/spikes/harness-plugin/probe.ts mcp-name mcp-live
+--fixtures <папка>`). С моделью и входом по подписке владельца, под Electron (`pnpm exec electron`): `sdk-probe.ts
+init controls stop-hook permissions bypass background-tasks --env CLAUDE_GATE_STATE=<пустая папка> --fixtures …` и
+`harness-plugin/probe.ts` `known`, `workflow-hooks`, `env-file`, `integrations` (последний — без модели).
+`CLAUDE_GATE_STATE` с пустой папкой нужен, когда spike идёт из worktree с красным gate: иначе Stop hook пользователя
+держит каждый ход сценариев `init`…`background-tasks` (сценарий `stop-hook` ставит свою папку сам). В
+`rate_limit_event` этого снятия — `allowed_warning`: окно `seven_day` аккаунта прошло порог 75%.
+
 `manifest.json` — с чем сняты эти сообщения: версия SDK (`sdk`), Claude Code внутри него
 (`claudeCode`) и методы `Query` из `sdk.d.ts` (`queryMethods`). Contract test
 `test/contract/sdk-compat.test.ts` сверяет его с `package.json`, с установленным пакетом SDK и с
@@ -21,7 +33,7 @@ SDK 0.3.289, Claude Code 2.1.289; что из него новое снятие �
 | --- | --- |
 | `init.jsonl` | Сессия с `settingSources: user + project + local` и MCP-серверами пользователя: `system/init`, SessionStart hooks, `commands_changed`, `rate_limit_event`, partial-события; два хода с ответами модели. Снятие 2026-10-05 (haiku 4.5) на ходе 2 получило синтетический ответ «Prompt is too long» и `status: compacting`, а в конце — `probe_error`; у haiku 5.5 окно больше, и снятие 2026-11-10 их не повторило: test-ы на них (`test/contract/agent-events.test.ts`) держат эти сообщения в форме первого снятия у себя. |
 | `controls.jsonl` | Без MCP пользователя: ход, `setPermissionMode` / `setModel` / `applyFlagSettings` между ходами (видно в `system/init`, `system/status`, `user` с `local-command-stdout`), `interrupt()` посреди ответа (`result/error_during_execution`) и следующий ход после него. В `rate_limit_event` снятия 2026-11-10 только окно `seven_day`: пятичасового окна у аккаунта нет; форму с обоими окнами (снятие 2026-10-05) test-ы держат у себя, а сценарии Limits fake SDK играют её по исключению в `test/contract/sdk-compat.test.ts`. |
-| `stop-hook.jsonl` | Stop hook пользователя с exit 2 при красном маркере Gate: два `hook_response` с `exit_code: 2`, синтетические `user` («Stop hook feedback», `isSynthetic: true`), `system/notification` `stop-hook-error`, третье продолжение после `additionalContext` и один `result` на весь ход. |
+| `stop-hook.jsonl` | Stop hook пользователя с exit 2 при красном маркере Gate: два `hook_response` с `exit_code: 2`, синтетические `user` («Stop hook feedback», `isSynthetic: true`), `system/notification` `stop-hook-error`, третье продолжение после `additionalContext` и один `result` на весь ход. В снятии 2026-11-28 (2.1.332) после первого Stop hook модель упёрлась в лимит output-токенов: в потоке есть синтетический `user` «Output token limit hit. Resume directly…», `num_turns` — 4, а в `test/fixtures/sdk-events/claude.json` на один `notice/synthetic` и один text больше. Со Stop hook и Gate это не связано. |
 | `no-login.jsonl` | Claude Code без входа (пустой `CLAUDE_CONFIG_DIR`): `apiKeySource: none`, синтетический `assistant` («Not logged in · Please run /login», модель `<synthetic>`), `result` с `is_error: true`, затем `probe_error`. |
 | `permissions.jsonl` | `permissionMode: default` и `canUseTool`, только сообщения потока: два `tool_use` Bash с разными командами и их `tool_result`, `result`. Самого запроса разрешения в потоке нет — он в `can-use-tool.json`. Запрос был один: после ответа на первый вызов второй прошёл без запроса. |
 | `can-use-tool.json` | Тот же прогон `permissions`: каждый вызов `canUseTool` — `request` (`toolName`, `input`, `options` с `suggestions`, `blockedPath`, `toolUseID`, `requestId`…; `signal` записан строкой) и `response`, который spike вернул SDK: «Always allow» = `updatedPermissions` с правилом на весь инструмент и `addDirectories` в слое `session`. Ключи `options` со значением `undefined` (`agentID`, `decisionReason`, `title`…) в JSON не попадают; полный список ключей — в «Итог» тикета 06, вопрос 8. |

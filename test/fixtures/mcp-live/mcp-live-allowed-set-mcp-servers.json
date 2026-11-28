@@ -10,8 +10,8 @@
     {
       "name": "example-notes-project",
       "status": "connected",
-      "source": "dynamic",
-      "scope": "dynamic",
+      "source": "project",
+      "scope": "project",
       "tool_names": [
         "notes_list"
       ]
@@ -19,8 +19,8 @@
     {
       "name": "example-notes-local",
       "status": "connected",
-      "source": "dynamic",
-      "scope": "dynamic",
+      "source": "local",
+      "scope": "local",
       "tool_names": [
         "notes_list"
       ]

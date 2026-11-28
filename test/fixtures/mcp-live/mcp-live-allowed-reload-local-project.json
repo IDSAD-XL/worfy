@@ -4,8 +4,8 @@
       {
         "name": "example-notes",
         "status": "connected",
-        "source": "dynamic",
-        "scope": "dynamic",
+        "source": "user",
+        "scope": "user",
         "tool_names": [
           "notes_list"
         ]
@@ -13,14 +13,14 @@
       {
         "name": "example-notes-project",
         "status": "pending",
-        "source": "dynamic",
-        "scope": "dynamic"
+        "source": "project",
+        "scope": "project"
       },
       {
         "name": "example-notes-local",
         "status": "pending",
-        "source": "dynamic",
-        "scope": "dynamic"
+        "source": "local",
+        "scope": "local"
       },
       {
         "name": "worfy-canvas",
@@ -37,8 +37,8 @@
     {
       "name": "example-notes",
       "status": "connected",
-      "source": "dynamic",
-      "scope": "dynamic",
+      "source": "user",
+      "scope": "user",
       "tool_names": [
         "notes_list"
       ]
@@ -46,8 +46,8 @@
     {
       "name": "example-notes-project",
       "status": "connected",
-      "source": "dynamic",
-      "scope": "dynamic",
+      "source": "project",
+      "scope": "project",
       "tool_names": [
         "notes_list"
       ]
@@ -55,8 +55,8 @@
     {
       "name": "example-notes-local",
       "status": "connected",
-      "source": "dynamic",
-      "scope": "dynamic",
+      "source": "local",
+      "scope": "local",
       "tool_names": [
         "notes_list"
       ]

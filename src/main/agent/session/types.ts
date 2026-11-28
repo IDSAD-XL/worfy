@@ -72,7 +72,11 @@ export interface QueryHandle extends AsyncIterable<unknown> {
   accountInfo(): Promise<AccountInfoLike>
   /** undefined: Claude Code's default model. */
   setModel(model?: string): Promise<void>
-  setPermissionMode(mode: PermissionModeChoice): Promise<void>
+  /**
+   * Since SDK 0.3.332 it answers with the mode now in effect (or nothing, depending on the host);
+   * worfy does not read the answer.
+   */
+  setPermissionMode(mode: PermissionModeChoice): Promise<unknown>
   /** How the SDK changes effort mid-session (ticket 06); null goes back to the model's default. */
   applyFlagSettings(settings: { effortLevel?: EffortChoice | null }): Promise<void>
   supportedModels(): Promise<ModelInfoLike[]>

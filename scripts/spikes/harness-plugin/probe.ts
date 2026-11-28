@@ -56,8 +56,17 @@ import { dirname, join, relative, resolve } from 'node:path'
 import { query } from '@anthropic-ai/claude-agent-sdk'
 import type { Options, Query, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { rm } from 'node:fs/promises'
-import { app, BrowserWindow, session as electronSession } from 'electron'
 import { personalLast, scrubPersonal } from '../personal-scrub.mjs'
+
+// Electron when the probe runs inside it (`pnpm exec electron …`). Only the integrations scenarios open
+// a window; the others run under plain Node 24 as well (`node scripts/spikes/harness-plugin/probe.ts
+// mcp-name`): the SDK starts its own Claude Code binary either way.
+const electron = process.versions.electron ? await import('electron') : undefined
+function inElectron(what: string): NonNullable<typeof electron> {
+  if (!electron) throw new Error(`${what} opens a window: run the probe with pnpm exec electron`)
+  return electron
+}
+const exit = (code: number): void => (electron ? electron.app.exit(code) : process.exit(code))
 import { allTools, errorShape, followRedirect, loadMcpSdk, memoryProvider, parallelAfterExpiry, revoke, revokeAt, serverReport, signIn, singleFlightFetch, windowOpener } from './integrations-oauth.mjs'
 import { startEndpoint, startFakeMessagesApi, startStub } from './integrations-stub.mjs'
 
@@ -608,7 +617,9 @@ const otherCalls = (lines: string[]) => lines.filter((l) => !/ auth token -u /.t
 function profileAccount(): string {
   const fromFlag = flag('--account')
   if (fromFlag) return fromFlag
-  return execFileSync(join(home, '.claude', 'bin', 'profile'), ['-C', repo, '--field', 'github.account'], { encoding: 'utf8' }).trim()
+  // The repository's own copy of the Harness: ~/.claude/bin/profile is gone since the Harness became
+  // the worfy plugin.
+  return execFileSync(join(repo, 'harness', 'bin', 'profile'), ['-C', repo, '--field', 'github.account'], { encoding: 'utf8' }).trim()
 }
 
 /** Files that contain a string — the string itself is never printed. */
@@ -1294,7 +1305,7 @@ const SERVICES: Record<string, string> = { atlassian: 'https://mcp.atlassian.com
 
 /** Electron's userData of a run with an integrations scenario: a temporary folder, removed at the end. */
 const userDataDir = !flag('--rescrub') && scenarios.some((name) => name.startsWith('integrations')) ? realpathSync(mkdtempSync(join(tmpdir(), 'worfy-integrations-spike-'))) : undefined
-if (userDataDir) app.setPath('userData', userDataDir)
+if (userDataDir) inElectron('integrations').app.setPath('userData', userDataDir)
 
 /** The sandbox of a scenario reads and writes nothing of the user's: fresh temporary HOME and CLAUDE_CONFIG_DIR, no API key. */
 function sandboxGuard(box: Sandbox): Facts {
@@ -1398,6 +1409,7 @@ async function fakeCodex(env: Record<string, string | undefined>, requests: { me
  * app-server, never the real binary.
  */
 async function runIntegrations(): Promise<Facts> {
+  const { BrowserWindow, session: electronSession } = inElectron('integrations')
   const sdk = await loadMcpSdk(repo)
   const fake = fakeBin(join(scratch, 'integrations-bin'))
   const sb = sandbox('integrations', { PATH: `${fake.bin}:${process.env.PATH ?? ''}`, BROWSER: join(fake.bin, 'open') })
@@ -1733,6 +1745,7 @@ const STUB_SERVICES: Record<string, Record<string, string>> = {
  * address and no e-mail: an error is kept as its class and HTTP status, never its message.
  */
 async function runIntegrationsSignIn(): Promise<Facts> {
+  const { BrowserWindow, session: electronSession } = inElectron('integrations-sign-in')
   const sdk = await loadMcpSdk(repo)
   const list = (flag('--services') ?? 'atlassian,atlassian,linear').split(',').map((s) => s.trim())
   const out: Facts = { mcp_sdk_version: sdk.version, services: list }
@@ -1756,7 +1769,7 @@ async function runIntegrationsSignIn(): Promise<Facts> {
         process.stdout.write(`[probe] revoke ${slot}: ${JSON.stringify(result)}\n`)
       }),
     )
-    void Promise.race([all, new Promise((r) => setTimeout(r, 15_000))]).finally(() => app.exit(code))
+    void Promise.race([all, new Promise((r) => setTimeout(r, 15_000))]).finally(() => exit(code))
   }
   const onSigint = () => leave('SIGINT', 130)
   const onSigterm = () => leave('SIGTERM', 143)
@@ -1867,9 +1880,9 @@ function rescrub(dir: string): void {
 
 async function main(): Promise<void> {
   // The spike window of the integrations scenarios: closing the last one must not quit the probe.
-  app.on('window-all-closed', () => undefined)
-  await app.whenReady()
-  app.dock?.hide()
+  electron?.app.on('window-all-closed', () => undefined)
+  await electron?.app.whenReady()
+  electron?.app.dock?.hide()
   const rescrubDir = flag('--rescrub')
   if (rescrubDir) return rescrub(resolve(rescrubDir))
   mkdirSync(hooksOut, { recursive: true })
@@ -1923,9 +1936,9 @@ async function main(): Promise<void> {
 }
 
 main().then(
-  () => app.exit(0),
+  () => exit(0),
   (err: unknown) => {
     process.stderr.write(`[probe] failed: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`)
-    app.exit(1)
+    exit(1)
   },
 )
