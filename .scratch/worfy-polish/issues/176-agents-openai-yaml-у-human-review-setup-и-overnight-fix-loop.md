@@ -81,3 +81,17 @@ PR #2350, «Итог», «Вопросы владельцу», вопрос 1: �
       правки, зелёный после.
 - [ ] `pnpm eval:harness -- --changed origin/main --dry-run` — exit 0, ноль case-ов; вывод — в описании PR.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+
+## Итог
+
+- `harness/skills/human-review-setup/agents/openai.yaml` и `harness/skills/overnight-fix-loop/agents/openai.yaml` — в
+  форме 11 файлов копии, `policy: allow_implicit_invocation: false`. В `harness/evals/lib/coverage.json`, `uncovered`, —
+  по записи на файл со своей причиной (Codex-манифест, который Claude Code в eval case-ах не читает).
+- Новый contract test в `test/contract/harness-plugin.test.ts` («a manual-only skill is manual-only in Codex too»):
+  для каждого `harness/skills/*/SKILL.md` `disable-model-invocation: true` ⇔ `allow_implicit_invocation: false` в
+  `agents/openai.yaml`. Красный до правки (exit 1, называет `human-review-setup`, `overnight-fix-loop`), зелёный после.
+- Расхождение с Ticket-ом: `pnpm eval:harness -- --changed origin/main --dry-run` — exit 0, claude не вызван, но
+  выбирает 28 case-ов, не ноль. Причина — правка самого `coverage.json`: файл из `harness/evals/lib/` выбирает все
+  case-ы (`scripts/eval-harness-coverage.mjs:105`). Без правки `coverage.json` `--changed` отказывает (карта не
+  совпадает с `harness/`). Новые файлы в выводе — строки «no case: … — The Codex manifest …». Платного run-а не было.
+- Скопированные skill-ы не тронуты.
