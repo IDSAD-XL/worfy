@@ -1,7 +1,8 @@
 # 04: `land`: пути проверок, draft, `land --check`
 
 Type: task
-Status: claimed 2026-11-28T09:58Z
+Status: done 2026-11-28T13:47Z
+PR: #2380
 Branch: worfy-harness-guarantees/04
 Blocked by: 02
 Source: [spec.md](../spec.md), «Ticket-ы», 04; «Решение», 1 и 2; «Решения по реализации» («`land`: пути проверок,
@@ -82,26 +83,33 @@ draft, `land --check`»); «Решения по test-ам», Seams (`land`) и �
 - [ ] `land` не сливает draft: строка `waits — draft` (shell test, красный на старом коде).
   - evidence: test-run pass · `bash harness/bin/tests/land-verification.test.sh` exit 0 · mac - · 1053c3b169c62803d406ee5042a51cd111f631d7
   - evidence: test-run pass · `bash harness/bin/tests/land-verification.test.sh` exit 0 · mac - · 2edface78e1702614a104cc7309f115379ea3259
+  - evidence: review pass · PR #2380 · - - · 794a9e6a0a68720b9b3314e99430424f061109ea
 - [ ] `land` не сливает PR, который правит путь проверки вне trail-а своего Ticket-а на вершине base branch; PR без
       Ticket-а с путём проверки ждёт владельца; ветка старше расширения trail-а не ждёт (shell test-ы).
   - evidence: test-run pass · `bash harness/bin/tests/land-verification.test.sh` exit 0 · mac - · 1053c3b169c62803d406ee5042a51cd111f631d7
   - evidence: test-run pass · `bash harness/bin/tests/land-verification.test.sh` exit 0 · mac - · 2edface78e1702614a104cc7309f115379ea3259
   - evidence: test-run pass · `bash harness/bin/tests/land-verification.test.sh` exit 0 · mac - · e9bfbf434e9f379cc46f637b42f9e2d8ab782879
+  - evidence: review pass · PR #2380 · - - · 794a9e6a0a68720b9b3314e99430424f061109ea
 - [ ] Строка `land` и отчёт Wave называют пути проверок каждого PR, и PR, который расширяет trail, тоже.
   - evidence: test-run pass · `bash harness/bin/tests/land-verification.test.sh` exit 0 · mac - · 1053c3b169c62803d406ee5042a51cd111f631d7
   - evidence: test-run pass · `bash harness/bin/tests/land-verification.test.sh` exit 0 · mac - · 2edface78e1702614a104cc7309f115379ea3259
+  - evidence: review pass · PR #2380 · - - · 794a9e6a0a68720b9b3314e99430424f061109ea
 - [ ] Имя check-а CI берётся из `workflow.ci_check`; state file с другим именем отказан.
   - evidence: test-run pass · `bash harness/bin/tests/land-verification.test.sh` exit 0 · mac - · 1053c3b169c62803d406ee5042a51cd111f631d7
   - evidence: test-run pass · `bash harness/bin/tests/land-verification.test.sh` exit 0 · mac - · 2edface78e1702614a104cc7309f115379ea3259
+  - evidence: review pass · PR #2380 · - - · 794a9e6a0a68720b9b3314e99430424f061109ea
 - [ ] `land --check <N>` отвечает за один PR без state file: exit 0, 1 с причиной одной строкой, 2; время ответа — в
       «Итог».
   - evidence: test-run pass · `bash harness/bin/tests/land-verification.test.sh` exit 0 · mac - · 1053c3b169c62803d406ee5042a51cd111f631d7
   - evidence: test-run pass · `bash harness/bin/tests/land-verification.test.sh` exit 0 · mac - · 2edface78e1702614a104cc7309f115379ea3259
+  - evidence: review pass · PR #2380 · - - · 794a9e6a0a68720b9b3314e99430424f061109ea
 - [ ] Helper чтения trail-а лежит в `harness/lib/` и готов для guard-а Ticket-а 03.
   - evidence: test-run pass · `pnpm test test/unit/ticket-trail.test.ts` exit 0 · mac - · 1053c3b169c62803d406ee5042a51cd111f631d7
   - evidence: test-run pass · `pnpm exec vitest run test/unit/ticket-trail.test.ts test/unit/verification-paths.test.ts` exit 0 · mac - · 2edface78e1702614a104cc7309f115379ea3259
   - evidence: test-run pass · `pnpm exec vitest run test/unit/ticket-trail.test.ts test/unit/verification-paths.test.ts` exit 0 · mac - · e9bfbf434e9f379cc46f637b42f9e2d8ab782879
+  - evidence: review pass · PR #2380 · - - · 794a9e6a0a68720b9b3314e99430424f061109ea
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR, включая Windows verdict.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/46146694193/job/140992796167 · ci - · 794a9e6a0a68720b9b3314e99430424f061109ea
 
 ## Итог
 

@@ -279,3 +279,81 @@ exit 0; `test/unit/verification-paths.test.ts`, `plugin-neutral.test.sh` — exi
 2. Чем `land --check` отличает «ждёт» от «не может сказать»?
    - Ответ: Wait с флагом `unread` (сбой `gh`, git или Profile-а) даёт exit 2, любой другой Wait — exit 1.
    - Строки: `harness/bin/land:1543`
+
+## 11. Что нашёл review и что осталось
+
+> VERIFIED
+>
+> Every finding from round 2 is fixed. Each fix has a test that goes red without it.
+>
+> **Round-2 findings:**
+> - **[med] read-only paragraph: fixed.** `harness/lib/ticket-trail.cjs:110` now counts only list-item lines, using the same rule as `LIST_ITEM` at `:75`. Plain paragraphs and continuation lines allow nothing. The tests are `test/unit/ticket-trail.test.ts:102` (the shape of `worfy-continuity/01`, with unindented continuation lines) and `land-verification.test.sh:243`. With the fix removed, land merges a PR that edits `CLAUDE.md`.
+> - **[low] parent-folder rule applied to regular files: fixed.** The rule now applies only to submodules (`harness/lib/verification-paths.cjs:243`, `harness/bin/land:855`). Symlinks still always count. The tests are `test/unit/verification-paths.test.ts:389` and `land-verification.test.sh:210`.
+> - **[low] blank line inside a read-only item untested: fixed.** `ticket-trail.cjs:102` has a test at `ticket-trail.test.ts:121`. Mutant M10 from round 2 is now caught.
+> - **[low] `SKILL.md` wrote a literal `null`: fixed.** `harness/skills/epic-wave/SKILL.md:1332` now turns both an empty value and `null` into the placeholder.
+>
+> **Sample (all tickets on origin/main):**
+> - 1282 ticket files read. 227 of them name a path matching a verification glob (the 7 defaults plus the 23 worfy profile globs) in their «Где в коде» section.
+> - 9 of the 227 (about 4%) would now wait wrongly. In each, the ticket means to edit a path that sits only on a continuation line:
+>   - 7 clear cases: throughput/44 (`scripts/ci-ok.mjs`, `scripts/ci-scope.mjs`), multi-vendor/25, multi-vendor/27 and schedules/09 (`scripts/e2e-specs.table.json`), polish/128 (`harness/hooks/hooks.json`), link/25 (`tsconfig.test.node.json`) and auto-approve/12 (`scripts/ci-scope.mjs`, listed as "сверх следа", beyond the trail).
+>   - 2 conditional cases ("only if needed"): limits-ledger/10 and windows/14.
+> - 7 tickets put a verification path only on a paragraph or continuation line and would wait correctly. The path there is read-only or just described: harness/08, harness/14, harness/22, polish/45, throughput/62, throughput/66 and windows/72.
+> - **App and trail agree on all 1282 tickets.** I ran the app's `codeSection` (`src/main/workflow/reader.ts:233`) and `trailPaths` side by side in a throw-away test file. Every trail path is in the app's list. The only paths the app lists and the trail drops are read-only list items: 95 such paths, which the app shows and the trail correctly leaves out.
+> - Not "most tickets", and the rule errs toward waiting. The rule is written down in `harness/bin/TICKETS.md` («Trail») and in the spec.
+>
+> **New findings (this is round 3, so they are debt and do not block):**
+> - `harness/lib/ticket-trail.cjs:110`: [low] debt: about 4% of tickets that name a verification path wrap it onto a continuation line, so their PR waits for a trail fix on main or for the owner. For example, throughput/44 lists `scripts/ci-ok.mjs` on the second line of a list item. Fix: ticket writers put each verification path on a list-item line of its own.
+> - `harness/lib/ticket-trail.cjs:75`: [low] debt: numbered list items (`1. `) in a trail have no test. Mutant M5, which drops `\d+[.)]` from `LIST_ITEM`, survives. The trail would then drop numbered items the app still shows, so the two readers would disagree, though in the waiting direction.
+>
+> **Commands** (in worktree `rev-2380-r3` at 794a9e6a0, `HOME` set to a temporary folder):
+> - `pnpm install --frozen-lockfile`: exit 0.
+> - `land-verification.test.sh`: exit 0, 39/39 passed.
+> - `land.test.sh`: exit 0, 142/142.
+> - `land-story.test.sh`: exit 0, 30/30.
+> - `plugin-neutral.test.sh`: exit 0, 37/37.
+> - `node scripts/vitest-electron.mjs` on `verification-paths`, `ticket-trail` and `harness-evals-run`: exit 0, 236 passed and 4 skipped.
+>
+> **Mutants:** 7 run, 6 caught.
+> - Caught: M1 (`ticket-trail.cjs:110` removed; unit test and land test both red), M2 (`:102`, blank-line check dropped), M3 (`verification-paths.cjs:243`, gitlink condition dropped; unit test and land test both red) and M4 (`land:855`, gitlink always false).
+> - Survived: M5 (`ticket-trail.cjs:75`), the numbered-list gap above.
+> - Each file was restored from its copy and `cmp` matched.
+>
+> **Could not verify:** Windows Git Bash runs, real `gh` or GitHub, lint, typecheck and the gate. The Code story and the Evidence lines belong to another lens.
+>
+> The worktree is removed and no processes are left running.
+>
+> Nothing else found.
+>
+> Orchestrator: the two round-3 lows are debt, not blockers; the wrapped-path rule is written in harness/bin/TICKETS.md («Trail»). Platform PR: the Windows verdict is the CI job (all Windows jobs pass).
+>
+> Review depth: medium — round 3
+
+Code: `harness/lib/ticket-trail.cjs:110-110` · key lines: 110
+
+```cjs
+        if (!LIST_ITEM.test(line)) continue
+```
+
+Code: `test/unit/ticket-trail.test.ts:102-102` · key lines: 102
+
+```ts
+  it('takes only list items, as the app reads the trail: a plain paragraph allows nothing', () => {
+```
+
+Code: `harness/lib/verification-paths.cjs:243-243` · key lines: 243
+
+```cjs
+    return options.gitlink === true && isVerificationParent(file, paths, options)
+```
+
+Code: `harness/bin/land:855-855` · key lines: 855
+
+```
+        out.push({ path: parts[i + 1], symlink: was("120000"), gitlink: was("160000") })
+```
+
+Code: `test/unit/verification-paths.test.ts:389-389` · key lines: 389
+
+```ts
+  it('touchesVerificationPath: a regular file hides no folder, so the folder rule is not its', () => {
+```
