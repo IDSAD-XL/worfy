@@ -95,16 +95,31 @@ m1="$(q "$S" 's.prs[0].result.sha')"
 [[ "$old_trail" != *"$VP"* ]] && [ "$rc" = 0 ] && [ "$(merged_of 1)" = 1 ] && grep -qx "#1 merged $m1 — verification paths: $VP (trail of e 01)" "$W/out" \
     && ok "extended trail: the fork point's trail lacks $VP, main's names it -> merged, the line names the path and the trail" || bad "extended: old trail has it=$([[ "$old_trail" == *"$VP"* ]] && echo yes) exit $rc: $(cat "$W/out")"
 
-# --- a PR that adds a verification path to a trail is named as a change of the verification paths ---------------------
+# --- a PR that adds a verification path to a trail waits for the owner's mark (commit status owner on its head) -------
+# (red on the land before the owner's mark: it merged such a PR at once)
 new_world extends 1 2
 main_file "$TICKET" "$(ticket_text f1.txt)"
 pr_file 2 .scratch/e/issues/03-other.md "$(ticket_text f3.txt tools/check-x.mjs)"
 state 2
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -qx "#2 waits: the owner's mark: verification paths added to the trail of e 03" "$W/out" \
+    && ok "trail extension: a PR adds tools/check-x.mjs (a path of the profile) to a trail, no owner mark -> waits for it" || bad "extends no mark: exit $rc: $(cat "$W/out")"
+grep -q -- '--json' "$GHD/profile.log" && ok "trail extension: the verification paths come from the profile (bin/profile --json)" || bad "extends: profile calls $(cat "$GHD/profile.log")"
+# the owner's mark pending (asked, not given) or on another commit allows nothing
+echo '{"review":"success","owner":"pending"}' >"$GHD/status-$(head_of 2).json"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -qx "#2 waits: the owner's mark: verification paths added to the trail of e 03" "$W/out" \
+    && ok "trail extension: owner pending on the head -> still waits" || bad "extends pending: exit $rc: $(cat "$W/out")"
+echo '{"review":"success","owner":"success"}' >"$GHD/status-$(git -C "$W/seed" rev-parse main).json"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 3 ] && [ "$(merges)" = 0 ] && ok "trail extension: owner success on another commit, not the head -> still waits" || bad "extends other commit: exit $rc: $(cat "$W/out")"
+# with owner success on the head it merges, and its line names the trail it extends
+echo '{"review":"success","owner":"success"}' >"$GHD/status-$(head_of 2).json"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
 m2="$(q "$S" 's.prs[0].result.sha')"
 [ "$rc" = 0 ] && [ "$(merged_of 2)" = 1 ] && grep -qx "#2 merged $m2 — verification paths: added to the trail of .scratch/e/issues/03-other.md: tools/check-x.mjs" "$W/out" \
-    && ok "trail extension: a PR adds tools/check-x.mjs (a path of the profile) to a trail -> merged, the line names it" || bad "extends: exit $rc: $(cat "$W/out")"
-grep -q -- '--json' "$GHD/profile.log" && ok "trail extension: the verification paths come from the profile (bin/profile --json)" || bad "extends: profile calls $(cat "$GHD/profile.log")"
+    && ok "trail extension: owner success on the head -> merged, the line names it" || bad "extends with mark: exit $rc: $(cat "$W/out")"
+[ ! -e "$GHD/posted" ] && ok "trail extension: land writes no owner status itself" || bad "extends: land posted $(cat "$GHD/posted")"
 
 # --- a PR without a ticket that changes a verification path waits for the owner -------------------------------------
 new_world noticket 1
@@ -115,6 +130,20 @@ state 1
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -qx "#1 waits: verification paths, and the PR has no ticket (the branch fix-ci-by-hand is not <epic>/<NN>): $VP — the owner decides" "$W/out" \
     && ok "no ticket: the branch is not <epic>/<NN>, the PR changes $VP -> waits for the owner" || bad "no ticket: exit $rc: $(cat "$W/out")"
+# the owner's mark on its head lets it through: the button of worfy is the owner's decision
+echo '{"review":"success","owner":"success"}' >"$GHD/status-$(head_of 1).json"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 0 ] && [ "$(merged_of 1)" = 1 ] && grep -q "^#1 merged [0-9a-f]\{40\} — verification paths: $VP (no ticket, the owner's mark)$" "$W/out" \
+    && ok "no ticket: owner success on the head -> merged, the line names the mark" || bad "no ticket with mark: exit $rc: $(cat "$W/out")"
+# a path outside the trail of the PR's own ticket is not the owner's to allow: it goes into the trail
+new_world outside-owner 1
+main_file "$TICKET" "$(ticket_text f1.txt)"
+pr_file 1 "$VP" "the rules"
+echo '{"review":"success","owner":"success"}' >"$GHD/status-$(head_of 1).json"
+state 1
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -qx "#1 waits: verification paths outside the trail of e 01: $VP" "$W/out" \
+    && ok "outside the trail: owner success on the head changes nothing -> waits" || bad "outside with mark: exit $rc: $(cat "$W/out")"
 # a PR without a ticket that changes no verification path merges as before
 new_world noticket-plain 1
 echo '{"headRefName":"fix-typo"}' >"$GHD/pr-1.json"
@@ -173,6 +202,37 @@ echo "[{\"databaseId\":$run_id,\"status\":\"completed\",\"conclusion\":\"success
 "$LAND" --check 1 -C "$(tn "$W/repo")" >"$W/out" 2>"$W/err"; rc=$?
 [ "$rc" = 1 ] && grep -qx "#1 waits: verification paths outside the trail of e 01: $VP" "$W/out" \
     && ok "check: a verification path outside the trail -> exit 1, the path named" || bad "check outside: exit $rc: $(cat "$W/out" "$W/err")"
+
+# --- land --verification <N>: what the owner's mark of one PR is about, for the view of the PR in worfy -----------------
+new_world verification 1 2
+main_file "$TICKET" "$(ticket_text f1.txt)"
+pr_file 2 .scratch/e/issues/03-other.md "$(ticket_text f3.txt tools/check-x.mjs)"
+# no CI check is read: a red CI does not hide what the mark is about
+echo '[{"id":1,"name":"ci-ok","status":"completed","conclusion":"failure","started_at":"2026-10-28T10:00:00Z"}]' >"$GHD/checks-$(head_of 2)"
+"$LAND" --verification 2 -C "$(tn "$W/repo")" >"$W/out" 2>"$W/err"; rc=$?
+[ "$rc" = 0 ] && [ "$(q "$W/out" 's.needsOwner')" = true ] && [ "$(q "$W/out" 's.owner')" = null ] && [ "$(q "$W/out" 's.head')" = "$(head_of 2)" ] \
+    && [ "$(q "$W/out" 's.added')" = '[{"file":".scratch/e/issues/03-other.md","ticket":"e 03","paths":["tools/check-x.mjs"]}]' ] && [ "$(q "$W/out" 's.noTicket')" = null ] \
+    && ok "verification: a trail extension -> needsOwner, the ticket and the paths, owner null, one JSON line" || bad "verification extends: exit $rc: $(cat "$W/out" "$W/err")"
+echo '{"review":"success","owner":"success"}' >"$GHD/status-$(head_of 2).json"
+"$LAND" --verification 2 -C "$(tn "$W/repo")" >"$W/out" 2>"$W/err"; rc=$?
+[ "$rc" = 0 ] && [ "$(q "$W/out" 's.owner')" = success ] && [ "$(q "$W/out" 's.needsOwner')" = true ] \
+    && ok "verification: the owner status on the head is named" || bad "verification owner: exit $rc: $(cat "$W/out" "$W/err")"
+"$LAND" --verification 1 -C "$(tn "$W/repo")" >"$W/out" 2>"$W/err"; rc=$?
+[ "$rc" = 0 ] && [ "$(q "$W/out" 's.needsOwner')" = false ] && [ "$(q "$W/out" 's.added')" = '[]' ] \
+    && ok "verification: a PR of plain files -> needsOwner false" || bad "verification plain: exit $rc: $(cat "$W/out" "$W/err")"
+pr_file 1 "$VP" "the rules"
+echo '{"headRefName":"fix-ci-by-hand"}' >"$GHD/pr-1.json"
+"$LAND" --verification 1 -C "$(tn "$W/repo")" >"$W/out" 2>"$W/err"; rc=$?
+[ "$rc" = 0 ] && [ "$(q "$W/out" 's.needsOwner')" = true ] && [ "$(q "$W/out" 's.noTicket.paths')" = "[\"$VP\"]" ] \
+    && ok "verification: no ticket and a verification path -> needsOwner, noTicket names the paths" || bad "verification no ticket: exit $rc: $(cat "$W/out" "$W/err")"
+[ ! -e "$GHD/posted" ] && ! grep -q 'pr merge' "$GHD/log" && [ ! -e "$W/state.json" ] \
+    && ok "verification: writes nothing — no status, no merge, no state file" || bad "verification wrote: $(cat "$GHD/posted" 2>/dev/null)"
+touch "$GHD/gh-down"
+"$LAND" --verification 1 -C "$(tn "$W/repo")" >"$W/out" 2>"$W/err"; rc=$?
+[ "$rc" = 2 ] && grep -q '"error":"gh pr view 1: gh exit 1' "$W/out" && ok "verification: gh does not answer -> exit 2 with the reason" || bad "verification gh down: exit $rc: $(cat "$W/out" "$W/err")"
+rm -f "$GHD/gh-down"
+"$LAND" --verification x >"$W/out" 2>"$W/err"; rc=$?
+[ "$rc" = 2 ] && grep -q 'usage: land --verification' "$W/err" && ok "verification: a wrong number -> exit 2, usage" || bad "verification usage: exit $rc"
 
 # --- review round 1 -----------------------------------------------------------------------------------------------
 # a symbolic link .claude -> docs/x (with docs/x/settings.json) changes what .claude/** holds: it is a verification path

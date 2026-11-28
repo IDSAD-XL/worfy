@@ -155,6 +155,17 @@ export const runAutoApprovalSchema = z.object({
 })
 export type RunAutoApproval = z.infer<typeof runAutoApprovalSchema>
 
+/** The refusals of the guard in the block «Guard» of Run history (GuardDenialFact, worfy-harness-guarantees ticket 10). */
+export const runGuardDenialSchema = z.object({
+  at: z.string(),
+  rule: z.string(),
+  tool: z.string(),
+  command: z.string(),
+  agent: z.string().optional(),
+  ticket: z.string().optional(),
+})
+export type RunGuardDenial = z.infer<typeof runGuardDenialSchema>
+
 /** One Run's timeline as the screen shows it. */
 export const runViewSchema = z.object({
   projectId,
@@ -185,6 +196,11 @@ export const runViewSchema = z.object({
    * and from a Machine whose build is older than worfy-auto-approve ticket 08.
    */
   autoApproval: runAutoApprovalSchema.optional(),
+  /**
+   * The block «Guard» of the screen, by the time of the refusal; absent when the Run's Journal has no `guard-deny`
+   * line, and from a Machine whose build is older than worfy-harness-guarantees ticket 10.
+   */
+  guard: z.array(runGuardDenialSchema).optional(),
 })
 export type RunView = z.infer<typeof runViewSchema>
 

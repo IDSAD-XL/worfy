@@ -182,6 +182,25 @@ run without one (Off, or no request) has no block. The block has:
 
 The block scrolls on its own when the list is long. A Linked machine sees the same block.
 
+#### The Guard block
+
+A run in which the Harness's guard hook refused a call shows `Guard · N refused` in the header, after the stop
+reason, and the block **Guard** under the detail panel. A run without a refusal has neither. The block lists the
+run's `guard-deny` lines of the journal in time order:
+
+- **Time** — when the guard refused, in local time;
+- **Who** — the Subagent that made the call, with its Ticket when the guard knew it, or `Orchestrator` for the main
+  Session;
+- **Rule** — the guard's rule in words, for example `verification path outside the trail`; the rule's id is in the
+  tooltip;
+- **Command** — the command as the journal keeps it, shortened and with secrets as `***`, or the tool for an edit.
+
+worfy gives every Session it starts, on Claude Code and on Codex, the variable `WORFY_GUARD_LOG`: one file per Session
+under the data folder (`guard-log/<id>.jsonl`), where the guard appends a line for each refusal. An Autopilot run reads
+the file of its Session at each end of a turn and once when it lets the Session go, and writes the refusals made
+since it took the Session into its journal. A Session worfy did not start has no such file, and its refusals are not
+in Run history.
+
 #### A live run
 
 The screen can be open while the run goes on. The timeline follows it: it is computed again at most every 5 seconds
@@ -316,7 +335,8 @@ is over is read whole, once per computation, and kept nowhere.
 | `src/renderer/flight-recorder/Timeline.tsx` | The controls, the axis and mini-map, the zoom, the rows and bars. |
 | `src/renderer/flight-recorder/label-layout.ts` | Where a bar's label goes. Pure. |
 | `src/renderer/flight-recorder/filter.ts` | The filter, Problems only, what a selection highlights. Pure. |
-| `src/renderer/flight-recorder/DetailPanel.tsx` | The detail panel, the GitHub notice and Retry, the Auto-approval block. |
+| `src/renderer/flight-recorder/DetailPanel.tsx` | The detail panel, the GitHub notice and Retry, the Auto-approval block, the Guard block. |
+| `src/shared/autopilot/guard-deny.ts`, `src/main/agent/guard-log.ts` | A line of the guard's log as a `guard-deny` journal line, the words of its rules, the count `Guard · N refused`; the log file of a Session and the reader that follows it. |
 | `src/shared/autopilot/auto-approval-summary.ts` | The counters of a run's Auto-approval decisions and the line in the Orchestrator's chat at the end of a run. Pure. |
 | `src/renderer/flight-recorder/SummaryStrip.tsx` | The summary. |
 | `src/renderer/flight-recorder/store.ts` | The state of the screen and the rows of the tree. |
@@ -369,5 +389,6 @@ These tests call no model and no GitHub: the journal and transcripts are fixture
 | `test/contract/flight-recorder-service.test.ts` | The service over all readers, the live recompute, Retry, the Auto-approval decisions of a run and the Project's Shadow decisions so far. |
 | `test/contract/flight-recorder-transcripts.test.ts`, `test/contract/flight-recorder-github.test.ts`, `test/contract/flight-recorder-gate-logs.test.ts` | The readers in main. The transcripts test also reads a run on Codex from the fake app-server (`test/fixtures/codex-scripts/flight-recorder-run.jsonl`). |
 | `test/unit/auto-approve-summary.test.ts` | The Auto-approval decisions of a journal, their counters, the view's schema that keeps them, and the chat line at the end of a run. |
+| `test/unit/guard-deny.test.ts` | The guard's log over `test/fixtures/guard-log/refusals.jsonl` and over the real hook, the `guard-deny` line and its facts, the reader, a log file per Session. `test/unit/autopilot-run.test.ts` covers the run that writes them. |
 | `test/contract/runs-ipc.test.ts` | The `runs` channels. |
 | `test/e2e/flight-recorder.spec.ts`, `test/e2e/flight-recorder-detail.spec.ts` | The built app: the screen, labels that cross no bar, the panel, Retry, Problems only. |

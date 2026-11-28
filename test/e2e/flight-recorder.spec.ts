@@ -15,7 +15,8 @@ import { relocatedJsonText } from './relocate-fixture'
 //
 // The first test shows the night Run of test/fixtures/flight-recorder/night-run/ — its Journal, its
 // transcripts as WORFY_CLAUDE_HOME, its gate logs as the Harness home, gh through the fixture's stand-in
-// (WORFY_GH) — and two small Runs of the same Project written here: one that stopped on a block, one whose
+// (WORFY_GH) — and two small Runs of the same Project written here: one that stopped on a block, with two refusals
+// of the guard in its block «Guard» (worfy-harness-guarantees ticket 10), one whose
 // Journal ends without run-stopped (cut-off) and whose block reason is too long for its row; and a Run in the
 // Run mode Start window with the Epic forecast at its start, a wait for the window and the actual share at its
 // stop (worfy-resource-planner ticket 11); and a Run over a queue of Epics that waited for its busy Orchestrator
@@ -92,6 +93,10 @@ function prepareNight() {
     { at: at('19', '09:02'), kind: 'ticket-status', ticket: '01', state: 'claimed' },
     { at: at('19', '09:02'), kind: 'ticket-status', ticket: '02', state: 'claimed' },
     { at: at('19', '09:40'), kind: 'ticket-status', ticket: '01', state: 'blocked', reason: 'Needs the owner', waits: 'an answer on the API key' },
+    // Two refusals of the guard, carried over at the end of a turn (worfy-harness-guarantees ticket 10): the later line
+    // holds the earlier refusal, and the block lists them by the time of the refusal.
+    { at: at('19', '10:05'), kind: 'guard-deny', session: 'orch-1', rule: 'uncommitted-work', tool: 'Bash', command: 'git reset --hard', refusedAt: at('19', '09:58') },
+    { at: at('19', '10:05'), kind: 'guard-deny', session: 'orch-1', rule: 'verification-path', tool: 'Write', command: 'Write .github/workflows/ci.yml', refusedAt: at('19', '09:14'), agent: 'impl-01', ticket: 'demo-blocks/01' },
     { at: at('19', '10:20'), kind: 'ticket-status', ticket: '02', state: 'done' },
     { at: at('19', '10:21'), kind: 'wave-finished', wave: 1, tickets: ['01', '02'] },
     { at: at('19', '10:22'), kind: 'run-stopped', reason: 'blocked-tickets', tickets: ['01'] },
@@ -345,6 +350,16 @@ test('openRunHistory shows a Run over the whole main area: header, zoom, rows, l
     await window.getByTestId('run-history-choose').selectOption(BLOCKED_RUN)
     await expect(window.getByTestId('run-history-epic')).toHaveText('demo-blocks')
     await expect(window.getByTestId('run-history-by')).toHaveText('Started by a command in a chat')
+    // The guard's refusals of the Run: the line after the stop reason and the block under the details, by their time.
+    await expect(window.getByTestId('run-history-guard-line')).toHaveText('Guard · 2 refused')
+    await expect(window.getByTestId('run-history-guard-count')).toHaveText('Guard · 2 refused')
+    const refusals = window.getByTestId('run-history-guard-refusal')
+    await expect(refusals).toHaveCount(2)
+    await expect(refusals.nth(0).locator('td').nth(1)).toHaveText('impl-01 (demo-blocks/01)')
+    await expect(refusals.nth(0).locator('td').nth(2)).toHaveText('verification path outside the trail')
+    await expect(refusals.nth(0).locator('td').nth(3)).toHaveText('Write .github/workflows/ci.yml')
+    await expect(refusals.nth(1).locator('td').nth(1)).toHaveText('Orchestrator')
+    await expect(refusals.nth(1).locator('td').nth(3)).toHaveText('git reset --hard')
     const blocked = window.locator('[data-testid="run-history-row"][data-row-id$="demo-blocks/01"]')
     await expect(blocked.getByTestId('run-history-block')).toHaveText('!')
     const reason = blocked.locator('[data-testid="run-history-label"][data-label-for="block-0"]')

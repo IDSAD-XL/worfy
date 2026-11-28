@@ -63,6 +63,7 @@ import type { AgentEvent } from '../../../shared/agent/events'
 import type { LimitWindow } from '../../../shared/agent/limits'
 import { sameMcpRows, type McpServerRow } from '../../../shared/agent/mcp-status'
 import type { ModelOption } from '../../../shared/agent/settings'
+import { GUARD_LOG_VARIABLE } from '../../../shared/autopilot/guard-deny'
 import { redactSecrets } from '../../../shared/terminal-ai/redact'
 import { InputQueue } from '../../agent/session/input-queue'
 import { hasExited, within } from '../../agent/session/process'
@@ -959,7 +960,9 @@ async function open(options: CodexServerOptions, opts: SessionStart, resume: str
   // without them, in Off, the environment as before.
   const runEnv = opts.environment === undefined ? tokenEnv : { ...tokenEnv, ...opts.environment }
   // The Epic of a Session that runs a Wave (worfy-continuity ticket 12): the Harness's after-compact hook reads it.
-  const env = opts.epic === undefined || opts.epic === '' ? runEnv : { ...runEnv, [EPIC_VARIABLE]: opts.epic }
+  const epicEnv = opts.epic === undefined || opts.epic === '' ? runEnv : { ...runEnv, [EPIC_VARIABLE]: opts.epic }
+  // The file of the guard's refusals (worfy-harness-guarantees ticket 10): the Harness's guard hook appends a line to it.
+  const env = opts.guardLog === undefined || opts.guardLog === '' ? epicEnv : { ...epicEnv, [GUARD_LOG_VARIABLE]: opts.guardLog }
   // The same variables pinned in every command's shell, where the owner's include_only does not drop them (codexPinned); none in Off.
   const pinned = opts.environment === undefined ? null : codexPinned(env, opts.environment)
   const config = { ...mcp?.config, ...(pinned === null ? {} : codexPinConfig(pinned)), compact_prompt: CODEX_COMPACT_PROMPT }

@@ -272,6 +272,8 @@ interface Options {
   permissions?: PermissionAsker
   /** The Epic of the Wave the Session runs (SessionStart.epic). */
   epic?: string
+  /** The file of the guard's refusals (SessionStart.guardLog). */
+  guardLog?: string
 }
 
 /** What a Session gives its driver, with every call recorded in `into`. */
@@ -282,6 +284,7 @@ function startOptions(at: Fake, into: Pick<Live, 'asks' | 'refused' | 'stderr' |
     unattended: options.unattended ?? false,
     orchestrator: false,
     ...(options.epic === undefined ? {} : { epic: options.epic }),
+    ...(options.guardLog === undefined ? {} : { guardLog: options.guardLog }),
     permissions: options.permissions ?? {
       ask: (request) =>
         new Promise<string | null>((resolve, reject) => {
@@ -497,6 +500,17 @@ describe('a Codex Session: start and turns', () => {
     const plain = fake('turn')
     await (await live(plain)).until((event) => event.type === 'account', 'account')
     expect(plain.spawnedEnvs[0]?.WORFY_EPIC).toBe(process.env.WORFY_EPIC)
+  })
+
+  it('a Session with a guard file starts the app-server with WORFY_GUARD_LOG, which the guard hook inherits; one without gets the environment as it is (worfy-harness-guarantees ticket 10)', async () => {
+    const guarded = fake('turn')
+    await (await live(guarded, { guardLog: '/data/guard-log/s1.jsonl' })).until((event) => event.type === 'account', 'account')
+    expect(guarded.spawnedEnvs[0]?.WORFY_GUARD_LOG).toBe('/data/guard-log/s1.jsonl')
+    expect(guarded.requests('thread/start')[0]?.params?.config).toEqual({ compact_prompt: CODEX_COMPACT_PROMPT })
+
+    const plain = fake('turn')
+    await (await live(plain)).until((event) => event.type === 'account', 'account')
+    expect(plain.spawnedEnvs[0]?.WORFY_GUARD_LOG).toBe(process.env.WORFY_GUARD_LOG)
   })
 })
 

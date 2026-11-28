@@ -6,9 +6,13 @@
 //
 // The drafts of replies and Send (worfy-pr-inbox ticket 05, src/main/github/pr-reply-send.ts): `local` channels, so
 // the link adapter refuses them to a Linked machine before any handler here runs (ADR-0105).
+//
+// The owner's mark of a PR that changes the verification paths and Allow verification change (worfy-harness-guarantees
+// ticket 10, src/main/github/owner-mark.ts): `local` channels too; the look runs `land --verification` of the Harness
+// in the Project's folder of the PR's repository, the click writes the commit status `owner`.
 import { join } from 'node:path'
 import { BrowserWindow } from 'electron'
-import { prInboxChanged, prInboxDigest, prInboxDiscard, prInboxDrafts, prInboxGet, prInboxMarkSeen, prInboxSaveDraft, prInboxSend } from '../../shared/ipc/pr-inbox'
+import { prInboxAllowVerification, prInboxChanged, prInboxDigest, prInboxDiscard, prInboxDrafts, prInboxGet, prInboxMarkSeen, prInboxSaveDraft, prInboxSend, prInboxVerification } from '../../shared/ipc/pr-inbox'
 import { prInboxDigestOf } from '../../shared/settings/app-settings'
 import { agentEnv } from '../agent/env'
 import { toEveryWindow } from '../broadcast'
@@ -16,10 +20,11 @@ import { healthReports } from '../first-run/health-reports'
 import { appGithubHealth } from '../github/github-health'
 import { PrInbox, remoteRepos, type PrInboxProject } from '../github/inbox'
 import { PrInboxDigest } from '../github/inbox-digest'
+import { OwnerMark, type VerificationRun } from '../github/owner-mark'
 import { PrReplySender } from '../github/pr-reply-send'
 import type { PrInboxSource } from '../notify'
 import { appSettingsStore } from '../settings/store'
-import { ghRunner, type GhRunner } from '../github/prs'
+import { ghRunner, type GhEnv, type GhRunner } from '../github/prs'
 import { harnessHomes, locateHarness, scriptEnv } from '../harness/locate'
 import { harnessScriptEnv } from '../harness/script-env'
 import { prInboxSetting } from '../projects/pr-inbox-state'
@@ -36,11 +41,19 @@ export interface PrReplyDraftsAccess {
   root: (projectId: string) => string
 }
 
-/** The handlers over a reader, the drafts and the morning digest; tests pass their own. */
+/** The owner's mark of a Project's PRs (owner-mark.ts), by the Project's id. */
+export interface OwnerMarkAccess {
+  mark: () => Pick<OwnerMark, 'look' | 'allow'>
+  /** The Project's root; throws for an unknown id. */
+  root: (projectId: string) => string
+}
+
+/** The handlers over a reader, the drafts, the morning digest and the owner's mark; tests pass their own. */
 export function prInboxHandlers(
   inbox: () => Pick<PrInbox, 'ensureRead' | 'readOnOpen' | 'snapshot' | 'markSeen'>,
   drafts: PrReplyDraftsAccess = sharedDrafts,
   digest: () => Pick<PrInboxDigest, 'ask'> = sharedPrInboxDigest,
+  owner: OwnerMarkAccess = sharedOwnerMarkAccess,
 ): HandlerModule {
   return [
     defineHandler(prInboxDigest, async () => digest().ask()),
@@ -55,6 +68,8 @@ export function prInboxHandlers(
     defineHandler(prInboxSaveDraft, ({ projectId, repo, number, item, body }) => drafts.sender().save(drafts.root(projectId), repo, number, item, body)),
     defineHandler(prInboxDiscard, ({ projectId, repo, number, item, body }) => drafts.sender().discard(drafts.root(projectId), repo, number, item, body)),
     defineHandler(prInboxSend, ({ projectId, repo, number, items }) => drafts.sender().send(drafts.root(projectId), repo, number, items)),
+    defineHandler(prInboxVerification, ({ projectId, repo, number }) => owner.mark().look(owner.root(projectId), repo, number)),
+    defineHandler(prInboxAllowVerification, ({ projectId, repo, number, head }) => owner.mark().allow(owner.root(projectId), repo, number, head)),
   ]
 }
 
@@ -156,6 +171,39 @@ export function sharedPrReplySender(): PrReplySender {
 }
 
 const sharedDrafts: PrReplyDraftsAccess = { sender: sharedPrReplySender, root: (projectId) => projectStore().get(projectId).path }
+
+/** How long `land --verification` may take: a fetch of the base branch and of the PR's head, and a few reads of gh. */
+const VERIFICATION_TIMEOUT_MS = 60_000
+
+/** The folder of the Project whose remote `origin` is `repo`: the one `land --verification` reads the PR in. */
+async function repoFolder(root: string, repo: string): Promise<string> {
+  for (const folder of await repoFolders(root)) {
+    const [slug] = await remoteRepos([folder])
+    if (slug !== undefined && slug.toLowerCase() === repo.toLowerCase()) return folder
+  }
+  throw new Error(`no folder of the Project has ${repo} as its origin`)
+}
+
+let sharedMark: OwnerMark | undefined
+
+/** The app's owner's mark: gh of appGh as the Profile's account, `land` of the Harness on the machine, started as every Harness script is. */
+export function sharedOwnerMark(): OwnerMark {
+  sharedMark ??= new OwnerMark({
+    run: appGh(),
+    account: projectAccount,
+    health: appGithubHealth('Allow verification change'),
+    verification: async (root: string, repo: string, number: number, gh: GhEnv): Promise<VerificationRun> => {
+      const folder = await repoFolder(root, repo)
+      const harness = locateHarness(harnessHomes(claudeHome()))
+      const env = { ...scriptEnv(harness, await harnessScriptEnv()), ...gh }
+      const ran = await runHarnessScript(join(harness.binDir, 'land'), ['--verification', String(number), '-C', folder], env, { timeoutMs: VERIFICATION_TIMEOUT_MS })
+      return { code: ran.code, stdout: ran.stdout, stderr: ran.stderr }
+    },
+  })
+  return sharedMark
+}
+
+const sharedOwnerMarkAccess: OwnerMarkAccess = { mark: sharedOwnerMark, root: (projectId) => projectStore().get(projectId).path }
 
 /** Starts the app's reader: every Project of this Machine whose search is due is read. Returns its stop. */
 export function startPrInbox(): () => void {

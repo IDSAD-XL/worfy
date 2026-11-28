@@ -50,6 +50,8 @@ export class SessionRegistry {
     userModel?: UserModelReader,
     userEffort?: UserEffortReader,
     private readonly quiet: Partial<QuietWatch> = {},
+    /** The folder of the Sessions' guard files (guard-log.ts, worfy-harness-guarantees ticket 10); null: none. */
+    private readonly guardLogFolder: string | null = null,
   ) {
     if (typeof sessions !== 'function' && 'sessionsOf' in sessions) {
       this.starters = sessions
@@ -137,6 +139,7 @@ export class SessionRegistry {
       launch,
       this.starters.partsOf?.(vendor) ?? STATIC_CLAUDE_PARTS,
       this.quiet,
+      this.guardLogFolder,
     )
     this.sessions.set(session.id, session)
     if (this.departing) session.hold()

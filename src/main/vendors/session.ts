@@ -139,6 +139,12 @@ export interface SessionStart {
    */
   epic?: string | undefined
   /**
+   * The file of the guard's refusals (worfy-harness-guarantees ticket 10, src/main/agent/guard-log.ts): the agent's
+   * process gets `WORFY_GUARD_LOG` (GUARD_LOG_VARIABLE), and the Harness's guard hook appends a line to it on each
+   * refusal. Absent: the guard writes nothing, as in a terminal.
+   */
+  guardLog?: string | undefined
+  /**
    * The MCP servers turned off for this Session (Turn off for this Session, worfy-mcp-live ticket 03):
    * a driver whose mcp part `restarts` starts its agent without them. Absent or empty: none.
    */

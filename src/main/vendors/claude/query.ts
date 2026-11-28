@@ -474,6 +474,8 @@ export function sdkQueryFactory(
       environment: request.environment,
       // The Epic of an Orchestrator Autopilot started (worfy-continuity ticket 12): WORFY_EPIC and a line of the system prompt.
       epic: request.epic,
+      // The file of the guard's refusals (worfy-harness-guarantees ticket 10): WORFY_GUARD_LOG.
+      guardLog: request.guardLog,
       toolUse: request.toolUse,
       // A Product Session's limits (worfy-product-session ticket 02): the PreToolUse guard and its kind in the environment.
       // A write outside its folder is asked about (worfy-polish ticket 82): the Project's list, the closed folders, the person.

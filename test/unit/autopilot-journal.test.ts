@@ -76,6 +76,7 @@ const everyKind: JournalEvent[] = [
   { ...base, at: at(32), kind: 'session-error', session: 'abc-123', message: 'spawn ENOENT' },
   { ...base, at: at(33), kind: 'refused-dialog', session: 'abc-123', what: 'AskUserQuestion' },
   { ...base, at: at(33), kind: 'auto-approval', session: 'abc-123', agent: 'agent-impl-01', vendor: 'claude', mode: 'on', outcome: 'allow', rule: 'files-inside-roots', tool: 'Bash', targets: ['~/repo/.claude/worktrees/01/build'], command: 'rm -rf build' },
+  { ...base, at: at(33), kind: 'guard-deny', session: 'abc-123', rule: 'verification-path', tool: 'Write', command: 'Write ~/repo/.github/workflows/ci.yml', refusedAt: at(32), agent: 'worfy:implementer', ticket: 'worfy-x/07' },
   { ...base, at: at(34), kind: 'human-input', source: 'worfy', what: 'message to the Orchestrator' },
   { ...base, at: at(35), kind: 'background-tasks', tasks: [{ id: 'task-1', type: 'local_agent', description: 'Implement 01' }] },
   { ...base, at: at(36), kind: 'run-stopping', reason: 'user-stop', wave: 1, tickets: ['01', '02'], inWork: ['01'] },

@@ -1,0 +1,5 @@
+{"time":"2026-11-28T10:14:03.120Z","rule":"verification-path","agent":"worfy:implementer","agent_id":"a7f3c2","ticket":"worfy-x/07","tool":"Write","command":"Write /repo/.claude/worktrees/07/.github/workflows/ci.yml","session":"8d1e4b2a-1111-4c3e-9a10-0f2b6c7d8e90","cwd":"/repo/.claude/worktrees/07"}
+{"time":"2026-11-28T10:31:47.005Z","rule":"uncommitted-work","agent":"orchestrator","agent_id":null,"ticket":null,"tool":"Bash","command":"git reset --hard","session":"8d1e4b2a-1111-4c3e-9a10-0f2b6c7d8e90","cwd":"/repo"}
+not a JSON line: a guard of another version
+{"time":"2026-11-28T10:40:00.000Z","rule":"","agent":null,"agent_id":null,"ticket":null,"tool":"Bash","command":"x","session":null,"cwd":"/repo"}
+{"time":"2026-11-28T10:45:12.300Z","rule":"pipe-exit-code","agent":null,"agent_id":"b81d04","ticket":null,"tool":"Bash","command":"GH_TOKEN=ghp_demo123 pnpm lint | grep error","session":"8d1e4b2a-1111-4c3e-9a10-0f2b6c7d8e90","cwd":"/repo"}

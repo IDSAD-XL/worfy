@@ -367,7 +367,8 @@ trail) lets the call through, and so does a failure inside the check: `land` che
 
 **The refusal log.** With `WORFY_GUARD_LOG` set, each refusal appends one line of JSON to that file: the time, the rule
 id, the agent, the Ticket, the tool, the command cut to 200 characters, the Session and the folder. The format is in the
-header of `guard.mjs`. Without the variable the guard writes nothing.
+header of `guard.mjs`. Without the variable the guard writes nothing. worfy sets it for every Session it starts, on
+Claude Code and on Codex, and Run history shows the refusals of an Autopilot run ([Run history](flight-recorder.md)).
 
 #### On Windows
 

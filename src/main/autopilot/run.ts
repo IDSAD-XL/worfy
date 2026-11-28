@@ -215,6 +215,7 @@ import { turnFailureKind, type TurnFailure } from '../../shared/agent/turn-failu
 import { resumableAfter, runCheckpoint, type RunCheckpoint } from '../../shared/autopilot/checkpoint'
 import { budgetWindows, listsWindows, STORED_LIMITS_VENDOR, type VendorLimits } from '../../shared/autopilot/budget-window'
 import { autoApprovalChatLine, type Judged } from '../../shared/autopilot/auto-approval-summary'
+import { guardDenyFields, type GuardRefusal } from '../../shared/autopilot/guard-deny'
 import {
   clipLastText,
   clipRetryMessage,
@@ -266,6 +267,7 @@ import type { VendorId } from '../../shared/vendors/vendor'
 import { PARK_STOPPED_HINT } from '../agent/auto-approve/park'
 import { HINTS, type Decision } from '../agent/auto-approve/policy'
 import type { LaunchApproval, RunApproval } from '../agent/auto-approve/run-approval'
+import { GuardLogTail } from '../agent/guard-log'
 import { bindingWorkflowOf } from '../../shared/binding/resolve'
 import { parseTicketBranch } from '../../shared/workflow/ticket-ref'
 import { readyWave } from '../../shared/workflow/waves'
@@ -292,6 +294,11 @@ export interface RunSession {
    * (worfy-autopilot-queue ticket 08). Absent: read as still unattended.
    */
   readonly unattended?: boolean
+  /**
+   * The file of the guard's refusals of the Session (Session.guardLog, worfy-harness-guarantees ticket 10): the run
+   * carries its lines into the Journal as `guard-deny`. Absent or null: the Session has none.
+   */
+  readonly guardLog?: string | null
   queued(): QueueSnapshot
   removeQueued(id: string): boolean
   /** The Session's live background tasks, ambient ones left out (ADR-0029). */
@@ -629,6 +636,14 @@ function autoApprovalLine(event: Extract<AgentEvent, { type: 'auto_approval' }>,
   }
 }
 
+/** The run follows the guard file of its Session now (RunSession.guardLog), once per file: a Session it took over again keeps its place in it. */
+function followGuardLog(run: Run): void {
+  const session = run.session
+  const file = session?.guardLog
+  if (session === null || file === undefined || file === null || run.guardTails.has(file)) return
+  run.guardTails.set(file, { tail: new GuardLogTail(file, run.guardSince), session: session.id })
+}
+
 /** What the run's Session gets when no run of the Project holds a policy now: nothing is approved. */
 const NO_RUN_DECISION: Decision = { outcome: 'deny', rule: 'no-run', hint: HINTS.notJudged, targets: [] }
 
@@ -943,6 +958,14 @@ class Run {
   /** The policy's decisions so far (`auto_approval` events): the line in the Orchestrator's chat at the end (worfy-auto-approve ticket 08). */
   readonly decisions: Judged[] = []
   message: string | null = null
+  /**
+   * The guard files of the Sessions the run has followed (RunSession.guardLog, worfy-harness-guarantees ticket 10), by
+   * path, with the id of the Session each belongs to: read at the end of a turn, a change of the background tasks and
+   * the run's end, one read after another (guardRead). `guardSince`: refusals before the run took its Session are not its own.
+   */
+  readonly guardTails = new Map<string, { tail: GuardLogTail; session: string }>()
+  guardSince = 0
+  guardRead: Promise<void> = Promise.resolve()
   private chain: Promise<void> = Promise.resolve()
   readonly cleanups: (() => Promise<void> | void)[] = []
   /**
@@ -1418,6 +1441,8 @@ export class Autopilot {
   private async take(run: Run, model: WorkflowModel, view: OrchestratorView | null, facts: RunFacts | null): Promise<boolean> {
     if (view === null || view.sessionId === null) throw new Error('The Orchestrator has no Session')
     run.session = this.deps.registry.get(view.sessionId)
+    run.guardSince = Date.now()
+    followGuardLog(run)
     run.vendor = view.vendor ?? STORED_LIMITS_VENDOR
     if (run.journal === null && facts !== null) run.journal = await this.openJournal(run, facts, view.vendor)
     await this.journalHarness(run)
@@ -2567,6 +2592,8 @@ export class Autopilot {
     if (unobserve !== undefined) run.cleanups.push(unobserve)
     run.unobserveSession = this.deps.registry.observe((sessionId, event) => {
       if (run.session === null || sessionId !== run.session.id) return
+      // The guard's refusals since the last read go into the Journal (worfy-harness-guarantees ticket 10).
+      if (event.type === 'result' || event.type === 'background_tasks') void this.readGuardLogs(run)
       this.onEvent(run, event)
       // During a far Limits wait (worfy-retry ticket 05): a turn or a task that starts takes keep-awake
       // back, and the end of the last task lets it go. The end of a turn decides in the run's order:
@@ -2575,6 +2602,8 @@ export class Autopilot {
     })
     run.cleanups.push(
       () => run.unobserveSession(),
+      // The refusals of the run's last moments, before it lets its Session go.
+      () => this.readGuardLogs(run),
       this.deps.registry.observeInput((session, what) => {
         if (session !== run.session) return
         void run.enqueue(() => this.write(run, { kind: 'human-input', source: 'worfy', what }))
@@ -3095,6 +3124,7 @@ export class Autopilot {
       return 'gone'
     }
     run.session = this.deps.registry.get(view.sessionId)
+    followGuardLog(run)
     // What the new Session did before the run followed it: a start that failed or closed.
     if (run.session.state === 'error') {
       await this.feed(run, { type: 'session-error', message: view.error ?? 'The Session failed' })
@@ -4257,6 +4287,27 @@ export class Autopilot {
     run.limits?.cancel()
     run.retry?.cancel()
     this.cancelBoundary(run)
+  }
+
+  /**
+   * Carries the refusals the guard appended to the files of the run's Sessions since the last read into the Journal as
+   * `guard-deny` (worfy-harness-guarantees ticket 10), one read after another so a line is never carried twice. A file
+   * that cannot be read is tried again the next time.
+   */
+  private readGuardLogs(run: Run): Promise<void> {
+    run.guardRead = run.guardRead.then(async () => {
+      for (const [file, { tail, session }] of run.guardTails) {
+        let refusals: GuardRefusal[]
+        try {
+          refusals = await tail.read()
+        } catch (error) {
+          console.warn(`[autopilot] ${run.projectId}: could not read the guard's refusals in ${file}`, error)
+          continue
+        }
+        for (const refusal of refusals) await this.write(run, guardDenyFields(refusal, session, homedir()))
+      }
+    })
+    return run.guardRead
   }
 
   /** One line of the run's journal; `epic`: the Epic it is about, the one the run is on when absent. */

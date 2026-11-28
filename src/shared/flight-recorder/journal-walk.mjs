@@ -31,6 +31,7 @@ export const JOURNAL_KINDS = [
   'session-error',
   'refused-dialog',
   'auto-approval',
+  'guard-deny',
   'human-input',
   'background-tasks',
   'run-stopping',
