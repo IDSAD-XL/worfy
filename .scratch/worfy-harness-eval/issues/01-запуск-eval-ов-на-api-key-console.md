@@ -65,15 +65,19 @@ Source: [spec.md](../spec.md), «Ticket-ы», 01; «Решения владел�
 ## Готово, когда
 
 - [ ] Опция счёта в `pnpm eval:harness` и `pnpm eval:outcome`; по умолчанию — подписка.
+  - evidence: test-run pass · `pnpm test test/contract/harness-evals-run.test.ts test/contract/harness-evals-outcome.test.ts` exit 0 · mac - · 75b01732e6887fad8efc6c9fa1ab04fa40a7259c
 - [ ] Ключ — только в папке состояния Harness и в окружении дочернего `claude` при запуске на кредитах; contract test-ы
       это проверяют.
+  - evidence: test-run pass · `pnpm test test/contract/harness-evals-run.test.ts test/contract/harness-evals-outcome.test.ts` exit 0 · mac - · 75b01732e6887fad8efc6c9fa1ab04fa40a7259c
 - [ ] `--dry-run` с теми же аргументами прошёл до платного запуска; один run `status-block` на кредитах с потолком
       `--max-cost-usd 2`; строка `eval:harness …` в описании PR.
+  - evidence: test-run pass · `pnpm eval:harness -- --case status-block --billing credits --max-cost-usd 2` exit 0 after the same with --dry-run exit 0; costUsd 0.31 · mac - · 75b01732e6887fad8efc6c9fa1ab04fa40a7259c
 - [ ] (вручную) Сделай: открой Console → Usage после run-а из «Итога» → Должно быть: расход этого run-а за дату run-а
       в организации, привязанной к подписке; баланс кредитов уменьшился, auto-reload выключен.
   - needs: mac
 - [ ] «Итог» называет, куда ушёл расход `claude plugin eval` с ключом: в кредиты или в лимит подписки.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 75b01732e6887fad8efc6c9fa1ab04fa40a7259c
 
 ## Итог
 
