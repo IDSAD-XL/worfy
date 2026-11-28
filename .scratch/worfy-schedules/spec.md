@@ -1,7 +1,9 @@
 # worfy-schedules: Schedule — Session с точным prompt-ом по расписанию на этой Machine
 
 Status: draft
-Critic: pending
+Critic: [docs/product/critic/worfy-schedules-2026-11-28.md](../../docs/product/critic/worfy-schedules-2026-11-28.md) — Reorder;
+the Alternative is applied in this draft (исключение ADR-0005 в Ticket-е 01, корни Approval policy — свой Ticket 13,
+Ticket 08 ждёт 05 и несёт Run now); решение владельца по возражениям — в файле critic-а.
 Source: исследование [docs/research/2026-11-28-scheduled-tasks.md](../../docs/research/2026-11-28-scheduled-tasks.md)
 (вопрос владельца 2026-11-28: «scheduled задачи, которые можно описать в чате, ассистент предлагает, пользователь
 принимает либо просит поменять, и принятые можно менять»); grilling владельца 2026-11-28, ответы Q1–Q20 — это решения, и
@@ -17,7 +19,7 @@ Codex ([ADR-0094](../../docs/adr/0094-vendor-seam.md)); [worfy-link](../worfy-li
 ([ADR-0052](../../docs/adr/0052-machines-and-linking.md), [ADR-0066](../../docs/adr/0066-read-only-access-for-a-linked-machine.md));
 [worfy-continuity](../worfy-continuity/spec.md) — Session после перезапуска worfy
 ([ADR-0108](../../docs/adr/0108-work-continues-after-a-restart-of-worfy.md)).
-Ticket-ы: Epic `worfy-schedules`, 13 Ticket-ов в 7 Wave-ах, нумерация с `01`; файлы — `.scratch/worfy-schedules/issues/`
+Ticket-ы: Epic `worfy-schedules`, 14 Ticket-ов в 9 Wave-ах, нумерация с `01`; файлы — `.scratch/worfy-schedules/issues/`
 (этот PR их не создаёт).
 
 ## Проблема
@@ -149,7 +151,8 @@ Actions. Пределы: ChatGPT — не чаще раза в час на пл�
 - Assistant: карточка Schedule и карточка «было → станет» в чате, чтение списка.
 - Linked machine: список только для чтения и Pause.
 - Windows: работа в фоне и запуск при входе.
-- ADR Schedule-ов, Amendment-ы ADR-0114 и ADR-0098, запись в инвентарь ADR-0005, документация en и ru.
+- ADR Schedule-ов, Amendment-ы ADR-0114 и ADR-0098, исключение ADR-0005 (worfy сам делает worktree-ы и ветки
+  `schedule/*` в репозитории Project-а), запись в инвентарь ADR-0005, документация en и ru.
 
 **Не в этом Epic-е.**
 
@@ -190,8 +193,9 @@ Actions. Пределы: ChatGPT — не чаще раза в час на пл�
   выключен); на Windows — «Keep worfy running in the background» и «Start worfy when I sign in» (обе выключены).
 - **Где лежит.** `<WORFY_DATA_DIR>/schedules/schedules.json` — все Schedules Machine; `<WORFY_DATA_DIR>/schedules/runs/<id>.json` —
   50 последних run-ов одного Schedule. Запись через `src/main/storage/json-file.ts` (zod, временный файл и rename,
-  нечитаемый файл переименовывается). В репозиторий Project-а ничего не попадает. Имена файлов и запись в инвентарь
-  ADR-0005 — Ticket 01.
+  нечитаемый файл переименовывается). Сами Schedules и история в репозиторий Project-а не попадают, но каждый run
+  оставляет в нём след: ветку `schedule/*`, запись в `.git/worktrees` и папку в `.claude/worktrees/` (раздел
+  «Scheduled run»). Это исключение из ADR-0005, Ticket 01. Имена файлов и запись в инвентарь ADR-0005 — тоже Ticket 01.
 
 ## Решения по реализации
 
@@ -268,8 +272,9 @@ Actions. Пределы: ChatGPT — не чаще раза в час на пл�
   же Approval policy (ADR-0098, «тот же ответ на Codex»).
 - **Права.** Auto-approval Project-а как есть (Off, Shadow, On). Корни Approval policy у scheduled run-а — его worktree,
   его папка временных файлов `<WORFY_DATA_DIR>/schedule-tmp/<run>` (TMPDIR Session-а) и scratchpad Session-а; рабочая
-  копия Project-а и его `.scratch` — не корни. Это Amendment ADR-0098, пункт 3 (Ticket 01). Session без человека не
-  меняет режим разрешений ([ADR-0022](../../docs/adr/0022-unattended-session-refuses-permission-mode-change.md)).
+  копия Project-а и его `.scratch` — не корни. Это Amendment ADR-0098, пункт 3: текст — Ticket 01, код и test —
+  Ticket 13. Session без человека не меняет режим разрешений
+  ([ADR-0022](../../docs/adr/0022-unattended-session-refuses-permission-mode-change.md)).
 - **«Нужен человек».** Запрос в park (ADR-0098), ошибка входа Vendor-а, Limits кончились посреди run-а. worfy сразу
   поднимает Attention item «<name> needs you» и шлёт уведомление; запрос в park ждёт, как в Autopilot-е
   (`PARK_LIMIT_MS`, 60 минут, `src/main/agent/auto-approve/park.ts`). Без ответа — отказ с подсказкой, ход кончается, исход
@@ -350,6 +355,13 @@ Spec только предлагает текст; ADR правит Ticket 01.
   планировщик в main без ОС-планировщиков; согласие с отпечатком; worktree на каждый run; уведомления только об ошибке и
   «нужен человек».
 - **Amendment ADR-0114** — выше. **Amendment ADR-0098, пункт 3** — корни scheduled run-а.
+- **Исключение ADR-0005** (предложение; текст пишет Ticket 01, принимает владелец). ADR-0005 говорит, что worfy ничего
+  не пишет в репозиторий Project-а; каждое прежнее исключение записано своим Amendment-ом (так ADR-0101 — папка Product
+  Session). Текст: «Amendment 2026-MM-DD (worfy-schedules). Исключение: для scheduled run-а main worfy сам делает
+  `git fetch` основной ветки, `git worktree add` на ветке `schedule/<slug>/<YYYY-MM-DD-HHmm>` в
+  `<Project>/.claude/worktrees/schedule-<slug>-<YYYYMMDD-HHmm>` и после run-а удаляет такой worktree вместе с веткой,
+  только если в нём нет правок и коммитов сверх базы. Другие ветки и worktree-ы worfy не трогает; ветку с коммитами не
+  удаляет никогда; запрет `worktree add` у экрана Changes (`src/main/changes/git.ts`) остаётся».
 - **Запись в инвентарь ADR-0005** — два файла папки данных.
 - Не меняются: ADR-0100 (очередь Epic-ов задаёт человек), ADR-0091 (`autopilot_start` из unattended Session
   отклоняется), ADR-0066 (Pause с Linked machine — обычный канал `write`), ADR-0108 (продолжение после перезапуска),
@@ -431,12 +443,14 @@ Spec только предлагает текст; ADR правит Ticket 01.
 
 ## Ticket-ы
 
-13 Ticket-ов. Каждый — один PR со своими test-ами; «Готово, когда» каждого кончается пунктом: `pnpm lint`,
-`pnpm typecheck`, `pnpm test` — exit 0, `ci-ok` зелёный на head PR.
+14 Ticket-ов. Каждый — один PR со своими test-ами; «Готово, когда» каждого кончается пунктом: `pnpm lint`,
+`pnpm typecheck`, `pnpm test` — exit 0, `ci-ok` зелёный на head PR. Номера 01–12 — как в первом черновике; корни
+Approval policy выделены из 06 в новый Ticket 13 (возражение 3 critic-а), приёмка стала 14.
 
-1. **01 — ADR Schedule-ов и Amendment-ы.** Новый ADR, Amendment ADR-0114 (граница 3) и ADR-0098 (пункт 3, корни),
-   запись в инвентарь ADR-0005. Только документы. Агент. Blocked by: —.
-   Готово, когда: ADR принят владельцем, оба Amendment-а и строка инвентаря в `main`.
+1. **01 — ADR Schedule-ов, Amendment-ы и исключение ADR-0005.** Новый ADR, Amendment ADR-0114 (граница 3) и ADR-0098
+   (пункт 3, корни), Amendment ADR-0005 — исключение: main сам делает worktree-ы и ветки `schedule/*` в репозитории
+   Project-а и удаляет чистые (раздел «ADR»); запись в инвентарь ADR-0005. Только документы. Агент. Blocked by: —.
+   Готово, когда: владелец принял ADR и три Amendment-а, они и строка инвентаря в `main`.
 2. **02 — Правило повтора.** `src/shared/schedules/recurrence.ts`: подмножество RRULE, пресеты, IANA-пояс, N дат, DST,
    проверка «раз в час», фраза. Агент. Blocked by: —.
    Готово, когда: `schedule-recurrence.test.ts` зелёный, включая DST в двух поясах.
@@ -450,14 +464,15 @@ Spec только предлагает текст; ADR правит Ticket 01.
    три ошибки, keep-awake на run; запуск в `src/main/index.ts`. Агент. Blocked by: 04, 06.
    Готово, когда: `schedule-scheduler.test.ts` и `schedules-missed.spec.ts` зелёные.
 6. **06 — Scheduled run.** `src/main/schedules/run.ts`: worktree и ветка, Session Claude Code и Codex с принятым текстом,
-   корни Approval policy, исходы, Attention item-ы источника `schedule`, уведомления, ADR-0108. Агент. Blocked by: 03.
-   Готово, когда: `schedule-run-outcome`, `schedule-approval-roots`, `schedule-worktree`, `schedule-codex-start` зелёные.
-7. **07 — Вид Schedules.** View button `schedules` (Footer по умолчанию), список, карточка, Run now, Pause/Resume,
-   Delete с подтверждением, история. Агент. Blocked by: 03.
+   исходы, Attention item-ы источника `schedule`, уведомления, ADR-0108; корни берёт из Ticket-а 13. Агент.
+   Blocked by: 03, 13.
+   Готово, когда: `schedule-run-outcome`, `schedule-worktree`, `schedule-codex-start` зелёные.
+7. **07 — Вид Schedules.** View button `schedules` (Footer по умолчанию), список, карточка, Pause/Resume, Delete с
+   подтверждением, история; без Run now (он в Ticket-е 08). Агент. Blocked by: 03.
    Готово, когда: `schedules-view.test.tsx` и `view-buttons.test.ts` зелёные, снимки обеих тем приложены.
-8. **08 — Редактор.** New schedule и Edit: поля, пресеты, Custom RRULE, пояс, три даты от main, порог, Accept/Save,
-   проверка git. Агент. Blocked by: 02, 07.
-   Готово, когда: `schedule-editor.test.tsx` и `schedules.spec.ts` зелёные с выключенным Assistant-ом.
+8. **08 — Редактор и Run now.** New schedule и Edit: поля, пресеты, Custom RRULE, пояс, три даты от main, порог,
+   Accept/Save, проверка git; кнопка Run now на карточке. Агент. Blocked by: 02, 05, 07.
+   Готово, когда: `schedule-editor.test.tsx` и `schedules.spec.ts` зелёные с выключенным Assistant-ом, Run now стартует run.
 9. **09 — Assistant.** Tools `schedules_list`, `schedule_propose`, `schedule_change_propose`; карточки в чате; Delete
    только кнопкой. Агент. Blocked by: 05, 08.
    Готово, когда: `assistant-schedule-tools.test.ts` и `schedules-assistant.spec.ts` зелёные.
@@ -469,9 +484,14 @@ Spec только предлагает текст; ADR правит Ticket 01.
     Готово, когда: на Windows CI job закрытое окно при включённом фоне не завершает worfy, обе настройки выключены по
     умолчанию.
 12. **12 — Документация en и ru.** `docs/features/schedules.md` и `docs/features/ru/schedules.md`; правки `app-shell`,
-    `assistant`, `link`; CONTEXT.md — View button с семью видами. Агент. Blocked by: 05–11.
+    `assistant`, `link`; CONTEXT.md — View button с семью видами. Агент. Blocked by: 05–11, 13.
     Готово, когда: страницы en и ru говорят одно и то же и называют все случаи таблицы сбоев.
-13. **13 — Приёмка владельцем.** Mac Stable и ПК, ручные пункты раздела «Готово, когда». Владелец. Blocked by: 01–12;
+13. **13 — Корни Approval policy scheduled run-а.** `src/main/agent/auto-approve/roots.ts` и контекст политики для
+    scheduled run-а: корни — его worktree, папка `<WORFY_DATA_DIR>/schedule-tmp/<run>` и scratchpad Session-а; рабочая
+    копия Project-а и `.scratch` — не корни; push — park, как раньше. Код по Amendment-у ADR-0098 из Ticket-а 01.
+    Агент. Blocked by: 01, 03.
+    Готово, когда: `schedule-approval-roots.test.ts` зелёный, прежние test-ы Approval policy не менялись.
+14. **14 — Приёмка владельцем.** Mac Stable и ПК, ручные пункты раздела «Готово, когда». Владелец. Blocked by: 01–13;
     `blocked --waits owner`.
     Готово, когда: владелец принял Epic.
 
@@ -481,14 +501,18 @@ Spec только предлагает текст; ADR правит Ticket 01.
 |---|---|---|---|
 | 1 | 01, 02 | — | ADR — только `docs/adr/`; правило — только `src/shared/schedules/` |
 | 2 | 03 | 02 | хранилище держит правило в схеме |
-| 3 | 04, 06, 07 | 03 | порог (`src/main/schedules/limits.ts`, Settings), run (`run.ts`, `auto-approve/roots.ts`), вид (`src/renderer/schedules/`, `views.tsx`, `view-buttons.ts`): общих файлов нет |
-| 4 | 05, 08, 10 | 04, 06 / 02, 07 / 07 | планировщик (`scheduler.ts`, `index.ts`), редактор (`ScheduleEditor.tsx`), окно Linked machine (`ScheduleCard.tsx`, `link-access`) |
-| 5 | 09, 11 | 05, 08 / 05 | Assistant (`app-tools.ts`, карточки чата) и Windows (`index.ts` после 05) |
-| 6 | 12 | 05–11 | документация по сделанному |
-| 7 | 13 | 01–12 | приёмка |
+| 3 | 04, 13, 07 | 03 / 01, 03 / 03 | порог (`src/main/schedules/limits.ts`, Settings), корни (`auto-approve/roots.ts`), вид (`src/renderer/schedules/`, `views.tsx`, `view-buttons.ts`): общих файлов нет |
+| 4 | 06, 10 | 03, 13 / 07 | run (`run.ts`) и окно Linked machine (`ScheduleCard.tsx`, `link-access`) |
+| 5 | 05 | 04, 06 | планировщику нужны порог и run (`scheduler.ts`, `index.ts`) |
+| 6 | 08, 11 | 02, 05, 07 / 05 | e2e редактора и Run now ждут планировщик и run; Windows правит `index.ts` после 05 |
+| 7 | 09 | 05, 08 | карточки чата повторяют поля редактора |
+| 8 | 12 | 05–11, 13 | документация по сделанному |
+| 9 | 14 | 01–13 | приёмка |
 
 Wave, которую берут в работу, вычисляется заново в момент запуска (CONTEXT.md, термин Wave); таблица — прогноз по
-Blocked by и спискам файлов. 11 ждёт 05 не по смыслу, а потому что оба правят `src/main/index.ts`.
+Blocked by и спискам файлов. 11 ждёт 05 не по смыслу, а потому что оба правят `src/main/index.ts`. Wave-ов на одну больше,
+чем в первом черновике, зато test «Готово, когда» каждого Ticket-а может стать зелёным, когда Ticket начат (critic,
+«Alternative»).
 
 ## Риски
 
@@ -543,5 +567,6 @@ Blocked by и спискам файлов. 11 ждёт 05 не по смыслу
 - [ ] View button Schedules переносится между зонами; история хранит 50 run-ов; Delete — только кнопкой с подтверждением.
 - [ ] Linked machine видит Schedules без правки и ставит на паузу.
 - [ ] На Windows обе настройки есть и выключены по умолчанию.
-- [ ] ADR, Amendment-ы ADR-0114 и ADR-0098, строка инвентаря ADR-0005, страницы Feature en и ru.
+- [ ] ADR, Amendment-ы ADR-0114 и ADR-0098, исключение ADR-0005 для worktree-ов и веток `schedule/*`, строка инвентаря
+      ADR-0005, страницы Feature en и ru.
 - [ ] (вручную) Владелец принял Epic на Mac и на ПК.
