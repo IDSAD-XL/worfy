@@ -40,7 +40,7 @@ Code: `.scratch/worfy-harness-eval/issues/06-статика-skillevaluator.md:11
 
 ```md
 - **Hook-и и `bin/` Tier 1 не сканировал вовсе.** Ни одной находки по `hooks/hooks.json`, в выводе нет слова «hook»;
-  ожидаемая по их docs находка BH1 «hook payload unmodeled» не пришла ни на один из 20 command hook-ов. Это совпадает с
+  ожидаемая по их docs находка BH1 «hook payload unmodeled» не пришла ни на один из 21 command hook-а. Это совпадает с
   открытым issue #495 их репозитория (у plugin-а сканируются только bundled skills), а не с `docs/tier1-reference.mdx:362`. Значит,
   hook-и и скрипты Harness этой статикой не проверены.
 ```
