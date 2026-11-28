@@ -1,0 +1,5 @@
+interface:
+  display_name: "Human Review Setup"
+  short_description: "Build a reviewer in the team's voice"
+policy:
+  allow_implicit_invocation: false

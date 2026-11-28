@@ -1,0 +1,5 @@
+interface:
+  display_name: "Overnight Fix Loop"
+  short_description: "Fix modules unattended overnight"
+policy:
+  allow_implicit_invocation: false

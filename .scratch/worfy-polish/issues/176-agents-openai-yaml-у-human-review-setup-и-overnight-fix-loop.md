@@ -1,7 +1,8 @@
 # 176 — `agents/openai.yaml` у skill-ов `human-review-setup` и `overnight-fix-loop`: Codex не вызывает их сам
 
 Type: task
-Status: open
+Status: claimed 2026-11-28T07:10Z
+Branch: worfy-polish/176
 Blocked by: None — can start immediately
 Source: решение владельца 2026-11-28 по worfy-harness-eval 06 (одноразовая статика SkillEvaluator по 35 skill-ам Harness,
 PR #2350, «Итог», «Вопросы владельцу», вопрос 1: «да, добавить `agents/openai.yaml` с `allow_implicit_invocation: false`
