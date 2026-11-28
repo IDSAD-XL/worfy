@@ -76,3 +76,32 @@ Code: `.scratch/worfy-harness-eval/issues/06-статика-skillevaluator.md:11
 2. Почему отсутствие находок по hook-ам — не «hook-и чисты»?
    Ответ: Tier 1 по plugin-у hook-и и `bin/` не сканировал вовсе: даже ожидаемая шумовая BH1 не пришла.
    Lines: `.scratch/worfy-harness-eval/issues/06-статика-skillevaluator.md:117-120`
+
+## 6. Что нашёл review и что осталось
+
+> VERIFIED — round 1 found one low finding only (the «Итог» said 20 command hooks; hooks.json has 21); the Orchestrator fixed it in the ticket and its Code story (3a184a515; story-check ok). The reviewer's report of head a276855d4 follows.
+>
+> Reviewer's line was: REJECTED: [low] the «Итог» says Harness has 20 command hooks, but `harness/hooks/hooks.json` on origin/main has 21
+>
+> - `.scratch/worfy-harness-eval/issues/06-статика-skillevaluator.md:118`: [low] The text says the BH1 finding («hook payload unmodeled») came for none of the «20 command hook-ов». `git show origin/main:harness/hooks/hooks.json | grep -c '"type": *"command"'` returns 21. That folder is the same at commit `1f66f5994`, the main commit the run used, so the number is wrong at the time of the run too. Fix: write 21.
+> - `…issues/06-статика-skillevaluator.md:134`: question, not a finding. The `body_heading` row (skill body has no `# heading` after the frontmatter) lists 12 skills. On origin/main `to-questionnaire/SKILL.md` also starts its body with plain text, which makes 13. The row may simply copy what SkillEvaluator printed. I did not rerun the tool, so I cannot tell whether the tool missed it or the row did.
+> - These claims held on origin/main `0bfb5e57d`, where `harness/skills` and `harness/hooks` are unchanged since `1f66f5994` (`git diff --quiet` exit 0):
+>   - There are 35 skills.
+>   - `epic-wave/SKILL.md` is 162 984 bytes (`wc -c`).
+>   - 13 skills set `disable-model-invocation: true`. 11 of them have `agents/openai.yaml` with `allow_implicit_invocation: false`; `human-review-setup` and `overnight-fix-loop` do not.
+>   - `argument-hint` is used only by handoff, owner-check and teach.
+>   - The XML-tag list matches exactly: connect-project, max-review, overnight-fix-loop, owner-check, pr-fix, pr-reply, ship-ticket.
+>   - The cited lines match: epic-wave `:967/:1538/:1543`, pr-fix `:29`, human-review-setup `:188`, tdd `mocking.md:45`, to-questionnaire `:9`.
+>   - Descriptions total 9 684 characters by my rough YAML parse against the claimed 9 668. The gap comes from how quotes and folded lines are counted; it is not a finding.
+> - The «Готово, когда» items (done-when checklist) are all `[ ]`, and each has an evidence line. Commit `8671e4405` is in the branch (`merge-base --is-ancestor` exit 0). The `ci-ok` CI check is stated green in your brief.
+> - The owner decisions line at `:154` matches your brief: 1 yes (openai.yaml for both skills), 2 yes (split epic-wave into step files like ship-ticket), 3 yes (shorter descriptions, trigger first), 4 no.
+> - The Q1–Q3 follow-up work is not ticketed. On origin/main nothing in `.scratch` mentions openai.yaml or the epic-wave split for this work; the hits are older tickets from other epics. The last worfy-polish ticket is 174. Line `:154` says the Orchestrator will open these tickets in worfy-polish; that is still to do.
+> - What I ran:
+>   - `bin/profile` exit 0.
+> [line 20 of the verdict is not quoted: personal data (home-path)]
+>   - `git show`/`wc -c`/`grep`/`node` spot checks, 10+ claims.
+> - Could not verify: the SkillEvaluator outputs themselves (degraded/loads results, Tier 1 counts, the 25/35 incomplete scans, the tool versions). The tool and its temporary environment were deleted, and I did not reinstall it.
+>
+> Nothing else found.
+>
+> Review depth: low — ticket

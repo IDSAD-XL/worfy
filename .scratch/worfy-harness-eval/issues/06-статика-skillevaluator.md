@@ -1,7 +1,7 @@
 # 06: Статика SkillEvaluator по 35 skill-ам
 
 Type: task
-Status: claimed 2026-11-28T03:00Z
+Status: done 2026-11-28T07:53Z
 PR: #2350
 Branch: worfy-harness-eval/06
 Blocked by: None — can start immediately
@@ -52,12 +52,16 @@ Source: [spec.md](../spec.md), «Ticket-ы», 06; «Решения владел�
 
 - [ ] `harness-check` по 35 skill-ам для Claude Code и Codex — таблица в «Итог».
   - evidence: commit pass · worfy-harness-eval/06: one-off SkillEvaluator static check of the 35 Harness skills · - - · 8671e440572e36066da9b25b2a036d802aa12fe7
+  - evidence: review pass · PR #2350 · - - · 3a184a515212e0112d42e66ee573c26c12f0a79f
 - [ ] Tier 1 по plugin-у и по skill-ам — находки High и Critical в «Итог» или причина `INCOMPLETE`.
   - evidence: commit pass · worfy-harness-eval/06: one-off SkillEvaluator static check of the 35 Harness skills · - - · 8671e440572e36066da9b25b2a036d802aa12fe7
+  - evidence: review pass · PR #2350 · - - · 3a184a515212e0112d42e66ee573c26c12f0a79f
 - [ ] Версии и commit main в «Итог»; временное окружение удалено.
   - evidence: commit pass · worfy-harness-eval/06: one-off SkillEvaluator static check of the 35 Harness skills · - - · 8671e440572e36066da9b25b2a036d802aa12fe7
+  - evidence: review pass · PR #2350 · - - · 3a184a515212e0112d42e66ee573c26c12f0a79f
 - [ ] `pnpm lint` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: test-run pass · `pnpm lint` exit 0 · mac - · 8671e440572e36066da9b25b2a036d802aa12fe7
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/46118787535/job/140899312864 · ci - · 3a184a515212e0112d42e66ee573c26c12f0a79f
 
 ## Итог
 
