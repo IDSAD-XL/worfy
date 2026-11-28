@@ -80,13 +80,19 @@ draft, `land --check`»); «Решения по test-ам», Seams (`land`) и �
 ## Готово, когда
 
 - [ ] `land` не сливает draft: строка `waits — draft` (shell test, красный на старом коде).
+  - evidence: test-run pass · `bash harness/bin/tests/land-verification.test.sh` exit 0 · mac - · 1053c3b169c62803d406ee5042a51cd111f631d7
 - [ ] `land` не сливает PR, который правит путь проверки вне trail-а своего Ticket-а на вершине base branch; PR без
       Ticket-а с путём проверки ждёт владельца; ветка старше расширения trail-а не ждёт (shell test-ы).
+  - evidence: test-run pass · `bash harness/bin/tests/land-verification.test.sh` exit 0 · mac - · 1053c3b169c62803d406ee5042a51cd111f631d7
 - [ ] Строка `land` и отчёт Wave называют пути проверок каждого PR, и PR, который расширяет trail, тоже.
+  - evidence: test-run pass · `bash harness/bin/tests/land-verification.test.sh` exit 0 · mac - · 1053c3b169c62803d406ee5042a51cd111f631d7
 - [ ] Имя check-а CI берётся из `workflow.ci_check`; state file с другим именем отказан.
+  - evidence: test-run pass · `bash harness/bin/tests/land-verification.test.sh` exit 0 · mac - · 1053c3b169c62803d406ee5042a51cd111f631d7
 - [ ] `land --check <N>` отвечает за один PR без state file: exit 0, 1 с причиной одной строкой, 2; время ответа — в
       «Итог».
+  - evidence: test-run pass · `bash harness/bin/tests/land-verification.test.sh` exit 0 · mac - · 1053c3b169c62803d406ee5042a51cd111f631d7
 - [ ] Helper чтения trail-а лежит в `harness/lib/` и готов для guard-а Ticket-а 03.
+  - evidence: test-run pass · `pnpm test test/unit/ticket-trail.test.ts` exit 0 · mac - · 1053c3b169c62803d406ee5042a51cd111f631d7
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR, включая Windows verdict.
 
 ## Итог
@@ -131,3 +137,8 @@ draft, `land --check`»); «Решения по test-ам», Seams (`land`) и �
 - Сначала падающий test: `land-verification.test.sh` на старом `land` — 16 FAIL из 19 (draft сливался: `#1 merged
   …`; пути проверок, `ci_check` и `--check` не читались).
 - Feature page `docs/features/gate-and-github.md` — абзац «Drafts and verification paths» (полный текст — Ticket 12).
+- Вне trail-а, потому что без этого красные test-ы: `harness/evals/lib/coverage.json` (карта eval runner-а: кто грузит
+  `lib/ticket-trail.cjs` и `lib/verification-paths.cjs`) и `harness/lib/README.md` (список модулей `lib/`).
+- Gate fast на Mac — exit 2: 27 test-ов file watcher-ов (`docs.test.ts`, `docs-watch-root.test.ts`,
+  `product-watch.test.ts`, `workflow-reader.test.ts` и др., `fs.watch` не сообщает об изменении). `src/` эта правка не
+  трогает; это известная проблема `fseventsd` на этом Mac. Вердикт — CI.
