@@ -44,6 +44,8 @@ const subagent = (id: string, children: SubagentInfo[] = []): SubagentInfo => ({
 })
 
 const asked: { channel: string; input: unknown }[] = []
+/** The calls a window on a Linked machine sent through `linked.invoke`, with the Machine they went to. */
+const linkedAsked: { machine: string; channel: string; input: unknown }[] = []
 let settings: AppSettings
 /** Why `product.topic` fails, when the test makes it fail. */
 let topicFails: string | undefined
@@ -82,8 +84,15 @@ beforeEach(() => {
   transcripts = {}
   transcriptGate = undefined
   settings = defaultAppSettings()
+  linkedAsked.length = 0
   const bridge = {
-    invoke: (channel: string, input: unknown) => {
+    invoke: (channel: string, input: unknown): Promise<unknown> => {
+      if (channel === 'linked.invoke') {
+        // A window on a Linked machine (worfy-polish ticket 173): this Machine's main passes the call on and wraps the answer.
+        const call = input as { machine: string; channel: string; input: unknown }
+        linkedAsked.push(call)
+        return bridge.invoke(call.channel, call.input).then((inner) => ({ ok: true, value: inner }))
+      }
       asked.push({ channel, input })
       if (channel === 'appSettings.get') return Promise.resolve({ ok: true, value: settings })
       if (channel === 'appSettings.set') {
@@ -952,34 +961,138 @@ describe('the Mind map pane of a Product Session', () => {
     if (!hadObserver) delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver
   })
 
-  it('draws the Mind map of the topic whose files changed, and shows that topic again when the Session is opened once more', async () => {
+  // worfy-polish ticket 173: the map shows the topic of the Session's own last `mind_map_*` call, from its events;
+  // a change of the Project's topics (`product.changed`) by another Session or a first read does not switch it.
+  const PRICING: ProductTopicState = { ...TOPIC, name: 'pricing', folder: '/demo/docs/product/pricing', title: 'Pricing', nodes: [{ id: 'per-seat', kind: 'idea', text: 'Charge per seat', from: null }] }
+  const MIND = 'mcp__worfy-mind-map__'
+  /** A `mind_map_*` call of the Session with its answer; `parent` — a call of its Subagent. */
+  const mindCall = (id: string, topic: string, { tool = 'mind_map_add', isError = false, parent = null }: { tool?: string; isError?: boolean; parent?: string | null } = {}): AgentEvent[] => [
+    { type: 'tool_use', id, name: MIND + tool, input: { topic, kind: 'idea', text: 'Sell to small teams', from: null }, parentToolUseId: parent },
+    { type: 'tool_result', toolUseId: id, content: isError ? 'refused' : JSON.stringify(TOPIC.nodes[0]), isError, parentToolUseId: parent },
+  ]
+  const topicAsks = () => asked.filter((each) => each.channel === 'product.topic').map((each) => each.input)
+  const mapText = async (text: string) => expect(within(await screen.findByTestId('mind-map')).getAllByText(text)).not.toHaveLength(0)
+
+  /** The header's topic and the pane of Node `nodeId`, as SessionView draws them; the returned function draws another Node in the same tree, as SessionView does without a key. */
+  async function mountSession(nodeId: string, events: readonly AgentEvent[]) {
+    const { ProductSessionPanel, ProductTopicName } = await import('../../src/renderer/session/ProductSessionPanel')
+    const tree = (node: string, list: readonly AgentEvent[]) => (
+      <>
+        <h1>
+          Product Session
+          <ProductTopicName projectId="alpha" nodeId={node} fallback="demo" events={list} />
+        </h1>
+        <ProductSessionPanel projectId="alpha" nodeId={node} sessionId={`live-${node}`} events={list}>
+          <section aria-label="Session">chat</section>
+        </ProductSessionPanel>
+      </>
+    )
+    const view = render(tree(nodeId, events))
+    await vi.waitFor(() => expect(asked.some((each) => each.channel === 'appSettings.get')).toBe(true))
+    await settle()
+    return async (node: string, list: readonly AgentEvent[]) => {
+      view.rerender(tree(node, list))
+      await settle()
+    }
+  }
+  const heading = () => screen.getByRole('heading', { level: 1 }).textContent
+
+  it('draws the Mind map of the topic of the Session’s own last call, and shows that topic again when the Session is opened once more', async () => {
     await mount()
     expect(screen.getByTestId('product-session-map-empty')).toBeTruthy()
-    // Another Project's topic, and a topic whose folder is gone, change nothing.
-    act(() => {
-      emit('product.changed', { projectId: 'beta', name: 'demo-roadmap', topic: TOPIC })
-      emit('product.changed', { projectId: 'alpha', name: 'gone', topic: null })
-    })
-    expect(screen.getByTestId('product-session-map-empty')).toBeTruthy()
+    // A change of the Project's topics, by another Session or a first read of a topic, switches nothing.
     act(() => {
       emit('product.changed', { projectId: 'alpha', name: 'demo-roadmap', topic: TOPIC })
     })
-    const map = await screen.findByTestId('mind-map')
-    expect(within(map).getByText('Sell to small teams')).toBeTruthy()
-    expect(asked.filter((each) => each.channel === 'product.topic').map((each) => each.input)).toEqual([{ projectId: 'alpha', name: 'demo-roadmap' }])
+    expect(screen.getByTestId('product-session-map-empty')).toBeTruthy()
+    expect(topicAsks()).toEqual([])
+    cleanup()
+
+    // A refused call and a call of the Session's Subagent name no topic of the Session; its own call does.
+    await mount([...mindCall('refused', 'gone', { isError: true }), ...mindCall('own', 'demo-roadmap'), ...mindCall('agent', 'pricing', { parent: 'task-1' })])
+    await mapText('Sell to small teams')
+    expect(topicAsks()).toEqual([{ projectId: 'alpha', name: 'demo-roadmap' }])
     expect(screen.queryByTestId('product-session-map-empty')).toBeNull()
 
     cleanup()
     await mount()
-    expect(within(await screen.findByTestId('mind-map')).getByText('Sell to small teams')).toBeTruthy()
+    await mapText('Sell to small teams')
+  })
+
+  it('a Session opened for the first time draws its map at once, with no product.changed and no chip: product.topic is asked once', async () => {
+    await mount(mindCall('own', 'demo-roadmap'))
+    await mapText('Sell to small teams')
+    expect(topicAsks()).toEqual([{ projectId: 'alpha', name: 'demo-roadmap' }])
+  })
+
+  it('switching to another Session switches the map and the header to its topic; another Session’s write to its own topic leaves it', async () => {
+    otherTopics = { pricing: PRICING }
+    const show = await mountSession('n1', mindCall('n1-add', 'demo-roadmap'))
+    await mapText('Sell to small teams')
+    await vi.waitFor(() => expect(heading()).toBe('Product Session · Demo roadmap'))
+    await show('n2', mindCall('n2-add', 'pricing'))
+    await mapText('Charge per seat')
+    await vi.waitFor(() => expect(heading()).toBe('Product Session · Pricing'))
+    // The advisor of n1 writes its topic again.
+    act(() => {
+      emit('product.changed', { projectId: 'alpha', name: 'demo-roadmap', topic: TOPIC })
+    })
+    await settle()
+    await mapText('Charge per seat')
+    expect(heading()).toBe('Product Session · Pricing')
+    // Back to n1: its own topic again.
+    await show('n1', mindCall('n1-add', 'demo-roadmap'))
+    await mapText('Sell to small teams')
+    await vi.waitFor(() => expect(heading()).toBe('Product Session · Demo roadmap'))
+  })
+
+  // The same in a window on Linked machine `studio`: the transcript the events come from is read from there, the
+  // topic goes through `linked.invoke`, its changes come back as `linked.event`. No real connection.
+  describe('in a window on a Linked machine', () => {
+    const MACHINE = 'studio'
+    beforeEach(() => window.history.replaceState(null, '', `/?machine=${MACHINE}`))
+    afterEach(() => window.history.replaceState(null, '', '/'))
+    const linkedTopicAsks = () => linkedAsked.filter((each) => each.channel === 'product.topic')
+
+    it('a Session started on the other Machine draws its map at first opening here, with no click', async () => {
+      await mount(mindCall('own', 'demo-roadmap'))
+      await mapText('Sell to small teams')
+      expect(linkedTopicAsks()).toEqual([{ machine: MACHINE, channel: 'product.topic', input: { projectId: 'alpha', name: 'demo-roadmap' } }])
+    })
+
+    it('switching Sessions switches the map; another Session’s write that comes as linked.event leaves it', async () => {
+      otherTopics = { pricing: PRICING }
+      const show = await mountSession('n1', mindCall('n1-add', 'demo-roadmap'))
+      await mapText('Sell to small teams')
+      await show('n2', mindCall('n2-add', 'pricing'))
+      await mapText('Charge per seat')
+      await vi.waitFor(() => expect(heading()).toBe('Product Session · Pricing'))
+      act(() => {
+        emit('linked.event', { machine: MACHINE, channel: 'product.changed', payload: { projectId: 'alpha', name: 'demo-roadmap', topic: TOPIC } })
+      })
+      await settle()
+      await mapText('Charge per seat')
+      expect(heading()).toBe('Product Session · Pricing')
+      expect(linkedTopicAsks().map((each) => (each.input as { name: string }).name)).toEqual(['demo-roadmap', 'pricing'])
+    })
+  })
+
+  it('with no topic call in the loaded transcript it shows the topic this window kept for the Node; product.changed of another topic does not change it', async () => {
+    otherTopics = { pricing: PRICING }
+    localStorage.setItem('worfy.productSession.topic:alpha:node-1', 'demo-roadmap')
+    await mount([{ type: 'tool_use', id: 'read-1', name: 'Read', input: { file_path: '/demo/docs/product/pricing/map.md' }, parentToolUseId: null }, result('read-1')])
+    await mapText('Sell to small teams')
+    act(() => {
+      emit('product.changed', { projectId: 'alpha', name: 'pricing', topic: PRICING })
+    })
+    await settle()
+    await mapText('Sell to small teams')
+    expect(localStorage.getItem('worfy.productSession.topic:alpha:node-1')).toBe('demo-roadmap')
   })
 
   it('says why when the topic cannot be read, instead of the empty state', async () => {
     topicFails = 'EACCES: permission denied'
-    await mount()
-    act(() => {
-      emit('product.changed', { projectId: 'alpha', name: 'demo-roadmap', topic: TOPIC })
-    })
+    await mount(mindCall('own', 'demo-roadmap'))
     const alert = await screen.findByRole('alert')
     expect(alert.textContent).toBe('Could not read the Mind map: EACCES: permission denied')
     expect(screen.queryByTestId('product-session-map-empty')).toBeNull()
@@ -988,15 +1101,10 @@ describe('the Mind map pane of a Product Session', () => {
 
   // worfy-polish ticket 147 (audit finding 63): a chip of the chat names a node of another topic than the one
   // the map shows. Its click switches the map to that topic and selects the node; a topic that is gone says so.
-  const PRICING: ProductTopicState = { ...TOPIC, name: 'pricing', folder: '/demo/docs/product/pricing', title: 'Pricing', nodes: [{ id: 'per-seat', kind: 'idea', text: 'Charge per seat', from: null }] }
-
   it('a chip of a node of another topic switches the map to that topic, and the node is selected', async () => {
     otherTopics = { pricing: PRICING }
-    await mount()
-    act(() => {
-      emit('product.changed', { projectId: 'alpha', name: 'demo-roadmap', topic: TOPIC })
-    })
-    expect(within(await screen.findByTestId('mind-map')).getByText('Sell to small teams')).toBeTruthy()
+    await mount(mindCall('own', 'demo-roadmap'))
+    await mapText('Sell to small teams')
     const { pickNode } = await import('../../src/renderer/product/node-chips')
     // What a chip's click does (NodeChips.tsx).
     act(() => pickNode({ projectId: 'alpha', topic: 'pricing', id: 'per-seat' }))
@@ -1006,18 +1114,32 @@ describe('the Mind map pane of a Product Session', () => {
     expect(within(screen.getByTestId('mind-map')).queryByText('Sell to small teams')).toBeNull()
   })
 
+  it('after a chip of another topic, the Session’s next topic call takes the map back to its topic', async () => {
+    otherTopics = { pricing: PRICING }
+    const first = mindCall('own-1', 'demo-roadmap')
+    const show = await mountSession('n1', first)
+    await mapText('Sell to small teams')
+    const { pickNode } = await import('../../src/renderer/product/node-chips')
+    act(() => pickNode({ projectId: 'alpha', topic: 'pricing', id: 'per-seat' }))
+    await mapText('Charge per seat')
+    await vi.waitFor(() => expect(heading()).toBe('Product Session · Pricing'))
+    // The same events again (a new array, as a live event of another kind makes) keep the chip's choice.
+    await show('n1', [...first, { type: 'notice', kind: 'user', text: 'and the price?' }])
+    await mapText('Charge per seat')
+    await show('n1', [...first, { type: 'notice', kind: 'user', text: 'and the price?' }, ...mindCall('own-2', 'demo-roadmap', { tool: 'mind_map_update' })])
+    await mapText('Sell to small teams')
+    await vi.waitFor(() => expect(heading()).toBe('Product Session · Demo roadmap'))
+  })
+
   it('a chip of a topic that is gone keeps the map and says so in a toast with the topic’s name', async () => {
     otherTopics = { archived: null }
     const { toasts } = await import('../../src/renderer/toast/toasts')
-    await mount()
-    act(() => {
-      emit('product.changed', { projectId: 'alpha', name: 'demo-roadmap', topic: TOPIC })
-    })
-    expect(within(await screen.findByTestId('mind-map')).getByText('Sell to small teams')).toBeTruthy()
+    await mount(mindCall('own', 'demo-roadmap'))
+    await mapText('Sell to small teams')
     const { pickNode } = await import('../../src/renderer/product/node-chips')
     act(() => pickNode({ projectId: 'alpha', topic: 'archived', id: 'old-node' }))
     await vi.waitFor(() => expect(toasts.getState().toasts.map((toast) => toast.text)).toEqual([expect.stringContaining('archived')]))
-    expect(within(await screen.findByTestId('mind-map')).getByText('Sell to small teams')).toBeTruthy()
+    await mapText('Sell to small teams')
   })
 })
 

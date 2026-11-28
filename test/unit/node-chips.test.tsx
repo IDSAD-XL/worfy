@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentEvent } from '../../src/shared/agent/events'
 import type { ProductTopicState } from '../../src/shared/ipc/product'
 import { MindMap } from '../../src/renderer/product/MindMap'
-import { CHIPS_AT_END, messageQuote, quoteLabel, showMessage, transcriptChips, useMindMapFocus } from '../../src/renderer/product/node-chips'
+import { CHIPS_AT_END, messageQuote, quoteLabel, sessionTopicCall, showMessage, transcriptChips, useMindMapFocus } from '../../src/renderer/product/node-chips'
 import { invoke } from '../../src/renderer/ipc'
 import { foldTranscript } from '../../src/renderer/session/fold'
 import { ProductSessionContext, shownInProductChat } from '../../src/renderer/session/product-session'
@@ -547,5 +547,40 @@ describe('chips of Mind map nodes under a message', () => {
     expect(messageQuote(1, 'advisor', '**Two** lines\n\n- and a list').text).toBe('Two lines - and a list')
     expect(quoteLabel({ number: 5, who: 'advisor', text: 'x' })).toBe('#5 Advisor')
     expect(quoteLabel({ number: 1, who: 'you', text: 'x' })).toBe('#1 You')
+  })
+})
+
+// worfy-polish ticket 173: the topic a Product Session's Mind map shows is the one of the Session's own last call
+// that names a topic, counted as the chips count calls: the main thread only.
+describe('the topic of a Session by its own calls (sessionTopicCall)', () => {
+  const READ = 'mcp__worfy-mind-map__mind_map_read'
+  const REMOVE = 'mcp__worfy-mind-map__mind_map_remove'
+  const topicOf = (list: readonly AgentEvent[]) => sessionTopicCall(foldTranscript(list))
+
+  it('takes the topic of the last successful add, update, decide or read with a topic, and names that call', () => {
+    expect(topicOf([prompt('hi'), call('a1', ADD, { topic: 'roadmap' }), answer('a1', TEAMS)])).toEqual({ topic: 'roadmap', call: 'a1' })
+    expect(topicOf([call('a1', ADD, { topic: 'roadmap' }), answer('a1', TEAMS), call('u1', UPDATE, { topic: 'pricing', id: 'x' }), answer('u1', TEAMS)])).toEqual({ topic: 'pricing', call: 'u1' })
+    expect(topicOf([call('a1', ADD, { topic: 'roadmap' }), answer('a1', TEAMS), call('d1', DECIDE, { topic: 'pricing', id: 'x' }), answer('d1', TEAMS)])).toEqual({ topic: 'pricing', call: 'd1' })
+    expect(topicOf([call('a1', ADD, { topic: 'roadmap' }), answer('a1', TEAMS), prompt('next'), call('r1', READ, { topic: 'pricing' }), answer('r1', '{}')])).toEqual({ topic: 'pricing', call: 'r1' })
+  })
+
+  it('leaves out a failed call, one with no result yet, a read with no topic, mind_map_remove, other tools and a Subagent’s calls', () => {
+    const first = [call('a1', ADD, { topic: 'roadmap' }), answer('a1', TEAMS)]
+    const later: AgentEvent[] = [
+      call('a2', ADD, { topic: 'refused' }),
+      answer('a2', 'invalid topic', true),
+      call('a3', ADD, { topic: 'pending' }),
+      call('r1', READ, {}),
+      answer('r1', '{}'),
+      call('x1', REMOVE, { topic: 'removed', id: 'x' }),
+      answer('x1', '{}'),
+      call('w1', 'Write', { topic: 'other', file_path: '/x' }),
+      answer('w1', 'ok'),
+      { type: 'tool_use', id: 's1', name: ADD, input: { topic: 'subagent' }, parentToolUseId: 'agent-1' },
+      { type: 'tool_result', toolUseId: 's1', content: JSON.stringify(TEAMS), isError: false, parentToolUseId: 'agent-1' },
+    ]
+    expect(topicOf([...first, ...later])).toEqual({ topic: 'roadmap', call: 'a1' })
+    expect(topicOf(later)).toBeNull()
+    expect(topicOf([])).toBeNull()
   })
 })

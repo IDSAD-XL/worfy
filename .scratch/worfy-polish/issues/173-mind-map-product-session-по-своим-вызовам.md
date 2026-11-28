@@ -1,7 +1,8 @@
 # 173 — Mind map Product Session показывает тему своей Session, а не последнюю изменённую в Project-е
 
 Type: bug
-Status: open
+Status: claimed 2026-11-28T05:20Z
+Branch: worfy-polish/173
 Blocked by: None — can start immediately
 Source: два bug-а владельца 2026-11-28, оба про Link (Link — связь двух машин worfy: гость смотрит и ведёт Session-ы
 хоста). Слова владельца:
@@ -130,3 +131,28 @@ Root cause у обоих bug-ов один: тема, чей Mind map рисуе
       сразу, без клика по идее в чате.
   - needs: mac stable, windows stable
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+
+## Итог
+
+- Тема карты и заголовка Product Session теперь берётся из вызовов самой Session: `sessionTopicCall`
+  (`src/renderer/product/node-chips.ts`) ищет в свёрнутом `foldTranscript` транскрипте последний удачный
+  `mind_map_add`, `mind_map_update`, `mind_map_decide` или `mind_map_read` с `topic`. Свёртка та же, что у чипов,
+  поэтому вызовы Subagent-ов не считаются, как и в `transcriptChips`. `ProductTopicName` получает те же `events`, что
+  панель (`SessionView.tsx`); свёртка делается один раз на массив событий (`WeakMap` в `ProductSessionPanel.tsx`).
+- Подписка панели на `product.changed` Project-а убрана: событие другой Session и первое чтение темы watcher-ом больше
+  не переключают карту. `useMindMap` по-прежнему обновляет копию показанной темы по `product.changed`. Других
+  подписчиков, которых это событие переключало бы, в renderer нет (`grep 'product.changed' src/renderer`: только
+  `useMindMap` и счётчик принятых советов в заголовке). Main не менялся.
+- Чип другой темы переключает карту до следующего вызова Session: выбор чипа хранит id последнего вызова Session на
+  момент клика; новый вызов (другой id) возвращает карту к теме Session.
+- localStorage по Node остаётся запасом: пишется из вызовов Session и из клика по чипу, читается, только пока в
+  загруженной части транскрипта нет ни одного такого вызова.
+- Test-ы сначала красные: на коде `origin/main` (без правки панели) 10 test-ов блока «the Mind map pane of a Product
+  Session» в `test/unit/product-session-panel.test.tsx` падали — переключение Session (bug 1), первое открытие без
+  событий (bug 2), оба случая в окне гостя через stub `linked.invoke` / `linked.event`, запас из localStorage, чип и
+  возврат после чипа. Test «draws the Mind map of the topic whose files changed…» переписан под новое поведение. В трёх
+  прежних test-ах (ошибка чтения темы, чип другой темы, чип пропавшей темы) тема теперь задаётся вызовом Session в
+  `events`, а не `product.changed`: старый способ больше не переключает карту; проверки этих test-ов не менялись.
+  Чистые test-ы `sessionTopicCall` — в `test/unit/node-chips.test.tsx`.
+- Абзац «Which topic shows» в `docs/features/product-session.md` и `docs/features/ru/product-session.md` переписан.
+- Ручной пункт (Mac-хост и ПК-гость через Link) не проверялся: нужен владелец на обеих машинах.
