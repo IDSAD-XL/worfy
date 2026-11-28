@@ -57,19 +57,19 @@ git -C "$R" worktree add -q -b misc "$N" main
 printf '%s' "$TICKET_07" | awk -v own="- \`$GW/main.yml\`" '{ print } /^## Where in code$/ { getline; print ""; print own }' >"$W/.scratch/ep/issues/07-x.md"
 git -C "$W" commit -q -am "own trail edit"
 mkdir -p "$W8/.scratch/ep/issues" && printf '# 08\n\n## Where in code\n\n- `'"$GW"'/main.yml`\n' >"$W8/.scratch/ep/issues/08-y.md"
-git -C "$W8" add -A && git -C "$W8" commit -q -m "ticket 08 on its branch"
+git -C "$W8" add -A && git -C "$W8" commit -q -m "the ticket of ep/08 on its branch"
 # D — a detached work tree, as worktree.reviewer makes it.
 D="$R/.claude/worktrees/review-x"
 git -C "$R" worktree add -q --detach "$D" main
 
 grep -q -- "- \`$GW/main.yml\`" <(sed -n '/^## Where in code/,/^## Done when/p' "$W/.scratch/ep/issues/07-x.md") \
     && [ -z "$(git -C "$W" status --porcelain)" ] && [ -z "$(git -C "$W8" status --porcelain)" ] \
-    && ok "setup: the trail edit of ep/07 and ticket 08 are committed on their branches" || bad "setup: the branch-side trail edits are not committed in the trail section"
+    && ok "setup: the trail edit of ep/07 and the ticket of ep/08 are committed on their branches" || bad "setup: the branch-side trail edits are not committed in the trail section"
 
 # M — a registered project of several repositories (its trail entries start with the repository name); P — a registered
 # project whose profile has no tickets.branch template. The guard does not check verification paths in either.
 M="$T/multi"; M2="$T/multi2"; P="$T/plain"
-for x in "$M" "$M2" "$P"; do git init -q -b main "$x" && printf 'x\n' >"$x/a.ts" && git -C "$x" add -A && git -C "$x" commit -q -m init && git -C "$x" checkout -q -b ep/07; done
+for x in "$M" "$M2" "$P"; do git init -q -b main "$x" && printf 'x\n' >"$x/a.ts" && git -C "$x" add -A && git -C "$x" commit -q -m init && git -C "$x" update-ref refs/remotes/origin/main HEAD && git -C "$x" checkout -q -b ep/07; done
 mkdir -p "$HARNESS_HOME/projects/mp" "$HARNESS_HOME/projects/pp"
 
 # S — the repository of a Silent project, on ep/07; its tickets live in the Workflow folder WF.

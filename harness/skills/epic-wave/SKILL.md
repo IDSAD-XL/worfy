@@ -544,10 +544,12 @@ same agent.
 verification path (`profile --field verification.paths`) outside the trail of its ticket on the base
 branch, and the implementer names the path in its report (`not_verified`). The orchestrator does
 not make the edit for it and does not tell it to go around the refusal. If the ticket really needs
-the path, it adds the path to the ticket's trail section in a documents PR to the base branch — such
-a PR changes the verification paths and `land` names it in its line — and, after that merge, tells
+the path, it adds the path to the ticket's trail section — in Full mode in a documents PR to the base
+branch (such a PR changes the verification paths and `land` names it in its line), in Silent mode in
+the ticket file in the Workflow folder, where the guard and `land` read it — and, after that, tells
 the same implementer through `SendMessage` to continue: the guard and `land` read the trail at the
-tip of the base branch, so the implementer's branch needs no rebase. If it does not, the ticket goes
+tip of the base branch (or in the Workflow folder), so the implementer's branch needs no rebase. A
+reviewer refused in its review tree mutates a copy outside the repository instead. If it does not, the ticket goes
 without that edit, and the report of the wave says so. A refused `ticket mark` from a subagent is
 the orchestrator's own step (it marks the head itself); a refused `profile-set` of
 `verification.*`, `workflow.ci_check`, `workflow.pipeline` or `workflow.merge` goes to the owner

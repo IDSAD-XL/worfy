@@ -13,12 +13,14 @@
 //                                          section
 //   namedByTrail(file, trail, options)     whether the file is one the trail names (a path, a glob, a folder "x/");
 //                                          options as isVerificationPath takes them ({platform, root})
-//   readTrail({repo, ref, branch, tickets, git, folder})
+//   readTrail({repo, ref, branch, tickets, git, folder, timeout})
 //                                          the ticket of the branch and its trail at ref (git show <ref>:<path>), or in
 //                                          folder (the tickets outside the repository, Silent mode): {ticket, trail,
 //                                          reason, unread?} — ticket {epic, nn, path} (path null when no single file
 //                                          of the ticket is there) or null when the branch names no ticket, trail a
 //                                          list or null, reason why either is missing; unread — git could not answer
+//                                          (timeout: the milliseconds each git call may take, none by default; one
+//                                          that runs out counts as git not answering)
 //
 // A trail entry is a span in single backticks, on a list item line of the section (as the worfy app reads the trail: a
 // plain paragraph, such as a "Read only: …" line written without a list marker, and a continuation line of an item allow
@@ -134,9 +136,10 @@ function literalDir(glob) {
 /**
  * The ticket of `branch` and its trail: read at `ref` of the repository with git, or, with `folder`, from the tickets
  * outside the repository (tickets.path taken from under tickets.root there). tickets: {branch, path, root, trail_section}
- * of the profile. git: the git executable (default "git").
+ * of the profile. git: the git executable (default "git"). timeout: the limit of each git call in milliseconds (a hook
+ * that must end within its own limit), none by default.
  */
-function readTrail({ repo, ref, branch, tickets, git = "git", folder = null }) {
+function readTrail({ repo, ref, branch, tickets, git = "git", folder = null, timeout = undefined }) {
     const t = tickets || {}
     const ticket = ticketOfBranch(branch, t.branch)
     if (!ticket) return { ticket: null, trail: null, reason: t.branch ? `the branch ${branch} is not ${t.branch}` : "the profile has no tickets.branch template" }
@@ -159,7 +162,7 @@ function readTrail({ repo, ref, branch, tickets, git = "git", folder = null }) {
             names = []
         }
     } else {
-        const ls = spawnSync(git, ["-c", "core.quotePath=false", "ls-tree", "-r", "-z", "--name-only", ref, "--", dir || "."], { cwd: repo, encoding: "utf8", windowsHide: true, maxBuffer: 64 << 20 })
+        const ls = spawnSync(git, ["-c", "core.quotePath=false", "ls-tree", "-r", "-z", "--name-only", ref, "--", dir || "."], { cwd: repo, encoding: "utf8", windowsHide: true, maxBuffer: 64 << 20, timeout })
         if (ls.error || ls.status !== 0)
             return { ticket: { ...ticket, path: null }, trail: null, reason: `git ls-tree ${ref} could not be read: ${((ls.error && ls.error.message) || ls.stderr || "").trim().split("\n")[0]}`, unread: true }
         names = ls.stdout.split("\0").filter(Boolean)
@@ -180,7 +183,7 @@ function readTrail({ repo, ref, branch, tickets, git = "git", folder = null }) {
             return { ticket: { ...ticket, path: file }, trail: null, reason: `${file} of the tickets folder could not be read: ${e.code || e.message}`, unread: true }
         }
     } else {
-        const show = spawnSync(git, ["show", `${ref}:${file}`], { cwd: repo, encoding: "utf8", windowsHide: true, maxBuffer: 64 << 20 })
+        const show = spawnSync(git, ["show", `${ref}:${file}`], { cwd: repo, encoding: "utf8", windowsHide: true, maxBuffer: 64 << 20, timeout })
         if (show.error || show.status !== 0) return { ticket: { ...ticket, path: file }, trail: null, reason: `git show ${ref}:${file} could not be read`, unread: true }
         text = show.stdout
     }

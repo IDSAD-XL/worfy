@@ -18,23 +18,28 @@
 // it only when the trail of its ticket names it: the ticket of the tree's branch by tickets.branch,
 // the trail read by lib/ticket-trail.cjs at the tip of worktree.base, or in the tickets folder when the
 // tickets live outside the repository — the rule bin/land merges by; as there, a symbolic link a command
-// makes (`ln -s`) counts wherever it is, and so does a folder above a verification path a command removes
-// or moves (`rm -r .github`). Refused: a path outside the trail,
-// a branch that names no ticket, a ticket with no trail at the base branch (a ticket only on its
-// branch), a profile that cannot be read. The main Session is not refused, and a folder no profile
-// covers is not checked. With the tickets outside the repository (Silent mode) a subagent's edit that
-// changes the trail section of a ticket there is refused too. A read that does not answer in time and a
-// hook that fails let the call through: bin/land checks the PR's diff at merge.
+// makes (`ln -s`) counts wherever it is, and so does a folder above a verification path a command may
+// write or remove whole (`rm -r .github`, `cp -R tmpl .github`, `mv`, `rsync`). Refused: a path outside the
+// trail, a branch that names no ticket, a ticket with no trail at the base branch (a ticket only on its
+// branch), and any verification path in a tree on a detached HEAD (a review tree: mutate a copy outside
+// the repository). The main Session is not refused; a folder no profile covers, a project of several
+// repositories and a profile without a tickets.branch template are not checked (checksPaths). With the
+// tickets outside the repository (Silent mode) a subagent's edit that changes the trail section of a
+// ticket there is refused too. A read that fails or runs out of the section's 8 s budget (bin/profile,
+// git, the trail read), and a failure inside the section, let the call through, as the spec has it
+// («Риски»: «Сбой guard открывает проход»): bin/land checks the PR's diff at merge.
 //
-// The refusal log. With WORFY_GUARD_LOG set (worfy sets it for the Sessions it starts), every refusal
-// appends one line of JSON to that file; without it — a terminal, say — the guard writes nothing:
+// The refusal log. With WORFY_GUARD_LOG set (a later ticket of the Harness guarantees epic, Journal and
+// Run history, has worfy set it for the Sessions it starts), every refusal appends one line of JSON to
+// that file; without it — a terminal, say — the guard writes nothing:
 //   {"time":"<ISO 8601>","rule":"<id>","agent":"<agent_type>"|null,"agent_id":"<id>"|null,
 //    "ticket":"<epic>/<NN>"|null,"tool":"<tool_name>","command":"<the command, or `<tool> <path>`, one
 //    line, at most 200 characters>","session":"<session_id>"|null,"cwd":"<directory>"}
-// agent null — the main Session; ticket — the ticket section 4 read for the decision, else null. The
-// rule ids: read-only-agent, interactive-shell, uncommitted-work, pipe-exit-code, workflow-traces,
-// verification-path, verification-path-no-ticket, verification-path-profile, ticket-trail-edit,
-// ticket-mark-subagent, profile-set-merge-fields.
+// agent_id null — the main Session (agent is agent_type, which the main thread of a Session started with
+// --agent carries too, so it does not tell a subagent); ticket — the ticket section 4 read for the
+// decision, else null. The rule ids: read-only-agent, interactive-shell, uncommitted-work, pipe-exit-code,
+// workflow-traces, verification-path, verification-path-no-ticket, verification-path-detached,
+// ticket-trail-edit, ticket-mark-subagent, profile-set-merge-fields.
 //
 // The decision is returned in the permissionDecision field. We always exit with zero: an error in
 // the hook itself must neither break the session nor silently let a call through unnoticed.
@@ -598,6 +603,8 @@ function lex(src) {
             at ??= i
             const from = i
             while (i < src.length && "<>&".includes(src[i])) i++
+            // `>|` writes even under noclobber: the bar is part of the operator, not a pipe
+            if (src[i] === "|" && src[i - 1] === ">") i++
             dropNext = true
             dropOp = src.slice(from, i)
         } else if (";&|\n()".includes(c)) {
@@ -996,10 +1003,15 @@ const PATH_STEP = "Write the need into your report; the Orchestrator adds the pa
 // terminal), never an agent's session.
 const MERGE_FIELDS = ["workflow.ci_check", "workflow.pipeline", "workflow.merge"]
 const guardedField = (f) => f === "verification" || f.startsWith("verification.") || f === "workflow" || MERGE_FIELDS.includes(f)
-// The time all the reads of this section share, well inside the hook's limit with section 3's two tries after it. A
-// read that runs out of it counts as not answered: the file is let through, as when the hook itself fails, and land
-// checks the PR at merge.
-const SECTION4_MS = 8000
+// The time all the reads of this section share — bin/profile, git rev-parse, git symbolic-ref and the git calls of the
+// trail read — well inside the hook's limit with section 3's two tries after it (8 + 2 × 10 s of 30 s). A read that fails
+// or runs out of it counts as not answered: the call is let through, as when the hook itself fails (spec, «Риски»:
+// «Сбой guard открывает проход»; bin/land checks the PR's diff at merge). A test may shorten it, never lengthen it.
+const SECTION4_MS = (() => {
+    const DEFAULT = 8000
+    const v = Number(process.env.CLAUDE_GUARD_READ_MS)
+    return Number.isInteger(v) && v > 0 ? Math.min(v, DEFAULT) : DEFAULT
+})()
 const section4Until = Date.now() + SECTION4_MS
 const section4Left = () => Math.max(1, section4Until - Date.now())
 const firstLine = (s) => String(s || "").trim().split("\n")[0]
@@ -1070,20 +1082,23 @@ function operands(args, valued = []) {
     return out
 }
 
-// The files a shell command writes or removes, as {abs, removes}: the targets of its write redirections, and the
-// operands of the common commands that write files (tee, cp, mv, install, ln, rm, rmdir, unlink, touch, truncate,
-// dd of=, sed -i, perl -i). A path is read the way its shell reads it (`~`, `$HOME`, variables the command sets, `cd`
-// before it; Git Bash paths on Windows); a word the guard cannot expand ($(…), an unknown variable) is skipped.
+// The files a shell command writes or removes, as {abs, folder, symlink}: the targets of its write redirections, and the
+// operands of the common commands that write files (tee, cp, mv, install, ln, rsync, rm, rmdir, unlink, touch, truncate,
+// dd of=, sed -i, perl -i); a folder copy (cp -r, -R, -a), mv and rsync write a whole folder at the destination, and rm
+// and the source of mv remove one. A path is read the way its shell reads it (`~`, `$HOME`, `$PWD`, variables the
+// command sets, `cd` or `pushd` before it; Git Bash paths on Windows); a word the guard cannot expand ($(…), an unknown
+// variable) is skipped.
 // shortcut: lexical, as every rule here: a script that writes a file itself (`node -e "…writeFileSync…"`), git
 // checkout or git apply are not read; bin/land checks the PR's diff at merge.
 function shellTargets(src) {
     const out = []
     const { flat } = flattenHeredocs(src)
     let dir = cwdOf()
-    const add = (word, removes = false, symlink = false) => {
-        const p = expandPath(word)
+    // folder — the command may write or remove a whole folder there, so a folder above a verification path counts too
+    const add = (word, folder = false, symlink = false) => {
+        const p = expandPath(word.replace(/^\$(?:PWD\b|\{PWD\})/, () => dir.replace(/\\/g, "/")))
         if (!p || /[$`]/.test(p) || /^\/dev\//.test(p)) return
-        out.push({ abs: path.resolve(dir, p), removes, symlink })
+        out.push({ abs: path.resolve(dir, p), folder, symlink })
     }
     for (const words of lex(flat)) {
         if (words.every((x) => /^[A-Za-z_][A-Za-z0-9_]*=/.test(x))) words.forEach(setShellVar)
@@ -1094,15 +1109,16 @@ function shellTargets(src) {
         if (!w.length) continue
         const prog = baseName(w[0])
         const args = w.slice(1)
-        if (prog === "cd") {
-            const to = args[0] === undefined ? "~" : args[0]
-            if (to !== "-") dir = path.resolve(dir, expandPath(to))
+        if (prog === "cd" || prog === "pushd") {
+            const to = operands(args)[0] ?? "~"
+            if (to !== "-" && !/^[+-]\d+$/.test(to)) dir = path.resolve(dir, expandPath(to))
             continue
         }
         const TARGET = ["-t", "--target-directory", "-S", "--suffix"]
         if (prog === "tee") operands(args).forEach((f) => add(f))
-        else if (prog === "cp" || prog === "mv" || prog === "install" || prog === "ln") {
-            const valued = prog === "install" ? [...TARGET, "-m", "--mode", "-o", "--owner", "-g", "--group"] : TARGET
+        else if (prog === "cp" || prog === "mv" || prog === "install" || prog === "ln" || prog === "rsync") {
+            const RSYNC = ["-e", "--rsh", "--exclude", "--include", "-f", "--filter", "--exclude-from", "--include-from", "--files-from", "--chmod", "--rsync-path", "--log-file", "-T", "--temp-dir", "--backup-dir", "--compare-dest", "--copy-dest", "--link-dest"]
+            const valued = prog === "install" ? [...TARGET, "-m", "--mode", "-o", "--owner", "-g", "--group"] : prog === "rsync" ? RSYNC : TARGET
             const ops = operands(args, valued)
             const ti = args.findIndex((a) => a === "-t" || a === "--target-directory")
             const td = args.find((a) => a.startsWith("--target-directory="))
@@ -1116,9 +1132,11 @@ function shellTargets(src) {
                 add(path.basename(dest), false, symlink)
                 continue
             }
-            add(dest, false, symlink)
+            // a folder copy (cp -r, -R, -a), a move and rsync may write a whole folder at the destination: `cp -R tmpl .github`
+            const whole = prog === "mv" || prog === "rsync" || (prog === "cp" && args.some((a) => /^-[a-zA-Z]*[rRa]/.test(a) || a === "--recursive" || a === "--archive"))
+            add(dest, whole, symlink)
             // the destination may be a folder: the file lands there under its own name
-            for (const s of sources) add(`${dest.replace(/[\\/]+$/, "")}/${path.basename(s)}`, false, symlink)
+            for (const s of sources) add(`${dest.replace(/[\\/]+$/, "")}/${path.basename(s.replace(/[\\/]+$/, ""))}`, whole, symlink)
             if (prog === "mv") sources.forEach((s) => add(s, true))
         } else if (prog === "rm" || prog === "rmdir" || prog === "unlink") operands(args).forEach((f) => add(f, true))
         else if (prog === "touch") operands(args, ["-t", "-d", "-r", "--date", "--reference"]).forEach((f) => add(f))
@@ -1262,7 +1280,7 @@ function ticketsPlace(profile, top) {
 }
 
 // The base branch the trail is read at: {name, ref} by worktree.base (origin/main → refs/remotes/origin/main), else the
-// branch origin/HEAD points to; null when neither tells.
+// branch origin/HEAD points to; null when neither tells (git symbolic-ref failed or ran out of the budget).
 function baseOf(profile, top) {
     let base = profile?.worktree?.base
     if (typeof base !== "string" || !base.trim()) {
@@ -1281,16 +1299,17 @@ function trailOf(profile, tree) {
     const { folder } = ticketsPlace(profile, tree.top)
     const base = folder ? null : baseOf(profile, tree.top)
     let t
-    if (!folder && !base) t = { ticket: null, trail: null, reason: "the base branch cannot be told: the profile has no worktree.base and origin/HEAD names none", where: "the base branch" }
+    // no base branch to read the trail at: the guard cannot tell, and land (which refuses such a profile) decides
+    if (!folder && !base) t = { ticket: null, trail: null, reason: "the base branch cannot be told", unread: true }
     else {
-        t = readTrail({ repo: tree.top, ref: base?.ref, branch: tree.branch, tickets: profile?.tickets || {}, git: GIT, folder })
+        t = readTrail({ repo: tree.top, ref: base?.ref, branch: tree.branch, tickets: profile?.tickets || {}, git: GIT, folder, timeout: section4Left() })
         t.where = folder ? "the tickets folder" : base.name
     }
     trailOfTree.set(tree.top, t)
     return t
 }
 
-// The files this call writes: {abs, removes, before?, after?} — after: the text a ticket file would have (undefined
+// The files this call writes: {abs, folder?, after?, edit?} — after: the text a ticket file would have (undefined
 // when the call does not tell it, null when the file goes away).
 function callTargets() {
     const input = payload?.tool_input || {}
@@ -1302,11 +1321,11 @@ function callTargets() {
         ops.forEach((o, k) => {
             const abs = path.resolve(cwd, expandPath(o.file))
             if (o.kind === "add") out.push({ abs, after: o.lines.filter((l) => l.startsWith("+")).map((l) => l.slice(1)).join("\n") })
-            else if (o.kind === "delete") out.push({ abs, removes: true, after: null })
+            else if (o.kind === "delete") out.push({ abs, folder: true, after: null })
             else if (o.kind === "update") {
                 const moved = ops[k + 1]?.kind === "move"
                 const body = moved ? ops[k + 1].lines : o.lines
-                out.push({ abs, removes: moved, edit: (text) => (moved ? null : applyHunks(text, body)) })
+                out.push({ abs, folder: moved, edit: (text) => (moved ? null : applyHunks(text, body)) })
             } else out.push({ abs, edit: () => undefined }) // the new place of a moved file
         })
         return out
@@ -1345,9 +1364,21 @@ function trailEdit(t, folder, heading) {
         `This edit ${afterTrail === undefined ? "may change" : "changes"} the trail section of ${rel} (${JSON.stringify(heading)}) in the tickets folder: ` +
             "outside the repository the guard and land read the trail from that file, so a subagent does not edit it. " +
             "Write the need into your report; the Orchestrator edits the trail." +
-            (afterTrail === undefined ? " Edit the other sections of the ticket with the Edit tool." : ""),
+            (afterTrail === undefined ? " Edit the other sections of the ticket with an edit whose old and new text the guard can read (a file edit, not a shell command)." : ""),
         "ticket-trail-edit"
     )
+}
+
+// Whether the guard checks verification paths for a project: a ticket branch template (tickets.branch with <epic> and
+// <NN>) and one repository.
+// shortcut: a project of several repositories is not checked — its trail entries start with the repository's name and
+// the guard compares paths from the root of one tree (lib/ticket-trail.cjs, the shortcut on several repositories: redo
+// when a project with several repositories gets a verification path check); nor is a profile without a ticket branch
+// template, where no branch can name a ticket. bin/land still checks their PRs at merge.
+function checksPaths(profile) {
+    const template = profile?.tickets?.branch
+    const repos = profile?._resolved?.repos
+    return typeof template === "string" && template.includes("<epic>") && template.includes("<NN>") && !(Array.isArray(repos) && repos.length > 1)
 }
 
 function verificationSection() {
@@ -1361,22 +1392,31 @@ function verificationSection() {
         // is read by the profile of the folder the call runs in
         const read = tree ? projectProfile(tree.top) : null
         const own = read?.profile ? read : projectProfile(cwdOf())
-        if (own?.profile) {
+        if (own?.profile && checksPaths(own.profile)) {
             const { folder } = ticketsPlace(own.profile, tree?.top || cwdOf())
             if (folder) trailEdit(t, realTarget(folder).real, own.profile.tickets?.trail_section)
         }
-        // a folder no profile covers: the section is silent, as section 3 is
-        if (!tree || read === null) continue
+        // a folder no profile covers: the section is silent, as section 3 is; a profile that could not be read (a
+        // failure or the end of the budget) lets the call through, and land checks the PR at merge
+        if (!tree || !read?.profile || !checksPaths(read.profile)) continue
         const profile = read.profile
         const list = verificationPaths(profile)
         // an absolute root: a relative one would resolve from the working directory (a realpath on macOS)
         const opts = { root: tree.top }
-        // the rule of bin/land: a verification path, or any symbolic link; and the folder above one a command removes
-        if (!(touchesVerificationPath(t.real, list, { ...opts, symlink: t.symlink === true }) || (t.removes && isVerificationParent(t.real, list, opts)))) continue
+        // the rule of bin/land: a verification path, or any symbolic link; and the folder above one a command may write or remove whole
+        if (!(touchesVerificationPath(t.real, list, { ...opts, symlink: t.symlink === true }) || (t.folder && isVerificationParent(t.real, list, opts)))) continue
         const rel = normalizePath(t.real, opts) + (t.symlink ? " (a symbolic link, which may point anywhere)" : "")
-        if (!profile)
-            deny(`${rel} is a verification path, and the profile of this project could not be read (bin/profile ${read.unread}), so no trail tells whether this ticket may edit it. ${PATH_STEP}.`, "verification-path-profile")
+        // a detached HEAD is a review tree (worktree.reviewer): no ticket, and a reviewer adds nothing to a trail
+        if (tree.branch === "HEAD")
+            deny(
+                `${rel} is a verification path, and this work tree is on a detached HEAD: a subagent edits no verification path in a review tree. ` +
+                    "Mutate a copy outside the repository (copy the folder into a temporary directory and run the test against the copy), " +
+                    "or name the change in your report.",
+                "verification-path-detached"
+            )
         const trail = trailOf(profile, tree)
+        // git did not answer (a failure, the end of the budget): the guard cannot tell, land decides at merge
+        if (trail.unread) continue
         if (trail.ticket) refusedTicket = `${trail.ticket.epic}/${trail.ticket.nn}`
         if (!trail.ticket)
             deny(
@@ -1390,7 +1430,11 @@ function verificationSection() {
     }
 }
 
-verificationSection()
+// A failure inside section 4 lets the call through (spec, «Риски»: «Сбой guard открывает проход»; land checks the diff
+// at merge), and section 3 still runs: process.exit inside deny() ends the hook before this catch.
+try {
+    verificationSection()
+} catch {}
 
 if (bash) silentCheck()
 

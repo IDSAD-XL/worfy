@@ -129,8 +129,23 @@ Seams (guard), «Сначала падающий test», 03, «Mutation testing�
   report; the Orchestrator adds the path to the trail».
 - Subagent — по `agent_id` (spike 01: `agent_type` есть и у главного потока Session с `--agent`); на Codex — `agent_type`
   или `agent_id`. Главная Session не отказывается. Отказ: ветка без Ticket-а, Ticket только на ветке («cannot be read at
-  origin/main»), профиль, который не читается (только для путей проверок). Папка без профиля (exit 3) — раздел молчит,
-  как раздел 3. Чтение, не ответившее за общий бюджет раздела 8 s, и упавший hook пропускают — путь закрывает `land`.
+  origin/main»). Папка без профиля (exit 3) — раздел молчит, как раздел 3.
+- Сбой открывает проход (spec, «Риски»: «Сбой guard открывает проход», страховка — `land`): профиль, который не
+  читается, `git rev-parse` / `symbolic-ref`, которые упали, неизвестная базовая ветка, trail, который не прочитан, и
+  исключение внутри раздела 4 пропускают вызов, раздел 3 при этом работает. Все чтения раздела — в общем бюджете 8 s
+  (`CLAUDE_GUARD_READ_MS` в test-е только сокращает его); `readTrail` получил параметр `timeout` для обоих вызовов
+  git — правка `harness/lib/ticket-trail.cjs` вне trail-а.
+- Review round 1: trail читается на `origin/main`, а не на HEAD ветки — test кладёт строку внутрь `## Where in code`,
+  коммитит её на ветке и ждёт отказа; worktree на detached HEAD (дерево reviewer-а) — отказ со своим id
+  `verification-path-detached` и текстом «mutate a copy outside the repository»; `harness/agents/reviewer.md` велит
+  мутировать путь проверки в копии вне репозитория. Известный предел: профиль без шаблона `tickets.branch` (`<epic>`,
+  `<NN>`) и профиль с несколькими репозиториями — раздел путей проверок молчит (условие переделки — то же, что в
+  `ticket-trail.cjs`: проекту с несколькими репозиториями понадобится проверка путей), это сказано в шапке `guard.mjs` и на feature page.
+- Запись папкой: проверка «папка над путём проверки» теперь и для цели `cp -r/-R/-a`, `mv` (оба конца), `rsync`;
+  `>|`, `$PWD/…`, `${PWD}/…` и `pushd` читаются; `2>&1` записью не считается; heredoc, где в тексте есть `ticket mark`,
+  проходит. `profile-set --field workflow` и форма `--field verification.paths` (через пробел) отказаны.
+- Долг: базовая ветка и корень Ticket-ов разрешаются в `guard.mjs` своим кодом, как в `land`, а не общим helper-ом —
+  оставлено по решению review, следующая правка обоих мест должна их свести.
 - Silent mode (и папка Ticket-ов вне репозитория): trail — из файла Ticket-а в папке; правка Subagent-ом, которая меняет
   пути trail-а (как их читает `trailPaths`), отказана; правка других разделов проходит; shell-запись в такой Ticket и
   patch, чьи hunk-и не сходятся, отказаны («may change»).
@@ -138,7 +153,7 @@ Seams (guard), «Сначала падающий test», 03, «Mutation testing�
   `verification`, `verification.*`, `workflow`, `workflow.ci_check`, `workflow.pipeline`, `workflow.merge` (и запись
   Pipeline без `--field`) отказан любой Session агента; `--read` и `--check` проходят.
 - Один `deny(reason, rule)`: у каждого правила свой id (`verification-path`, `verification-path-no-ticket`,
-  `verification-path-profile`, `ticket-trail-edit`, `ticket-mark-subagent`, `profile-set-merge-fields` и старые
+  `verification-path-detached`, `ticket-trail-edit`, `ticket-mark-subagent`, `profile-set-merge-fields` и старые
   `read-only-agent`, `interactive-shell`, `uncommitted-work`, `pipe-exit-code`, `workflow-traces`). С `WORFY_GUARD_LOG`
   — строка JSON `{time, rule, agent, agent_id, ticket, tool, command (≤200), session, cwd}`; формат — в шапке
   `guard.mjs`. Файл, который не пишется, отказ не отменяет.
@@ -150,6 +165,9 @@ Seams (guard), «Сначала падающий test», 03, «Mutation testing�
   `lib/ticket-trail.cjs` и `lib/verification-paths.cjs` (иначе `harness-evals-run.test.ts` красный).
 - Mutation testing (своя проверка до reviewer-а): копия Harness, где `deny()` пропускает одно правило, — для каждого из
   шести новых id test краснеет (verification-path — 40 case-ов, no-ticket — 2, profile — 1, ticket-trail-edit — 4,
-  ticket-mark-subagent — 2, profile-set-merge-fields — 7).
+  ticket-mark-subagent — 2, profile-set-merge-fields — 7). Round 2: test-ы коммита d0d31f82e были красными до правки
+  (14–15 FAIL); мутанты «trail на HEAD», «detached-отказ выключен», «шаблон/мульти-репо не проверяются», «rsync, `>|`,
+  `$PWD`, pushd не читаются», «непрочитанный trail или профиль → отказ», «readTrail без timeout», «2>&1 — запись»
+  краснят test. Выживает «исключение раздела 4 → отказ»: ни один вход раздел не роняет — мутант эквивалентный.
 - Не проверено здесь: Windows и Git Bash — только CI (case-ы с `\`, регистром и `/c/…` в том же shell test-е); живой
   Codex не запускался (fixture-входы).

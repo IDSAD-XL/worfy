@@ -118,6 +118,12 @@ agents' scripts from the scratchpad — a reviewer that ran someone else's `mut.
 hours. Test runners — single run only, no watch mode (vitest — `vitest run`): watch never exits. Do
 not run checks in a tree where another agent is working: its test run will catch your mutant and
 show a false red.
+A mutant of a verification path (`profile --field verification.paths`: CI workflows, test and lint
+settings, Harness hooks) goes into a copy outside the repository, never into your tree: a review tree
+is on a detached HEAD, and the guard hook refuses a subagent's edit of a verification path there
+("Mutate a copy outside the repository"). Copy the folder into a temporary directory (`mktemp -d`),
+break the copy and point the test at it — a shell test of the Harness takes the hooks folder from
+`HOOKS_DIR` — then remove the copy.
 
 Deleting files and multi-line `sh -c` scripts follow the common rules, section "Shell commands
 without a confirmation": need a clean directory for a mutant — make a new one with `mktemp -d`, do
