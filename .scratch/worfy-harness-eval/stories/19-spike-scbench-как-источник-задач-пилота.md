@@ -13,7 +13,7 @@ Kind: pr · Epic: worfy-harness-eval · Ticket: 19 · PR: - · Language: ru
 
 ## 2. Plugin worfy подключается флагом и монтированием, без правки runner-а
 
-Code: `.scratch/worfy-harness-eval/issues/19-spike-scbench-как-источник-задач-пилота.md:81-89` · key lines: 84, 86, 88
+Code: `.scratch/worfy-harness-eval/issues/19-spike-scbench-как-источник-задач-пилота.md:82-91` · key lines: 85, 87, 89
 
 ```md
    - Агент собирает командную строку сам: `claude --output-format stream-json --verbose [--model] [--max-turns]
@@ -22,9 +22,10 @@ Code: `.scratch/worfy-harness-eval/issues/19-spike-scbench-как-источни
      дописывается в конец (`:986`). Поэтому ветка worfy — свой конфиг агента с `extra_args: ["--plugin-dir",
      "/opt/worfy-plugin"]`.
    - Папку plugin-а в container кладёт поле `extra_mounts` конфига окружения
-     (`scb/src/slop_code/execution/docker_runtime/models.py:67`). Монтируется только на чтение и не внутрь
-     `/workspace` (`scb/src/slop_code/execution/docker_runtime/exec.py:136-149`). Значит, файлы plugin-а не попадают
-     в snapshot и в метрики.
+     (`scb/src/slop_code/execution/docker_runtime/models.py:67`). Значение-строка монтируется только на чтение и не
+     внутрь `/workspace` (`scb/src/slop_code/execution/docker_runtime/exec.py:143-148`); значение-словарь уходит в
+     Docker как есть, без этой проверки (`:149-150`). Значит, папку plugin-а задаём строкой — тогда файлы plugin-а не
+     попадают в snapshot и в метрики (ревью #2349).
 ```
 
 - Что делает: отвечает на вопрос 1. Две ветки пилота отличаются только `extra_args` с `--plugin-dir` и
@@ -38,7 +39,7 @@ Code: `.scratch/worfy-harness-eval/issues/19-spike-scbench-как-источни
 
 ## 3. Test-ы агента входят в erosion и verbosity
 
-Code: `.scratch/worfy-harness-eval/issues/19-spike-scbench-как-источник-задач-пилота.md:115-130` · key lines: 116, 118, 121, 127, 129
+Code: `.scratch/worfy-harness-eval/issues/19-spike-scbench-как-источник-задач-пилота.md:117-135` · key lines: 118, 120, 123, 129, 131
 
 ```md
 3. **Да: test-ы, которые пишет сам агент, входят в verbosity и erosion.**
@@ -53,8 +54,11 @@ Code: `.scratch/worfy-harness-eval/issues/19-spike-scbench-как-источни
    - Статья этого не обсуждает: в разделе 2.3 erosion — по «all callables», verbosity — по LOC, без фильтра файлов.
    - Вывод: ветка, которая пишет больше test-ов, получает больше LOC и функций в знаменателе и больше клонов и
      ast-grep находок в числителе. Знак сдвига заранее не известен, но сдвиг есть.
-   - Есть лазейка. `scb-check` читает исключения из `scb-check.toml` или `[tool.ruff] exclude` в `pyproject.toml`
-     snapshot-а (`scb_check/config.py:37-46`, `:98-105`): агент может сам вывести свои test-ы из счёта.
+   - Лазейка зависит от рабочей папки вызова. `scb-check` ищет `scb-check.toml` или `[tool.ruff] exclude` в
+     `pyproject.toml` от `Path.cwd()` вверх до `.git` (`scb_check/commands/check.py:190`; `scb_check/config.py:37-46`,
+     `:98-105`), а не от пути snapshot-а. Runner SCBench вызывает `uvx scb-check` без `cwd=` (`driver.py:86-91`), так
+     что в его подсчёте конфиг агента не читается. Если наш runner (путь (б)) запустит `scb-check` с рабочей папкой
+     внутри snapshot-а, агент сможет сам вывести свои test-ы из счёта (ревью #2349).
    - Для пилота: считать `scb-check` дважды — как runner (сравнимо с leaderboard) и на копии без test-файлов агента
      и без его конфигов `scb-check`/ruff.
 ```
@@ -68,7 +72,7 @@ Code: `.scratch/worfy-harness-eval/issues/19-spike-scbench-как-источни
 
 ## 4. Предложение владельцу
 
-Code: `.scratch/worfy-harness-eval/issues/19-spike-scbench-как-источник-задач-пилота.md:191-205` · key lines: 191, 200, 202, 203
+Code: `.scratch/worfy-harness-eval/issues/19-spike-scbench-как-источник-задач-пилота.md:196-210` · key lines: 196, 205, 207, 208
 
 ```md
 **Предложение: пятое семейство, малое; не замена.**
