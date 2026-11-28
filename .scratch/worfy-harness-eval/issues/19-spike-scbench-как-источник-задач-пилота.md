@@ -85,9 +85,10 @@ arXiv 2603.24755v2 (7 мая 2026), страница https://www.scbench.ai/lead
      дописывается в конец (`:986`). Поэтому ветка worfy — свой конфиг агента с `extra_args: ["--plugin-dir",
      "/opt/worfy-plugin"]`.
    - Папку plugin-а в container кладёт поле `extra_mounts` конфига окружения
-     (`scb/src/slop_code/execution/docker_runtime/models.py:67`). Монтируется только на чтение и не внутрь
-     `/workspace` (`scb/src/slop_code/execution/docker_runtime/exec.py:136-149`). Значит, файлы plugin-а не попадают
-     в snapshot и в метрики.
+     (`scb/src/slop_code/execution/docker_runtime/models.py:67`). Значение-строка монтируется только на чтение и не
+     внутрь `/workspace` (`scb/src/slop_code/execution/docker_runtime/exec.py:143-148`); значение-словарь уходит в
+     Docker как есть, без этой проверки (`:149-150`). Значит, папку plugin-а задаём строкой — тогда файлы plugin-а не
+     попадают в snapshot и в метрики (ревью #2349).
    - `--plugin-dir` есть в закреплённой по умолчанию версии 2.0.51 (`cli.js` пакета: `"--plugin-dir <paths...>"`) и в
      нынешней 2.1.323. Для hook-ов plugin-а нужен node: базовый образ ставит Node 22.21.1
      (`scb/src/slop_code/execution/docker_runtime/setup_base.docker.j2:72`) и git.
@@ -125,8 +126,11 @@ arXiv 2603.24755v2 (7 мая 2026), страница https://www.scbench.ai/lead
    - Статья этого не обсуждает: в разделе 2.3 erosion — по «all callables», verbosity — по LOC, без фильтра файлов.
    - Вывод: ветка, которая пишет больше test-ов, получает больше LOC и функций в знаменателе и больше клонов и
      ast-grep находок в числителе. Знак сдвига заранее не известен, но сдвиг есть.
-   - Есть лазейка. `scb-check` читает исключения из `scb-check.toml` или `[tool.ruff] exclude` в `pyproject.toml`
-     snapshot-а (`scb_check/config.py:37-46`, `:98-105`): агент может сам вывести свои test-ы из счёта.
+   - Лазейка зависит от рабочей папки вызова. `scb-check` ищет `scb-check.toml` или `[tool.ruff] exclude` в
+     `pyproject.toml` от `Path.cwd()` вверх до `.git` (`scb_check/commands/check.py:190`; `scb_check/config.py:37-46`,
+     `:98-105`), а не от пути snapshot-а. Runner SCBench вызывает `uvx scb-check` без `cwd=` (`driver.py:86-91`), так
+     что в его подсчёте конфиг агента не читается. Если наш runner (путь (б)) запустит `scb-check` с рабочей папкой
+     внутри snapshot-а, агент сможет сам вывести свои test-ы из счёта (ревью #2349).
    - Для пилота: считать `scb-check` дважды — как runner (сравнимо с leaderboard) и на копии без test-файлов агента
      и без его конфигов `scb-check`/ruff.
 4. **Сети внутри container-а: есть, полностью закрыть нельзя, сузить можно.**
