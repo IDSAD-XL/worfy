@@ -1,0 +1,378 @@
+{
+  "version": 1,
+  "nodes": [
+    {
+      "id": "n82b83149",
+      "kind": "idea",
+      "text": "Идея владельца: скрывать конфиденциальное в prompt-е до модели — API-ключи, имена, данные клиентов из отчёта или дампа БД; уровень «блюра» или отдельные категории; для разработчика",
+      "from": null,
+      "advice": false,
+      "message": "547072f8-926c-41cb-a9b2-2583a7ca45b3"
+    },
+    {
+      "id": "n0967bccb",
+      "kind": "decision",
+      "text": "Уровень — готовый набор категорий, как режимы Moon CLI (off / secrets / redact / strict / detect); категории можно включать и по одной",
+      "from": "ticket:04",
+      "status": "accepted",
+      "reason": "«1-5 да»",
+      "advice": true,
+      "message": "3a196b7c-956e-4ae5-9aa6-06f0408bba2c"
+    },
+    {
+      "id": "n2758868a",
+      "kind": "decision",
+      "text": "Маскировать в одном месте — Session.send → deliver: это покрывает Claude Code и Codex, Autopilot, Card, Orchestrator, Link и всё, что потом читает transcript (Flight Recorder, Code stories, narrator)",
+      "from": "ticket:03",
+      "status": "accepted",
+      "reason": "«1-5 да»",
+      "advice": true,
+      "message": "e0dc3796-8a3c-4de3-ba94-c5be73ee0431"
+    },
+    {
+      "id": "n687aeb85",
+      "kind": "decision",
+      "text": "Placeholder с типом и номером (‹EMAIL_1›); одно значение — один placeholder на всю Session; настоящие значения видит только человек в чате worfy",
+      "from": "ticket:06",
+      "status": "accepted",
+      "reason": "«1-5 да»",
+      "advice": true,
+      "message": "b065b53f-d71f-47f0-86d1-d7a20ff27525"
+    },
+    {
+      "id": "nf91c90ea",
+      "kind": "decision",
+      "text": "Дамп или отчёт маскировать по колонкам: модель видит структуру, типы, NULL и повторы значений, но не сами значения",
+      "from": "ticket:07",
+      "status": "accepted",
+      "reason": "«1-5 да»",
+      "advice": true,
+      "message": "7044e538-032d-472b-b809-3074439937c5"
+    },
+    {
+      "id": "nd042dcee",
+      "kind": "decision",
+      "text": "Свой список слов Project-а — имена клиентов, компаний, проектов, внутренние хосты. Moon Blur сам признаёт, что такие имена не ловит",
+      "from": "ticket:07",
+      "status": "accepted",
+      "reason": "«1-5 да»",
+      "advice": true,
+      "message": "a85afda5-6167-4e43-922f-bce934bc273a"
+    },
+    {
+      "id": "n975e2d32",
+      "kind": "decision",
+      "text": "False positive-ы в тексте разработчика уже встречались у готовых детекторов worfy: ветка sk-learn-… похожа на ключ, имя хоста — на личное",
+      "from": "ticket:07",
+      "status": "accepted",
+      "reason": "«1-5 да»",
+      "source": "harness/lib/privacy.cjs:101 (комментарий «a digit: not a branch like sk-learn-upgrade-…»)",
+      "advice": true,
+      "message": "d5620f11-ecc0-47ed-93f5-cc5d8049e51d"
+    },
+    {
+      "id": "na5a7db1a",
+      "kind": "decision",
+      "text": "Черновик prompt-а до отправки лежит открытым текстом в localStorage (src/renderer/session/drafts.ts:28) — маскировать уже при вставке, а не при отправке?",
+      "from": "ticket:03",
+      "status": "accepted",
+      "reason": "«1-5 да»",
+      "advice": true,
+      "message": "768de11b-63e9-4ef2-a052-07ab7ad693b3"
+    },
+    {
+      "id": "ncd852842",
+      "kind": "decision",
+      "text": "Маскирование prompt-а не закрывает то, что агент читает сам: файлы, вывод команд, запрос к базе, файлы через @ — это идёт в модель мимо worfy. Moon CLI закрывает это только потому, что агент у них свой",
+      "from": "ticket:03",
+      "status": "accepted",
+      "reason": "«1-5 да»",
+      "source": "docs/product/prompt-privacy/research-как-скрывают-данные-до-модели.md, раздел 1.1; https://code.claude.com/docs/en/hooks#pretooluse («no PreToolUse hook fires for them»); docs/product/prompt-privacy/research-moon-blur.md, раздел «Что получает модель»",
+      "advice": true,
+      "message": "613c7c03-0af8-40e1-9dd5-5332c0c83d22"
+    },
+    {
+      "id": "n260a9620",
+      "kind": "decision",
+      "text": "Второй шаг после prompt-а — локальный proxy worfy для Claude Code через ANTHROPIC_BASE_URL: единственная точка, которая видит всё, что уходит модели (prompt, вывод tool-ов, @-файлы), и работает при входе по подписке",
+      "from": "ticket:03",
+      "status": "accepted",
+      "reason": "«1-5 да»",
+      "advice": true,
+      "message": "efebbf76-0606-4f56-aa2b-176eab7d8618"
+    },
+    {
+      "id": "n37700971",
+      "kind": "decision",
+      "text": "Hook PostToolUse.updatedToolOutput ненадёжен как защита: если ответ hook-а не совпал со schema встроенного tool-а, модель молча получает оригинал; telemetry видит оригинал всегда",
+      "from": "ticket:03",
+      "status": "accepted",
+      "reason": "«1-5 да»",
+      "source": "https://code.claude.com/docs/en/hooks#posttooluse-decision-control («a value that doesn't match the tool's output schema is ignored and the original output is used»)",
+      "advice": true,
+      "message": "876805ae-211d-4d0d-b4c3-9dbd6687fa13"
+    },
+    {
+      "id": "nd32ef7dc",
+      "kind": "decision",
+      "text": "Имена людей надёжно не ловит никто: у 8 готовых PII-систем span-level F1 ниже 0,14 на чужих данных; NER-модель для JS — около 0,9 GB, в основном английский",
+      "from": "ticket:07",
+      "status": "accepted",
+      "reason": "«не делаем такое»",
+      "source": "https://arxiv.org/abs/2604.15776 (PIIBench); https://huggingface.co/openai/privacy-filter; docs/product/prompt-privacy/research-как-скрывают-данные-до-модели.md, разделы 4.3 и 6.4",
+      "advice": true,
+      "message": "4b1e7946-12e3-4a24-aad7-30f2c61f5a63"
+    },
+    {
+      "id": "n545875ef",
+      "kind": "decision",
+      "text": "В первой версии не подставлять настоящие значения в действия агента (файлы, команды, MCP), в отличие от Moon CLI: иначе секрет снова попадает в файлы, которые агент потом читает, и в команды, которые могут уйти в сеть",
+      "from": "ticket:06",
+      "status": "accepted",
+      "reason": "«1-5 да»",
+      "advice": true,
+      "message": "cab4fa8b-9028-45d4-bcf4-c836b6272065"
+    },
+    {
+      "id": "n7b195579",
+      "kind": "decision",
+      "text": "Цель первой версии: значения не уходят поставщику модели и агент не разносит их в код, fixture-ы, commit-ы, PR и Ticket-ы. Локальные файлы и экран — не цель; интерфейс прямо говорит, что агент, читающий файл сам, не закрыт",
+      "from": "ticket:02",
+      "status": "accepted",
+      "reason": "«1-5 да»",
+      "advice": true,
+      "message": "5e44a9c1-79c4-4eac-b079-7647af49b269"
+    },
+    {
+      "id": "n4dc0189c",
+      "kind": "decision",
+      "text": "Детектор «всего, что похоже на ключ» на ваших prompt-ах давал бы в основном false positive: из 2 938 prompt-ов (с августа) настоящих секретов 0 — 4 срабатывания redactSecrets оказались ссылками на переменные, — а строк вида git SHA — в 60, UUID — в 30, домашнего пути — в 54. Уровень по умолчанию — только точные правила, идентификаторы выключены",
+      "from": "ticket:04",
+      "status": "accepted",
+      "reason": "«1-5 да»",
+      "source": "docs/product/prompt-privacy/research-секреты-в-prompt-ах-владельца.md, «Главное» и таблица «Числа»",
+      "advice": true,
+      "message": "c485446d-c42c-42a1-b5f8-d28843f0d9cf"
+    },
+    {
+      "id": "nba700282",
+      "kind": "decision",
+      "text": "За 30 дней в ваших prompt-ах 0 секретов, 0 дампов и 3 email. Вы сейчас не вставляете такое, потому что опасаетесь? То есть функция откроет новое поведение, а не прикроет текущее?",
+      "from": "ticket:02",
+      "status": "rejected",
+      "reason": "«потому что я приучил себя не отправлять секреты в ллм, но знаю что многие так делают»",
+      "advice": true,
+      "message": "6f34bdbf-0dbb-40d1-b843-84124f6816c5"
+    },
+    {
+      "id": "n58fd0544",
+      "kind": "decision",
+      "text": "Модель распознавания имён (NER) — отдельное решение после первой версии; имена в свободном тексте до тех пор — только по своему списку слов",
+      "from": "ticket:07",
+      "status": "rejected",
+      "reason": "«не делаем такое»",
+      "advice": true,
+      "message": "acf62aa0-265f-4773-bfbf-8e3a71fd55ec"
+    },
+    {
+      "id": "n50e08684",
+      "kind": "idea",
+      "text": "Функция — для других разработчиков: владелец сам приучил себя не отправлять секреты в LLM, но знает, что многие так делают",
+      "from": "ticket:02",
+      "advice": false,
+      "message": "1f98cf80-3c8c-477a-b088-320e923864ef"
+    },
+    {
+      "id": "nbd672a4e",
+      "kind": "decision",
+      "text": "Цель карты: черновик Epic-а worfy-prompt-privacy (Advisor draft); до приёмки владелец пробует прототип, критик разбирает черновик",
+      "from": null,
+      "status": "accepted",
+      "reason": "«1-5 да»",
+      "advice": true,
+      "message": "fc63d104-c294-4af4-90d5-ceb1e90e25d6"
+    },
+    {
+      "id": "ndee6d71e",
+      "kind": "decision",
+      "text": "Полоса под полем ввода уже тесная: Modes собран в одно меню потому, что третий переключатель выталкивал Send со строки. Переключатель уровня рядом с Send (вариант A прототипа) может не поместиться; щит на кнопке Send (вариант C) места не занимает",
+      "from": "ticket:08",
+      "status": "accepted",
+      "reason": "«все да»",
+      "source": "src/renderer/session/composer/Modes.tsx:10-14 («a third switch would push Send off the pickers' line at the window's usual width»)",
+      "advice": true,
+      "message": "3d7bf139-d3a6-4420-9b82-a92e5366c9fd"
+    },
+    {
+      "id": "n14982bbb",
+      "kind": "decision",
+      "text": "Какой вариант прототипа взять за основу: A «Прямо в поле», B «Проверка вставки», C «Щит и уровень» — или что взять из каждого?",
+      "from": "ticket:08",
+      "status": "accepted",
+      "reason": "«все да»",
+      "advice": true,
+      "message": "7a84e0b6-8dac-401e-8db0-ffbabd4abc2d"
+    },
+    {
+      "id": "n3cd33315",
+      "kind": "decision",
+      "text": "Термин — «Masking» (в интерфейсе: Masking: Secrets); placeholder для человека — «masked value». «Blur» — слово Moon, но размытия нет: значение заменяется",
+      "from": "ticket:09",
+      "status": "accepted",
+      "reason": "«все да»",
+      "advice": true,
+      "message": "45e6d9d2-d226-4283-b0ff-d39574dfc775"
+    },
+    {
+      "id": "n2e09d2c3",
+      "kind": "decision",
+      "text": "Планка выпуска: набор выдуманных текстов разработчика в test fixture-ах; уровень «Секреты» скрывает 100% ключей известных форматов из набора и не трогает код, diff и лог с git SHA, UUID и путями; набор растёт с каждым найденным пропуском",
+      "from": "ticket:10",
+      "status": "accepted",
+      "reason": "«все да»",
+      "advice": true,
+      "message": "98056bd0-8aee-483d-b743-3b0a59f5bda3"
+    },
+    {
+      "id": "n0e279e55",
+      "kind": "decision",
+      "text": "Вне первой версии: текст на картинках и скриншотах (интерфейс говорит, что картинки не проверяются) и Terminal view (ввод идёт прямо в CLI, мимо worfy)",
+      "from": "ticket:03",
+      "status": "accepted",
+      "reason": "«все да»",
+      "advice": true,
+      "message": "cbc898df-aa22-48f9-bd9a-ddbba531c16f"
+    },
+    {
+      "id": "n7aaae8be",
+      "kind": "decision",
+      "text": "Вложенный текстовый файл маскируется через копию: worfy пишет агенту путь, а не текст файла, поэтому даёт путь замаскированной копии в своей папке данных",
+      "from": "ticket:03",
+      "status": "accepted",
+      "reason": "«да»",
+      "advice": true,
+      "message": "c7211007-ba0d-410e-b9e0-b64043f61f44"
+    },
+    {
+      "id": "n3f9d5ab4",
+      "kind": "decision",
+      "text": "Таблица «placeholder → значение» живёт столько же, сколько история Session: Session не удаляются, Archive хранит их без срока; таблица уходит вместе с transcript-ом агента",
+      "from": "ticket:06",
+      "status": "accepted",
+      "reason": "«да»",
+      "advice": true,
+      "message": "9d8834de-5132-4fb6-8e9c-d14e1f4d4a79"
+    },
+    {
+      "id": "na458b21d",
+      "kind": "decision",
+      "text": "Идентификаторы, которые worfy вставляет сам (имена Epic-ов, Ticket-ов, веток, пути Project-а), не маскируются — иначе слово из своего списка в имени Epic-а сломает команду Autopilot",
+      "from": "ticket:03",
+      "status": "accepted",
+      "reason": "«да»",
+      "advice": true,
+      "message": "c5e2c7b8-11c4-4784-a114-568f291e216a"
+    },
+    {
+      "id": "n55dd2145",
+      "kind": "decision",
+      "text": "В первое замаскированное сообщение Session — одна строка для модели: значения вида ‹…› скрыты человеком, оставлять как есть",
+      "from": "ticket:06",
+      "status": "accepted",
+      "reason": "«да»",
+      "advice": true,
+      "message": "b24b73bf-98ff-4c37-b8e7-41643041cbb5"
+    },
+    {
+      "id": "n55c70efa",
+      "kind": "decision",
+      "text": "Link показывает placeholder-ы: настоящие значения остаются на компьютере, где идёт Session",
+      "from": "ticket:06",
+      "status": "accepted",
+      "reason": "«да»",
+      "advice": true,
+      "message": "bbfa1e0c-7431-4d61-b47d-c9dd5f4f0027"
+    },
+    {
+      "id": "na39fac06",
+      "kind": "decision",
+      "text": "Свой список слов Project-а хранится там же, где таблица (файл 0600, как секреты Link), а не в общих настройках; открытым виден только в настройках Project-а",
+      "from": "ticket:04",
+      "status": "accepted",
+      "reason": "«да»",
+      "advice": true,
+      "message": "f302fc96-e1ee-4975-ad5b-6777ac57dda8"
+    },
+    {
+      "id": "n9b39858a",
+      "kind": "decision",
+      "text": "Лист проверки открывается для вставки от 300 символов: медиана prompt-ов владельца — 52 символа, 90-й перцентиль — около 300",
+      "from": "ticket:08",
+      "status": "accepted",
+      "reason": "«да»",
+      "advice": true,
+      "message": "aaea3666-46da-4b32-81b4-946ccf80c3df"
+    },
+    {
+      "id": "n84702bec",
+      "kind": "decision",
+      "text": "Если prompt ссылается на файл через @, щит предупреждает: содержимое агент прочтёт сам, без Masking",
+      "from": "ticket:03",
+      "status": "accepted",
+      "reason": "«да»",
+      "advice": true,
+      "message": "2baed374-3a79-4498-8134-f6a25eace3a0"
+    },
+    {
+      "id": "naa796519",
+      "kind": "idea",
+      "text": "Второй Epic можно начать с MCP-tool-ов: текста, который агент читает сам, в 100 раз больше, чем prompt-ов (20,7 MB против 0,19 MB за 30 дней), а email туда приходят прежде всего из ответов MCP-tool-ов (107 из 135); их вывод hook Claude Code заменяет без оговорки о schema встроенных tool-ов (замер: research-секреты-в-prompt-ах-владельца.md)",
+      "from": "ticket:05",
+      "advice": true,
+      "message": "6399b25d-0ff9-403a-88b0-93382ca9dd14"
+    },
+    {
+      "id": "ne8230a25",
+      "kind": "decision",
+      "text": "Критик: Ticket 3 (Masking в Session.send) идёт в одной волне с Ticket-ами 4 и 5, от которых зависит, и включает Masking во всех Project-ах на две волны раньше, чем чат покажет настоящие значения и появится «Send as is». Вердикт — Reorder",
+      "from": "nbd672a4e",
+      "status": "accepted",
+      "reason": "«все да»",
+      "source": "docs/product/critic/worfy-prompt-privacy-2026-11-28.md, возражение 1",
+      "advice": false,
+      "message": "48c65903-ebec-4912-8f64-0cf7816f4129"
+    },
+    {
+      "id": "n6ef8bbcf",
+      "kind": "decision",
+      "text": "Критик: worfy не хранит секреты Link и интеграций через safeStorage — отказался сознательно: с ad-hoc подписью Keychain спрашивает доступ после каждого обновления Stable, в CI safeStorage нет. Ответ Q5 «Keychain на Mac» дан на неверной посылке советника",
+      "from": "ticket:06",
+      "status": "accepted",
+      "reason": "«все да»",
+      "source": "docs/product/critic/worfy-prompt-privacy-2026-11-28.md, возражение 2; src/main/link/secrets.ts:6-11; docs/adr/0111-integrations-mcp-servers-worfy-runs.md (Electron safeStorage — отложено); electron-builder.yml:97",
+      "advice": false,
+      "message": "6c860719-3c8b-45df-953c-130354b2377e"
+    },
+    {
+      "id": "nf09cf661",
+      "kind": "decision",
+      "text": "Критик: черновик решает двумя способами, где ездят настоящие значения, а Link слышит те же project-каналы и события, что окна — настоящие значения уйдут на телефон незаметно. Нужен один дизайн: события только с placeholder-ами, таблица — через канал, закрытый для Link, и contract test на Link",
+      "from": "n55c70efa",
+      "status": "accepted",
+      "reason": "«все да»",
+      "source": "docs/product/critic/worfy-prompt-privacy-2026-11-28.md, возражение 3; src/main/link/ipc-adapter.ts:12-26",
+      "advice": false,
+      "message": "d7aa9840-feb9-4cda-b1f2-c8dd4ae344fc"
+    },
+    {
+      "id": "naac1cd37",
+      "kind": "decision",
+      "text": "Таблица «placeholder → значение» и свой список слов — в файле с доступом только для владельца (0600 в папке 0700), как секреты Link, за тем же интерфейсом хранилища; Keychain — позже, когда подпись worfy станет постоянной (ADR-0111)",
+      "from": "ticket:06",
+      "status": "accepted",
+      "reason": "«все да»",
+      "advice": true,
+      "message": "3d10abd5-18f9-42b4-9cd0-ff8c9defc32f"
+    }
+  ]
+}
