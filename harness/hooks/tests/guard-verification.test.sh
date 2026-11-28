@@ -52,9 +52,25 @@ git -C "$R" update-ref refs/remotes/origin/main HEAD
 git -C "$R" worktree add -q -b ep/07 "$W" main
 git -C "$R" worktree add -q -b ep/08 "$W8" main
 git -C "$R" worktree add -q -b misc "$N" main
-# The branch's own edit of its trail allows nothing: the trail is read on origin/main.
-printf -- '- `'"$GW"'/main.yml`\n' >>"$W/.scratch/ep/issues/07-x.md"
+# The branch's own edit of its trail allows nothing: the trail is read on origin/main, not at the branch's HEAD. The
+# branch commits a trail item for main.yml inside the section, and ep/08 commits a ticket that names it.
+printf '%s' "$TICKET_07" | awk -v own="- \`$GW/main.yml\`" '{ print } /^## Where in code$/ { getline; print ""; print own }' >"$W/.scratch/ep/issues/07-x.md"
+git -C "$W" commit -q -am "own trail edit"
 mkdir -p "$W8/.scratch/ep/issues" && printf '# 08\n\n## Where in code\n\n- `'"$GW"'/main.yml`\n' >"$W8/.scratch/ep/issues/08-y.md"
+git -C "$W8" add -A && git -C "$W8" commit -q -m "ticket 08 on its branch"
+# D — a detached work tree, as worktree.reviewer makes it.
+D="$R/.claude/worktrees/review-x"
+git -C "$R" worktree add -q --detach "$D" main
+
+grep -q -- "- \`$GW/main.yml\`" <(sed -n '/^## Where in code/,/^## Done when/p' "$W/.scratch/ep/issues/07-x.md") \
+    && [ -z "$(git -C "$W" status --porcelain)" ] && [ -z "$(git -C "$W8" status --porcelain)" ] \
+    && ok "setup: the trail edit of ep/07 and ticket 08 are committed on their branches" || bad "setup: the branch-side trail edits are not committed in the trail section"
+
+# M — a registered project of several repositories (its trail entries start with the repository name); P — a registered
+# project whose profile has no tickets.branch template. The guard does not check verification paths in either.
+M="$T/multi"; M2="$T/multi2"; P="$T/plain"
+for x in "$M" "$M2" "$P"; do git init -q -b main "$x" && printf 'x\n' >"$x/a.ts" && git -C "$x" add -A && git -C "$x" commit -q -m init && git -C "$x" checkout -q -b ep/07; done
+mkdir -p "$HARNESS_HOME/projects/mp" "$HARNESS_HOME/projects/pp"
 
 # S — the repository of a Silent project, on ep/07; its tickets live in the Workflow folder WF.
 S="$T/silent"; WF="$T/wf"
@@ -73,13 +89,21 @@ cat >"$HARNESS_HOME/gate/config.json" <<EOF
 {"repos":[
  {"key":"vp","match":"$R","profile":"vp","pm":"npm","root":{},"workspace":{}},
  {"key":"sp","match":"$S","profile":"sp","pm":"npm","root":{},"workspace":{}},
- {"key":"bp","match":"$B","profile":"bp","pm":"npm","root":{},"workspace":{}}
+ {"key":"bp","match":"$B","profile":"bp","pm":"npm","root":{},"workspace":{}},
+ {"key":"mp","match":"$M","profile":"mp","pm":"npm","root":{},"workspace":{}},
+ {"key":"mp2","match":"$M2","profile":"mp","pm":"npm","root":{},"workspace":{}},
+ {"key":"pp","match":"$P","profile":"pp","pm":"npm","root":{},"workspace":{}}
 ]}
 EOF
 printf '{"schema":2,"name":"vp","mode":"full",%s,"worktree":{"root":"%s","base":"origin/main","implementer":"x","reviewer":"x"},"verification":{"paths":["tools/check-*.mjs"]}}\n' \
     "$TICKETS" "$R/.claude/worktrees" >"$HARNESS_HOME/projects/vp/profile.json"
 printf '{"schema":2,"name":"sp","mode":"silent","attribution":"on","workflow":{"folder":"%s"},%s,"worktree":{"root":"%s","base":"origin/main","implementer":"x","reviewer":"x"}}\n' \
     "$WF" "$TICKETS" "$T/silent-wt" >"$HARNESS_HOME/projects/sp/profile.json"
+
+printf '{"schema":2,"name":"mp","mode":"full",%s,"worktree":{"root":"%s","base":"origin/main","implementer":"x","reviewer":"x"}}\n' \
+    "$TICKETS" "$T/mwt" >"$HARNESS_HOME/projects/mp/profile.json"
+printf '{"schema":2,"name":"pp","mode":"full","tickets":{"root":".scratch/","path":".scratch/<epic>/issues/NN-*.md","trail_section":"## Where in code"},"worktree":{"root":"%s","base":"origin/main","implementer":"x","reviewer":"x"}}\n' \
+    "$T/pwt" >"$HARNESS_HOME/projects/pp/profile.json"
 
 IMPL='"agent_type":"worfy:implementer","agent_id":"a4010b9effb32dff6"'
 CODEX_IMPL='"turn_id":"turn-1","agent_type":"worfy-implementer","agent_id":"01a19fd3-agent"'
@@ -137,8 +161,30 @@ expect "a subagent without a ticket: the next step" deny "$(edit "$N/CLAUDE.md" 
 expect "a subagent whose ticket is only on its branch -> deny" deny "$(edit "$W8/${GW}/main.yml" "$W8" "$IMPL")" "the trail of ep 08 cannot be read at origin/main"
 expect "any subagent, not only the implementer -> deny" deny "$(edit "$W/CLAUDE.md" "$W" '"agent_type":"general-purpose","agent_id":"a1"')" "CLAUDE.md is a verification path"
 
-expect "a profile that cannot be read: a default verification path -> deny" deny "$(edit "$B/CLAUDE.md" "$B" "$IMPL")" "CLAUDE.md is a verification path, and the profile of this project could not be read"
+expect "a subagent on a detached HEAD (a review tree) -> deny with its own next step" deny "$(edit "$D/CLAUDE.md" "$D" "$IMPL")" \
+    "CLAUDE.md is a verification path, and this work tree is on a detached HEAD: a subagent edits no verification path in a review tree. Mutate a copy outside the repository"
+expect "a profile of several repositories: verification paths are not checked -> allow" allow "$(edit "$M/CLAUDE.md" "$M" "$IMPL")"
+expect "a profile with no tickets.branch template: verification paths are not checked -> allow" allow "$(edit "$P/CLAUDE.md" "$P" "$IMPL")"
+# A read that fails or runs out of time lets the call through (spec, «Риски»: land checks the diff at merge).
+expect "a profile that cannot be read: a verification path -> allow, land checks at merge" allow "$(edit "$B/CLAUDE.md" "$B" "$IMPL")"
 expect "a profile that cannot be read: any other file -> allow" allow "$(edit "$B/a.ts" "$B" "$IMPL")"
+SLOW="$T/slow-profile.mjs"
+printf 'Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20000)\n' >"$SLOW"
+t0=$(date +%s)
+got="$(CLAUDE_PROFILE_BIN="$SLOW" CLAUDE_GUARD_READ_MS=1500 decide "$(edit "$W/${GW}/main.yml" "$W" "$IMPL")")"
+t1=$(date +%s)
+[ "$got" = allow ] && [ $((t1 - t0)) -lt 10 ] && ok "a bin/profile that does not answer within the budget: allow, inside the budget ($((t1 - t0)) s)" \
+    || bad "a slow bin/profile: want allow within 10 s, got ${got:0:200} after $((t1 - t0)) s"
+if [ -z "$WINDOWS" ]; then
+    # A git that hangs on the trail's ls-tree: the trail read shares the budget too (a shell script is no program to spawn on Windows).
+    SLOW_GIT="$T/slow-git"
+    printf '#!/bin/sh\ncase " $* " in *" ls-tree "*) sleep 20 ;; esac\nexec git "$@"\n' >"$SLOW_GIT" && chmod +x "$SLOW_GIT"
+    t0=$(date +%s)
+    got="$(EVAL_GIT="$SLOW_GIT" CLAUDE_GUARD_READ_MS=1500 decide "$(edit "$W/${GW}/main.yml" "$W" "$IMPL")")"
+    t1=$(date +%s)
+    [ "$got" = allow ] && [ $((t1 - t0)) -lt 10 ] && ok "a git that does not answer the trail read within the budget: allow, inside the budget ($((t1 - t0)) s)" \
+        || bad "a slow git: want allow within 10 s, got ${got:0:200} after $((t1 - t0)) s"
+fi
 
 # --- Codex: apply_patch and Bash of a subagent ---------------------------------------------------------------------
 expect "Codex apply_patch Update File outside the trail -> deny" deny "$(patch $'*** Begin Patch\n*** Update File: '"$GW"$'/main.yml\n@@\n-on: push\n+on: pull_request\n*** End Patch' "$W")" "$OUTSIDE. $STEP"
@@ -167,6 +213,15 @@ expect "Bash: perl -pi -> deny" deny "$(bash_ "perl -pi -e 's/a/b/' ${GW}/main.y
 expect "Bash: ln -s onto a verification path -> deny" deny "$(bash_ 'ln -sf /tmp/x '"$GW"'/main.yml' "$W" "$IMPL")" "$GW/main.yml (a symbolic link, which may point anywhere) is a verification path, and the trail of ep 07 does not name it"
 expect "Bash: a symbolic link anywhere in the repository counts, as in land -> deny" deny "$(bash_ 'ln -s ../x src/link' "$W" "$IMPL")" "src/link (a symbolic link, which may point anywhere) is a verification path, and the trail of ep 07 does not name it"
 expect "Bash: a hard link outside the verification paths -> allow" allow "$(bash_ 'ln src/a.ts src/b.ts' "$W" "$IMPL")"
+expect "Bash: cp -R of a folder onto a folder above the verification paths -> deny" deny "$(bash_ 'cp -R tmpl .github' "$W" "$IMPL")" ".github is a verification path"
+expect "Bash: cp -r of a folder into a folder above them -> deny" deny "$(bash_ 'cp -r tmpl/workflows .github/' "$W" "$IMPL")" "is a verification path"
+expect "Bash: mv a folder onto .github in two steps -> deny" deny "$(bash_ 'mv tmpl .github2 && mv .github2 .github' "$W" "$IMPL")" ".github is a verification path"
+expect "Bash: rsync of a folder onto .github -> deny" deny "$(bash_ 'rsync -a --exclude x tmpl/ .github/' "$W" "$IMPL")" ".github is a verification path"
+expect "Bash: a plain cp of one file into .github/ (not a verification path) -> allow" allow "$(bash_ 'cp notes.md .github/' "$W" "$IMPL")"
+expect "Bash: >| -> deny" deny "$(bash_ 'echo x >| '"$GW"'/main.yml' "$W" "$IMPL")" "$OUTSIDE"
+expect "Bash: \$PWD/ -> deny" deny "$(bash_ 'echo x > "$PWD/'"$GW"'/main.yml"' "$W" "$IMPL")" "$OUTSIDE"
+expect "Bash: pushd, then a redirect -> deny" deny "$(bash_ "pushd $W && echo x > $GW/main.yml" "$T" "$IMPL")" "$OUTSIDE"
+expect "Bash: 2>&1 in a verification folder is no file write -> allow" allow "$(bash_ "cd $GW && ls 2>&1" "$W" "$IMPL")"
 expect "Bash: truncate -> deny" deny "$(bash_ 'truncate -s 0 '"$GW"'/main.yml' "$W" "$IMPL")" "$OUTSIDE"
 expect "Bash: dd of= -> deny" deny "$(bash_ 'dd if=/dev/zero of='"$GW"'/main.yml count=1' "$W" "$IMPL")" "$OUTSIDE"
 expect "Bash: install -> deny" deny "$(bash_ 'install -m 644 /etc/hosts '"$GW"'/main.yml' "$W" "$IMPL")" "$OUTSIDE"
@@ -187,6 +242,7 @@ expect "silent: a subagent's Edit of another section of its ticket -> allow" all
 expect "silent: a subagent's Write of the ticket with another trail -> deny" deny "$(write "$SILENT_TICKET" "$S" "$IMPL" "${TICKET_07/named.yml/ci.yml}")" "the trail section"
 expect "silent: a subagent's Write of the ticket with the same trail -> allow" allow "$(write "$SILENT_TICKET" "$S" "$IMPL" "${TICKET_07/Status: claimed/Status: done}")"
 expect "silent: a shell write into a ticket that has a trail -> deny" deny "$(bash_ "echo '- \`x/y.txt\`' >> $SILENT_TICKET" "$S" "$IMPL")" "the trail section"
+[[ "$got" != *"Edit tool"* ]] && ok "silent: the refusal names no tool Codex lacks" || bad "silent: the refusal names the Edit tool: ${got:0:300}"
 expect "silent: a Codex patch that changes the trail -> deny" deny \
     "$(patch $'*** Begin Patch\n*** Update File: '"$SILENT_TICKET"$'\n@@\n - `'"$GW"$'/named.yml`\n+- `'"$GW"$'/main.yml`\n*** End Patch' "$S")" "the trail section"
 expect "silent: a Codex patch of another section -> allow" allow \
@@ -199,9 +255,11 @@ expect "ticket mark from a subagent -> deny" deny "$(bash_ "\"$HARNESS/bin/ticke
 expect "node bin/ticket mark from a subagent -> deny" deny "$(bash_ "cd $R && node \"$HARNESS/bin/ticket\" mark ep 07 check/windows success --sha 01" "$W" "$CODEX_IMPL")" "ticket mark"
 expect "ticket mark --contexts from a subagent (prints only) -> allow" allow "$(bash_ "\"$HARNESS/bin/ticket\" mark --contexts" "$W" "$IMPL")"
 expect "ticket mark from the main Session -> allow" allow "$(bash_ "\"$HARNESS/bin/ticket\" mark ep 07 review pending --sha 01" "$R")"
+expect "a heredoc body that names ticket mark is data -> allow" allow "$(bash_ $'cat > notes.md <<\'EOF\'\nticket mark ep 07 review success --sha 01\nEOF' "$W" "$IMPL")"
 expect "ticket show from a subagent -> allow" allow "$(bash_ "\"$HARNESS/bin/ticket\" show ep 07" "$W" "$IMPL")"
 expect "profile-set --field workflow.merge --set from the main Session -> deny" deny "$(bash_ "\"$HARNESS/bin/profile-set\" --field workflow.merge --expect null --set '{\"workflow.merge\":\"orchestrator\"}'" "$R")" "workflow.merge"
-expect "profile-set --field=verification.paths --set from a subagent -> deny" deny "$(bash_ "node \"$HARNESS/bin/profile-set\" --field=verification.paths --expect x --set -" "$W" "$IMPL")" "verification.paths"
+expect "profile-set --field workflow (the whole object) -> deny" deny "$(bash_ "profile-set --field workflow --expect x --set '{}'" "$R")" "profile-set would change workflow,"
+expect "profile-set --field verification.paths --set from a subagent -> deny" deny "$(bash_ "node \"$HARNESS/bin/profile-set\" --field verification.paths --expect x --set -" "$W" "$IMPL")" "verification.paths"
 expect "profile-set --field verification --reset -> deny" deny "$(bash_ "profile-set --field verification --expect x --reset" "$R")" "verification"
 expect "profile-set --field workflow.ci_check -> deny" deny "$(bash_ "profile-set -C $R --field tickets.path --field workflow.ci_check --expect x --set -" "$R")" "workflow.ci_check"
 expect "profile-set of the Pipeline (no --field) -> deny" deny "$(bash_ "profile-set --expect x --set '[]'" "$R")" "workflow.pipeline"
