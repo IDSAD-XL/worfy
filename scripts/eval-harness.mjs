@@ -11,12 +11,13 @@
 //          not run. A real capture from a run started inside worfy would ask Screen Recording for
 //          the app, and granting it restarts the app (lesson 2026-10-07);
 //   alone — a case tagged `alone` (compaction-state) runs only when a --case of the user names it
-//          exactly (`pnpm eval:harness -- --case compaction-state`), in a call of its own, with the
-//          grants of main and the variables ALONE gives it in that call's environment only. A run
-//          without such a --case, --changed among them, leaves it out and prints why and how to run
-//          it: the variables of compaction-state would compact every other case of its call, and
-//          without them it measures nothing (worfy-continuity ticket 13). The variables of ALONE are
-//          removed from the environment of every other call, even when the shell sets them.
+//          exactly (`pnpm eval:harness -- --case compaction-state`) or --changed chooses it
+//          (worfy-harness-eval ticket 04), in a call of its own, with the grants of main and the
+//          variables ALONE gives it in that call's environment only. A run without either leaves it
+//          out and prints why and how to run it: the variables of compaction-state would compact
+//          every other case of its call, and without them it measures nothing (worfy-continuity
+//          ticket 13). The variables of ALONE are removed from the environment of every other call,
+//          even when the shell sets them.
 // The target is a temporary copy of harness/ (it keeps the folder under test apart from the eval
 // results). harness/ declares no `dependencies` since worfy-skills 03; the copy still drops any that
 // another copy (HARNESS_DIR) declares: in a run only the plugin under test is installed, and Claude
@@ -38,10 +39,12 @@
 // the budget — prints the command line of each call as the first call would get it, and exits 0: no
 // claude (not even `claude --version`), no copy of the plugin or of git, no results folder.
 // `--changed <base>` (ticket worfy-harness/29) is this script's own and does not reach claude: it runs
-// only the cases of the rule files changed since <base> — `git diff <base>...HEAD` plus what
+// only the cases of the files changed since <base> — `git diff <base>...HEAD` plus what
 // `git status` shows, the way the gate finds changed files — by the map harness/evals/lib/coverage.json
-// (scripts/eval-harness-coverage.mjs). It prints which file chose which cases and which changed rule
-// file has no case. No case chosen, or only cases of the tag `alone` (skipped, above) — exit 0 without claude. Exit 1 without claude: an unknown <base>,
+// (scripts/eval-harness-coverage.mjs): rule files, the hook scripts, scripts and libraries the cases run,
+// and the shared fixtures the scaffold.sh of the cases take (worfy-harness-eval ticket 04). It prints
+// which file chose which cases and which changed file of the map has no case. No case chosen — exit 0
+// without claude. Exit 1 without claude: an unknown <base>,
 // a git failure, --changed with --case, --tag or HARNESS_DIR, or a map that does not match harness/.
 // `claude plugin eval --case` takes one name glob, so when the change chooses some cases of a tag but
 // not all of them, each chosen case of that tag is a call of its own.
@@ -77,7 +80,7 @@ import { dirname, join, resolve } from 'node:path'
 import process from 'node:process'
 import { setImmediate } from 'node:timers'
 import { fileURLToPath } from 'node:url'
-import { casesFor, coverageProblems, readCoverage } from './eval-harness-coverage.mjs'
+import { casesFor, coverageProblems, fixtureUsers, readCoverage } from './eval-harness-coverage.mjs'
 import { checkVersion, claudeBinary, cleanEnv, gitFolder, gitForRuns, JUDGE_MODEL, pluginCopy, REGULAR_MODEL, runClaude } from './eval-run-env.mjs'
 import { removeTree } from './remove-tree.mjs'
 
@@ -318,7 +321,7 @@ if (changedAt !== -1) {
   if (process.env.HARNESS_DIR) fail('--changed reads the changes of harness/ in this repository and does not go with HARNESS_DIR')
   const problems = coverageProblems(SOURCE)
   if (problems.length > 0) fail(`--changed: harness/evals/lib/coverage.json does not match harness/:\n  ${problems.join('\n  ')}`)
-  const selection = casesFor(changedFiles(base), readCoverage(SOURCE), caseTags().map(([name]) => name))
+  const selection = casesFor(changedFiles(base), readCoverage(SOURCE), caseTags().map(([name]) => name), fixtureUsers(SOURCE))
   for (const { path, cases } of selection.files) process.stdout.write(`eval:harness: ${path} -> ${cases.join(', ')}\n`)
   for (const { path, reason } of selection.uncovered) process.stdout.write(`eval:harness: no case: ${path} — ${reason}\n`)
   if (selection.cases.length === 0) {
@@ -342,14 +345,16 @@ for (const tag of ['main', 'gui', 'alone']) {
   const filtered = selected(tag, passThrough)
   let cases = chosen ? filtered.filter((name) => chosen.includes(name)) : filtered
   if (tag === 'alone') {
-    for (const name of cases.filter((one) => !named.includes(one))) {
+    // A case of this tag that --changed chose runs as if --case named it (--changed goes with no --case).
+    const runs = (one) => named.includes(one) || chosen !== null
+    for (const name of cases.filter((one) => !runs(one))) {
       const variables = Object.entries(ALONE[name] ?? {}).map(([key, value]) => `${key}=${value}`).join(' ')
       process.stdout.write(
         `eval:harness: ${name} is skipped: it runs only alone, in a call of its own that sets ${variables || 'its variables'}; ` +
           `run it with pnpm eval:harness -- --case ${name}\n`,
       )
     }
-    cases = cases.filter((one) => named.includes(one))
+    cases = cases.filter(runs)
     for (const name of cases) calls.push({ tag, name: `${tag}-${name}`, args: ['--case', name], cases: [name], vars: { ...ALONE[name] } })
     continue
   }
