@@ -124,7 +124,7 @@ and the labels (`— Stage:`, `— Now:`, `— Next:`, `— Waiting:`) of a clos
 such lines. The text after a label stays: "— Now: all tests green" reaches the judge as "all tests
 green".
 
-The judge is a command: by default `claude -p --model claude-haiku-4-5` (paid), started in an empty
+The judge is a command: by default `claude -p --model claude-opus-5-5` (paid, `JUDGE_MODEL` of `scripts/eval-run-env.mjs`), started in an empty
 folder with `--tools ""`, `--strict-mcp-config` (no MCP server), `--setting-sources project` (no
 user settings or plugin hooks) and `--no-session-persistence`. `EVAL_OUTCOME_JUDGE` replaces it with
 a JSON argument list, for example `["node", "/path/to/stub.mjs"]`; the tests use a stub.

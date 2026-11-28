@@ -78,7 +78,7 @@ import process from 'node:process'
 import { setImmediate } from 'node:timers'
 import { fileURLToPath } from 'node:url'
 import { casesFor, coverageProblems, readCoverage } from './eval-harness-coverage.mjs'
-import { checkVersion, claudeBinary, cleanEnv, gitFolder, gitForRuns, JUDGE_MODEL, MODEL, pluginCopy, runClaude } from './eval-run-env.mjs'
+import { checkVersion, claudeBinary, cleanEnv, gitFolder, gitForRuns, JUDGE_MODEL, pluginCopy, REGULAR_MODEL, runClaude } from './eval-run-env.mjs'
 import { removeTree } from './remove-tree.mjs'
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -93,7 +93,7 @@ const COMMON = [
   '--ablation', 'none',
   '--threshold', '0.8',
   '--no-publish',
-  '--model', MODEL,
+  '--model', REGULAR_MODEL,
   '--judge-model', JUDGE_MODEL,
 ]
 /**
@@ -394,7 +394,7 @@ if (dryRun) {
   process.exit(0)
 }
 const version = checkVersion(claude, childEnv, fail)
-process.stdout.write(`eval:harness: claude ${version} (${claude}), model ${MODEL}, judge ${JUDGE_MODEL}\n`)
+process.stdout.write(`eval:harness: claude ${version} (${claude}), model ${REGULAR_MODEL}, judge ${JUDGE_MODEL}\n`)
 
 // Ctrl-C, SIGTERM and a closed terminal (SIGHUP) reach claude too; this process outlives it to
 // remove the copies, starts no further call (each one is paid, and after SIGHUP nobody could stop

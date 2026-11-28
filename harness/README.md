@@ -160,9 +160,12 @@ the calls: `0` — every case at 0.8 or above, `1` — a case below it or not lo
 run (cost ceiling, the account refused), 128 + the signal number — stopped by a signal (`130`
 SIGINT, `129` SIGHUP, `143` SIGTERM); after a signal the remaining calls are not started.
 
-Every run and every `llm` grader is a real model call on your account. The full set (ten
-cases, 25 runs, `claude-sonnet-5`) cost 15 USD and took an hour on 2026-10-18: an `epic-wave` or `ship-ticket` run costs 0.4–1.9 USD, a
-`reviewer` run about 0.25 USD, a `status-block` run about 0.12 USD.
+Every run and every `llm` grader is a real model call on your account. The agent runs on
+`claude-sonnet-5-5` and the judge on `claude-opus-5-5` (`REGULAR_MODEL` and `JUDGE_MODEL`; `PILOT_MODEL`,
+`claude-opus-5-5`, is the agent of the pilot). The full set (ten
+cases, 25 runs, then on `claude-sonnet-5` with a `claude-haiku-4-5` judge) cost 15 USD and took an hour on 2026-10-18: an `epic-wave` or `ship-ticket` run costs 0.4–1.9 USD, a
+`reviewer` run about 0.25 USD, a `status-block` run about 0.12 USD. The first full run on the
+new models is the new baseline; its cost replaces these figures.
 The report is `evals/results/<time>-main/report.html` (and `-gui`), next to
 `aggregate-result.json`; `evals/results/` holds run transcripts and stays out of git and out of
 the app (`electron.vite.config.ts`, `HARNESS_NOT_BUNDLED`). CI and the gate do not run the evals:
@@ -244,8 +247,8 @@ run, and as an unknown option it would reach a paid call.
 - A case below the threshold: compare it with the last full run. A case that failed there too does
   not hold the merge, but the PR description names it; a case that passed there is fixed before the
   merge.
-- The full set, `pnpm eval:harness`, on three events: a change of `MODEL` or `JUDGE_MODEL` in
-  `scripts/eval-harness.mjs`; a new version of `@anthropic-ai/claude-agent-sdk` in `package.json`
+- The full set, `pnpm eval:harness`, on three events: a change of `REGULAR_MODEL` or `JUDGE_MODEL`
+  (in `eval-run-env.mjs`, the run environment `scripts/eval-harness.mjs` imports); a new version of `@anthropic-ai/claude-agent-sdk` in `package.json`
   (it brings a new Claude Code); before an update of the Stable copy. Its lines go into the PR that
   changes the model or the version, or into `HANDOFF.md` for the Stable copy.
 - CI and the gate still run no evals; the cost of a run is above.

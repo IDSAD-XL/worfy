@@ -28,9 +28,17 @@ import { delimiter, dirname, join, relative, sep } from 'node:path'
 import process from 'node:process'
 import { removeTree } from './remove-tree.mjs'
 
-/** Pinned, so that a change of the default model does not look like a change of the plugin. */
-export const MODEL = 'claude-sonnet-5'
-export const JUDGE_MODEL = 'claude-haiku-4-5'
+/*
+ * Pinned, so that a change of the default model does not look like a change of the plugin. A change
+ * of REGULAR_MODEL or JUDGE_MODEL asks for a full `pnpm eval:harness` (harness/README.md, "When to run
+ * the evals").
+ */
+/** The agent of the regular runs: `pnpm eval:harness` and `pnpm eval:outcome`. */
+export const REGULAR_MODEL = 'claude-sonnet-5-5'
+/** The agent of the pilot and of the cost measurement, the model the owner's own work runs on. */
+export const PILOT_MODEL = 'claude-opus-5-5'
+/** The judge everywhere: `--judge-model` of `claude plugin eval` and the judge of the outcome scorer. */
+export const JUDGE_MODEL = 'claude-opus-5-5'
 /** The first claude with `plugin eval`. */
 export const MIN_VERSION = [2, 1, 269]
 

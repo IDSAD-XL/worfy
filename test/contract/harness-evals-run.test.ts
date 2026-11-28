@@ -41,8 +41,14 @@ const loggedCalls = (log: string): StubCall[] =>
 
 const EVAL_HARNESS = join(REPO, 'scripts', 'eval-harness.mjs')
 /** The run environment eval-harness.mjs shares with eval-outcome.mjs: the pinned models among it. */
-const runEnvModule = async (): Promise<{ MODEL: string; JUDGE_MODEL: string; MIN_VERSION: number[] }> =>
-  (await import(pathToFileURL(join(REPO, 'scripts', 'eval-run-env.mjs')).href)) as { MODEL: string; JUDGE_MODEL: string; MIN_VERSION: number[] }
+interface RunEnvModels {
+  REGULAR_MODEL: string
+  PILOT_MODEL: string
+  JUDGE_MODEL: string
+  MIN_VERSION: number[]
+}
+const runEnvModule = async (): Promise<RunEnvModels> =>
+  (await import(pathToFileURL(join(REPO, 'scripts', 'eval-run-env.mjs')).href)) as RunEnvModels
 
 /** Runs scripts/eval-harness.mjs against the stub; returns the run and the logged eval calls. */
 function evalHarness(
@@ -115,8 +121,28 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
     expect(calls).toHaveLength(2)
   })
 
+  // worfy-harness-eval ticket 02: the regular runs on the model of the owner's work family, the pilot
+  // and the cost measurement on the one the owner works on, and a judge that errs less than Haiku did.
+  it('pins the regular, the pilot and the judge model', async () => {
+    const { REGULAR_MODEL, PILOT_MODEL, JUDGE_MODEL } = await runEnvModule()
+    expect(REGULAR_MODEL).toBe('claude-sonnet-5-5')
+    expect(PILOT_MODEL).toBe('claude-opus-5-5')
+    expect(JUDGE_MODEL).toBe('claude-opus-5-5')
+  })
+
+  it('names the regular model and the judge in its launch line and in every call of a dry run', () => {
+    const real = evalHarness('2.1.289', '0,0')
+    expect(real.run.status, real.run.stderr).toBe(0)
+    expect(lines(real.run.stdout).filter((line) => /^eval:harness: claude 2\.1\.289 \(.+\), model claude-sonnet-5-5, judge claude-opus-5-5$/.test(line))).toHaveLength(1)
+    const dry = evalHarness('2.1.289', '0,0', ['--dry-run'])
+    expect(dry.run.status, dry.run.stderr).toBe(0)
+    const commands = lines(dry.run.stdout).filter((line) => / — .*claude plugin eval /.test(line))
+    expect(commands).toHaveLength(2)
+    for (const line of commands) expect(line).toMatch(/ --model claude-sonnet-5-5 --judge-model claude-opus-5-5 /)
+  })
+
   it('makes two calls with the flags of the ticket and a narrow Bash for the gui case', async () => {
-    const { MODEL, JUDGE_MODEL } = await runEnvModule()
+    const { REGULAR_MODEL, JUDGE_MODEL } = await runEnvModule()
     const { run, calls: logged } = evalHarness('2.1.289', '0,0')
     expect(run.status, run.stderr).toBe(0)
     expect(logged).toHaveLength(2)
@@ -127,7 +153,7 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
       expect(listAfter(args, '--ablation')).toEqual(['none'])
       expect(listAfter(args, '--threshold')).toEqual(['0.8'])
       expect(listAfter(args, '--max-cost-usd')).toEqual(['30'])
-      expect(listAfter(args, '--model')).toEqual([MODEL])
+      expect(listAfter(args, '--model')).toEqual([REGULAR_MODEL])
       expect(listAfter(args, '--judge-model')).toEqual([JUDGE_MODEL])
     }
     const [main = [], gui = []] = calls

@@ -55,7 +55,7 @@ import { setImmediate } from 'node:timers'
 import { fileURLToPath } from 'node:url'
 import { copyKeptRun, judgeCommand, readTrace, scoreResults, taskFolders } from './eval-outcome-lib.mjs'
 import { fisherExact, newcombe } from './eval-outcome-stats.mjs'
-import { checkVersion, claudeBinary, cleanEnv, gitFolder, gitForRuns, JUDGE_MODEL, MODEL, pluginCopy, runClaude } from './eval-run-env.mjs'
+import { checkVersion, claudeBinary, cleanEnv, gitFolder, gitForRuns, JUDGE_MODEL, pluginCopy, REGULAR_MODEL, runClaude } from './eval-run-env.mjs'
 import { removeTree } from './remove-tree.mjs'
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -302,7 +302,7 @@ const fail = (message) => stop(1, message)
 const claude = claudeBinary(REPO, fail)
 const version = checkVersion(claude, childEnv, fail)
 const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-say(`claude ${version} (${claude}), model ${MODEL}, judge ${JUDGE_MODEL}, tasks: ${tasks.join(', ')}`)
+say(`claude ${version} (${claude}), model ${REGULAR_MODEL}, judge ${JUDGE_MODEL}, tasks: ${tasks.join(', ')}`)
 
 const RESULTS = process.env.EVAL_OUTCOME_RESULTS ? resolve(process.env.EVAL_OUTCOME_RESULTS) : join(REPO, 'scripts', 'eval-outcome', 'results')
 const runs = compare
@@ -324,7 +324,7 @@ const argsOf = (run, target) => [
   '0',
   '--no-publish',
   '--model',
-  MODEL,
+  REGULAR_MODEL,
   '--judge-model',
   JUDGE_MODEL,
   '--output-dir',

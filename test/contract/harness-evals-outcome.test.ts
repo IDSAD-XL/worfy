@@ -55,7 +55,8 @@ interface Stats {
   quantile: (xs: number[], q: number) => number | null
 }
 interface RunEnv {
-  MODEL: string
+  REGULAR_MODEL: string
+  PILOT_MODEL: string
   JUDGE_MODEL: string
   SESSION_VARIABLES: string[]
   cleanEnv: (env: NodeJS.ProcessEnv) => NodeJS.ProcessEnv
@@ -581,6 +582,7 @@ describe('the run environment both evals share (scripts/eval-run-env.mjs)', () =
     const pair = (name: string): string | undefined => argv[argv.indexOf(name) + 1]
     expect(argv[0]).toBe('claude')
     expect(pair('--model')).toBe(runEnv.JUDGE_MODEL)
+    expect(runEnv.JUDGE_MODEL).toBe('claude-opus-5-5')
     expect(pair('--tools')).toBe('')
     expect(pair('--setting-sources')).toBe('project')
     expect(argv).toContain('--strict-mcp-config')
@@ -1686,8 +1688,10 @@ describe('pnpm eval:outcome (scripts/eval-outcome.mjs, claude replaced by a stub
     expect(args).toContain('--trust-plugin')
     expect(args).toContain('--no-publish')
     expect(pair('--threshold')).toBe('0')
-    expect(pair('--model')).toBe(runEnv.MODEL)
-    expect(pair('--judge-model')).toBe(runEnv.JUDGE_MODEL)
+    expect(pair('--model')).toBe('claude-sonnet-5-5')
+    expect(pair('--model')).toBe(runEnv.REGULAR_MODEL)
+    expect(pair('--judge-model')).toBe('claude-opus-5-5')
+    expect(run.stdout).toMatch(/, model claude-sonnet-5-5, judge claude-opus-5-5, tasks: /)
     expect(pair('--max-cost-usd')).toBe('5')
     expect(args.slice(args.indexOf('--allow-tools') + 1, args.indexOf('--allow-tools') + 4)).toEqual(['Bash', 'Write', 'Edit'])
   })
@@ -1787,7 +1791,7 @@ describe('pnpm eval:outcome (scripts/eval-outcome.mjs, claude replaced by a stub
     for (const { args } of calls) {
       expect(pair(args, '--ablation')).toBe('none')
       expect(pair(args, '--eval-dir')).toBe('evals-outcome')
-      expect(pair(args, '--model')).toBe(runEnv.MODEL)
+      expect(pair(args, '--model')).toBe(runEnv.REGULAR_MODEL)
       expect(pair(args, '--max-cost-usd')).toBe('2.5')
       expect(args.filter((arg) => arg === '--max-cost-usd')).toHaveLength(1)
     }
