@@ -68,11 +68,13 @@ Source: [spec.md](../spec.md), «Ticket-ы», 01; «Решения владел�
   - evidence: test-run pass · `pnpm test test/contract/harness-evals-run.test.ts test/contract/harness-evals-outcome.test.ts` exit 0 · mac - · 75b01732e6887fad8efc6c9fa1ab04fa40a7259c
   - evidence: test-run pass · `pnpm test test/contract/harness-evals-run.test.ts test/contract/harness-evals-outcome.test.ts` exit 0 · mac - · 4c8964b60
   - evidence: test-run pass · `pnpm test test/contract/harness-evals-run.test.ts test/contract/harness-evals-outcome.test.ts` exit 0 · mac - · f4c77013e
+  - evidence: test-run pass · `pnpm test test/contract/harness-evals-run.test.ts test/contract/harness-evals-outcome.test.ts` exit 0 · mac - · 15f7de442
 - [ ] Ключ — только в папке состояния Harness и в окружении дочернего `claude` при запуске на кредитах; contract test-ы
       это проверяют.
   - evidence: test-run pass · `pnpm test test/contract/harness-evals-run.test.ts test/contract/harness-evals-outcome.test.ts` exit 0 · mac - · 75b01732e6887fad8efc6c9fa1ab04fa40a7259c
   - evidence: test-run pass · `pnpm test test/contract/harness-evals-run.test.ts test/contract/harness-evals-outcome.test.ts` exit 0 · mac - · 4c8964b60
   - evidence: test-run pass · `pnpm test test/contract/harness-evals-run.test.ts test/contract/harness-evals-outcome.test.ts` exit 0 · mac - · f4c77013e
+  - evidence: test-run pass · `pnpm test test/contract/harness-evals-run.test.ts test/contract/harness-evals-outcome.test.ts` exit 0 · mac - · 15f7de442
 - [ ] `--dry-run` с теми же аргументами прошёл до платного запуска; один run `status-block` на кредитах с потолком
       `--max-cost-usd 2`; строка `eval:harness …` в описании PR.
   - evidence: test-run pass · `pnpm eval:harness -- --case status-block --billing credits --max-cost-usd 2` exit 0 after the same with --dry-run exit 0; costUsd 0.31 · mac - · 75b01732e6887fad8efc6c9fa1ab04fa40a7259c
