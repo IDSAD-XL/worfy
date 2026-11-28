@@ -155,7 +155,7 @@ describe('pnpm eval:harness (scripts/eval-harness.mjs, claude replaced by a stub
       for (const flag of ['--scaffold', '--trust-plugin', '--no-publish']) expect(args).toContain(flag)
       expect(listAfter(args, '--ablation')).toEqual(['none'])
       expect(listAfter(args, '--threshold')).toEqual(['0.8'])
-      expect(listAfter(args, '--max-cost-usd')).toEqual(['30'])
+      expect(listAfter(args, '--max-cost-usd')).toEqual(['100'])
       expect(listAfter(args, '--model')).toEqual([REGULAR_MODEL])
       expect(listAfter(args, '--judge-model')).toEqual([JUDGE_MODEL])
     }
@@ -963,7 +963,7 @@ function newChangedRepo(): ChangedRepo {
   const home = join(root, 'home')
   mkdirSync(home)
   mkdirSync(join(repo, 'scripts'), { recursive: true })
-  for (const file of ['eval-harness.mjs', 'eval-harness-coverage.mjs', 'eval-run-env.mjs', 'remove-tree.mjs']) copyFileSync(join(REPO, 'scripts', file), join(repo, 'scripts', file))
+  for (const file of ['eval-harness.mjs', 'eval-harness-coverage.mjs', 'eval-history.mjs', 'eval-outcome-stats.mjs', 'eval-run-env.mjs', 'remove-tree.mjs']) copyFileSync(join(REPO, 'scripts', file), join(repo, 'scripts', file))
   cpSync(HARNESS, join(repo, 'harness'), { recursive: true, filter: withoutResults(HARNESS) })
   writeFileSync(join(repo, '.gitignore'), 'harness/evals/results/\n')
   writeFileSync(join(repo, 'README.md'), '# repo\n')
@@ -1134,21 +1134,21 @@ describe('pnpm eval:harness -- --changed <base> (claude replaced by a stub, a te
     expect(run.stdout).toContain(`harness/skills/epic-wave/${name} -> status-block`)
   })
 
-  // --max-cost-usd is per call; the 30 USD of the script hold across all of its calls.
-  it('gives each call what is left of the 30 USD, and starts no call once it is spent', () => {
+  // --max-cost-usd is per call; the 100 USD of the script hold across all of its calls.
+  it('gives each call what is left of the 100 USD, and starts no call once it is spent', () => {
     const { repo, git } = changedRepo()
     expect(git('checkout', '-q', '-b', 'topic').status).toBe(0)
     appendFileSync(join(repo, 'harness', 'skills', 'epic-wave', 'SKILL.md'), '\nOne more rule.\n')
     expect(git('commit', '-q', '-am', 'change epic-wave').status).toBe(0)
-    const { run, calls } = evalIn(repo, ['--changed', 'main'], { STUB_AGGREGATE: aggregate({ costUsd: 12.5 }) })
-    expect(calls.map((call) => listAfter(call.args, '--max-cost-usd'))).toEqual([['30'], ['17.5'], ['5']])
+    const { run, calls } = evalIn(repo, ['--changed', 'main'], { STUB_AGGREGATE: aggregate({ costUsd: 42.5 }) })
+    expect(calls.map((call) => listAfter(call.args, '--max-cost-usd'))).toEqual([['100'], ['57.5'], ['15']])
     expect(run.status, run.stderr).toBe(0)
-    const spent = evalIn(repo, ['--changed', 'main'], { STUB_AGGREGATE: aggregate({ costUsd: 20 }) })
+    const spent = evalIn(repo, ['--changed', 'main'], { STUB_AGGREGATE: aggregate({ costUsd: 60 }) })
     expect(caseArgs(spent.calls)).toEqual([['epic-wave-old-form'], ['epic-wave-tickets']])
-    expect(spent.calls.map((call) => listAfter(call.args, '--max-cost-usd'))).toEqual([['30'], ['10']])
+    expect(spent.calls.map((call) => listAfter(call.args, '--max-cost-usd'))).toEqual([['100'], ['40']])
     // Exit 2, as a call that hit the ceiling: the run is partial.
     expect(spent.run.status).toBe(2)
-    expect(spent.run.stdout).toMatch(/30 USD .*spent.*main-reviewer-verdict call and any after it are skipped/)
+    expect(spent.run.stdout).toMatch(/100 USD .*spent.*main-reviewer-verdict call and any after it are skipped/)
   })
 
   /** A branch whose change to the epic-wave skill chooses three cases of the main tag, three calls. */
@@ -1166,22 +1166,22 @@ describe('pnpm eval:harness -- --changed <base> (claude replaced by a stub, a te
     appendFileSync(join(repo, 'harness', 'evals', 'lib', 'demo-project.sh'), '\n# a comment\n')
     const { run, calls } = evalIn(repo, ['--changed', 'HEAD'], { STUB_AGGREGATE: '' })
     expect(calls.map((call) => listAfter(call.args, '--tag'))).toEqual([['main']])
-    expect(limits(calls)).toEqual([['30']])
+    expect(limits(calls)).toEqual([['100']])
     expect(run.status).toBe(2)
-    expect(run.stdout).toMatch(/30 USD .*spent \(30 USD\).*gui call and any after it are skipped/)
+    expect(run.stdout).toMatch(/100 USD .*spent \(100 USD\).*gui call and any after it are skipped/)
   })
 
   it('counts the cost of a partial run', () => {
-    const { run, calls } = evalIn(threeCalls(), ['--changed', 'main'], { STUB_AGGREGATE: aggregate({ partial: true, costUsd: 20 }) })
-    expect(limits(calls)).toEqual([['30'], ['10']])
+    const { run, calls } = evalIn(threeCalls(), ['--changed', 'main'], { STUB_AGGREGATE: aggregate({ partial: true, costUsd: 60 }) })
+    expect(limits(calls)).toEqual([['100'], ['40']])
     expect(run.status).toBe(2)
   })
 
   it('stops with exit 2 when exactly nothing is left', () => {
-    const { run, calls } = evalIn(threeCalls(), ['--changed', 'main'], { STUB_AGGREGATE: aggregate({ costUsd: 15 }) })
-    expect(limits(calls)).toEqual([['30'], ['15']])
+    const { run, calls } = evalIn(threeCalls(), ['--changed', 'main'], { STUB_AGGREGATE: aggregate({ costUsd: 50 }) })
+    expect(limits(calls)).toEqual([['100'], ['50']])
     expect(run.status).toBe(2)
-    expect(run.stdout).toMatch(/spent \(30 USD\).*main-reviewer-verdict call and any after it are skipped/)
+    expect(run.stdout).toMatch(/spent \(100 USD\).*main-reviewer-verdict call and any after it are skipped/)
   })
 
   it('makes the usual call of a tag, without --case, when a change chooses every case of it', () => {
@@ -1363,18 +1363,25 @@ describe('pnpm eval:harness: a `--` anywhere, the cost limit of the user, --dry-
     expect(lines(run.stdout)).toContain('eval:harness: budget 3 USD (--max-cost-usd 3)')
   })
 
-  it('keeps the ceiling of 30 USD under a larger --max-cost-usd, and says so', () => {
-    const { run, calls } = evalHarness('2.1.289', '0,0', ['--', '--max-cost-usd', '50'])
+  it('keeps the ceiling of 100 USD under a larger --max-cost-usd, and says so', () => {
+    const { run, calls } = evalHarness('2.1.289', '0,0', ['--', '--max-cost-usd', '150'])
     expect(run.status, run.stderr).toBe(0)
-    expect(limits(calls)).toEqual([['30'], ['30']])
-    expect(run.stdout).toMatch(/--max-cost-usd 50 is above the ceiling of this script: the budget stays 30 USD/)
-    expect(lines(run.stdout)).toContain('eval:harness: budget 30 USD (BUDGET_USD)')
+    expect(limits(calls)).toEqual([['100'], ['100']])
+    expect(run.stdout).toMatch(/--max-cost-usd 150 is above the ceiling of this script: the budget stays 100 USD/)
+    expect(lines(run.stdout)).toContain('eval:harness: budget 100 USD (BUDGET_USD)')
+  })
+
+  it('takes a --max-cost-usd below the ceiling as the budget: 20 gives 20', () => {
+    const { run, calls } = evalHarness('2.1.289', '0,0', ['--max-cost-usd', '20'])
+    expect(run.status, run.stderr).toBe(0)
+    expect(limits(calls)).toEqual([['20'], ['20']])
+    expect(lines(run.stdout)).toContain('eval:harness: budget 20 USD (--max-cost-usd 20)')
   })
 
   it('names BUDGET_USD as the budget without a --max-cost-usd', () => {
     const { run } = evalHarness('2.1.289', '0,0')
     expect(run.status, run.stderr).toBe(0)
-    expect(lines(run.stdout)).toContain('eval:harness: budget 30 USD (BUDGET_USD)')
+    expect(lines(run.stdout)).toContain('eval:harness: budget 100 USD (BUDGET_USD)')
   })
 
   const badLimits: [name: string, args: string[]][] = [
@@ -1441,8 +1448,8 @@ describe('pnpm eval:harness: a `--` anywhere, the cost limit of the user, --dry-
   it('rounds what is left of the budget down to the cent, never up', () => {
     const { run, calls } = evalIn(threeCalls(), ['--changed', 'main'], { STUB_AGGREGATE: aggregate({ costUsd: 0.004 }) })
     expect(run.status, run.stderr).toBe(0)
-    // 30 - 0.004 is 29.996: toFixed(2) would give the second call 30, more than is left.
-    expect(limits(calls)).toEqual([['30'], ['29.99'], ['29.99']])
+    // 100 - 0.004 is 99.996: toFixed(2) would give the second call 100, more than is left.
+    expect(limits(calls)).toEqual([['100'], ['99.99'], ['99.99']])
     // 3 - 0.7 is 2.3, whose hundredfold is 229.99999999999997 in floating point: still 2.3, not 2.29.
     const tenths = evalIn(threeCalls(), ['--changed', 'main', '--', '--max-cost-usd', '3'], { STUB_AGGREGATE: aggregate({ costUsd: 0.7 }) })
     expect(limits(tenths.calls)).toEqual([['3'], ['2.3'], ['1.6']])
@@ -1507,6 +1514,249 @@ describe('pnpm eval:harness: a `--` anywhere, the cost limit of the user, --dry-
     expect(run.stderr).toMatch(/no-such-branch/)
     expect(calls).toEqual([])
     expect(versionCalls).toBe(0)
+  })
+})
+
+/** A record of evals-history/ (scripts/eval-history.mjs), as much of it as these tests read. */
+interface HistoryRecord {
+  schema: number
+  startedAt: string
+  commit: string | null
+  harnessDirty: boolean
+  claudeVersion: string
+  models: { agent: string; judge: string }
+  threshold: number
+  partial: boolean
+  /** The chosen cases no report holds, by name. */
+  missing: string[]
+  costUsd: number
+  judgeCostUsd: number
+  casesPassed: number
+  cases: { name: string; tag: string; k: number; n: number; score: number | null; wilson: { low: number | null; high: number | null }; costUsd: number; judgeCostUsd: number }[]
+  comparison: { with: string | null; fell: { name: string; before: { k: number; n: number }; now: { k: number; n: number } }[] }
+}
+
+describe('pnpm eval:harness: the record of a full run in evals-history/ (claude replaced by a stub)', () => {
+  const folder = (repo: string): string => join(repo, 'evals-history')
+  const names = (repo: string): string[] => (existsSync(folder(repo)) ? readdirSync(folder(repo)).sort() : [])
+  const records = (repo: string): string[] => names(repo).filter((name) => name.endsWith('.json'))
+  const read = (repo: string, name: string): HistoryRecord => JSON.parse(readFileSync(join(folder(repo), name), 'utf8')) as HistoryRecord
+  const summary = (repo: string, name: string): string => readFileSync(join(folder(repo), name.replace(/\.json$/, '.md')), 'utf8')
+  const wilsonOf = async (): Promise<(k: number, n: number) => { rate: number | null; low: number | null; high: number | null }> =>
+    ((await import(pathToFileURL(join(REPO, 'scripts', 'eval-outcome-stats.mjs')).href)) as { wilson: (k: number, n: number) => { rate: number | null; low: number | null; high: number | null } }).wilson
+  const SUITE = { modelOverride: 'claude-sonnet-5-5', judgeModel: 'claude-opus-5-5' }
+  const reports = (runs: Record<string, boolean[] | null>, fields: Record<string, unknown> = {}): NodeJS.ProcessEnv => ({
+    STUB_REPORT: JSON.stringify({ runs, suite: SUITE, ...fields }),
+  })
+  /** The cases of a general run: those of the tags main and gui; `alone` runs only by its --case. */
+  const general = CASES.filter(([, tag]) => tag !== 'alone')
+
+  it('writes the record and its summary after a full run: every field, k and n from the runs, the interval from wilson', async () => {
+    const wilson = await wilsonOf()
+    const { repo, git } = changedRepo()
+    const { run, calls } = evalIn(repo, [], reports({ 'status-block': [true, false, true], 'no-os-screen-capture': [false, false] }))
+    expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
+    expect(calls.map((call) => listAfter(call.args, '--tag'))).toEqual([['main'], ['gui']])
+    const [name, ...more] = records(repo)
+    if (!name) throw new Error(`no record in ${folder(repo)}: ${run.stdout}`)
+    expect(more).toEqual([])
+    expect(names(repo)).toEqual([name, name.replace(/\.json$/, '.md')])
+    expect(run.stdout).toContain(join(folder(repo), name))
+    const record = read(repo, name)
+    expect(record.schema).toBe(1)
+    expect(Number.isNaN(Date.parse(record.startedAt))).toBe(false)
+    expect(record.commit).toBe(git('rev-parse', 'HEAD').stdout.trim())
+    expect(name).toMatch(new RegExp(`^\\d{4}-\\d{2}-\\d{2}T\\d{2}-\\d{2}-\\d{2}Z-${(record.commit ?? '').slice(0, 12)}\\.json$`))
+    expect(record.harnessDirty).toBe(false)
+    expect(record.claudeVersion).toBe('2.1.289')
+    expect(record.models).toEqual({ agent: SUITE.modelOverride, judge: SUITE.judgeModel })
+    expect(record.threshold).toBe(0.8)
+    expect(record.partial).toBe(false)
+    expect(record.cases.map((row) => [row.name, row.tag])).toEqual(general.map(([caseName, tag]) => [caseName, tag]).sort(([a = ''], [b = '']) => (a < b ? -1 : 1)))
+    const runs = (row: HistoryRecord['cases'][number]): number => (row.name === 'status-block' ? 3 : row.name === 'no-os-screen-capture' ? 2 : 3)
+    for (const row of record.cases) {
+      expect(row.n).toBe(runs(row))
+      const { low, high } = wilson(row.k, row.n)
+      expect(row.wilson).toEqual({ low, high })
+      expect(row.costUsd).toBeCloseTo(0.1 * row.n)
+      expect(row.judgeCostUsd).toBeCloseTo(0.01 * row.n)
+    }
+    const row = (caseName: string): HistoryRecord['cases'][number] | undefined => record.cases.find((one) => one.name === caseName)
+    expect(row('status-block')).toMatchObject({ k: 2, n: 3 })
+    expect(row('status-block')?.score).toBeCloseTo(2.5 / 3)
+    expect(row('no-os-screen-capture')).toMatchObject({ k: 0, n: 2, score: 0.5 })
+    expect(record.casesPassed).toBe(general.length - 1)
+    expect(record.costUsd).toBeCloseTo(0.1 * (3 * (general.length - 1) + 2))
+    expect(record.comparison).toEqual({ with: null, fell: [] })
+    // The record goes into the repository: no path of this machine in it.
+    expect(JSON.stringify(record)).not.toContain(repo)
+    const text = summary(repo, name)
+    expect(text).toContain(`- Harness commit: ${record.commit}`)
+    expect(text).toContain('- Models: agent claude-sonnet-5-5, judge claude-opus-5-5')
+    expect(text).toContain('- Partial: no')
+    expect(text).toContain(`| status-block | main | 2 of 3 | ${wilson(2, 3).low?.toFixed(2)}–${wilson(2, 3).high?.toFixed(2)} | 0.83 | 0.33 |`)
+    expect(text).toMatch(/No earlier record of agent claude-sonnet-5-5 and judge claude-opus-5-5: nothing to compare/)
+    expect(record.missing).toEqual([])
+    expect(text).not.toContain('- Not in the reports:')
+    // The Cost line and the Cost column count the same: the runs and their judge.
+    expect(record.judgeCostUsd).toBeCloseTo(0.01 * (3 * (general.length - 1) + 2))
+    expect(text).toContain('| Cost USD (runs + judge) |')
+    const total = /^- Cost: (\d+\.\d\d) USD — runs (\d+\.\d\d), judge (\d+\.\d\d)$/m.exec(text)
+    if (!total) throw new Error(`no Cost line in:\n${text}`)
+    expect(Number(total[1])).toBeCloseTo(record.costUsd + record.judgeCostUsd, 2)
+    const column = text.split('\n').filter((line) => /^\| [a-z]/.test(line)).map((line) => Number(line.split('|').at(-2)))
+    expect(column).toHaveLength(record.cases.length)
+    expect(column.reduce((sum, value) => sum + value, 0)).toBeCloseTo(Number(total[1]), 2)
+  })
+
+  it('marks the record partial and names the case when a report leaves a chosen case out', () => {
+    const { repo } = changedRepo()
+    const { run } = evalIn(repo, [], reports({ 'status-block': null }))
+    // The line of the main call says so as well, and the run exits 1.
+    expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(1)
+    expect(run.stdout).toMatch(/cases mismatch/)
+    const [name] = records(repo)
+    if (!name) throw new Error(`no record: ${run.stdout}`)
+    const record = read(repo, name)
+    expect(record.partial).toBe(true)
+    expect(record.missing).toEqual(['status-block'])
+    expect(record.cases.map((row) => row.name)).not.toContain('status-block')
+    const text = summary(repo, name)
+    expect(text).toMatch(/- Partial: yes/)
+    expect(text).toContain('- Not in the reports: status-block')
+  })
+
+  it('records the threshold of the report, so a --threshold of the user counts the cases passed', () => {
+    const { repo } = changedRepo()
+    // status-block scores 2.5 / 3: at or above 0.8, below 0.9; every other case scores 1.
+    const { run, calls } = evalIn(repo, ['--threshold', '0.9'], reports({ 'status-block': [true, true, false] }))
+    expect(run.status, `${run.stdout}\n${run.stderr}`).toBe(0)
+    expect(calls.every((call) => call.args.lastIndexOf('0.9') === call.args.lastIndexOf('--threshold') + 1)).toBe(true)
+    const [name] = records(repo)
+    if (!name) throw new Error(`no record: ${run.stdout}`)
+    const record = read(repo, name)
+    expect(record.threshold).toBe(0.9)
+    expect(record.casesPassed).toBe(general.length - 1)
+    expect(summary(repo, name)).toContain(`- Cases at or above 0.9: ${general.length - 1} of ${general.length}`)
+  })
+
+  it('historyRecord takes the threshold it is given for a report that names none', async () => {
+    const { historyRecord } = (await import(pathToFileURL(join(REPO, 'scripts', 'eval-history.mjs')).href)) as {
+      historyRecord: (input: Record<string, unknown>) => HistoryRecord
+    }
+    const report = { costUsd: 0.2, cases: [{ name: 'a', arms: { with: [{ passed: true, costUsd: 0.1 }, { passed: false, costUsd: 0.1 }] }, aggregates: { score: 0.75 } }] }
+    const record = historyRecord({
+      startedAt: '2026-11-28T10:00:00.000Z',
+      commit: null,
+      harnessDirty: false,
+      claudeVersion: '2.1.300',
+      fallbackModels: { agent: 'agent-model', judge: 'judge-model' },
+      fallbackThreshold: 0.7,
+      calls: [{ tag: 'main', cases: ['a'], report }],
+    })
+    expect(record).toMatchObject({ threshold: 0.7, casesPassed: 1, partial: false, missing: [], models: { agent: 'agent-model', judge: 'judge-model' } })
+  })
+
+  it('writeHistory never writes over a record: a taken name gets the next suffix', async () => {
+    const { historyRecord, writeHistory } = (await import(pathToFileURL(join(REPO, 'scripts', 'eval-history.mjs')).href)) as {
+      historyRecord: (input: Record<string, unknown>) => HistoryRecord
+      writeHistory: (dir: string, record: HistoryRecord) => { json: string; markdown: string }
+    }
+    const dir = join(tempDir('eval-history-'), 'evals-history')
+    mkdirSync(dir)
+    const record = historyRecord({
+      startedAt: '2026-11-28T10:00:00.000Z',
+      commit: '0123456789abcdef',
+      harnessDirty: false,
+      claudeVersion: '2.1.300',
+      fallbackModels: { agent: 'agent-model', judge: 'judge-model' },
+      fallbackThreshold: 0.8,
+      calls: [{ tag: 'main', cases: [], report: { costUsd: 0, cases: [] } }],
+    })
+    const taken = join(dir, '2026-11-28T10-00-00Z-0123456789ab.json')
+    writeFileSync(taken, 'an earlier record\n')
+    const second = writeHistory(dir, record)
+    const third = writeHistory(dir, record)
+    expect(readFileSync(taken, 'utf8')).toBe('an earlier record\n')
+    expect([second.json, third.json]).toEqual([taken.replace(/\.json$/, '-2.json'), taken.replace(/\.json$/, '-3.json')])
+    expect(readdirSync(dir).sort()).toEqual(
+      ['2026-11-28T10-00-00Z-0123456789ab.json', '2026-11-28T10-00-00Z-0123456789ab-2.json', '2026-11-28T10-00-00Z-0123456789ab-2.md', '2026-11-28T10-00-00Z-0123456789ab-3.json', '2026-11-28T10-00-00Z-0123456789ab-3.md'].sort(),
+    )
+  })
+
+  it('marks the record partial: a partial report, or a call the budget left unstarted; and an uncommitted harness/', () => {
+    const { repo } = changedRepo()
+    const first = evalIn(repo, [], reports({}, { partial: true }))
+    expect(first.run.status, first.run.stderr).toBe(0)
+    const [one] = records(repo)
+    if (!one) throw new Error(`no record: ${first.run.stdout}`)
+    expect(read(repo, one).partial).toBe(true)
+    expect(summary(repo, one)).toMatch(/- Partial: yes/)
+    appendFileSync(join(repo, 'harness', 'skills', 'qmd', 'SKILL.md'), '\nOne more rule.\n')
+    // The main call costs 0.1 USD a run, more than the budget: the gui call does not start.
+    const second = evalIn(repo, ['--max-cost-usd', '1'], reports({}))
+    expect(second.run.status).toBe(2)
+    expect(second.calls.map((call) => listAfter(call.args, '--tag'))).toEqual([['main']])
+    const two = records(repo).find((name) => name !== one)
+    if (!two) throw new Error(`no second record: ${second.run.stdout}`)
+    const record = read(repo, two)
+    expect(record.partial).toBe(true)
+    expect(record.harnessDirty).toBe(true)
+    expect(record.cases.map((row) => row.name)).not.toContain('no-os-screen-capture')
+    expect(record.missing).toEqual(['no-os-screen-capture'])
+    expect(summary(repo, two)).toContain('(with uncommitted changes in harness/)')
+    expect(summary(repo, two)).toContain('- Not in the reports: no-os-screen-capture')
+  })
+
+  it.each([
+    ['--case', ['--case', 'status-block']],
+    ['--tag', ['--tag', 'gui']],
+    ['--changed', ['--changed', 'HEAD']],
+  ])('writes no record when %s narrows the cases', (_, args) => {
+    const { repo } = changedRepo()
+    appendFileSync(join(repo, 'harness', 'skills', 'ship-ticket', 'implementer-report.md'), '\nOne more rule.\n')
+    const { run, calls } = evalIn(repo, args, reports({}))
+    expect(run.status, run.stderr).toBe(0)
+    expect(calls).toHaveLength(1)
+    expect(names(repo)).toEqual([])
+    expect(run.stdout).toMatch(/eval:harness: no run record: --case, --tag or --changed chose the cases/)
+  })
+
+  it('compares with the latest earlier record of the same models and names the cases whose k of n fell; other models are not compared', () => {
+    const { repo } = changedRepo()
+    const before = evalIn(repo, [], {
+      STUB_REPORT: JSON.stringify({ runs: { 'status-block': [true, true, true] }, suite: { modelOverride: 'claude-sonnet-5', judgeModel: 'claude-haiku-4-5' } }),
+    })
+    expect(before.run.status, before.run.stderr).toBe(0)
+    const [old] = records(repo)
+    const baseline = evalIn(repo, [], reports({ 'status-block': [false, false, false] }))
+    expect(baseline.run.status, baseline.run.stderr).toBe(0)
+    const first = records(repo).find((name) => name !== old)
+    if (!old || !first) throw new Error(`expected two records: ${names(repo).join(', ')}`)
+    // Only a record of other models before it: the baseline compares with nothing.
+    expect(read(repo, first).comparison).toEqual({ with: null, fell: [] })
+    // Two later records that share one model of the two, each with status-block at 3 of 3: neither is
+    // the record to compare with, or status-block would have fallen against it.
+    for (const suite of [
+      { modelOverride: 'claude-sonnet-5', judgeModel: SUITE.judgeModel },
+      { modelOverride: SUITE.modelOverride, judgeModel: 'claude-haiku-4-5' },
+    ]) {
+      const other = evalIn(repo, [], { STUB_REPORT: JSON.stringify({ runs: { 'status-block': [true, true, true] }, suite }) })
+      expect(other.run.status, other.run.stderr).toBe(0)
+    }
+    expect(records(repo)).toHaveLength(4)
+    const after = evalIn(repo, [], reports({ 'reviewer-verdict': [true, false, false], 'status-block': [true, false, false] }))
+    expect(after.run.status, after.run.stderr).toBe(0)
+    const latest = (): string | undefined => records(repo).sort((a, b) => (read(repo, a).startedAt < read(repo, b).startedAt ? -1 : 1)).at(-1)
+    const last = latest()
+    if (!last || records(repo).length !== 5) throw new Error(`expected five records: ${names(repo).join(', ')}`)
+    const record = read(repo, last)
+    // status-block rose from 0 of 3 to 1 of 3; reviewer-verdict fell from 3 of 3.
+    expect(record.comparison).toEqual({ with: first, fell: [{ name: 'reviewer-verdict', before: { k: 3, n: 3 }, now: { k: 1, n: 3 } }] })
+    const text = summary(repo, last)
+    expect(text).toContain(`Compared with ${first}, k of n fell in 1 case(s):`)
+    expect(text).toContain('- reviewer-verdict: 3 of 3 → 1 of 3')
+    expect(text).not.toContain('- status-block:')
   })
 })
 

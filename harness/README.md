@@ -145,13 +145,14 @@ whatever follows a `--` for positional arguments, so a `--case` behind it would 
 the tag. `--case` and `--tag` of the user choose the cases and do not reach `claude`: `claude`
 adds up every `--tag` it gets and keeps the last `--case`, so a tag whose cases they narrow gets
 one call per chosen case, each naming only its own `--tag` and `--case`. `--output-dir` is the
-script's own (exit 1). The cost ceiling is 30 USD for the whole run
-(`BUDGET_USD`); `--max-cost-usd <x>` (or `=<x>`, before or after `--`) lowers it to `x` and never
-raises it: the script takes the option itself, `claude` never sees it, a larger `x` keeps 30 USD
+script's own (exit 1). The cost ceiling is 100 USD for the whole run
+(`BUDGET_USD`, the owner's limit for a run without asking; the last guard is the credits of the
+account themselves, with auto-reload off); `--max-cost-usd <x>` (or `=<x>`, before or after `--`) lowers it to `x` and never
+raises it: the script takes the option itself, `claude` never sees it, a larger `x` keeps 100 USD
 with a line that says so, and a value that is not a number above 0, a missing value or a second
 `--max-cost-usd` is exit 1 with no call. Before the first call the script prints the budget and
 where it comes from, `eval:harness: budget 3 USD (--max-cost-usd 3)` or
-`eval:harness: budget 30 USD (BUDGET_USD)`. Each call gets
+`eval:harness: budget 100 USD (BUDGET_USD)`. Each call gets
 `--max-cost-usd` with what the calls before it left, rounded down to the cent (by the `costUsd` of their
 `aggregate-result.json`, partial runs included; a call whose report is missing, unreadable or has no
 `costUsd` counts its whole limit), and once nothing is left the remaining calls are not started and
@@ -171,6 +172,24 @@ The report is `evals/results/<time>-main/report.html` (and `-gui`), next to
 the app (`electron.vite.config.ts`, `HARNESS_NOT_BUNDLED`). CI and the gate do not run the evals:
 `test/contract/harness-evals.test.ts` checks for free only that every case is complete, every
 fixture builds, and the Harness scripts recognise it.
+
+The record of a full run. A run without `--case`, `--tag` and `--changed` that got at least one
+`aggregate-result.json` writes two files into `evals-history/` at the root of the repository (next
+to the `HARNESS_DIR` copy when that is set): `<time>-<commit>.json` and a short summary
+`<time>-<commit>.md`. The record holds the start time, the commit of
+the repository at the start and whether `harness/` had uncommitted changes, the Claude Code version,
+the agent and judge models of the report, the threshold of the report (a `--threshold` of the user
+included), the cost of the runs and of their judge, and for each case its tag, k
+passed runs of n, the mean score, the 95 % Wilson interval of k of n (the `wilson` function the
+outcome eval already uses) and the cost of its runs and of their judge. It is marked
+`partial` when a call was not started (cost ceiling, signal), wrote no report or a partial one, or
+when a report leaves a chosen case out; `missing` and the summary name such cases. The
+summary compares the run with the latest earlier record of the same agent and judge models and names
+each case whose k of n fell; records of other models, those from before the baseline run after a
+model change among them, are not compared. `compaction-state` (tag `alone`) is not part of a full run
+and has no row. The script prints the paths of both files; commit them with the change the run
+measured. A narrowed run writes no record and prints `eval:harness: no run record: …`. The record
+does not change the exit code.
 
 git and the Harness state in a run. The sandbox settings `claude plugin
 eval` writes for a run list the Command Line Tools `git` binary among denied credential files, next
