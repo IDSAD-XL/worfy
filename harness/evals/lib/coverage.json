@@ -105,6 +105,8 @@
     "skills/qmd/SKILL.md": "Cases deferred until the owner decides after the first full run of the eval set.",
     "skills/continuous-audit/SKILL.md": "Cases deferred until the owner decides after the first full run of the eval set.",
     "skills/overnight-fix-loop/SKILL.md": "Cases deferred until the owner decides after the first full run of the eval set.",
+    "skills/overnight-fix-loop/agents/openai.yaml": "The Codex manifest that keeps the skill manual-only in Codex: Claude Code, which runs the eval cases, does not read it.",
+    "skills/human-review-setup/agents/openai.yaml": "The Codex manifest that keeps the skill manual-only in Codex: Claude Code, which runs the eval cases, does not read it.",
     "skills/tickets-to-tasks/SKILL.md": "Cases deferred until the owner decides after the first full run of the eval set.",
     "skills/connect-project/SKILL.md": "No case yet.",
     "skills/gate-queue/SKILL.md": "No case yet.",

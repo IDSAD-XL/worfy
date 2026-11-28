@@ -94,6 +94,36 @@ describe('harness/ holds only the Harness', () => {
   })
 })
 
+// worfy-polish 176: Claude Code keeps a skill with `disable-model-invocation: true` in its SKILL.md
+// out of the model's reach; Codex ignores that field and reads `policy: allow_implicit_invocation:
+// false` of agents/openai.yaml next to the SKILL.md instead. Both hosts load the plugin, so the two
+// fields go together: one without the other lets one host call a skill the other only runs by hand.
+// No YAML library is a dependency, so the front matter and the policy are read with a regex.
+describe('a manual-only skill is manual-only in Codex too', () => {
+  const SKILLS = join(HARNESS, 'skills')
+  const skills = readdirSync(SKILLS, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && existsSync(join(SKILLS, entry.name, 'SKILL.md')))
+    .map((entry) => entry.name)
+  const manualInClaude = (name: string): boolean => {
+    const front = /^---\r?\n([\s\S]*?)\r?\n---\r?(?:\n|$)/.exec(readFileSync(join(SKILLS, name, 'SKILL.md'), 'utf8'))?.[1] ?? ''
+    return /^disable-model-invocation:[ \t]*true[ \t]*\r?$/m.test(front)
+  }
+  const manualInCodex = (name: string): boolean => {
+    const manifest = join(SKILLS, name, 'agents', 'openai.yaml')
+    if (!existsSync(manifest)) return false
+    return /^policy:[ \t]*\r?\n(?:[ \t]+.*\r?\n)*?[ \t]+allow_implicit_invocation:[ \t]*false[ \t]*\r?$/m.test(readFileSync(manifest, 'utf8'))
+  }
+
+  it('reads the skills', () => {
+    expect(skills.length).toBeGreaterThan(30)
+    expect(skills.filter(manualInClaude).length).toBeGreaterThan(10)
+  })
+
+  it('has agents/openai.yaml with allow_implicit_invocation: false exactly where SKILL.md has disable-model-invocation: true', () => {
+    expect(skills.filter((name) => manualInClaude(name) !== manualInCodex(name))).toEqual([])
+  })
+})
+
 // worfy-product-session ticket 10, the Epic spec's risk 1: the rule set of a Session is chosen by
 // WORFY_SESSION_KIND, which worfy puts into the `env` of a Product Session (sessionOptions). That works only
 // if the process of a SessionStart hook gets the environment the Agent SDK gave Claude Code. The real

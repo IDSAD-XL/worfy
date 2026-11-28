@@ -1,7 +1,9 @@
 # 176 — `agents/openai.yaml` у skill-ов `human-review-setup` и `overnight-fix-loop`: Codex не вызывает их сам
 
 Type: task
-Status: open
+Status: claimed 2026-11-28T07:10Z
+PR: #2371
+Branch: worfy-polish/176
 Blocked by: None — can start immediately
 Source: решение владельца 2026-11-28 по worfy-harness-eval 06 (одноразовая статика SkillEvaluator по 35 skill-ам Harness,
 PR #2350, «Итог», «Вопросы владельцу», вопрос 1: «да, добавить `agents/openai.yaml` с `allow_implicit_invocation: false`
@@ -76,7 +78,28 @@ PR #2350, «Итог», «Вопросы владельцу», вопрос 1: �
 
 - [ ] У `human-review-setup` и `overnight-fix-loop` есть `agents/openai.yaml` с `allow_implicit_invocation: false` в
       форме файлов копии; запись в `coverage.json` `uncovered` у каждого.
+  - evidence: commit pass · worfy-polish/176: Codex manifests keep human-review-setup and overnight-fix-loop manual-only · - - · 4e3debbaa0d3f54a0fce143313897a4c36e0474f
 - [ ] Contract test правила «`disable-model-invocation: true` ⇔ `allow_implicit_invocation: false`» есть, красный до
       правки, зелёный после.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/contract/harness-plugin.test.ts -t manual-only` exit 1 before the change, exit 0 after · mac - · 4e3debbaa0d3f54a0fce143313897a4c36e0474f
 - [ ] `pnpm eval:harness -- --changed origin/main --dry-run` — exit 0, ноль case-ов; вывод — в описании PR.
+  - evidence: test-run pass · `pnpm eval:harness -- --changed origin/main --dry-run` exit 0, claude not called; selects 28 cases because coverage.json itself changed · mac - · 4e3debbaa0d3f54a0fce143313897a4c36e0474f
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+
+## Итог
+
+- `harness/skills/human-review-setup/agents/openai.yaml` и `harness/skills/overnight-fix-loop/agents/openai.yaml` — в
+  форме 11 файлов копии, `policy: allow_implicit_invocation: false`. В `harness/evals/lib/coverage.json`, `uncovered`, —
+  по записи на файл со своей причиной (Codex-манифест, который Claude Code в eval case-ах не читает).
+- Новый contract test в `test/contract/harness-plugin.test.ts` («a manual-only skill is manual-only in Codex too»):
+  для каждого `harness/skills/*/SKILL.md` `disable-model-invocation: true` ⇔ `allow_implicit_invocation: false` в
+  `agents/openai.yaml`. Красный до правки (exit 1, называет `human-review-setup`, `overnight-fix-loop`), зелёный после.
+- Расхождение с Ticket-ом: `pnpm eval:harness -- --changed origin/main --dry-run` — exit 0, claude не вызван, но
+  выбирает 28 case-ов, не ноль. Причина — правка самого `coverage.json`: файл из `harness/evals/lib/` выбирает все
+  case-ы (`scripts/eval-harness-coverage.mjs:105`). Без правки `coverage.json` `--changed` отказывает (карта не
+  совпадает с `harness/`). Новые файлы в выводе — строки «no case: … — The Codex manifest …». Платного run-а не было.
+- Скопированные skill-ы не тронуты.
+- Вне следа Ticket-а: `harness/bin/tests/start-context.test.sh`, проверка 3a («каждую часть рядом со `SKILL.md` называет
+  `SKILL.md` или агент»), теперь пропускает папку `agents/`. Без этого `pnpm test` красный
+  (`test/contract/harness-scripts-4.test.ts`: «agents/ lies next to SKILL.md, but neither SKILL.md nor an agent names it»
+  для обоих skill-ов); скопированные skill-ы эта проверка не смотрела и раньше.
