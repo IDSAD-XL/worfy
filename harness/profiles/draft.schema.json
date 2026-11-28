@@ -170,8 +170,8 @@
           "properties": {
             "paths": {
               "type": ["array", "null"],
-              "description": "Globs of the files that judge work, added to the defaults every project has (.github/workflows/**, .github/actions/**, CLAUDE.md, AGENTS.md, .claude/**, .codex/**, .mcp.json); a glob only adds, so none is blank or starts with ! (after spaces); ./, a leading / and a trailing / are read as from the root of the repository and as the whole folder, and a glob with .. is refused by bin/profile.",
-              "items": { "type": "string", "minLength": 1, "pattern": "^\\s*[^!\\s]" }
+              "description": "Globs of the files that judge work, added to the defaults every project has (.github/workflows/**, .github/actions/**, CLAUDE.md, AGENTS.md, .claude/**, .codex/**, .mcp.json); a glob only adds, so none is blank or starts with ! (after spaces); ./, a leading /, a . segment and a trailing / are read as from the root of the repository and as the whole folder; a glob with a .. segment or made only of /, \\ and . leaves the repository or names nothing, so it is refused here and by bin/profile.",
+              "items": { "type": "string", "minLength": 1, "pattern": "^(?!\\s*(?:\\.?[\\\\/])*\\.?\\s*$)(?![\\s\\S]*(?:^\\s*|[\\\\/])\\.\\.(?:[\\\\/]|\\s*$))\\s*[^!\\s]" }
             }
           }
         },

@@ -11,12 +11,13 @@
 //   verificationProblems(profile)         what is wrong with verification and verification.paths, as
 //                                         [{ path, message }] (lib/profile-rules.cjs: bin/profile refuses such
 //                                         a profile, bin/profile-set does not write it); [] when nothing is
-//   normalizeGlob(glob)                   a glob as it matches: "./", a leading "/" and doubled "/" dropped,
+//   normalizeGlob(glob)                   a glob as it matches: "./", "." segments, a leading "/" and doubled "/" dropped,
 //                                         "tools/" read as "tools/**"; null for a blank, negated or ".." glob
 //   normalizePath(file, { platform, root })
 //                                         the path from the root of the repository, "/"-separated, or null
 //                                         when it is not inside the repository; with root a relative path is
-//                                         taken from root first, so "../repo/x" back inside it counts; without
+//                                         taken from root first, so "../repo/x" back inside it counts, and a relative root ("." or "./") from
+//                                         the working directory; without
 //                                         root "../x" and an absolute path are outside
 //   isVerificationPath(file, paths, { platform, root })
 //                                         whether the file matches one of the globs `paths`
@@ -49,17 +50,19 @@ const given = (v) => v !== undefined && v !== null
 const slashes = (p) => p.replace(/\\/g, "/")
 
 /**
- * A glob of the profile written the way it matches: trimmed, "\\" read as "/", "./" and a leading "/" dropped (a
- * glob is matched from the root of the repository), doubled "/" made one, a trailing "/" read as the whole
+ * A glob of the profile written the way it matches: trimmed, "\\" read as "/", "./", a "." segment and a leading "/" dropped
+ * (a glob is matched from the root of the repository; "x/./y" is "x/y"), doubled "/" made one, a trailing "/" read as the whole
  * folder ("tools/" is "tools/**"). null when nothing usable is left: not a string, blank, a negation, only
- * separators, or a glob that leaves the repository ("..").
+ * separators and ".", or a glob that leaves the repository (a ".." segment).
  */
 function normalizeGlob(glob) {
     if (typeof glob !== "string") return null
     let g = slashes(glob.trim())
     if (g === "" || g.startsWith("!")) return null
     g = g.replace(/\/{2,}/g, "/")
-    while (g.startsWith("./")) g = g.slice(2)
+    // A "." segment names the folder it stands in: "./x" is "x", "x/./y" is "x/y", "x/." is "x/".
+    const dot = /(^|\/)\.(\/|$)/
+    while (dot.test(g)) g = g.replace(dot, "$1")
     g = g.replace(/^\/+/, "")
     if (g.endsWith("/")) g += "**"
     if (g === "" || g === "." || g.split("/").includes("..")) return null
@@ -110,7 +113,10 @@ function normalizePath(file, options = {}) {
     const hasRoot = typeof options.root === "string" && options.root !== ""
     if (isAbsolute(p) || hasRoot) {
         if (!hasRoot) return null
-        const root = path.posix.normalize(drive(slashes(options.root), platform)).replace(/\/+$/, "")
+        let root = drive(slashes(options.root), platform)
+        // A relative root ("." or "./") is taken from the working directory, as the file system takes it.
+        if (!isAbsolute(root)) root = `${drive(slashes(process.cwd()), platform)}/${root}`
+        root = path.posix.normalize(root).replace(/\/+$/, "")
         // A relative path is taken from the root first, so "../repo/x" that comes back inside it counts.
         const abs = path.posix.normalize(isAbsolute(p) ? p : `${root}/${p}`)
         const same = (a, b) => (fold ? a.toLowerCase() === b.toLowerCase() : a === b)

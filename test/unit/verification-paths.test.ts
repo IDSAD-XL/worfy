@@ -311,4 +311,42 @@ describe('review round 1: the draft schema refuses what the profile rules refuse
     expect(problems('verification.paths', ['ok/**', '  ', '!x', ' !x'])).toEqual(['verification.paths[1]', 'verification.paths[2]', 'verification.paths[3]'])
     expect(problems('verification.paths', WORFY)).toEqual([])
   })
+
+  it('verification.paths: a glob with a .. segment or made only of /, \\ and . is refused by the schema and by the module alike', () => {
+    const refused = ['../x', '/', '\\', 'a/../b', ' .. ', 'a\\..', './', '.', '/./', '.\\.', '//', 'a\nb/../c']
+    const taken = ['scripts/**', 'x/./y', 'x/.', '...', '..x/a', 'a../b', '.github/**']
+    for (const glob of refused) {
+      expect(problems('verification.paths', [glob]), JSON.stringify(glob)).toEqual(['verification.paths[0]'])
+      expect(vp.verificationProblems({ verification: { paths: [glob] } }).map((p) => p.path), JSON.stringify(glob)).toEqual(['verification.paths[0]'])
+    }
+    for (const glob of taken) {
+      expect(problems('verification.paths', [glob]), JSON.stringify(glob)).toEqual([])
+      expect(vp.verificationProblems({ verification: { paths: [glob] } }), JSON.stringify(glob)).toEqual([])
+    }
+  })
+})
+
+describe('review round 2: a relative root and the . segments of a glob', () => {
+  it('takes a relative root from the working directory, so a relative path under it still counts', () => {
+    expect(vp.normalizePath('CLAUDE.md', { ...linux, root: '.' })).toBe('CLAUDE.md')
+    expect(vp.normalizePath('CLAUDE.md', { ...linux, root: './' })).toBe('CLAUDE.md')
+    expect(vp.normalizePath('.github/workflows/ci.yml', { root: '.' })).toBe('.github/workflows/ci.yml')
+    expect(vp.isVerificationPath('.claude/agents/x.md', DEFAULTS, { ...linux, root: './' })).toBe(true)
+    expect(vp.isVerificationPath('src/a.ts', DEFAULTS, { ...linux, root: '.' })).toBe(false)
+    expect(vp.normalizePath(`${process.cwd()}/CLAUDE.md`, { root: '.' })).toBe('CLAUDE.md')
+    expect(vp.normalizePath('../x', { ...linux, root: '.' })).toBeNull()
+  })
+
+  it('drops a . segment of a glob: x/./y is x/y, x/. is the folder x', () => {
+    expect(vp.verificationPaths({ verification: { paths: ['x/./y', 'x/.', 'a/./b/./c.md', '/./r.md'] } })).toEqual([
+      ...DEFAULTS,
+      'x/y',
+      'x/**',
+      'a/b/c.md',
+      'r.md',
+    ])
+    expect(vp.isVerificationPath('x/y', ['x/./y'], linux)).toBe(true)
+    expect(vp.isVerificationPath('x/a/b.ts', ['x/.'], linux)).toBe(true)
+    expect(vp.isVerificationPath('x\\y', ['x\\.\\y'], win)).toBe(true)
+  })
 })
