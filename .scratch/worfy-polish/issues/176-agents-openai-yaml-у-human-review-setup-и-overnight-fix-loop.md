@@ -1,0 +1,82 @@
+# 176 — `agents/openai.yaml` у skill-ов `human-review-setup` и `overnight-fix-loop`: Codex не вызывает их сам
+
+Type: task
+Status: open
+Blocked by: None — can start immediately
+Source: решение владельца 2026-11-28 по worfy-harness-eval 06 (одноразовая статика SkillEvaluator по 35 skill-ам Harness,
+PR #2350, «Итог», «Вопросы владельцу», вопрос 1: «да, добавить `agents/openai.yaml` с `allow_implicit_invocation: false`
+обоим skill-ам»).
+
+Кто: агент. Глубина review — `low`. Не платформенный PR: два YAML-файла, одна запись `coverage.json`, один contract test.
+
+## Что происходит
+
+- worfy ставит `harness/` plugin-ом и в Claude Code, и в Codex (`harness/README.md`, раздел «On Codex», строка 37).
+- Claude Code не даёт модели самой вызвать skill с `disable-model-invocation: true` во frontmatter `SKILL.md`. Codex это
+  поле не знает. Ему нужен файл `agents/openai.yaml` рядом с `SKILL.md` с `policy: allow_implicit_invocation: false`.
+- `disable-model-invocation: true` стоит у 13 skill-ов. У 11 из них `agents/openai.yaml` с
+  `allow_implicit_invocation: false` есть: `grill-me`, `grill-with-docs`, `handoff`, `improve-codebase-architecture`,
+  `retro`, `teach`, `to-questionnaire`, `to-spec`, `to-tickets`, `wait-what`, `wayfinder`. Все 11 — копия skill-ов
+  Matt Pocock (`harness/skills/THIRD_PARTY.md`), файл пришёл с копией.
+- У двух своих skill-ов файла нет: `harness/skills/human-review-setup/SKILL.md:4` и
+  `harness/skills/overnight-fix-loop/SKILL.md:4` — `disable-model-invocation: true`, папки `agents/` нет.
+  SkillEvaluator 1.2.0 (`harness-check`) дал на обоих `CX-DMI-IGNORED`: в Codex модель может вызвать их сама.
+  - `overnight-fix-loop` — ночной run без вопросов человеку, сам вливает модули в ночную ветку.
+  - `human-review-setup` читает историю review команды на GitHub и пишет private skill.
+- Test-а на правило «`disable-model-invocation: true` → `agents/openai.yaml` с `allow_implicit_invocation: false`» нет:
+  - `test/contract/harness-third-party-skills.test.ts` сверяет sha256 файлов 20 скопированных skill-ов (карта `UPSTREAM`)
+    и их `disable-model-invocation` (`MANUAL_ONLY`, строки 100-121), свои skill-ы не смотрит;
+  - `test/contract/harness-human-review-setup.test.ts:67` проверяет только `disable-model-invocation: true`.
+
+## Что строить
+
+1. `harness/skills/human-review-setup/agents/openai.yaml` и `harness/skills/overnight-fix-loop/agents/openai.yaml` — в
+   форме 11 файлов копии, например `harness/skills/handoff/agents/openai.yaml`:
+
+   ```yaml
+   interface:
+     display_name: "…"
+     short_description: "…"
+   policy:
+     allow_implicit_invocation: false
+   ```
+
+   `display_name` — имя skill-а словами (`Human Review Setup`, `Overnight Fix Loop`). `short_description` — короткая
+   фраза, как у копии (до ~40 знаков).
+2. `harness/evals/lib/coverage.json`, объект `uncovered`: по записи на каждый новый файл. Причина — своя, не
+   «a copied skill»: файл читает Codex, а Claude Code, на котором идут eval case-ы, его не читает. Без записи красный
+   `test/contract/harness-evals-run.test.ts` («maps every rule file of harness/ either to a case or to a reason»,
+   строки 680-697).
+3. Contract test в `test/contract/harness-plugin.test.ts`: для каждого `harness/skills/*/SKILL.md`
+   - с `disable-model-invocation: true` есть `agents/openai.yaml` с `allow_implicit_invocation: false`;
+   - без него `allow_implicit_invocation: false` нет (иначе Codex молчит там, где Claude Code skill вызывает).
+
+   YAML-библиотеки в зависимостях нет: frontmatter и строку `policy` читать regex-ом, как `frontMatter` в
+   `test/contract/harness-evals.test.ts`.
+4. Скопированные skill-ы не трогать: их файлы закреплены sha256 в `harness-third-party-skills.test.ts`.
+
+## Где в коде
+
+- `harness/skills/human-review-setup/`, `harness/skills/overnight-fix-loop/` — новые `agents/openai.yaml`.
+- `harness/skills/handoff/agents/openai.yaml`, `harness/skills/to-spec/agents/openai.yaml` — образец формы.
+- `harness/evals/lib/coverage.json` — объект `uncovered`.
+- `test/contract/harness-plugin.test.ts` — новый test.
+
+## Test-ы
+
+- Новый test в `test/contract/harness-plugin.test.ts` — красный до правки (называет два skill-а без файла), зелёный
+  после.
+- `test/contract/harness-evals-run.test.ts`, `test/contract/harness-third-party-skills.test.ts`,
+  `test/contract/harness-human-review-setup.test.ts`, `test/contract/codex-compat.test.ts` — зелёные.
+- `bash harness/bin/tests/plugin-neutral.test.sh` — exit 0 (в новых файлах нет слов проекта).
+- Eval: `pnpm eval:harness -- --changed origin/main --dry-run` не выбирает ни одного case-а — новые файлы стоят в
+  `uncovered`. Платного run-а нет.
+
+## Готово, когда
+
+- [ ] У `human-review-setup` и `overnight-fix-loop` есть `agents/openai.yaml` с `allow_implicit_invocation: false` в
+      форме файлов копии; запись в `coverage.json` `uncovered` у каждого.
+- [ ] Contract test правила «`disable-model-invocation: true` ⇔ `allow_implicit_invocation: false`» есть, красный до
+      правки, зелёный после.
+- [ ] `pnpm eval:harness -- --changed origin/main --dry-run` — exit 0, ноль case-ов; вывод — в описании PR.
+- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
