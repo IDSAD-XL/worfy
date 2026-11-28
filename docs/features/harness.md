@@ -332,6 +332,24 @@ So without an old Harness a worfy Session matches its build, and a terminal sess
 Session in a Project whose Profile has `skills.allowed` loses the user's other plugins and skills and keeps `worfy`
 ([Sessions](sessions.md)).
 
+**When the copy did not load.** Claude Code says at the start of each turn which plugins it loaded and what failed
+while they loaded. When a worfy Session that was given the copy does not have the plugin `worfy`, or Claude Code
+reports an error for it, the Session's transcript shows a notice once per Claude Code process:
+
+```text
+Harness did not load
+worfy · hook-load-failed: Hook load failed: JSON Parse error: Unexpected EOF
+Guards and the gate do not hold in this Session.
+[Open Health]  [Copy details]
+```
+
+"Open Health" opens Settings → Health. "Copy details" copies the error, the Claude Code version, the Session's folder,
+the copy's folder and the plugins Claude Code loaded. A `hooks/hooks.json` that is not JSON gives such an error: then
+no hook of the plugin runs. With the old Harness a Session gets no copy, and only an error of a plugin `worfy` counts.
+Claude Code reports nothing at the start for a hook script that is missing, which only fails when it runs, nor for an
+`engines` field in the manifest, which it ignores. Before Autopilot starts on Claude Code, worfy also asks Claude Code
+whether the copy's hooks run ([Autopilot](autopilot.md)).
+
 **The Profile.** An agent's first action is to run `profile`, and it follows what that prints: the commands, the Ticket
 paths, the parallel mode, the finish, the numbering, the documents and the free text of the Project's rules. A Profile
 is never in a repository. The script finds the Project from a folder, a worktree anywhere on disk included. Its exit
@@ -456,7 +474,9 @@ Machine.
   `user.json` the language and `user/rules.md` the user's rules.
 - `harness/README.md` describes the folder, its tests and its evals.
 - In the app: `src/main/vendors/claude/options.ts` passes the copy inline and registers its servers, with the folder from
-  `src/main/vendors/claude/query.ts`. `src/main/workflow/profile.ts` starts the scripts, with the environment of
+  `src/main/vendors/claude/query.ts`. `src/main/vendors/claude/harness-hooks.ts` decides whether the copy loaded, from
+  the start message of a Session (`plugins`, `plugin_errors`, read in `src/shared/vendors/claude/events.ts`) and from
+  Claude Code's list of hooks before Autopilot starts; `src/main/vendors/claude/session.ts` sends the notice. `src/main/workflow/profile.ts` starts the scripts, with the environment of
   `src/main/harness/script-env.ts`. `src/main/harness/attribution.ts` holds worfy's copy of the default of `attribution`, for a value
   named before any Profile exists, and `src/main/harness/qmd.ts` installs qmd and its models.
 
@@ -464,8 +484,9 @@ Main tests: `harness/bin/tests/` and `harness/hooks/tests/` are shell tests, whi
 `test/contract/harness-scripts-1.test.ts` to `test/contract/harness-scripts-4.test.ts`.
 `harness/bin/tests/plugin-neutral.test.sh` is the test of the text above. `test/contract/harness-plugin.test.ts` pins
 the manifest and keeps out of `harness/` what is not the Harness. Also `test/contract/harness-qmd.test.ts`,
-`test/contract/harness-script-env.test.ts`, `test/contract/harness-script-command.test.ts` and
-`test/unit/agent-options.test.ts`.
+`test/contract/harness-script-env.test.ts`, `test/contract/harness-script-command.test.ts`,
+`test/unit/agent-options.test.ts`, `test/unit/claude-init-plugins.test.ts` and `test/unit/claude-harness-hooks.test.ts`
+(the copy that did not load), and `test/e2e/harness-did-not-load.spec.ts` (its notice).
 
 The evals make paid model calls, and CI and the Gate do not run them. `harness/evals/` holds twenty-seven `claude plugin
 eval` cases that check by behaviour that Claude follows the rules (`pnpm eval:harness`), and `harness/evals-outcome/` holds

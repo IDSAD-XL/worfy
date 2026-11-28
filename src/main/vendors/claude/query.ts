@@ -57,8 +57,9 @@ import { assistDir } from '../../terminal-ai/options'
 import { projectLayouts, type ProjectLayout } from '../../workflow/folder'
 import { readMcpAllowlist, readProfileFolder, readSkillsAllowlist, type ProfileFolder, type ReadProfileOptions } from '../../workflow/profile'
 import { claudeMcpServer, labelIntegrations, type ClaudeMcpServer } from './mcp'
-import { inventoryServerNames, type InventoryQueryStarter } from './mcp-inventory'
-import { inventoryOptions, productGuard, sessionHarnessPlugin, sessionOptions, toolUseHooks, userExtensions, withBrowserServer, withMindMapServer, type ProductWrites } from './options'
+import type { HooksListingStarter } from './harness-hooks'
+import { inventoryServerNames, silentInput, type InventoryQueryStarter } from './mcp-inventory'
+import { harnessCheckOptions, inventoryOptions, productGuard, sessionHarnessPlugin, sessionOptions, toolUseHooks, userExtensions, withBrowserServer, withMindMapServer, type ProductWrites } from './options'
 import { projectLocalMcp } from './project-mcp'
 
 /** The canvas of a Session (ticket 24); a failure leaves the Session without canvas tools rather than without a Session. */
@@ -439,6 +440,9 @@ export function sdkQueryFactory(
     const allowlist = withBrowser !== null && mindMapSession !== null ? withMindMapServer(withBrowser) : withBrowser
     // The driver tells a server of the user outside this list as not allowed (worfy-mcp-live ticket 05).
     request.mcpListed?.(allowlist)
+    // And checks system/init against the Harness it gave (worfy-harness-guarantees ticket 07).
+    const harnessPlugin = sessionHarnessPlugin(currentHarness().kind)
+    request.harnessGiven?.(harnessPlugin)
     const options = sessionOptions({
       cwd: request.cwd,
       env: environment.env,
@@ -464,7 +468,7 @@ export function sdkQueryFactory(
       // Read only with a list: without one nothing is turned off.
       userExtensions: skillsAllowlist !== null ? userExtensions(claudeHome(), request.cwd) : undefined,
       // Looked for at every Session start: worfy's own Harness inline unless the old one is on the machine (ADR-0049).
-      harnessPlugin: sessionHarnessPlugin(currentHarness().kind),
+      harnessPlugin,
       autoCompactWindow: autoCompactWindow(request.orchestrator === true),
       // The Run's TMPDIR and git environment, and where the shell stands for each tool call (worfy-auto-approve ticket 04).
       environment: request.environment,
@@ -541,6 +545,39 @@ export function sdkInventoryStarter(loadSdk: () => Promise<AgentSdk> = importSdk
     const runtime = { packaged: app.isPackaged, resourcesPath: process.resourcesPath, platform: process.platform, arch: process.arch }
     const options = inventoryOptions({ cwd: at, env: environment.env, runtime, projectConfigRoot: resolve(cwd), servers: local.servers, disabled: local.disabled })
     return query({ prompt, options }) as QueryHandle
+  }
+}
+
+/**
+ * The query that checks whether the Harness's hooks run (worfy-harness-guarantees ticket 07, harness-hooks.ts):
+ * Claude Code with the Harness inline and the user's settings as a Session reads them, no MCP server and no
+ * message, so no model is called (options.ts, harnessCheckOptions). Like the inventory's it runs in `runDir`,
+ * outside every Project, with the Project's folder as its config root; its messages are read and dropped, so
+ * nothing waits on them. `loadSdk`: the Agent SDK by default, a test's query() otherwise.
+ */
+export function sdkHooksListingStarter(loadSdk: () => Promise<AgentSdk> = importSdk, runDir: () => string = () => assistDir(dataRoot())): HooksListingStarter {
+  return async ({ cwd, harnessPlugin }) => {
+    const [{ query }, environment] = await Promise.all([loadSdk(), agentEnv()])
+    const at = runDir()
+    mkdirSync(at, { recursive: true })
+    const runtime = { packaged: app.isPackaged, resourcesPath: process.resourcesPath, platform: process.platform, arch: process.arch }
+    const stop = new AbortController()
+    const options = harnessCheckOptions({ cwd: at, env: environment.env, runtime, harnessPlugin, ...(cwd === undefined ? {} : { projectConfigRoot: resolve(cwd) }) })
+    const handle = query({ prompt: silentInput(stop.signal), options }) as QueryHandle
+    // Nothing to read: the messages of its start (SessionStart hooks) are dropped, so none waits on a reader.
+    void (async () => {
+      const messages = handle[Symbol.asyncIterator]()
+      while (!(await messages.next()).done);
+    })().catch(() => undefined)
+    // getHooksListing() is in sdk.mjs 0.3.322, but its sdk.d.ts declares only the request and the answer.
+    const listing = handle as unknown as { getHooksListing(): Promise<unknown> }
+    return {
+      getHooksListing: () => listing.getHooksListing(),
+      close: () => {
+        stop.abort()
+        handle.close()
+      },
+    }
   }
 }
 

@@ -133,6 +133,12 @@ export interface QueryRequest {
    */
   mcpListed?: ((allowlist: readonly string[] | null) => void) | undefined
   /**
+   * Told the Harness folder the query carries inline (sessionHarnessPlugin), once the factory has looked for
+   * it: null — none, the old Harness is on the machine. The Claude driver checks the plugins of system/init
+   * against it (worfy-harness-guarantees ticket 07). Absent: not told.
+   */
+  harnessGiven?: ((dir: string | null) => void) | undefined
+  /**
    * The addresses of the user's remote MCP servers, by name, from the MCP inventory's last answer
    * (worfy-mcp-live ticket 12): an allowed one goes into the Profile's list by its address (sessionOptions).
    * Main only: never in a row, a log or the Journal. Absent: no answer yet.

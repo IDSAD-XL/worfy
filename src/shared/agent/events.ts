@@ -216,6 +216,13 @@ export const agentEvent = z.discriminatedUnion('type', [
     cwd: z.string(),
     claudeCodeVersion: nullableString,
     slashCommands: z.array(z.string()),
+    /**
+     * The plugins Claude Code loaded (worfy-harness-guarantees ticket 07): null when the init did not say,
+     * absent from a Vendor that does not tell (Codex).
+     */
+    plugins: z.array(z.object({ name: z.string(), path: nullableString })).nullable().optional(),
+    /** Claude Code's load-time errors of plugins; `plugin` is `<name>@<marketplace>`, of an inline plugin `<folder>@inline`. */
+    pluginErrors: z.array(z.object({ plugin: z.string(), type: z.string(), message: z.string() })).optional(),
   }),
   /** The Session's temporary id was replaced by the id Claude Code gave it; `from` is the old one. */
   timed({ type: z.literal('renamed'), from: z.string() }),
@@ -255,9 +262,14 @@ export const agentEvent = z.discriminatedUnion('type', [
     attachments: z.array(messageAttachmentSchema).optional(),
     /**
      * A link under a notice of worfy's own: `open-health-check` opens Settings → Health (a Codex Session
-     * that starts without GH_TOKEN, worfy-auth-check ticket 08).
+     * that starts without GH_TOKEN, worfy-auth-check ticket 08); `open-health` does the same under a notice
+     * with a `title` (a Claude Session whose Harness did not load, worfy-harness-guarantees ticket 07).
      */
-    action: z.literal('open-health-check').optional(),
+    action: z.enum(['open-health-check', 'open-health']).optional(),
+    /** The heading of a notice of worfy's own that stands as a block: `text` goes under it. */
+    title: z.string().min(1).optional(),
+    /** What "Copy details" under the notice copies; absent: no such button. */
+    details: z.string().min(1).optional(),
   }),
   /**
    * A task of the Session started (task_started: a subagent of the Agent tool, a Bash or a workflow

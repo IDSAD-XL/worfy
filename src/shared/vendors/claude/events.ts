@@ -22,6 +22,9 @@ const str = z.string()
 const optStr = z.string().nullish()
 const optNum = z.number().nullish()
 
+/** An entry of system/init's `plugin_errors`: `plugin` is `<name>@<marketplace>`, of an inline plugin `<folder>@inline`. */
+const pluginError = z.object({ plugin: str, type: str, message: str.catch('') })
+
 const sdkInit = z.object({
   session_id: str,
   model: str,
@@ -30,6 +33,15 @@ const sdkInit = z.object({
   cwd: str,
   claude_code_version: optStr,
   slash_commands: z.array(str),
+  // The plugins Claude Code loaded and its load-time errors (worfy-harness-guarantees ticket 07; the forms of
+  // test/fixtures/sdk-messages/init-plugin-errors.jsonl). An entry of another shape is dropped, not the init:
+  // `plugins` of a shape worfy does not know reads as absent (null), which checks nothing.
+  plugins: z.array(z.object({ name: str, path: optStr })).nullish().catch(null),
+  plugin_errors: z
+    .array(z.unknown())
+    .nullish()
+    .catch(null)
+    .transform((entries) => (entries ?? []).flatMap((entry) => pluginError.safeParse(entry).data ?? [])),
 })
 
 const contentBlock = z.object({ type: str }).loose()
@@ -221,6 +233,8 @@ function mapSystem(subtype: string, message: unknown): AgentEvent[] {
           cwd: m.cwd,
           claudeCodeVersion: orNull(m.claude_code_version),
           slashCommands: m.slash_commands,
+          plugins: m.plugins == null ? null : m.plugins.map((plugin) => ({ name: plugin.name, path: orNull(plugin.path) })),
+          pluginErrors: m.plugin_errors,
         },
       ]
     }

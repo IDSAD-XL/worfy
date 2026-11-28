@@ -776,6 +776,28 @@ export function inventoryOptions(input: {
   return options
 }
 
+/**
+ * The options of the query that checks whether the Harness's hooks run (worfy-harness-guarantees ticket 07,
+ * harness-hooks.ts): the Harness folder `harnessPlugin` inline as a Session gets it (sessionHarnessPlugin), the
+ * user's settings as a Session reads them — so a `disableAllHooks` there counts — and no MCP server at all
+ * (strictMcpConfig, no mcpServers, the plugin's not discovered), with no message and no transcript. As the MCP
+ * inventory's, `cwd` is worfy's own folder and the Project's folder comes as `projectConfigRoot`.
+ */
+export function harnessCheckOptions(input: { cwd: string; env: Env; runtime: RuntimeInfo; projectConfigRoot?: string; harnessPlugin: string }): Options {
+  const options: Options = {
+    cwd: input.cwd,
+    env: input.env,
+    settingSources: ['user', 'project', 'local'],
+    persistSession: false,
+    strictMcpConfig: true,
+    plugins: [{ type: 'local', path: input.harnessPlugin, skipMcpDiscovery: true }],
+  }
+  if (input.projectConfigRoot !== undefined) options.projectConfigRoot = input.projectConfigRoot
+  const executable = claudeExecutablePath(input.runtime)
+  if (executable !== undefined) options.pathToClaudeCodeExecutable = executable
+  return options
+}
+
 /** The environment of a Session's Claude Code: `env`, the Run's variables over it, the kind of a Product Session and the Epic of a Wave. */
 function sessionEnv(input: SessionOptionsInput): Env {
   const own: Env = {
