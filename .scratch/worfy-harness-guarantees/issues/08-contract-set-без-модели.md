@@ -1,7 +1,7 @@
 # 08: Contract set без модели
 
 Type: task
-Status: claimed 2026-11-28T02:37Z
+Status: done 2026-11-28T10:08Z
 PR: #2345
 Branch: worfy-harness-guarantees/08
 Blocked by: 01
@@ -72,15 +72,20 @@ Source: [spec.md](../spec.md), «Ticket-ы», 08; «Решение», 4; «Ре�
 
 - [ ] Stand-in Messages API лежит в `src/main/harness/contract/`; старые contract test-ы импортируют его оттуда и зелёные.
   - evidence: test-run pass · `pnpm test` exit 0 · mac - · d7f28800186fb001f3c95d8fcf571e8636bedea2
+  - evidence: review pass · PR #2345 · - - · e6c04462d09faedc45d420ec1fd9040e280db28d
 - [ ] Runner и шесть case-ов (или пять — с причиной из spike-а 01 в «Итог»); runner отличает «не смог запустить» от
       «guard не отказал».
   - evidence: test-run pass · `pnpm test test/contract/harness-guarantees.test.ts` exit 0 · mac - · d7f28800186fb001f3c95d8fcf571e8636bedea2
+  - evidence: review pass · PR #2345 · - - · e6c04462d09faedc45d420ec1fd9040e280db28d
 - [ ] `test/contract/harness-guarantees.test.ts` идёт в `pnpm test` на binary SDK на macOS и Windows; копия Harness со
       сломанным `hooks.json` даёт красный case.
   - evidence: test-run pass · `pnpm test test/contract/harness-guarantees.test.ts` exit 0 · mac - · d7f28800186fb001f3c95d8fcf571e8636bedea2
+  - evidence: review pass · PR #2345 · - - · e6c04462d09faedc45d420ec1fd9040e280db28d
 - [ ] Шапка набора называет его бесплатной половиной Ticket-а 15 worfy-harness-eval.
   - evidence: commit pass · worfy-harness-guarantees/08: contract set of the Harness on the SDK binary without a model · - - · d7f28800186fb001f3c95d8fcf571e8636bedea2
+  - evidence: review pass · PR #2345 · - - · e6c04462d09faedc45d420ec1fd9040e280db28d
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR, включая Windows verdict.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/46113562692/job/140931566318 · ci - · e6c04462d09faedc45d420ec1fd9040e280db28d
 
 ## Итог
 

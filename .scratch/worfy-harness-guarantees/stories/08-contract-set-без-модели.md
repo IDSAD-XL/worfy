@@ -161,3 +161,81 @@ Code: `test/contract/harness-guarantees.test.ts:47-54` · key lines: 49, 50, 52,
    Ответ: Resolver-stub называет репозиторий зарегистрированным, а маркер `red-<key>-<tag>` — то, что оставляет
    красный `gate.mjs fast`; `stop.mjs` держит ход по ним.
    Lines: `src/main/harness/contract/cases.ts:120-130`
+
+## 8. Что нашёл review и что осталось
+
+> VERIFIED
+>
+> Round-2 findings:
+> - **[med] runner.ts:187, a run with init but no turn always came out `failed`: fixed.** The `requests === 0` branch is now at `src/main/harness/contract/runner.ts:238-244`. It returns `failed` only when a hook blocked or started and never answered. Otherwise it returns `not-run` with the environment's reason.
+>   - Scenario 1, real SDK binary, `ANTHROPIC_BASE_URL=http://127.0.0.1:9`:
+>     - with retries at a 12 s limit, and at a 3 s limit: `not-run`, "did not finish … 0 turns";
+>     - with `CLAUDE_CODE_MAX_RETRIES=0`: `not-run`, "the turn ended with an error of the API (ECONNREFUSED)".
+>     - The raw stream has no `hook_started` without its answer. A SessionEnd hook does not show up as hung on the way out.
+>   - Scenario 2, `judgeRun` with the time limit, init only and zero requests: `not-run`. Covered by `test/unit/harness-contract-judge.test.ts:45`.
+>   - Mutant that puts back the round-2 code (no turn, so `failed`): 3 unit tests go red, at lines 40, 45 and 50. Mutant that drops `hung.length > 0`: the test at line 55 goes red.
+> - **[low debt] runner.ts:127, at the limit only Claude Code was killed and hooks outlived the run: fixed.** `runner.ts:118-139` and `:153-164` read the process tree once and kill every descendant; on Windows they call `taskkill /T /F` through `killTool`.
+>   - Probes: a hung UserPromptSubmit hook, a hung guard hook, and a hung Stop hook that started a detached `sleep 60` grandchild. In all three the hook and the grandchild were dead 0.5 s after the run.
+>   - Mutant with no tree walk: the test at `test/contract/harness-guarantees.test.ts:103` goes red ("expected true to be false").
+>   - Only descendants of the started pid are killed, so the kill does not reach too wide.
+> - **[low debt] the Stop case can be red before its check runs:** unchanged, now listed under the ticket's known limits. Not a blocker.
+> - **[low debt] a hung SessionStart or UserPromptSubmit hook gives `not-run`:** unchanged, also in the known limits. My probe confirms it: both hooks run before system/init, so the run comes out "printed no system/init".
+>
+> New findings (round 3, all non-blocking):
+> - **[low] debt: `runner.ts:246`, a hook that hangs after a turn has reached the stand-in is still `not-run`.** The probe with a hung `guard.mjs` on the `guard-reset-hard` case gave `not-run`, "did not finish in 5000 ms; 1 turns". So a broken guard looks like an environment problem. The behaviour is old, but the rework now locks it in: the comment at `test/contract/harness-guarantees.test.ts:99-102` and the new test assert it. The `hungHooks` check could also run in this last branch.
+> - **[low] debt: claim, `.scratch/worfy-harness-guarantees/issues/08-contract-set-без-модели.md:168,173`.** The ticket says the known limits stand "по решению review round 2" (by review round 2's decision). The round-2 verdict never named the third limit, a hook that hangs once turns have reached the stand-in.
+> - **[low] debt: stale sentence, same file `:98`.** It still says a run at the limit is "остановлен по своему pid" (stopped by its own pid). The runner now kills the whole tree.
+> - **[low] debt: `runner.ts:208-211` cannot fire on the real binary.** `hungHooks` with zero turns never triggers there: the only hooks before the first request (SessionStart, UserPromptSubmit) come before init. Only a synthetic unit test exercises it. Harmless.
+>
+> Commands, in my own worktree at e6c04462d with a temporary HOME:
+> - `pnpm install --frozen-lockfile`: exit 0.
+> - `node scripts/vitest-electron.mjs test/unit/harness-contract-judge.test.ts test/contract/harness-guarantees.test.ts`: exit 0, 30/30. An earlier call with a stray `run` filter ran 17 files, 576 tests: exit 0.
+> - Two temporary probe test files (deleted afterwards): exit 0.
+> - 3 mutants of `runner.ts`, each exit 1. Restored; `cmp` matched the copy and `git status` was clean.
+> - `pnpm typecheck`: exit 0.
+> - `story-check` against e6c04462d: exit 0.
+> - `pgrep` afterwards found nothing left. The worktree is removed.
+>
+> Not checked:
+> - Windows: the `taskkill /T` path and the hang test on the Windows binary; the CI Windows job decides that.
+> - `pnpm lint` and the full `pnpm test`.
+> - Health's real time limit, which ticket 09 sets.
+>
+> Nothing else found.
+>
+> Orchestrator: the four round-3 lows are not blockers; the ticket's stale sentence (line 98) and the «by review round 2's decision» wording go into the docs PR after the merge.
+>
+> Review depth: medium — worfy-harness-guarantees wave
+
+Code: `src/main/harness/contract/runner.ts:238-244` · key lines: 238
+
+```ts
+  if (trace.requests === 0) {
+    const hung = hungHooks(trace.lines)
+    const none = `Claude Code started with the plugin but asked the stand-in no turn (exit code ${String(trace.exitCode)})`
+    if (blocked.length > 0 || hung.length > 0)
+      return { status: 'failed', reason: `${none}${holding}${hung.length === 0 ? '' : `; hooks of the plugin that never answered: ${[...new Set(hung)].join(', ')}`}; ${stderr}` }
+    return { status: 'not-run', reason: `${ended === undefined ? none : `${none}; ${ended}`}; ${stderr}` }
+  }
+```
+
+Code: `test/unit/harness-contract-judge.test.ts:45-45` · key lines: 45
+
+```ts
+  it('init, no turn and the time limit, no hook blocked or hung: not run (a slow machine)', () => {
+```
+
+Code: `test/contract/harness-guarantees.test.ts:103-103` · key lines: 103
+
+```ts
+  it('a hook that hangs at the time limit ends with the run: the runner stops the whole process group or tree', async () => {
+```
+
+Code: `test/contract/harness-guarantees.test.ts:99-102` · key lines: 99
+
+```ts
+  // Review round 2: at the limit the runner killed Claude Code alone, and a hook that hung outlived the run.
+  // The Stop hook of this copy writes its pid and hangs, writing nothing, so no broken pipe ends it (its limit in
+  // hooks.json is 900 s); it ends itself after 60 s at the very most. A hook that hangs while turns did reach the
+  // stand-in is not counted as holding them: the run is "not run" at the limit (a known limit, written in the ticket's summary).
+```
