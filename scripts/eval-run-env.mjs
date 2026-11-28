@@ -147,6 +147,12 @@ export function billingFor(billing, env, fail) {
     return fail(`--billing credits needs the Console API key in ${file}: ${error?.code === 'ENOENT' ? 'no such file' : error instanceof Error ? error.message : String(error)}`)
   }
   if (key === '') return fail(`--billing credits needs the Console API key in ${file}: the file is empty`)
+  // Printable ASCII without spaces, as a Console key is. A NUL byte (a UTF-16 file, as Out-File of
+  // Windows PowerShell 5.1 writes it) would make spawnSync throw an error whose text holds the key;
+  // the message names the file and never a character of the key.
+  if (!/^[\x21-\x7e]+$/.test(key)) {
+    return fail(`--billing credits: the key in ${file} is not one line of printable ASCII without spaces (a UTF-16 file? save it as plain ASCII)`)
+  }
   return { vars: { ANTHROPIC_API_KEY: key }, line: `billing credits: ANTHROPIC_API_KEY=<hidden> from ${file}` }
 }
 
@@ -170,8 +176,17 @@ export function claudeBinary(repo, fail) {
  * because ELECTRON_RUN_AS_NODE=1 is in its own environment, which cleanEnv keeps. Elsewhere, and
  * for the SDK's binary or any other path, claude starts by its path.
  */
-export const runClaude = (claude, args, options) =>
-  process.platform === 'win32' && claude.endsWith('.mjs') ? spawnSync(process.execPath, [claude, ...args], options) : spawnSync(claude, args, options)
+export function runClaude(claude, args, options) {
+  try {
+    return process.platform === 'win32' && claude.endsWith('.mjs') ? spawnSync(process.execPath, [claude, ...args], options) : spawnSync(claude, args, options)
+  } catch (error) {
+    // spawnSync throws on an argument or an environment value it refuses, and its message quotes the
+    // value: the environment may hold the API key of a credits run. Only the code goes on, and no
+    // `cause`: Node prints the cause of an uncaught error, message and all.
+    // eslint-disable-next-line preserve-caught-error -- the cause would print the key
+    throw new Error(`cannot start ${claude}: spawnSync refused its arguments or environment (${error?.code ?? 'no code'})`)
+  }
+}
 
 /** The version of `claude` as text, or `fail` when it does not answer or is older than MIN_VERSION. */
 export function checkVersion(claude, env, fail) {

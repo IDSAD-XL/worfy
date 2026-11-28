@@ -37,9 +37,8 @@
 // the plugin eval calls, as in `pnpm eval:harness` (scripts/eval-run-env.mjs, billingFor). Credits
 // give the claude call ANTHROPIC_API_KEY from <HARNESS_HOME or ~/.claude/worfy-harness>/secrets/
 // anthropic-api-key and print it hidden; no key file — exit 1 before claude, an unknown name — exit 2.
-// --billing does not reach the judge calls of the score (scripts/eval-outcome-lib.mjs, judgeCommand):
-// they keep the environment of this process, so on credits they still bill the sign-in (or a key
-// the shell exports).
+// The judge calls of the score run in the same environment as the plugin eval call, so they bill
+// what --billing chose too.
 //
 // --max-cost-usd is required: every call is paid; a plain decimal above 0 and at most 1000, passed on
 // as a number. --ablation, --eval-dir, --output-dir, --model and
@@ -312,6 +311,9 @@ const fail = (message) => stop(1, message)
 // The key of a credits run goes only into the environment of the claude call, below.
 const billing = billingFor(billingName, childEnv, fail)
 say(billing.line)
+// The judge calls of the score bill the same as the plugin eval call; taken before gitForRuns adds
+// the copy of git, which the judge does not need and which is gone by the time it runs.
+const judgeEnv = { ...childEnv, ...billing.vars }
 const claude = claudeBinary(REPO, fail)
 const version = checkVersion(claude, childEnv, fail)
 const stamp = new Date().toISOString().replace(/[:.]/g, '-')
@@ -423,7 +425,7 @@ if (!score) {
 const hiddenDir = process.env.EVAL_OUTCOME_HIDDEN || join(REPO, 'scripts', 'eval-outcome', 'hidden')
 const outcomes = {}
 for (const run of runs) {
-  const { outcome, problems, stopped: interrupted } = await scoreResults({ resultsDir: run.outputDir, hiddenDir, judge: judgeCommand(claude), log: say, stopped: () => stopped })
+  const { outcome, problems, stopped: interrupted } = await scoreResults({ resultsDir: run.outputDir, hiddenDir, judge: judgeCommand(claude), judgeEnv, log: say, stopped: () => stopped })
   if (interrupted) exitStopped()
   say(join(run.outputDir, 'outcome.json'))
   if (problems.length > 0) {

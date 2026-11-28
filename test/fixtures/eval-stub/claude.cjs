@@ -8,7 +8,9 @@ const { appendFileSync, chmodSync, existsSync, mkdirSync, readdirSync, readFileS
 const { dirname, join, resolve } = require('node:path')
 const args = process.argv.slice(2)
 if (args[0] === '--version') {
-  if (process.env.STUB_VERSION_LOG) appendFileSync(process.env.STUB_VERSION_LOG, '--version\n')
+  if (process.env.STUB_VERSION_LOG) {
+    appendFileSync(process.env.STUB_VERSION_LOG, JSON.stringify({ apiKey: process.env.ANTHROPIC_API_KEY ?? null, authToken: process.env.ANTHROPIC_AUTH_TOKEN ?? null }) + '\n')
+  }
   console.log(process.env.STUB_VERSION + ' (Claude Code)')
   process.exit(0)
 }

@@ -719,11 +719,15 @@ export function judgeCommand(claude, env = process.env) {
   return [claude, '-p', '--model', JUDGE_MODEL, '--output-format', 'json', '--no-session-persistence', '--tools', '', '--strict-mcp-config', '--setting-sources', 'project']
 }
 
-/** Asks the judge: `input` on stdin, from an empty folder. Returns { reply, costUsd } or throws. */
-function askJudge(argv, input) {
+/**
+ * Asks the judge: `input` on stdin, from an empty folder, in the environment `env` (the one of the
+ * eval run, so that the judge bills what --billing chose; cleanEnv() of this process without one).
+ * Returns { reply, costUsd } or throws.
+ */
+function askJudge(argv, input, env = cleanEnv()) {
   const cwd = realpathSync(mkdtempSync(join(tmpdir(), 'eval-outcome-judge-')))
   try {
-    const run = runClaude(argv[0], argv.slice(1), { cwd, input, encoding: 'utf8', env: cleanEnv(), timeout: 300_000, maxBuffer: 16 * 1024 * 1024 })
+    const run = runClaude(argv[0], argv.slice(1), { cwd, input, encoding: 'utf8', env, timeout: 300_000, maxBuffer: 16 * 1024 * 1024 })
     if (run.error || run.status !== 0) throw new Error(`the judge failed (exit ${run.status ?? run.error?.code}): ${tail((run.stderr ?? '').trim())}`)
     try {
       const json = JSON.parse(run.stdout)
@@ -739,8 +743,11 @@ function askJudge(argv, input) {
 
 const sha256 = (data) => createHash('sha256').update(data).digest('hex')
 
-/** Runs the checks of `spec` on the copy; `judge` is the judge's argument list, or null to skip judge checks. */
-function runChecks(spec, copy, answer, judge) {
+/**
+ * Runs the checks of `spec` on the copy; `judge` is the judge's argument list, or null to skip judge
+ * checks; `judgeEnv` the judge's environment (askJudge).
+ */
+function runChecks(spec, copy, answer, judge, judgeEnv) {
   const scoreHome = join(copy.dir, 'score-home')
   const scoreTmp = join(copy.dir, 'score-tmp')
   mkdirSync(scoreHome)
@@ -837,7 +844,7 @@ function runChecks(spec, copy, answer, judge) {
           input = stripArmMarkers(readFileSync(file, 'utf8'))
         }
         const prompt = readFileSync(inside(spec.dir, check.prompt), 'utf8').replace(/\s+$/, '')
-        const { reply, costUsd } = askJudge(judge, `${prompt}\n\n<answer>\n${input}\n</answer>\n`)
+        const { reply, costUsd } = askJudge(judge, `${prompt}\n\n<answer>\n${input}\n</answer>\n`, judgeEnv)
         judgeCostUsd += costUsd
         const values = lastJsonObject(reply)
         if (!values) return { pass: null, error: 'the judge gave no JSON object', reply: tail(reply) }
@@ -931,11 +938,11 @@ function missingJudgeFields(spec, record) {
  * spec; the copy is removed. Returns the run record; `problems` lists the checks that could not tell
  * and the fields a metric reads that the judge did not give.
  */
-export function scoreRun({ tracePath, spec, judge }) {
+export function scoreRun({ tracePath, spec, judge, judgeEnv }) {
   const copy = copyKeptRun(tracePath)
   try {
     const answer = stripArmMarkers(finalAnswer(copy.events))
-    const { checks, judgeCostUsd } = runChecks(spec, copy, answer, judge)
+    const { checks, judgeCostUsd } = runChecks(spec, copy, answer, judge, judgeEnv)
     const trace = traceSignals(copy.events)
     const record = { checks, trace, tokens: traceTokens(copy.events), score_judge_cost_usd: judgeCostUsd, final_answer: answer }
     record.metrics = Object.fromEntries(Object.entries(spec.metrics).map(([name, def]) => [name, metricValue(def, record)]))
@@ -977,12 +984,13 @@ const signalsHandled = () => new Promise((done) => setImmediate(done))
 /**
  * Scores every run of `<resultsDir>/aggregate-result.json` and writes `<resultsDir>/outcome.json`.
  * `hiddenDir` holds `<task>/score.json`; `judge` is the judge's argument list (null skips judge
- * checks); `log` gets one line per run; `stopped` returns the name of a signal that came in, or null.
+ * checks); `judgeEnv` is the environment of the judge calls, never written to outcome.json (askJudge);
+ * `log` gets one line per run; `stopped` returns the name of a signal that came in, or null.
  * Before each run the scorer lets its signal handlers run and asks `stopped`: on a signal it scores
  * no more and writes nothing. Returns { outcome, problems, stopped } — a problem is a task without a
  * valid spec, a run that could not be scored, or a check that could not tell; outcome.json lists them.
  */
-export async function scoreResults({ resultsDir, hiddenDir, judge, log = () => {}, stopped = () => null }) {
+export async function scoreResults({ resultsDir, hiddenDir, judge, judgeEnv, log = () => {}, stopped = () => null }) {
   const aggregate = JSON.parse(readFileSync(join(resultsDir, 'aggregate-result.json'), 'utf8'))
   const problems = []
   const outcome = { schemaVersion: 1, aggregate: join(resultsDir, 'aggregate-result.json'), scoredAt: new Date().toISOString(), ablation: aggregate.suite?.ablation ?? null, judge: judge ?? null, problems, tasks: {} }
@@ -1007,7 +1015,7 @@ export async function scoreResults({ resultsDir, hiddenDir, judge, log = () => {
         if (stopped()) return { outcome: null, problems, stopped: stopped() }
         const where = `${testCase.name} ${arm} #${index}`
         try {
-          const record = scoreRun({ tracePath: run.tracePath, spec, judge })
+          const record = scoreRun({ tracePath: run.tracePath, spec, judge, judgeEnv })
           scored.push({ index, tracePath: run.tracePath, cost_usd: run.costUsd, judge_cost_usd: run.judgeCostUsd, duration_seconds: run.durationSeconds, ...record })
           problems.push(...record.problems.map((problem) => `${where}: ${problem}`))
           log(`${where}: ${Object.entries(record.metrics).map(([k, v]) => `${k}=${v}`).join(' ')}`)

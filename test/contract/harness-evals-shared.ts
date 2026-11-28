@@ -115,7 +115,8 @@ export const childEnv = (home: string, vars: NodeJS.ProcessEnv = {}): NodeJS.Pro
 // this text as aggregate-result.json into its --output-dir, as claude plugin eval does; a JSON report
 // that names neither its cases nor aggregates.casesTotal gets both, from the cases the call would run.
 // The stub parses its arguments as claude does: nothing after a `--` is an option.
-// STUB_VERSION_LOG: every `claude --version` appends a line there.
+// STUB_VERSION_LOG: every `claude --version` appends a line there, a JSON object with its
+// ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN (null when unset).
 // The stub is one file of the repository, test/fixtures/eval-stub/claude.cjs; each test reaches it
 // through a link. macOS checks every new executable before its first start (XprotectService, one
 // file at a time): a stub written anew for each test waited in that queue, up to seconds under a loaded

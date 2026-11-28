@@ -1602,6 +1602,53 @@ describe('pnpm eval:harness -- --billing (claude replaced by a stub, a fake key 
     expect(calls).toEqual([])
   })
 
+  it('--billing credits keeps the key out of `claude --version` and out of git', () => {
+    const home = harnessHome(KEY)
+    // A git first on PATH that logs the key variables it gets and names a copy-able git core.
+    const core = join(tempDir('worfy-eval-core-'), 'git-core')
+    mkdirSync(core)
+    writeFileSync(join(core, 'git'), '#!/bin/sh\necho git version 2.0.0\n')
+    chmodSync(join(core, 'git'), 0o755)
+    const gitLog = join(tempDir('worfy-eval-gitlog-'), 'git.log')
+    const path = (dir: string): string => {
+      const bin = join(dir, 'logging-git')
+      mkdirSync(bin)
+      shellStub(join(bin, 'git'), [
+        `printf '%s|%s\\n' "\${ANTHROPIC_API_KEY-unset}" "\${ANTHROPIC_AUTH_TOKEN-unset}" >> '${gitLog}'`,
+        `if [ "$1" = --exec-path ]; then echo '${core}'; exit 0; fi`,
+        'exit 1',
+      ])
+      return [bin, process.env.PATH ?? ''].join(delimiter)
+    }
+    const versionLog = join(tempDir('worfy-eval-versionlog-'), 'version.log')
+    const { run, calls } = evalHarness('2.1.289', '0,0', ['--billing', 'credits'], path, { HARNESS_HOME: home, STUB_VERSION_LOG: versionLog, ANTHROPIC_AUTH_TOKEN: 'shell-token' })
+    expect(run.status, run.stderr).toBe(0)
+    expect(calls.map((call) => call.apiKey)).toEqual([KEY, KEY])
+    const versions = readFileSync(versionLog, 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line) as { apiKey: string | null; authToken: string | null })
+    expect(versions).toEqual([{ apiKey: null, authToken: null }])
+    const gits = readFileSync(gitLog, 'utf8').split('\n').filter(Boolean)
+    expect(gits.length).toBeGreaterThan(0)
+    for (const line of gits) expect(line).toBe('unset|unset')
+  })
+
+  it('--billing credits refuses a key with a NUL byte or a UTF-16 key file before claude, and stderr holds no part of the key', () => {
+    // A fake key of no words, so that no piece of it can stand in a message by chance.
+    const key = 'Qx7Zr2Lw9Pk4Mn8VbT3c6Yd1Hs5Jg0Fe'
+    const utf16 = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(`${key}\r\n`, 'utf16le')])
+    for (const text of [`${key.slice(0, 16)}\x00${key.slice(16)}`, utf16, `${key.slice(0, 16)} ${key.slice(16)}`]) {
+      const home = tempDir('worfy-eval-key-')
+      mkdirSync(join(home, 'secrets'))
+      writeFileSync(join(home, 'secrets', 'anthropic-api-key'), text)
+      const { run, calls } = evalHarness('2.1.289', '0,0', ['--billing', 'credits'], undefined, { HARNESS_HOME: home })
+      expect(run.status).toBe(1)
+      expect(run.stderr).toContain(join(home, 'secrets', 'anthropic-api-key'))
+      expect(calls).toEqual([])
+      const said = run.stdout + run.stderr
+      // No piece of the key of 6 characters or more, in either half.
+      for (const half of [key.slice(0, 16), key.slice(16)]) for (let at = 0; at + 6 <= half.length; at++) expect(said).not.toContain(half.slice(at, at + 6))
+    }
+  })
+
   it('the key file is secrets/anthropic-api-key of HARNESS_HOME, else of ~/.claude/worfy-harness', async () => {
     const { apiKeyFile } = (await import(pathToFileURL(join(REPO, 'scripts', 'eval-run-env.mjs')).href)) as { apiKeyFile: (env: NodeJS.ProcessEnv) => string }
     expect(apiKeyFile({ HARNESS_HOME: join(sep, 'state') })).toBe(join(sep, 'state', 'secrets', 'anthropic-api-key'))
