@@ -28,8 +28,8 @@ export interface VendorDriver {
   readonly mcp: McpPart
   readonly oneShot: OneShot
   /**
-   * Whether the Vendor runs the Harness's hooks now (worfy-multi-vendor ticket 39); absent for a Vendor
-   * that runs a plugin's hooks without an approval (Claude Code).
+   * Whether the Vendor runs the Harness's hooks now (worfy-multi-vendor ticket 39: Codex;
+   * worfy-harness-guarantees ticket 07: Claude Code); absent: nothing is checked for the Vendor.
    */
   readonly harnessHooks?: HarnessHooksPart
 }

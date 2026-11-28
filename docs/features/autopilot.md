@@ -170,8 +170,14 @@ While a run goes on:
   window shows the step "Approve the Harness hooks in Codex" with these instructions and a "Check again" button, in the
   windows open at that moment (a window opened later does not pop it up). Until a check finds them approved, the
   Codex line of the version chip's popover in the footer says "Codex: approve hooks", the chip has an amber dot, and a
-  click on that line opens the step again ([Harness, Installing from the app](harness.md#installing-from-the-app)). A
-  run on Claude Code is not checked.
+  click on that line opens the step again ([Harness, Installing from the app](harness.md#installing-from-the-app)). On
+  a Claude Code Orchestrator worfy asks at the same moments whether the hooks of the Harness copy it gives a Session
+  run: it starts Claude Code with that copy and without a message, so no model is called, and reads Claude Code's list
+  of hooks. The PreToolUse and Stop hooks of the plugin `worfy` must be listed and not turned off (a `disableAllHooks`
+  setting turns them off). While they are not, or Claude Code does not answer in 15 seconds, the run is refused with
+  "Autopilot did not start: the Harness hooks do not run in Claude Code." and the reason after it, for example "Claude
+  Code lists no PreToolUse hook of the plugin worfy." when its `hooks/hooks.json` is not JSON. With the old Harness
+  in `~/.claude` the run is not checked ([Harness, Plugin](harness.md#plugin)).
 - A permission request, a question with answer options and a Card's `session.ask` are refused at once, because no one is
   there to answer. An approval Codex still asks for gets `decline`. Each refusal goes to the journal. When Claude Code gave a reason for a permission request, the model
   gets that reason so it can change the command.

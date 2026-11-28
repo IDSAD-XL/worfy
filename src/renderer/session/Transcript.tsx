@@ -7,6 +7,7 @@ import { Markdown } from '../markdown/Markdown'
 import { attachChat, CHIPS_AT_END, lightNodes, messageQuote, publishQuotes, transcriptChips, useMindMapFocus, type MessageQuote, type NodeChip, type NodeRef } from '../product/node-chips'
 import { NodeChips } from '../product/NodeChips'
 import { openHealthCheck } from '../settings/settings-window'
+import { showToast } from '../toast/toasts'
 import { advisorStatus } from './advisor-status'
 import { AdvisorStatus } from './AdvisorStatus'
 import { Narration } from './Narration'
@@ -447,6 +448,38 @@ function Disclosure({ summary, children, testId, reveal = null }: { summary: Rea
   )
 }
 
+/**
+ * A notice of worfy's own that stands as a block: its heading, its lines and the buttons under it — "Open Health"
+ * and "Copy details" (a Claude Session whose Harness did not load, worfy-harness-guarantees ticket 07).
+ */
+function NoticeBlock({ title, text, action, details, find }: { title: string; text: string; action: 'open-health-check' | 'open-health' | undefined; details: string | undefined; find: string }) {
+  const copy = (): void => {
+    if (details === undefined) return
+    void globalThis.navigator?.clipboard
+      ?.writeText(details)
+      .then(() => showToast({ kind: 'success', key: 'notice-details-copied', text: 'Copied the details' }))
+      .catch((error: unknown) => console.error('[notice] copy failed', error))
+  }
+  return (
+    <div className="w-tr__notice w-tr__notice--block" role="status" data-testid="notice-block">
+      <div className="w-tr__notice-title">{title}</div>
+      <div data-find={find}>{text}</div>
+      <div className="w-tr__notice-actions">
+        {action !== undefined ? (
+          <button type="button" className="w-tr__notice-link" data-testid="notice-open-health" onClick={openHealthCheck}>
+            Open Health
+          </button>
+        ) : null}
+        {details !== undefined ? (
+          <button type="button" className="w-tr__notice-link" data-testid="notice-copy-details" onClick={copy}>
+            Copy details
+          </button>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
 function ResultRow({ event }: { event: Extract<AgentEvent, { type: 'result' }> }) {
   if (event.interrupted) {
     return (
@@ -661,6 +694,8 @@ function Item({ item, props, product, number }: { item: TranscriptItem; props: T
                 {clip(item.text)}
               </pre>
             </Disclosure>
+          ) : item.title !== undefined ? (
+            <NoticeBlock title={item.title} text={item.text} action={item.action} details={item.details} find={find('notice')} />
           ) : (
             <div className={`w-tr__notice${item.noticeKind === 'local_command' ? ' w-mono' : ''}`} data-find={find('notice')}>
               {item.text}

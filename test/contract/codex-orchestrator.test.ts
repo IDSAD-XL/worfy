@@ -280,7 +280,8 @@ function harness(options: HarnessOptions) {
     }),
   })
   const hookChecks: VendorId[] = []
-  // As the drivers have it: Claude Code's has no such part (vendor-driver-types.test.ts), Codex's checks.
+  // Codex's part as its driver has it; Claude Code's is left out, since its check starts Claude Code
+  // (test/unit/claude-harness-hooks.test.ts holds it, worfy-harness-guarantees ticket 07).
   const hookParts: Record<VendorId, HarnessHooksPart | undefined> = {
     claude: undefined,
     codex: { refusal: codexHooks.refusal, trust: (cwd) => (hookChecks.push('codex'), codexHooks.trust(cwd)) },

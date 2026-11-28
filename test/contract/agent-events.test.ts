@@ -48,6 +48,9 @@ describe('SDK messages → agent events', () => {
         cwd: '<repo>',
         claudeCodeVersion: '2.1.322',
         slashCommands: message.slash_commands,
+        // The plugins it lists, with their errors (worfy-harness-guarantees ticket 07): none here.
+        plugins: (message.plugins as { name: string; path: string }[]).map(({ name, path }) => ({ name, path })),
+        pluginErrors: [],
       },
     ])
   })

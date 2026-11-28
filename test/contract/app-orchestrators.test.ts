@@ -32,6 +32,10 @@ vi.mock('electron', () => ({
   powerSaveBlocker: { start: () => 0, stop: () => undefined, isStarted: () => false },
 }))
 
+// The Harness copy of this build is harness/ itself: the Claude driver's check of its hooks reads it on the fake
+// agent (worfy-harness-guarantees ticket 07, fakeHooksListingStarter), so no Claude Code starts.
+vi.mock('../../src/main/harness/bundled', () => ({ bundledHarnessDir: () => join(import.meta.dirname, '..', '..', 'harness'), bundledHarnessVersion: () => undefined }))
+
 /** The registry the app's Orchestrators run their Sessions in, made by each test. */
 const stand = vi.hoisted(() => ({ registry: null as unknown }))
 vi.mock('../../src/main/agent/app-registry', async (original) => ({ ...(await original<object>()), sharedRegistry: () => stand.registry }))
@@ -68,6 +72,9 @@ beforeEach(() => {
   writeFileSync(join(dir, `${CLAUDE_SESSION}.jsonl`), lines.map((line) => `${JSON.stringify(line)}\n`).join(''))
   vi.stubEnv('WORFY_DATA_DIR', data)
   vi.stubEnv('WORFY_CLAUDE_HOME', home)
+  vi.stubEnv('WORFY_HARNESS_HOME', join(scratch, 'harness-home'))
+  // The Claude driver's check of the Harness hooks (ticket 07) on the fake agent: harness/'s hooks.json, no Claude Code.
+  vi.stubEnv('WORFY_AGENT', 'fake')
   const codex = codexSessions(() =>
     Promise.resolve({
       runtime: RUNTIME,
@@ -128,7 +135,8 @@ describe("the app's Orchestrators run on the Project's defaultVendor (worfy-mult
     layoutStore().apply(PROJECT, { op: 'create', node: { kind: 'orchestrator', x: 40, y: 40, w: 360, h: 200, locked: true, data: { sessionId: CLAUDE_SESSION, costUsd: 1 } } })
     writeSettings()
 
-    // No defaultVendor: Claude Code, resuming the saved session with what its transcript tells.
+    // No defaultVendor: Claude Code, resuming the saved session with what its transcript tells. Its driver checks
+    // that the Harness's hooks run (ticket 07): those of harness/ do.
     const onClaude = await sharedOrchestrators().open(PROJECT)
     expect(onClaude).toMatchObject({ vendor: 'claude', model: 'claude-sonnet-5', costUsd: 1 })
     await expect(sharedOrchestrators().unattendedRefusal(PROJECT)).resolves.toBeNull()

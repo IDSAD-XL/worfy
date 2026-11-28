@@ -6,7 +6,9 @@
 // SDK message into worfy's events (src/shared/vendors/claude/events.ts) and adds three of its own:
 // `account` once accountInfo() answers (the Session is `starting` until then), `context` after each
 // `result` and each compaction (getContextUsage), `mcp` after each system/init and each `result`
-// (mcpServerStatus, worfy-mcp-live ticket 02), and the end of its events when Claude Code is gone.
+// (mcpServerStatus, worfy-mcp-live ticket 02), the notice "Harness did not load" after the first system/init
+// whose plugins lack the Harness the query carries or list an error of it (harness-hooks.ts,
+// worfy-harness-guarantees ticket 07), and the end of its events when Claude Code is gone.
 // A read of the MCP servers a person asks for (readMcp with pickUp, ticket 03) takes in a server added
 // to the user's config first, between turns of an attended Session (src/main/vendors/claude/mcp.ts); every ask
 // of the handle is numbered, and an answer to any but the latest is dropped.
@@ -66,6 +68,7 @@ import { isSelectableModel, PERMISSION_MODES, type EffortChoice, type ModelOptio
 import { contextUsageOf, initMcpServers, isCompactBoundary, sdkMessageToEvents } from '../../../shared/vendors/claude/events'
 import type { ApprovalWhere, PermissionAsker, RefusalDetails, SessionApproval, SessionHandle, SessionMessage, SessionPart, SessionStart } from '../session'
 import { claudeSignedIn } from './account'
+import { harnessLoadProblems, harnessNotice } from './harness-hooks'
 import { claudeMcpStatus, type ClaudeMcpLive } from './mcp'
 import type { McpAddresses } from './mcp-addresses'
 import { McpInventory, notAllowedRows, notStartedRows } from './mcp-inventory'
@@ -354,6 +357,10 @@ class ClaudeSession implements SessionHandle, ClaudeLiveSession, ClaudeMcpLive {
   private listed: readonly string[] | null = null
   /** The addresses of the remote servers the query started with (QueryRequest.mcpAddresses, ticket 12); null: none. */
   private startAddresses: McpAddresses | null = null
+  /** The Harness folder the query carries inline (QueryRequest.harnessGiven); null: none; undefined: not told. */
+  private harnessGiven: string | null | undefined = undefined
+  /** The first system/init was checked for the Harness (worfy-harness-guarantees ticket 07): one notice per process. */
+  private harnessChecked = false
 
   constructor(
     readonly catalog: CommandCatalog,
@@ -390,7 +397,7 @@ class ClaudeSession implements SessionHandle, ClaudeLiveSession, ClaudeMcpLive {
     this.startAddresses = inventory === null ? null : inventory.of.addresses(inventory.cwd)
     const addresses = this.startAddresses === null ? {} : { mcpAddresses: this.startAddresses }
     try {
-      this.queryValue = await factory({ ...request, ...addresses, prompt: this.input, mcpListed: (listed) => (this.listed = listed) })
+      this.queryValue = await factory({ ...request, ...addresses, prompt: this.input, mcpListed: (listed) => (this.listed = listed), harnessGiven: (dir) => (this.harnessGiven = dir) })
     } catch (error) {
       this.input.end()
       throw error
@@ -542,12 +549,28 @@ class ClaudeSession implements SessionHandle, ClaudeLiveSession, ClaudeMcpLive {
       }
       if (event.type === 'result') this.turning = false
       this.out.push(event)
-      if (event.type === 'init') this.askMcp()
+      if (event.type === 'init') {
+        this.checkHarness(event)
+        this.askMcp()
+      }
       if (event.type === 'result') {
         this.askContext()
         this.askMcp()
       }
     }
+  }
+
+  /**
+   * The notice "Harness did not load" under the first system/init of the process, when its plugins lack the
+   * Harness worfy gave or carry an error of it (harness-hooks.ts, harnessLoadProblems).
+   */
+  private checkHarness(init: Extract<AgentEvent, { type: 'init' }>): void {
+    if (this.harnessChecked) return
+    this.harnessChecked = true
+    const notice = harnessNotice(harnessLoadProblems(init, this.harnessGiven), { given: this.harnessGiven, init })
+    if (notice === null) return
+    console.warn(`[claude] the Harness did not load in ${this.label}: ${notice.text.split('\n')[0] ?? ''}`)
+    this.out.push(notice)
   }
 
   private async checkAccount(query: QueryHandle): Promise<void> {

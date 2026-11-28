@@ -175,7 +175,8 @@ export interface OrchestratorDeps {
   capabilities?(vendor: VendorId): Promise<Pick<Capabilities, 'harness' | 'unsupported'>>
   /**
    * The driver's check that `vendor` runs the Harness's hooks now (HarnessHooksPart, worfy-multi-vendor
-   * ticket 39); undefined for a Vendor that needs no approval of them. Absent: nothing is checked.
+   * ticket 39: Codex; worfy-harness-guarantees ticket 07: Claude Code); undefined for a Vendor whose driver
+   * has no such check. Absent: nothing is checked.
    */
   harnessHooks?(vendor: VendorId): HarnessHooksPart | undefined
   /** Gets every event of every Orchestrator, e.g. to send it to the windows. */
@@ -563,8 +564,9 @@ export class Orchestrators {
    * guarantees are not proven there (worfy-multi-vendor ticket 37): the reason is the capability's
    * own, and capabilities that cannot be read refuse too. Or the Vendor's driver checks that it runs
    * the Harness's hooks now (deps.harnessHooks, ticket 39: Codex until the user approves them in
-   * /hooks), and the check does not answer `approved`: the reason is the driver's. Without
-   * deps.capabilities, null.
+   * /hooks; worfy-harness-guarantees ticket 07: Claude Code while the Harness did not load), and the
+   * check does not answer `approved`: the reason is the driver's refusal, with the reason its check
+   * gave after it. Without deps.capabilities, null.
    */
   async unattendedRefusal(projectId: string): Promise<string | null> {
     if (this.deps.capabilities === undefined) return null
@@ -586,9 +588,11 @@ export class Orchestrators {
     } catch {
       root = undefined
     }
-    // trust() never throws by its contract; a part that does anyway refuses, as `unknown` does.
-    const trust = await hooks.trust(root).catch(() => 'unknown' as const)
-    return trust === 'approved' ? null : hooks.refusal
+    // trust() and check() never throw by their contract; a part that does anyway refuses, as `unknown` does.
+    const unknown = { trust: 'unknown' as const, reason: null }
+    const answer = hooks.check !== undefined ? await hooks.check(root).catch(() => unknown) : { trust: await hooks.trust(root).catch(() => 'unknown' as const), reason: null }
+    if (answer.trust === 'approved') return null
+    return answer.reason === null ? hooks.refusal : `${hooks.refusal} ${answer.reason}`
   }
 
   /** Whether the Project's Orchestrator runs unattended now. */

@@ -5,6 +5,7 @@ import type { VendorDriver } from '../driver'
 import type { SessionHandle } from '../session'
 import { claudeAccount } from './account'
 import { claudeCommands } from './commands'
+import { claudeHarnessHooks } from './harness-hooks'
 import { claudeHistory } from './history'
 import { claudeLimits } from './limits'
 import { claudeMcp } from './mcp'
@@ -49,6 +50,7 @@ export function claudeDriver(): ClaudeDriver {
     commands: claudeCommands,
     mcp: claudeMcp,
     oneShot: claudeOneShot,
+    harnessHooks: claudeHarnessHooks,
     terminalAi: claudeTerminalAi,
   }
   return driver

@@ -53,7 +53,17 @@ export type TranscriptItem = { at: number | null } & (
   /** `toolUseId`: the Agent call that started it, when that call is not among the events (it is in the part of the file not read). */
   | { kind: 'subagent'; key: string; run: SubagentRun; toolUseId?: string }
   | { kind: 'hook'; key: string; event: EventOf<'hook'> }
-  | { kind: 'notice'; key: string; noticeKind: 'synthetic' | 'local_command' | 'notification'; text: string; action?: 'open-health-check' }
+  | {
+      kind: 'notice'
+      key: string
+      noticeKind: 'synthetic' | 'local_command' | 'notification'
+      text: string
+      action?: 'open-health-check' | 'open-health'
+      /** A notice of worfy's own that stands as a block under this heading (worfy-harness-guarantees ticket 07). */
+      title?: string
+      /** What its "Copy details" copies. */
+      details?: string
+    }
   | { kind: 'result'; key: string; event: EventOf<'result'> }
   | { kind: 'error'; key: string; text: string }
   /** An event drawn by a row of src/renderer/session/rows/ (rows/index.ts). */
@@ -117,7 +127,16 @@ export function foldTranscript(events: readonly AgentEvent[], extensionTypes: Re
           // The interruption is shown once, by the turn's result.
           if (!INTERRUPT_NOTICE.test(event.text)) push({ kind: 'prompt', key, at, text: event.text, attachments: event.attachments ?? [] })
         } else {
-          push({ kind: 'notice', key, at, noticeKind: event.kind, text: event.text, ...(event.action === undefined ? {} : { action: event.action }) })
+          push({
+            kind: 'notice',
+            key,
+            at,
+            noticeKind: event.kind,
+            text: event.text,
+            ...(event.action === undefined ? {} : { action: event.action }),
+            ...(event.title === undefined ? {} : { title: event.title }),
+            ...(event.details === undefined ? {} : { details: event.details }),
+          })
         }
         return
       case 'delta': {

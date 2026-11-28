@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { hasExited } from '../../src/main/agent/session/process'
 import { HARNESS_PLUGIN_ID } from '../../src/main/harness/install'
 import { claudeDriver } from '../../src/main/vendors/claude'
+import { claudeHarnessHooks } from '../../src/main/vendors/claude/harness-hooks'
 import { codexDriver } from '../../src/main/vendors/codex'
 import { codexAskStarter, type StartCodex } from '../../src/main/vendors/codex/account'
 import {
@@ -248,11 +249,12 @@ describe('asking Codex (readCodexHooksTrust over the fake app-server)', () => {
 })
 
 describe("the drivers' part", () => {
-  it("Codex's driver checks the hooks with the refusal of the ticket; Claude Code's has no such part", () => {
+  it("Codex's driver checks the hooks with the refusal of the ticket; Claude Code's has a part of its own (worfy-harness-guarantees ticket 07)", () => {
     expect(codexDriver().harnessHooks).toBe(codexHarnessHooks)
     expect(codexHarnessHooks.refusal).toBe('The Harness hooks are not approved in Codex. Approve them in /hooks and start again.')
     expect(codexHarnessHooksPart().refusal).toBe(CODEX_HOOKS_REFUSAL)
-    expect(claudeDriver().harnessHooks).toBeUndefined()
+    expect(claudeDriver().harnessHooks).toBe(claudeHarnessHooks)
+    expect(claudeHarnessHooks.refusal).not.toBe(CODEX_HOOKS_REFUSAL)
   })
 
   it('the check is the Codex driver\'s: the Harness installer does not import it or the Codex protocol, it imports no Harness module, and the toolbar channel asks the driver', () => {
