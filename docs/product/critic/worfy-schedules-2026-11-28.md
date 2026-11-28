@@ -11,7 +11,7 @@ Fact: `docs/adr/0005-worfy-own-state-inventory.md:7` says "worfy ничего н
 
 Judgement: This is the first time worfy's own code, not an agent, writes refs, `.git/worktrees` and a folder inside the Project's working copy, and deletes branches. That is a change to a rule in the project's "decisions that must not be broken" list, and the spec records it as an inventory line. Ticket 01 should carry an explicit ADR-0005 exception, a text the owner accepts, and the spec should drop the claim that nothing reaches the repository; otherwise the reviewer of Ticket 06 has to block it against ADR-0005, or pass it silently.
 
-Owner decision:
+Owner decision: 2026-11-28: accepted (owner «все да»)
 
 ### 2. Ticket 08 and Ticket 07 need Tickets 05 and 06, but their Blocked by lines and the waves table do not say so
 
@@ -19,7 +19,7 @@ Fact: Ticket 08 is "Blocked by: 02, 07" and is done when `schedules.spec.ts` is 
 
 Judgement: As written, the implementer of Ticket 08 cannot make its done-when test green until 05 lands, and the implementer of Ticket 07 must either stub Run now or write part of `run.ts` in parallel with Ticket 06. Add 05 to Ticket 08's Blocked by line, moving 08 and then 09 one wave later. Either add 06 to Ticket 07's Blocked by line, or move Run now into Ticket 08.
 
-Owner decision:
+Owner decision: 2026-11-28: accepted (owner «все да»)
 
 ### 3. Ticket 06 carries a change to the Approval policy roots that is independent of the run, and does not wait for the ADR that allows it
 
@@ -27,7 +27,7 @@ Fact: Ticket 06 bundles worktree and branch, Claude Code and Codex starts, "ко
 
 Judgement: The roots change is a security change in the auto-approval module of another epic, with its own test (`schedule-approval-roots.test.ts`) and its own ADR. Inside Ticket 06 it gets a review spread over five other concerns, and it can merge before the owner has accepted the Amendment that allows it. Cut it into its own ticket blocked by 01 and 03, and make Ticket 06 blocked by it. Ticket 06 stays the run itself.
 
-Owner decision:
+Owner decision: 2026-11-28: accepted (owner «все да»)
 
 ## Alternative
 

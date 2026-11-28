@@ -1,6 +1,7 @@
 # worfy-schedules: Schedule — Session с точным prompt-ом по расписанию на этой Machine
 
-Status: draft
+Status: принят владельцем 2026-11-28 (accepted; «все да» — вопросы spec-а Q1–Q6 по рекомендациям и разбор critic-а,
+Q7).
 Critic: [docs/product/critic/worfy-schedules-2026-11-28.md](../../docs/product/critic/worfy-schedules-2026-11-28.md) — Reorder;
 the Alternative is applied in this draft (исключение ADR-0005 в Ticket-е 01, корни Approval policy — свой Ticket 13,
 Ticket 08 ждёт 05 и несёт Run now); решение владельца по возражениям — в файле critic-а.
@@ -137,6 +138,23 @@ Actions. Пределы: ChatGPT — не чаще раза в час на пл�
 19. **Q19. Своя View button, которую можно переносить, как остальные View button-ы worfy-layout.**
 20. **Q20. Хранится 50 последних run-ов каждого Schedule.**
 
+## Решения владельца по вопросам spec-а (2026-11-28, «все да»)
+
+Нумерация — вопросов этого spec-а, не grilling-а выше.
+
+1. **Q1 (2026-11-28). Push из scheduled run-а всегда ждёт владельца.** `git push` и `gh pr create` в run-е, prompt
+   которого просит PR, — park по ADR-0098 и Attention item. Правило allow для push одной своей ветки `schedule/*` —
+   может быть позже, своим Ticket-ом; не в этом Epic-е.
+2. **Q2 (2026-11-28). Порог Limits проверяется только перед стартом.** Run, который перешёл порог по ходу, идёт дальше;
+   кончились Limits совсем — Needs you.
+3. **Q3 (2026-11-28). Pause с Linked machine — только при Full access.** При Read only Linked machine только смотрит;
+   ADR-0066 не меняется.
+4. **Q4 (2026-11-28). Согласие держит точный id модели.** Псевдоним, который теперь ведёт к другой модели, снимает
+   согласие: Schedule — Needs Accept.
+5. **Q5 (2026-11-28). Значок в tray на Windows в фоне** с пунктами «Open worfy» и «Quit».
+6. **Q6 (2026-11-28). Отдельного предела на одновременные run-ы разных Schedules нет.**
+7. **Q7 (2026-11-28). Три возражения critic-а и Reorder приняты** (файл critic-а, «Owner decision»).
+
 ## Scope
 
 **В этом Epic-е.**
@@ -164,12 +182,13 @@ Actions. Пределы: ChatGPT — не чаще раза в час на пл�
 - Login item на macOS: на Mac worfy и без окон живёт до Quit (`index.ts:348`); Q11 говорит только о Windows.
 - Сырой cron; RRULE вне подмножества (`BYSETPOS`, `BYWEEKNO`, `BYYEARDAY`, `EXDATE`, `FREQ=MINUTELY`/`SECONDLY`/`YEARLY`).
 - Отдельный канал уведомлений (почта, телефон, Slack).
+- Правило allow для push своей ветки `schedule/*` (Q1 spec-а: может быть позже, своим Ticket-ом).
 
 ## Модель данных (простыми словами)
 
 - **Schedule.**
   - id; имя — до 60 символов, уникально в Project-е; из него получается slug ветки (латиница, цифры, дефис).
-  - Project (id Project-а этой Machine), Vendor (Claude Code или Codex), модель — точный id модели, как его показывает
+  - Project (id Project-а этой Machine), Vendor (Claude Code или Codex), модель — точный id модели (Q4 spec-а), как его показывает
     picker модели Vendor-а.
   - Текст prompt-а — ровно то, что получит Session; до 20 000 символов, как у Prepare (`assistant.start`,
     `src/shared/ipc/assistant.ts`).
@@ -224,6 +243,8 @@ Actions. Пределы: ChatGPT — не чаще раза в час на пл�
 - Правка имени, правила или порога Limits тоже применяется только щелчком пользователя (Save в редакторе, Accept на
   карточке «было → станет»), но согласия не снимает: Q3 привязывает его к четырём полям.
 - Файл, поправленный руками, или запись старой версии без отпечатка — Needs Accept.
+- **Модель** (Q4 spec-а). В отпечаток идёт точный id модели. Если пользователь выбрал псевдоним, Accept записывает id,
+  к которому он ведёт в этот момент; перед run-ом worfy разрешает псевдоним заново, и другой id — Needs Accept.
 
 ### Планировщик (Q10, Q12)
 
@@ -254,6 +275,8 @@ Actions. Пределы: ChatGPT — не чаще раза в час на пл�
   worfy заранее не знает. Тогда — строка «Skipped: Limits (5-hour window 84 % ≥ 80 %)», без уведомления и без
   отложенного запуска.
 - Нет данных о Limits — как у `limits-gate` для вида `automatic` сейчас.
+- Только перед стартом (Q2 spec-а): run, который перешёл порог по ходу, не останавливается.
+- Отдельного предела на одновременные run-ы разных Schedules нет (Q6 spec-а).
 
 ### Scheduled run (Q6, Q8, Q15, Q16)
 
@@ -334,7 +357,8 @@ Actions. Пределы: ChatGPT — не чаще раза в час на пл�
 
 - Settings → General, только на Windows: «Keep worfy running in the background while schedules are active» и «Start
   worfy when I sign in» (`app.setLoginItemSettings`), обе выключены.
-- Пока первая включена и есть Active Schedule, `window-all-closed` не завершает worfy. Вторая стартует worfy без окна,
+- Пока первая включена и есть Active Schedule, `window-all-closed` не завершает worfy, а в tray стоит значок с пунктами
+  «Open worfy» и «Quit» (Q5 spec-а). Вторая стартует worfy без окна,
   если включена первая, иначе — с окном.
 - Платформенный Ticket: вердикт Windows — CI job (ADR-0071, ADR-0086).
 
@@ -479,7 +503,8 @@ Approval policy выделены из 06 в новый Ticket 13 (возраже
 10. **10 — Linked machine.** Вид Schedules в окне Linked machine только для чтения, Pause при Full access, причина
     «Paused from <Machine>». Агент. Blocked by: 07.
     Готово, когда: `schedules-linked.spec.ts` зелёный.
-11. **11 — Windows: фон и вход.** Две настройки, `window-all-closed`, `setLoginItemSettings`. Платформенный. Агент.
+11. **11 — Windows: фон и вход.** Две настройки, `window-all-closed`, `setLoginItemSettings`, значок в tray (Q5 spec-а).
+    Платформенный. Агент.
     Blocked by: 05.
     Готово, когда: на Windows CI job закрытое окно при включённом фоне не завершает worfy, обе настройки выключены по
     умолчанию.
@@ -522,35 +547,16 @@ Blocked by и спискам файлов. 11 ждёт 05 не по смыслу
   пределы Q12; всё же это расход подписки пользователя, а не Assistant-а: доля Assistant-а (Ticket 27 worfy-assistant)
   scheduled run-ы не считает.
 - **Push и PR.** Approval policy никогда не одобряет push сама (ADR-0098, пункт 4): Schedule, prompt которого просит PR,
-  каждый раз упрётся в park. Вопрос 1 ниже.
+  каждый раз упрётся в park и Attention item (Q1 spec-а).
 - **Worktree-ы копятся.** Hourly-Schedule с правками даёт до 24 оставленных worktree-ов в день. История показывает их, и
   Remove worktree рядом; автоудаления с коммитами нет.
-- **Windows без tray.** worfy в фоне без окна не видно: открыть его можно повторным запуском (единственный экземпляр,
-  `requestSingleInstanceLock`, `index.ts:96`), а Quit — только из окна. Вопрос 5 ниже.
+- **Windows в фоне.** Без окна worfy виден только значком в tray (Q5 spec-а); повторный запуск открывает окно
+  (единственный экземпляр, `requestSingleInstanceLock`, `index.ts:96`).
 
 ## Вопросы владельцу
 
-Только то, что Q1–Q20 оставляют открытым. У каждого — рекомендация.
-
-1. **Push и PR из scheduled run-а** (Q15 говорит «PR — только если просит prompt», но не говорит, кто одобряет push).
-   (а) ADR-0098 как есть: push и `gh pr create` — park, Attention item, владелец одобряет в течение 60 минут или делает PR
-   сам. Рекомендация: правило ADR-0098 «push никогда сам» держится с 2026-11-06, а Schedule-ы с PR, видимо, редки.
-   (б) Новое правило allow: push своей ветки `schedule/<slug>/*` без force в `origin` и `gh pr create --draft` — ещё
-   Amendment ADR-0098.
-2. **Limits кончаются посреди run-а** (Q18 решает только старт). (а) Не останавливать: run идёт до конца хода или до 2
-   часов; кончились Limits — Needs you. Рекомендация: run уже начат, а остановка на пороге теряет сделанное. (б)
-   Останавливать на пороге.
-3. **Pause с Linked machine при Read only** (Q17 + ADR-0066: Read only ничего не меняет). (а) Pause — только при Full
-   access, ADR-0066 не меняется. Рекомендация. (б) Pause — исключение, доступное и при Read only, как аварийная
-   остановка; это Amendment ADR-0066.
-4. **Что такое «модель» в согласии** (Q3). (а) Точный id модели; псевдонимы вроде «Default» в редакторе не предлагаются;
-   модели не стало — Skipped и Needs Accept с другой моделью. Рекомендация: иначе обновление Claude Code молча меняет
-   модель без нового Accept. (б) Разрешить псевдоним; смена модели за ним согласия не снимает.
-5. **Tray на Windows в фоне** (Q11 не называет). (а) Значок в tray, пока worfy в фоне без окна: Open worfy, Quit.
-   Рекомендация: иначе фоновый worfy не закрыть без Task Manager. (б) Без tray.
-6. **Сколько scheduled run-ов разных Schedules идёт одновременно** (Q12 запрещает только пересечение run-ов одного).
-   (а) Без отдельного предела: хватает порога Limits и 20 активных. Рекомендация. (б) Не больше N одновременно, остальные
-   ждут.
+Открытых вопросов нет: владелец ответил на все шесть 2026-11-28 («все да», раздел «Решения владельца по вопросам
+spec-а»).
 
 ## Готово, когда
 
@@ -565,8 +571,8 @@ Blocked by и спискам файлов. 11 ждёт 05 не по смыслу
       строкой.
 - [ ] Уведомление — только Error, Timed out и Needs you; «нужен человек» — Attention item.
 - [ ] View button Schedules переносится между зонами; история хранит 50 run-ов; Delete — только кнопкой с подтверждением.
-- [ ] Linked machine видит Schedules без правки и ставит на паузу.
-- [ ] На Windows обе настройки есть и выключены по умолчанию.
+- [ ] Linked machine видит Schedules без правки; при Full access ставит на паузу, при Read only только смотрит.
+- [ ] На Windows обе настройки есть и выключены по умолчанию; в фоне — значок в tray с «Open worfy» и «Quit».
 - [ ] ADR, Amendment-ы ADR-0114 и ADR-0098, исключение ADR-0005 для worktree-ов и веток `schedule/*`, строка инвентаря
       ADR-0005, страницы Feature en и ru.
 - [ ] (вручную) Владелец принял Epic на Mac и на ПК.
