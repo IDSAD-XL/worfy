@@ -56,9 +56,10 @@ mattpocock-skills». Plugin worfy был выключен в Claude Code, а с�
   - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 083f742b2012e506e368ec6066e7506bf9e11d51
   - evidence: gate pass · `gate fast` exit 0 · mac - · 083f742b2012e506e368ec6066e7506bf9e11d51
   - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/45996863116/job/140529143997 · ci - · 3a22c9450a18a23499b808c2117ed6a5b8a64a7f
-- [ ] (вручную) Сделай: в Claude Code выключи plugin worfy (`/plugin`), в Stable worfy нажми Enable в строке
+- [x] (вручную) Сделай: в Claude Code выключи plugin worfy (`/plugin`), в Stable worfy нажми Enable в строке
       Harness → Должно быть: строка без «disabled», в Claude Code plugin worfy снова включён.
   - needs: mac stable
+  - evidence: owner-check pass · 2026-11-28: принимаем · mac stable · 660928a5946898d0c8d3488f20dd9b0b2da4ec09
 
 ## Откат 2026-11-27
 
