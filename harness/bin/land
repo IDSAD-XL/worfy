@@ -42,7 +42,7 @@
 //     ticket and that changes a verification path waits with `verification paths, and the PR has no ticket (<why>):
 //     <paths> — the owner decides`. A PR that adds a verification path to the trail of any ticket (a ticket file under the
 //     tickets root whose trail at the head names a verification path its fork point does not) is a change of the
-//     verification paths too: it merges, and its line names it (an `owner` mark for it is ticket 10's). With tickets_root
+//     verification paths too: it merges, and its line names it (no `owner` mark is asked for it yet). With tickets_root
 //     null the trail is read from the folder `ticket root` prints. A project with no profile has the defaults and no
 //     tickets: a PR that changes one waits for the owner. The profile or git unable to answer — the PR waits;
 //   - the main branch is not red (a PR with main_fix true, the fix of a red main branch or the revert of its culprit,
@@ -839,8 +839,8 @@ function changedPaths(st, base, head) {
 // The verification paths a PR adds to the trail of any ticket: for each ticket file it changes inside the tickets root,
 // the trail entries at head that its fork point does not have and that are verification paths.
 // shortcut: an added entry counts when it is itself a verification path ("x/ci.yml", "x/**" under a glob of the list); a
-// wider entry that only covers one (".github/" over ".github/workflows/**") is not named; redo when ticket 10 makes the
-// owner's mark depend on this.
+// wider entry that only covers one (".github/" over ".github/workflows/**") is not named; redo when an owner's mark comes to
+// depend on this.
 function trailExtensions(st, profile, list, paths, base, head, root) {
     const tickets = ticketsRoot(st)
     const heading = field(profile, "tickets", "trail_section")
@@ -1425,7 +1425,7 @@ const waitingForCi = (st) => [...st.prs, ...st.docs].some((x) => x.result && x.r
 // The CI check of the state file is the profile's workflow.ci_check: a state file naming another is refused. A profile that
 // names none (or no profile) leaves the state file's, with a log line.
 // shortcut: with no workflow.ci_check the state file still names the check, redo (refuse) once every registered profile has
-// the field (worfy gets it from the owner's profile-set command of worfy-harness-guarantees 02).
+// the field (bin/profile-set --field workflow.ci_check writes it).
 function ciCheckAgrees(file, st) {
     let profile
     try {

@@ -31,10 +31,10 @@ main_file() {
 ticket_text() {
     printf '# 01: a ticket\n\nStatus: claimed\n\n## Where in the code\n\n'
     for p in "$@"; do printf -- '- `%s` — line `:12`, the function `ready()`\n' "$p"; done
-    printf '\n## Tests\n\n- `.github/workflows/not-in-the-trail.yml`\n'
+    printf '\n## Tests\n\n- `AGENTS.md`\n'
 }
 TICKET=.scratch/e/issues/01-a-ticket.md
-CI=.github/workflows/ci.yml
+VP=CLAUDE.md
 
 # --- a draft waits, even with a green CI and review (red on the old code: it merged a draft) ---------------------------
 new_world draft 1
@@ -47,53 +47,53 @@ echo '{"isDraft":true}' >"$GHD/pr-1.json"
 # --- a verification path the trail at the tip of main does not name waits ------------------------------------------
 new_world outside 1
 main_file "$TICKET" "$(ticket_text f1.txt)"
-pr_file 1 "$CI" "on: push"
+pr_file 1 "$VP" "the rules"
 state 1
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
-[ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -qx "#1 waits: verification paths outside the trail of e 01: $CI" "$W/out" \
-    && ok "outside the trail: the PR changes $CI, the trail names f1.txt -> waits, the path in the reason" || bad "outside: exit $rc: $(cat "$W/out")"
+[ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -qx "#1 waits: verification paths outside the trail of e 01: $VP" "$W/out" \
+    && ok "outside the trail: the PR changes $VP, the trail names f1.txt -> waits, the path in the reason" || bad "outside: exit $rc: $(cat "$W/out")"
 # the PR writes the path into its own trail: no permission, the trail is read at the tip of main
-pr_file 1 "$TICKET" "$(ticket_text f1.txt "$CI")"
+pr_file 1 "$TICKET" "$(ticket_text f1.txt "$VP")"
 rm -f "$GHD/log"
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
-[ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -qx "#1 waits: verification paths outside the trail of e 01: $CI" "$W/out" \
-    && ok "own trail: the PR adds $CI to its own trail -> still waits (the trail of main counts, not the PR's)" || bad "own trail: exit $rc: $(cat "$W/out")"
+[ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -qx "#1 waits: verification paths outside the trail of e 01: $VP" "$W/out" \
+    && ok "own trail: the PR adds $VP to its own trail -> still waits (the trail of main counts, not the PR's)" || bad "own trail: exit $rc: $(cat "$W/out")"
 
 # --- the trail extended on main after the branch was cut: the fork point holds the old trail, the PR merges -----------
 new_world extended 1
 main_file "$TICKET" "$(ticket_text f1.txt)"
 git -C "$W/seed" fetch -q origin refs/pull/1/head && git -C "$W/seed" checkout -q --detach FETCH_HEAD && git -C "$W/seed" rebase -q main \
     && git -C "$W/seed" push -q -f origin HEAD:refs/pull/1/head && git -C "$W/seed" checkout -q main
-pr_file 1 "$CI" "on: push"
-main_file "$TICKET" "$(ticket_text f1.txt "$CI")"
+pr_file 1 "$VP" "the rules"
+main_file "$TICKET" "$(ticket_text f1.txt "$VP")"
 state 1
 fork="$(git -C "$W/origin.git" merge-base refs/pull/1/head refs/heads/main)"
 old_trail="$(git -C "$W/origin.git" show "$fork:$TICKET")"
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
 m1="$(q "$S" 's.prs[0].result.sha')"
-[[ "$old_trail" != *"$CI"* ]] && [ "$rc" = 0 ] && [ "$(merged_of 1)" = 1 ] && grep -qx "#1 merged $m1 — verification paths: $CI (trail of e 01)" "$W/out" \
-    && ok "extended trail: the fork point's trail lacks $CI, main's names it -> merged, the line names the path and the trail" || bad "extended: old trail has it=$([[ "$old_trail" == *"$CI"* ]] && echo yes) exit $rc: $(cat "$W/out")"
+[[ "$old_trail" != *"$VP"* ]] && [ "$rc" = 0 ] && [ "$(merged_of 1)" = 1 ] && grep -qx "#1 merged $m1 — verification paths: $VP (trail of e 01)" "$W/out" \
+    && ok "extended trail: the fork point's trail lacks $VP, main's names it -> merged, the line names the path and the trail" || bad "extended: old trail has it=$([[ "$old_trail" == *"$VP"* ]] && echo yes) exit $rc: $(cat "$W/out")"
 
 # --- a PR that adds a verification path to a trail is named as a change of the verification paths ---------------------
 new_world extends 1 2
 main_file "$TICKET" "$(ticket_text f1.txt)"
-pr_file 2 .scratch/e/issues/03-other.md "$(ticket_text f3.txt scripts/check-x.mjs)"
+pr_file 2 .scratch/e/issues/03-other.md "$(ticket_text f3.txt tools/check-x.mjs)"
 state 2
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
 m2="$(q "$S" 's.prs[0].result.sha')"
-[ "$rc" = 0 ] && [ "$(merged_of 2)" = 1 ] && grep -qx "#2 merged $m2 — verification paths: added to the trail of .scratch/e/issues/03-other.md: scripts/check-x.mjs" "$W/out" \
-    && ok "trail extension: a PR adds scripts/check-x.mjs (a path of the profile) to a trail -> merged, the line names it" || bad "extends: exit $rc: $(cat "$W/out")"
+[ "$rc" = 0 ] && [ "$(merged_of 2)" = 1 ] && grep -qx "#2 merged $m2 — verification paths: added to the trail of .scratch/e/issues/03-other.md: tools/check-x.mjs" "$W/out" \
+    && ok "trail extension: a PR adds tools/check-x.mjs (a path of the profile) to a trail -> merged, the line names it" || bad "extends: exit $rc: $(cat "$W/out")"
 grep -q -- '--json' "$GHD/profile.log" && ok "trail extension: the verification paths come from the profile (bin/profile --json)" || bad "extends: profile calls $(cat "$GHD/profile.log")"
 
 # --- a PR without a ticket that changes a verification path waits for the owner -------------------------------------
 new_world noticket 1
-main_file "$TICKET" "$(ticket_text f1.txt "$CI")"
-pr_file 1 "$CI" "on: push"
+main_file "$TICKET" "$(ticket_text f1.txt "$VP")"
+pr_file 1 "$VP" "the rules"
 echo '{"headRefName":"fix-ci-by-hand"}' >"$GHD/pr-1.json"
 state 1
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
-[ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -qx "#1 waits: verification paths, and the PR has no ticket (the branch fix-ci-by-hand is not <epic>/<NN>): $CI — the owner decides" "$W/out" \
-    && ok "no ticket: the branch is not <epic>/<NN>, the PR changes $CI -> waits for the owner" || bad "no ticket: exit $rc: $(cat "$W/out")"
+[ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -qx "#1 waits: verification paths, and the PR has no ticket (the branch fix-ci-by-hand is not <epic>/<NN>): $VP — the owner decides" "$W/out" \
+    && ok "no ticket: the branch is not <epic>/<NN>, the PR changes $VP -> waits for the owner" || bad "no ticket: exit $rc: $(cat "$W/out")"
 # a PR without a ticket that changes no verification path merges as before
 new_world noticket-plain 1
 echo '{"headRefName":"fix-typo"}' >"$GHD/pr-1.json"
@@ -146,11 +146,11 @@ echo '{"_resolved":{"checkout":"'"$(tn "$W/repo")"'","mode":"full","pipeline":[{
 rm -f "$GHD/profile.json"
 # a verification path outside the trail -> exit 1 with the paths
 main_file "$TICKET" "$(ticket_text f1.txt)"
-pr_file 1 "$CI" "on: push"
+pr_file 1 "$VP" "the rules"
 echo "[{\"id\":1,\"name\":\"ci-ok\",\"status\":\"completed\",\"conclusion\":\"success\",\"started_at\":\"2026-10-28T10:00:00Z\",\"details_url\":\"https://github.com/o/r/actions/runs/$run_id/job/1\"}]" >"$GHD/checks-$(head_of 1)"
 echo "[{\"databaseId\":$run_id,\"status\":\"completed\",\"conclusion\":\"success\",\"workflowName\":\"CI\"}]" >"$GHD/runs-$(head_of 1)"
 "$LAND" --check 1 -C "$(tn "$W/repo")" >"$W/out" 2>"$W/err"; rc=$?
-[ "$rc" = 1 ] && grep -qx "#1 waits: verification paths outside the trail of e 01: $CI" "$W/out" \
+[ "$rc" = 1 ] && grep -qx "#1 waits: verification paths outside the trail of e 01: $VP" "$W/out" \
     && ok "check: a verification path outside the trail -> exit 1, the path named" || bad "check outside: exit $rc: $(cat "$W/out" "$W/err")"
 ! ls "$TN/gate-state" >/dev/null 2>&1 && ok "check: writes no marker of the main branch" || bad "check: wrote $(ls "$TN/gate-state")"
 

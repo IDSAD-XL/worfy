@@ -21,7 +21,7 @@
 //                                          list or null, reason why either is missing; unread — git could not answer
 //
 // A trail entry is a span in single backticks with no space in it that looks like a path (it holds a "/" or a "."):
-// `harness/bin/land`, `.github/workflows/ci.yml`, `test/quarantine/**`. A line suffix (`land:755-764`) is dropped; a
+// `harness/bin/land`, `.github/actions/setup/action.yml`, `test/quarantine/**`. A line suffix (`land:755-764`) is dropped; a
 // span of a line number alone (`:356`) or of a word (`PR_FIELDS`, `ready()`) names no file. "\" reads as "/" (a trail
 // written on Windows). Code blocks are skipped, and so is a heading inside them.
 // shortcut: a trail entry of a profile with several repositories starts with the repository's name (bin/TICKETS.md), and

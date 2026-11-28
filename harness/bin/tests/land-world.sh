@@ -195,7 +195,7 @@ process.exit(fs.existsSync(p) ? +fs.readFileSync(p, "utf8") : 0)
 EOF
 # bin/profile: `-C <dir> --field code_stories.pr` prints $GHD/code-stories ("off" without it); `-C <dir> --json` prints
 # the profile of the world — workflow.ci_check ci-ok, worktree.base origin/main, the tickets of .scratch/<epic>/issues/NN-*.md
-# on the branches <epic>/<NN> with the trail "## Where in the code", the default verification paths and scripts/check-*,
+# on the branches <epic>/<NN> with the trail "## Where in the code", the default verification paths and tools/check-*,
 # no Check in the Pipeline, _resolved.checkout <dir> — with each top-level object of $GHD/profile.json merged over its
 # own. Exits with $GHD/profile-rc (0 without it); logs its arguments.
 cat >"$STUBS/profile.mjs" <<'EOF'
@@ -213,7 +213,7 @@ else if (a.includes("--json")) {
         workflow: { ci: "pr", ci_check: "ci-ok" },
         worktree: { base: "origin/main" },
         tickets: { root: ".scratch/", path: ".scratch/<epic>/issues/NN-*.md", branch: "<epic>/<NN>", trail_section: "## Where in the code" },
-        verification: { paths: [".github/workflows/**", ".github/actions/**", "CLAUDE.md", "AGENTS.md", ".claude/**", ".codex/**", ".mcp.json", "scripts/check-*"] },
+        verification: { paths: [".github/workflows/**", ".github/actions/**", "CLAUDE.md", "AGENTS.md", ".claude/**", ".codex/**", ".mcp.json", "tools/check-*"] },
         code_stories: { pr: read("code-stories", "off") },
         _resolved: { checkout: dir, repo_root: dir, mode: "full", pipeline: [{ kind: "queued" }, { kind: "ci" }] },
     }
