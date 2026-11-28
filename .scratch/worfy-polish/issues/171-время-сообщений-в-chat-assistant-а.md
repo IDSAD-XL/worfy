@@ -102,3 +102,7 @@ Source: просьба владельца 2026-11-28 со screenshot-ом пан
   другого дня и другого года, `pending` без времени и `failed` со временем) — красные до правки (4 failed из 35), зелёные
   после. `test/unit/session-view.test.tsx` и `test/unit/product-transcript.test.tsx` зелёные без правок.
 - `docs/features/assistant.md` и `docs/features/ru/assistant.md` — одна фраза о времени сообщений в абзаце **Chat**.
+- Раунд 2 (review #2357 r1): у `.w-asst-bubble` — `box-sizing: border-box`, иначе в колонке `.w-asst-said` 100% плюс
+  padding и border выводили bubble с широким code block за край панели. jsdom не считает раскладку, поэтому test
+  `assistant-panel` закрепляет само правило CSS (mutant без него — красный). В test времени Transcript
+  (`session-view`) добавлена проверка класса `w-tr__time` у `RowTime` по умолчанию (mutant с другим классом — красный).

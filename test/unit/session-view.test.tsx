@@ -1467,6 +1467,8 @@ describe('row times (ticket 14)', () => {
     expect(within(time).queryByTestId('transcript-date')).toBeNull()
     expect(time.getAttribute('title')).toBe(full(PROMPT_AT))
     expect(time.getAttribute('datetime')).toBe('2026-06-01T10:00:00.000Z')
+    // The shared RowTime (row-time.ts, worfy-polish 171) keeps the transcript's own class by default.
+    expect(time.className).toBe('w-tr__time')
   })
 
   it('adds the date to a record older than a day, and the year to one of another year', async () => {

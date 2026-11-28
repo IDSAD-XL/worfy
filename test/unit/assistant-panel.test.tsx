@@ -466,6 +466,10 @@ describe('the Assistant’s messages as Markdown (worfy-polish ticket 162)', () 
     expect(rules('.w-asst-md .w-md table')).toMatch(/overflow-x\s*:\s*auto/u)
     expect(rules('.w-asst-md .w-md table')).toMatch(/display\s*:\s*block/u)
     expect(rules('.w-asst-bubble')).toMatch(/min-width\s*:\s*0/u)
+    // In the column of the bubble and its time (worfy-polish 171), 100% without border-box adds the padding and border on
+    // top, and a wide code block pushes the bubble past the panel. jsdom lays nothing out, so the rule itself is pinned.
+    expect(rules('.w-asst-bubble')).toMatch(/box-sizing\s*:\s*border-box/u)
+    expect(rules('.w-asst-said')).toMatch(/min-width\s*:\s*0/u)
   })
 })
 

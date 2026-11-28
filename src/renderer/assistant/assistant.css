@@ -752,7 +752,9 @@
 .w-asst-message:has(.w-asst-time) > .w-asst-avatar {
   margin-bottom: 17px;
 }
+/* Border-box: in the column .w-asst-said, 100% with the padding and border on top would push the bubble past the panel. */
 .w-asst-bubble {
+  box-sizing: border-box;
   max-width: 100%;
   min-width: 0;
   padding: 8px 11px;
