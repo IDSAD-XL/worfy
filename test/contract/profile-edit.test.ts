@@ -72,9 +72,8 @@ function profileField(field: string): string {
 }
 
 /** The verification paths as the app reads them, from the real bin/profile in the temporary Harness home. */
-const verificationPaths = async (root: string): Promise<readonly string[] | null> =>
-  (
-    await readVerificationPaths({
+const verificationPaths = (root: string): ReturnType<typeof readVerificationPaths> =>
+  readVerificationPaths({
       root,
       claudeHome: join(scratch, 'home', '.claude'),
       env: harnessEnv(),
@@ -84,7 +83,6 @@ const verificationPaths = async (root: string): Promise<readonly string[] | null
         return Promise.resolve({ code: done.status, signal: done.signal, stdout: done.stdout, stderr: done.stderr })
       },
     })
-  ).paths
 
 const handlers = (run: (args: readonly string[], stdin?: string) => Promise<Run> = profileSet): Handlers =>
   profileEditHandlers({ projects: () => [{ path: repo }], profileSet: run, verificationPaths })
@@ -157,7 +155,20 @@ describe('profileEdit over the real bin/profile-set', () => {
     expect(state.verificationPaths).toEqual([...defaults, 'scripts/ci-*.mjs', 'test/quarantine/**'])
     // Shown, never a field of the form: Save sends no verification path, and the read wrote nothing.
     expect(Object.keys(state.values).filter((field) => field.startsWith('verification'))).toEqual([])
+    expect(state.verificationPathsMiss).toBeNull()
     expect(profileText()).toBe(before)
+  })
+
+  it('review round 1: a Profile bin/profile refuses for its verification.paths is a broken field, not an old Harness', async () => {
+    writeFileSync(profileJson, `${JSON.stringify({ ...PROFILE, verification: { paths: ['!CLAUDE.md'] } }, null, 2)}\n`)
+    // The real profile-set reads through bin/profile, so the form itself does not open, and the reason names the field.
+    await expect(read(handlers())).rejects.toThrow('verification.paths[0]')
+    // The read of the list alone tells the broken field (exit code 1) from a Harness without it (exit code 4).
+    expect((await verificationPaths(repo)).miss).toBe('profile')
+    const answer = (code: number) => (): Promise<Run & { signal: null }> => Promise.resolve({ code, signal: null, stdout: '', stderr: '' })
+    const kind = async (code: number) => (await readVerificationPaths({ root: repo, claudeHome: join(scratch, 'home', '.claude'), env: harnessEnv(), log: () => undefined, run: answer(code) })).miss
+    expect(await kind(4)).toBe('harness')
+    expect(await kind(2)).toBe('failed')
   })
 
   it('a valid edit is written through profile-set: bin/profile prints it, and the Harness git has the commit', async () => {

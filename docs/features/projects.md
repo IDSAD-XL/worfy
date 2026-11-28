@@ -459,8 +459,9 @@ Adding a listed Project the Harness knows selects it and says `<name> is already
   Harness's defaults `.github/workflows/**`, `.github/actions/**`, `CLAUDE.md`, `AGENTS.md`, `.claude/**`, `.codex/**`,
   `.mcp.json`, then the globs of the Profile's `verification.paths`, as `harness/bin/profile --field verification.paths`
   prints them (`harness/lib/verification-paths.cjs`). The form has no input for them and Save never sends them: only the
-  owner changes them, in `profile.json`, and the Profile only adds to the defaults. A Harness that prints no list shows
-  "The Harness printed no verification paths: update the Harness."
+  owner changes them, in `profile.json`, and the Profile only adds to the defaults. Without a list the section says why:
+  the Harness refused the field ("fix the profile field verification.paths"), the Harness does not know it ("update the
+  Harness"), the read failed, or the worfy of a Linked machine does not read it ("update worfy on that machine").
 - "Process gate queue" is there only when the Project's role in the cross-machine Gate queue is `serve`. It sends the template
   to the Orchestrator of the Project.
 - "Remove from list" acts at once, without a question. The Project leaves the list. If it was the active one, the first of

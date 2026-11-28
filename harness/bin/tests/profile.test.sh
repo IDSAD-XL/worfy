@@ -139,6 +139,12 @@ check "verification null -> the defaults" 0 "" test "$(paths_of)" = "$DEFAULT_PA
 with_fields '{"verification":{"paths":["!CLAUDE.md"]}}'
 check "a negated glob -> exit 1, the profile only adds" 1 "" "$PROFILE" -C "$T/repo" --field verification.paths
 check "a negated glob -> the reason names the field" 1 "verification.paths[0]" bash -c "'$PROFILE' -C '$T/repo' --name 2>&1 >/dev/null"
+# Review round 1: a glob is printed the way it matches ("./x", "/x", "x/", "\\"); one that leaves the repository is refused.
+with_fields '{"verification":{"paths":["./scripts/**","tools/","/ROOT.md","test\\quarantine\\**"]}}'
+check "verification.paths printed normalised" 0 "" \
+    test "$(paths_of)" = "${DEFAULT_PATHS%]}"',"scripts/**","tools/**","ROOT.md","test/quarantine/**"]'
+with_fields '{"verification":{"paths":["../other/**"]}}'
+check "a glob outside the repository -> exit 1" 1 "verification.paths[0]" bash -c "'$PROFILE' -C '$T/repo' --name 2>&1 >/dev/null"
 with_fields '{"verification":{"paths":"scripts/**"}}'
 check "verification.paths a string -> exit 1" 1 "" "$PROFILE" -C "$T/repo" --name
 with_fields '{"workflow":{"ci_check":""}}'

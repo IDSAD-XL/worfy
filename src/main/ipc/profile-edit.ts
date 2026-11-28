@@ -46,7 +46,7 @@ import { realpathOrSelf } from '../projects/real-path'
 import { projectStore } from '../projects/store'
 import { claudeHome } from '../storage/paths'
 import { projectLayouts, type LayoutCache } from '../workflow/folder'
-import { DEFAULT_MCP_SERVERS, HarnessScriptStartError, MCP_ALLOWED_FIELD, readVerificationPaths, scriptFailureDetail, type ProfileRun } from '../workflow/profile'
+import { DEFAULT_MCP_SERVERS, HarnessScriptStartError, MCP_ALLOWED_FIELD, readVerificationPaths, scriptFailureDetail, type ProfileRun, type VerificationPaths } from '../workflow/profile'
 import type { WorkflowHub } from '../workflow/watch'
 import { defineHandler, type HandlerModule } from './index'
 import { PROFILE_SET_BUSY, PROFILE_SET_CONFLICT, profileSetRunner, type ProfileSetRunner } from './pipeline'
@@ -218,13 +218,12 @@ export interface ProfileEditHandlersOptions {
   holdWatches?: (root: string) => Promise<() => Promise<void>>
   /** The layouts of the Projects: how many repositories one has, and the entry a move makes stale. The app's cache when absent. */
   layouts?: Pick<LayoutCache, 'get' | 'forget'>
-  /** The verification paths of the Project at `root` (`bin/profile --field verification.paths`), null when none; the app's when absent. */
-  verificationPaths?: (root: string) => Promise<readonly string[] | null>
+  /** The verification paths of the Project at `root` (`bin/profile --field verification.paths`), or why none; the app's when absent. */
+  verificationPaths?: (root: string) => Promise<VerificationPaths>
 }
 
 /** The app's read of the verification paths: the real `bin/profile` of the Harness found from Claude Code's home. */
-const appVerificationPaths = async (root: string): Promise<readonly string[] | null> =>
-  (await readVerificationPaths({ root, claudeHome: claudeHome(), env: await harnessScriptEnv() })).paths
+const appVerificationPaths = async (root: string): Promise<VerificationPaths> => readVerificationPaths({ root, claudeHome: claudeHome(), env: await harnessScriptEnv() })
 
 /** The app's live Sessions: the registry is imported on a move, not with this module. */
 async function appSessions(): Promise<readonly { cwd: string; state: SessionState }[]> {
@@ -297,7 +296,7 @@ export function profileEditHandlers(options: ProfileEditHandlersOptions = {}): H
         runOrTooOld(profileSet, ['-C', checked, ...EDIT_ARGS, '--read']),
         runOrTooOld(profileSet, ['-C', checked, ...fieldArgs(PROFILE_FIXED_FIELDS), '--read']),
         // Shown, not edited: a read that fails leaves the form without the list, never without the form.
-        verificationPaths(checked).catch(() => null),
+        verificationPaths(checked).catch((error: unknown): VerificationPaths => ({ paths: null, reason: String(error), miss: 'failed' })),
       ])
       if (edit === null || fixed === null) return { available: false, reason: PROFILE_SET_TOO_OLD }
       if (edit.code !== 0) throw failure(edit, '--read')
@@ -314,7 +313,8 @@ export function profileEditHandlers(options: ProfileEditHandlersOptions = {}): H
         interrupted: jsonOf(fixed.stdout)?.interrupted === true,
         severalRepos: repos > 1,
         fingerprint: read.fingerprint,
-        verificationPaths: paths === null ? null : [...paths],
+        verificationPaths: paths.paths === null ? null : [...paths.paths],
+        verificationPathsMiss: paths.miss,
       }
     }),
     defineHandler(profileEditCheck, async ({ root, values }): Promise<ProfileEditIssue[]> => {

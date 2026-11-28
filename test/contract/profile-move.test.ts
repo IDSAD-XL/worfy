@@ -126,7 +126,7 @@ function layoutCache(): { get: (root: string) => Promise<ProjectLayout>; forget:
 const profileField = (field: string): string => spawnSync(NODE, [join(BIN, 'profile'), '-C', repo, '--field', field], { env: harnessEnv(), encoding: 'utf8', windowsHide: true }).stdout.trim()
 
 /** The verification paths are not what a move is about: none, so no Harness of the machine is run for them. */
-const noVerificationPaths = (): Promise<null> => Promise.resolve(null)
+const noVerificationPaths = (): Promise<{ paths: null; reason: string; miss: 'failed' }> => Promise.resolve({ paths: null, reason: 'not read in this test', miss: 'failed' })
 
 const handlers = (): Handlers =>
   profileEditHandlers({

@@ -43,6 +43,7 @@ const READ: ProfileEditRead = {
   severalRepos: false,
   fingerprint: `sha256:${'a'.repeat(64)}`,
   verificationPaths: [...DEFAULTS, ...ADDED],
+  verificationPathsMiss: null,
 }
 
 beforeEach(() => {
@@ -85,15 +86,23 @@ describe('Edit profile: the verification paths', () => {
   })
 
   it.each([
-    ['the Harness printed none', null],
-    ['the Machine does not read them', undefined],
-  ])('says why there is no list when %s', async (_case, verificationPaths) => {
-    const read: Record<string, unknown> = { ...READ, verificationPaths }
+    ['the Harness refused the Profile', null, 'profile', VERIFICATION_MISSING.profile],
+    ['the Harness does not know the field', null, 'harness', VERIFICATION_MISSING.harness],
+    ['the read failed', null, 'failed', VERIFICATION_MISSING.failed],
+    ['the Machine does not read them', undefined, undefined, VERIFICATION_MISSING.linked],
+  ])('says why there is no list when %s', async (_case, verificationPaths, verificationPathsMiss, shown) => {
+    const read: Record<string, unknown> = { ...READ, verificationPaths, verificationPathsMiss }
     if (verificationPaths === undefined) delete read.verificationPaths
+    if (verificationPathsMiss === undefined) delete read.verificationPathsMiss
     main.read = read
     const form = await openForm()
     const section = within(form).getByRole('region', { name: 'Verification paths' })
     expect(within(section).queryByRole('list')).toBeNull()
-    expect(within(section).getByTestId('edit-profile-verification-missing').textContent).toBe(VERIFICATION_MISSING)
+    expect(within(section).getByTestId('edit-profile-verification-missing').textContent).toBe(shown)
+  })
+
+  it('review round 1: a broken profile field says to fix the field, a Linked machine without the field says to update worfy there', () => {
+    expect(VERIFICATION_MISSING.profile).toContain('fix the profile field')
+    expect(VERIFICATION_MISSING.linked).toContain('update worfy on that machine')
   })
 })

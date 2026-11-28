@@ -513,7 +513,9 @@ export type ProfileMiss = 'none' | 'failed'
  * and one that started but printed more than the size cap, are not problems a new login shell can
  * fix.
  */
-export type ProfileMissRead = { ok: false; reason: string; miss: 'none' } | { ok: false; reason: string; miss: 'failed'; environment: boolean }
+export type ProfileMissRead =
+  | { ok: false; reason: string; miss: 'none' }
+  | { ok: false; reason: string; miss: 'failed'; environment: boolean; /** The script's exit code, when it ended with one other than 0 or 3. */ code?: number }
 
 /** One field of the Profile: its printed value, or why there is none. */
 type FieldRead = { ok: true; stdout: string } | ProfileMissRead
@@ -527,7 +529,7 @@ function readField(options: ReadProfileOptions, field: string): Promise<FieldRea
 async function runProfile(options: ReadProfileOptions, args: readonly string[], absent: string): Promise<FieldRead> {
   const run = options.run ?? profileRunner(options.claudeHome, options.env)
   const none = (reason: string): FieldRead => ({ ok: false, reason, miss: 'none' })
-  const failed = (reason: string, environment = false): FieldRead => ({ ok: false, reason, miss: 'failed', environment })
+  const failed = (reason: string, environment = false, code?: number): FieldRead => ({ ok: false, reason, miss: 'failed', environment, ...(code === undefined ? {} : { code }) })
 
   let result: ProfileRun
   try {
@@ -544,10 +546,10 @@ async function runProfile(options: ReadProfileOptions, args: readonly string[], 
 
   const detail = scriptFailureDetail(result.stderr)
   if (result.code === 3) return none(`the folder is in no registered project (profile exit code 3${detail ? `: ${detail}` : ''})`)
-  if (result.code === 4) return failed(absent)
+  if (result.code === 4) return failed(absent, false, 4)
   if (result.code === null && result.signal) return failed(`the profile script was ended by the signal ${result.signal}${detail ? `: ${detail}` : ''}`)
   if (result.code === null) return failed(`the profile script did not answer within ${HARNESS_SCRIPT_TIMEOUT_MS / 1000} s`)
-  if (result.code !== 0) return failed(`the profile script failed with exit code ${result.code}${detail ? `: ${detail}` : ''}`, environmentExit(result.code))
+  if (result.code !== 0) return failed(`the profile script failed with exit code ${result.code}${detail ? `: ${detail}` : ''}`, environmentExit(result.code), result.code)
   return { ok: true, stdout: result.stdout.trim() }
 }
 
@@ -644,10 +646,18 @@ export async function readProfileFolder(options: ReadProfileOptions): Promise<Pr
 /** The Profile field with the verification paths, which `bin/profile` prints resolved (harness/lib/verification-paths.cjs). */
 export const VERIFICATION_PATHS_FIELD = 'verification.paths'
 
+/**
+ * Why there are no verification paths to show: `profile` — bin/profile refused the Profile (exit code 1: a broken
+ * field, such as a negated glob); `harness` — this Harness does not know the field (exit code 4); `failed` — any
+ * other failure of the read.
+ */
+export type VerificationPathsMiss = 'profile' | 'harness' | 'failed'
+
 /** The verification paths of a Project, or null with the reason there are none to show. */
 export interface VerificationPaths {
   paths: readonly string[] | null
   reason: string | null
+  miss: VerificationPathsMiss | null
 }
 
 const globList = z.array(z.string().min(1))
@@ -655,26 +665,30 @@ const globList = z.array(z.string().min(1))
 /**
  * The verification paths of the Project at `root` (worfy-harness-guarantees ticket 02): the files that judge
  * work, the Harness's defaults and then the Profile's own globs, as `bin/profile --field verification.paths`
- * prints them. Without them — an older Harness (exit code 4), no Profile, a failed run, a value that is not
- * a list of globs — the paths are null and the reason goes to the log in one line.
+ * prints them. Without them — a broken Profile (exit code 1), an older Harness (exit code 4), no Profile, a
+ * failed run, a value that is not a list of globs — the paths are null, `miss` says which, and the reason goes
+ * to the log in one line.
  */
 export async function readVerificationPaths(options: ReadProfileOptions): Promise<VerificationPaths> {
   const log = options.log ?? ((message: string) => console.warn(message))
-  const none = (reason: string): VerificationPaths => {
+  const none = (reason: string, miss: VerificationPathsMiss): VerificationPaths => {
     log(`[profile] verification paths of ${options.root}: none shown, because ${reason}`)
-    return { paths: null, reason }
+    return { paths: null, reason, miss }
   }
   const field = await readField(options, VERIFICATION_PATHS_FIELD)
-  if (!field.ok) return none(field.reason)
+  if (!field.ok) {
+    const code = field.miss === 'failed' ? field.code : undefined
+    return none(field.reason, code === 1 ? 'profile' : code === 4 ? 'harness' : 'failed')
+  }
   let json: unknown
   try {
     json = JSON.parse(field.stdout)
   } catch {
-    return none(`${VERIFICATION_PATHS_FIELD} is not JSON: ${JSON.stringify(field.stdout.slice(0, 200))}`)
+    return none(`${VERIFICATION_PATHS_FIELD} is not JSON: ${JSON.stringify(field.stdout.slice(0, 200))}`, 'failed')
   }
   const parsed = globList.safeParse(json)
-  if (!parsed.success) return none(`${VERIFICATION_PATHS_FIELD} is not a list of globs: ${JSON.stringify(field.stdout.slice(0, 200))}`)
-  return { paths: parsed.data, reason: null }
+  if (!parsed.success) return none(`${VERIFICATION_PATHS_FIELD} is not a list of globs: ${JSON.stringify(field.stdout.slice(0, 200))}`, 'failed')
+  return { paths: parsed.data, reason: null, miss: null }
 }
 
 // ── the GitHub account ───────────────────────────────────────────────────────

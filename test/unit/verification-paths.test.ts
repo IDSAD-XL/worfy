@@ -242,3 +242,73 @@ describe('the separators and the letter case', () => {
     expect(vp.normalizePath('/work/repo', { ...linux, root: '/work/repo' })).toBeNull()
   })
 })
+
+describe('review round 1: the globs of the Profile and the paths are read the same way', () => {
+  it('reads \\ in a glob as /, as in a path', () => {
+    expect(vp.isVerificationPath('test/quarantine/a.ts', ['test\\quarantine\\**'], win)).toBe(true)
+    expect(vp.isVerificationPath('test\\quarantine\\a.ts', ['test\\quarantine\\**'], linux)).toBe(true)
+    expect(vp.verificationPaths({ verification: { paths: ['test\\quarantine\\**'] } })).toEqual([...DEFAULTS, 'test/quarantine/**'])
+  })
+
+  it('writes ./, a leading / and a trailing / of a glob the way it matches: from the root, a folder as folder/**', () => {
+    const paths = vp.verificationPaths({ verification: { paths: ['./scripts/**', 'tools/', '/ROOT.md', ' spaced.md '] } })
+    expect(paths).toEqual([...DEFAULTS, 'scripts/**', 'tools/**', 'ROOT.md', 'spaced.md'])
+    expect(vp.isVerificationPath('scripts/ci.mjs', ['./scripts/**'], linux)).toBe(true)
+    expect(vp.isVerificationPath('tools/a/b.sh', ['tools/'], linux)).toBe(true)
+    expect(vp.isVerificationPath('ROOT.md', ['/ROOT.md'], linux)).toBe(true)
+    expect(vp.verificationProblems({ verification: { paths: ['./scripts/**', 'tools/', '/ROOT.md'] } })).toEqual([])
+  })
+
+  it('a glob outside the repository, or one that is only separators, is a problem of the Profile and adds nothing', () => {
+    const profile = { verification: { paths: ['../other/**', '/', './', ' !CLAUDE.md'] } }
+    expect(vp.verificationProblems(profile).map((problem) => problem.path)).toEqual([
+      'verification.paths[0]',
+      'verification.paths[1]',
+      'verification.paths[2]',
+      'verification.paths[3]',
+    ])
+    expect(vp.verificationPaths(profile)).toEqual(DEFAULTS)
+  })
+
+  it('resolves a relative path against the root first, so ../ back into the root counts', () => {
+    expect(vp.isVerificationPath('../rev/CLAUDE.md', DEFAULTS, { ...linux, root: '/x/rev' })).toBe(true)
+    expect(vp.isVerificationPath('../other/CLAUDE.md', DEFAULTS, { ...linux, root: '/x/rev' })).toBe(false)
+    expect(vp.isVerificationPath('..\\Rev\\claude.md', DEFAULTS, { ...win, root: 'C:\\x\\rev' })).toBe(true)
+  })
+
+  it('reads a Git Bash path /c/... as c:/... on Windows, in the path and in the root', () => {
+    expect(vp.isVerificationPath('/c/Work/Repo/CLAUDE.md', DEFAULTS, { ...win, root: 'C:\\Work\\Repo' })).toBe(true)
+    expect(vp.isVerificationPath('C:\\Work\\Repo\\CLAUDE.md', DEFAULTS, { ...win, root: '/c/work/repo' })).toBe(true)
+    expect(vp.isVerificationPath('/d/Work/Repo/CLAUDE.md', DEFAULTS, { ...win, root: 'C:\\Work\\Repo' })).toBe(false)
+    expect(vp.isVerificationPath('/c/Work/Repo/CLAUDE.md', DEFAULTS, { ...linux, root: 'c:/Work/Repo' })).toBe(false)
+  })
+
+  it('a sibling folder whose name starts with the root is outside it', () => {
+    expect(vp.isVerificationPath('/work/repoXCLAUDE.md', DEFAULTS, { ...linux, root: '/work/repo' })).toBe(false)
+    expect(vp.isVerificationPath('/work/repo-x/CLAUDE.md', DEFAULTS, { ...linux, root: '/work/repo' })).toBe(false)
+    expect(vp.isVerificationPath('C:\\Work\\RepoX\\CLAUDE.md', DEFAULTS, { ...win, root: 'c:/work/repo' })).toBe(false)
+  })
+})
+
+describe('review round 1: the draft schema refuses what the profile rules refuse', () => {
+  type Draft = {
+    loadDraftSchema: () => unknown
+    fieldSchema: (schema: unknown, field: string) => { schema: unknown }
+    validate: (schema: unknown, value: unknown, at?: string) => Problem[]
+  }
+  const draft = createRequire(import.meta.url)('../../harness/lib/draft-schema.cjs') as Draft
+  const profileSchema = (draft.loadDraftSchema() as { properties: { profile: unknown } }).properties.profile
+  const problems = (field: string, value: unknown): string[] => draft.validate(draft.fieldSchema(profileSchema, field).schema, value, field).map((p) => p.path)
+
+  it('workflow.ci_check: a blank or multi-line name is refused, a name is taken', () => {
+    expect(problems('workflow.ci_check', '   ')).toEqual(['workflow.ci_check'])
+    expect(problems('workflow.ci_check', 'a\nb')).toEqual(['workflow.ci_check'])
+    expect(problems('workflow.ci_check', 'ci-ok')).toEqual([])
+    expect(problems('workflow.ci_check', null)).toEqual([])
+  })
+
+  it('verification.paths: a blank or negated glob is refused, with or without spaces before it', () => {
+    expect(problems('verification.paths', ['ok/**', '  ', '!x', ' !x'])).toEqual(['verification.paths[1]', 'verification.paths[2]', 'verification.paths[3]'])
+    expect(problems('verification.paths', WORFY)).toEqual([])
+  })
+})
