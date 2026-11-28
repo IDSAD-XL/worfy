@@ -1,6 +1,7 @@
 // A Claude Session whose Harness did not load says so (worfy-harness-guarantees ticket 07).
 //
-// system/init's `plugins` and `plugin_errors`, in the forms the spike of ticket 01 recorded on Claude Code 2.1.322
+// system/init's `plugins` and `plugin_errors`, in the forms the spike of ticket 01 recorded on Claude Code 2.1.322 (captured
+// again on 2.1.332 by worfy-polish 175; 2.1.332 adds a `plugin_warnings` entry for the unmet `engines`)
 // (test/fixtures/sdk-messages/init-plugin-errors.jsonl: an intact copy of harness/, a hooks.json that is not JSON, a
 // missing hook script, `engines` unmet and met), reach worfy's `init` event; the one with an error of the Harness —
 // named by the copy's FOLDER with `@inline`, not by `worfy` — gives the notice "Harness did not load", and the
@@ -99,7 +100,7 @@ describe('the notice "Harness did not load"', () => {
     })
     expect(HARNESS_NOTICE_TITLE).toBe('Harness did not load')
     expect(HARNESS_NOTICE_CONSEQUENCE).toBe('Guards and the gate do not hold in this Session.')
-    expect(notice?.details).toContain('Claude Code: 2.1.322')
+    expect(notice?.details).toContain('Claude Code: 2.1.332')
     expect(notice?.details).toContain('Harness given inline: <tmp>/harness-broken-hooks-json')
     expect(notice?.details).toContain('Plugin error: harness-broken-hooks-json@inline · hook-load-failed: Hook load failed: JSON Parse error: Unexpected EOF')
     expect(harnessNotice([], { given: undefined, init })).toBeNull()
