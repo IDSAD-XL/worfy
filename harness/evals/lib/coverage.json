@@ -80,6 +80,7 @@
     "lib/privacy.cjs": ["bin/evidence-check", "bin/land", "bin/review-draft-lint", "bin/story-check", "hooks/gate-failures.mjs"],
     "lib/profile-rules.cjs": ["bin/profile"],
     "lib/verdict.cjs": ["reviewer-verdict", "bin/land", "bin/verdict"],
+    "lib/verification-paths.cjs": ["bin/profile"],
     "lib/workflow-traces.cjs": ["bin/review-draft-lint", "bin/silent-check"]
   },
   "uncovered": {
