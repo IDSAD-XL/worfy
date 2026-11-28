@@ -605,6 +605,7 @@ export class FlightRecorder {
     const view: RunView = { projectId, run, epic: journal.epic, ...(journal.epics.length > 1 ? { epics: journal.epics } : {}), timeline, summary: summarize(timeline), github: githubState, repoUrl, profileReason: profile.reason, skippedLines: journal.skipped, error: null }
     const autoApproval = await this.autoApproval(runs, journal)
     if (autoApproval !== null) view.autoApproval = autoApproval
+    if (journal.guard.length > 0) view.guard = journal.guard
     return { view, profile, origin: read }
   }
 

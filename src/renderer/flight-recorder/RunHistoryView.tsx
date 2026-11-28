@@ -6,8 +6,11 @@
 // The header also names the Run mode and sets the Epic forecast at the Run's start beside the actual share
 // at its stop (worfy-resource-planner ticket 11; `fit` is not shown here), from the Run's list item, in
 // whole percents by the rule of the forecast lines (share-percent.ts). A Run over a queue of Epics names them
-// in order in its list item and its header, three at most and «+N» (worfy-autopilot-queue ticket 18).
+// in order in its list item and its header, three at most and «+N» (worfy-autopilot-queue ticket 18). After the stop
+// reason, «Guard · N refused» when the guard hook refused calls of the Run (worfy-harness-guarantees ticket 10); the
+// block «Guard» under the details lists them.
 import { useEffect, useRef } from 'react'
+import { guardCountText } from '../../shared/autopilot/guard-deny'
 import { RUN_MODE_LABELS } from '../../shared/autopilot/run-mode'
 import { shareRangeText, shareText } from '../../shared/autopilot/share-percent'
 import type { Span } from '../../shared/flight-recorder/spans'
@@ -126,6 +129,11 @@ function Header({ view, runs, run: chosen }: { view: RunView | undefined; runs: 
       <span className={`w-fr-chip${problem ? ' w-fr-chip--problem' : ''}`} data-testid="run-history-reason">
         {stopWords(view, run)}
       </span>
+      {view.guard !== undefined && view.guard.length > 0 ? (
+        <span className="w-fr-chip w-fr-chip--problem" data-testid="run-history-guard-line" title="The block Guard under the details lists them">
+          {guardCountText(view.guard.length)}
+        </span>
+      ) : null}
       <span>
         Waves <b>{waves}</b>
       </span>

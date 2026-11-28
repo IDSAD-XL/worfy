@@ -3,10 +3,14 @@
 // to such a Wave when the run stops, and a Session that fails while the run opens its workflow
 // watch. The Session, the waves and the workflow are stand-ins, so every event comes in the order
 // the test gives it.
+import { appendFileSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { z } from 'zod'
 import type { AutopilotWaveResult } from '../../src/main/actions/launch'
 import type { RunApproval } from '../../src/main/agent/auto-approve/run-approval'
+import { removeTestTree } from '../remove'
 import { harnessDriftWatch } from '../../src/main/autopilot/harness-drift'
 import { Autopilot, QUITTING_MESSAGE, RunningElsewhere, runningElsewhere, STOP_TEXT, type AutopilotDeps, type LinkedRuns, type RunKey, type RunSession } from '../../src/main/autopilot/run'
 import { ASK_RUNS_TIMEOUT_MS, AutopilotRunsLink, type RunsLinkService } from '../../src/main/link/autopilot-runs'
@@ -100,6 +104,8 @@ interface StandIn {
   workflowChanged: () => void
   /** The notices of worfy's own the run showed in the Session (Session.notice). */
   notices: string[]
+  /** The Session's file of the guard's refusals (RunSession.guardLog); null: none. */
+  guardLog: string | null
 }
 
 function standIn(overrides: Partial<AutopilotDeps> = {}): StandIn {
@@ -127,9 +133,13 @@ function standIn(overrides: Partial<AutopilotDeps> = {}): StandIn {
     sent: [],
     workflowChanged: () => undefined,
     notices: [],
+    guardLog: null,
   }
   const session: RunSession = {
     id: SESSION,
+    get guardLog() {
+      return out.guardLog
+    },
     get state() {
       return out.state
     },
@@ -3034,5 +3044,71 @@ describe('a lingering run counts only the decisions of its own policy, once (wor
     s.emit({ type: 'state', state: 'closed', error: null } as AgentEvent)
     await settle()
     expect(s.notices).toEqual(['Auto-approval: allowed 1, denied 1, parked 0'])
+  })
+})
+
+describe('the guard\'s refusals in the Journal (worfy-harness-guarantees ticket 10)', () => {
+  const folders: string[] = []
+  afterEach(() => {
+    for (const folder of folders.splice(0)) removeTestTree(folder)
+  })
+  const refusal = (time: Date, rule: string, more: Record<string, unknown> = {}): string =>
+    `${JSON.stringify({ time: time.toISOString(), rule, agent: 'worfy:implementer', agent_id: 'a1', ticket: 'demo/01', tool: 'Bash', command: 'git reset --hard', session: 'sdk-1', cwd: '/repo', ...more })}\n`
+  const guardFile = (): string => {
+    const folder = mkdtempSync(join(tmpdir(), 'worfy-guard-log-'))
+    folders.push(folder)
+    return join(folder, 'session.jsonl')
+  }
+  const denials = (s: StandIn) => s.journal.filter((line) => line.kind === 'guard-deny')
+
+  it('carries the lines the guard appended into guard-deny at the end of a turn, each once; one written before the run is not its own', async () => {
+    const s = standIn()
+    s.guardLog = guardFile()
+    writeFileSync(s.guardLog, refusal(new Date(Date.now() - 60_000), 'pipe-exit-code'))
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    appendFileSync(s.guardLog, refusal(new Date(), 'uncommitted-work'))
+    appendFileSync(s.guardLog, refusal(new Date(), 'verification-path', { agent_id: null, agent: 'orchestrator', ticket: null, tool: 'Write', command: 'Write /repo/.github/workflows/ci.yml' }))
+    // half of a line the guard is still writing waits for its end
+    appendFileSync(s.guardLog, '{"time":"')
+    s.emit({ type: 'background_tasks', tasks: [] } as unknown as AgentEvent)
+    await settle()
+    expect(denials(s)).toEqual([
+      { kind: 'guard-deny', session: SESSION, rule: 'uncommitted-work', tool: 'Bash', command: 'git reset --hard', refusedAt: expect.any(String), agent: 'worfy:implementer', ticket: 'demo/01' },
+      { kind: 'guard-deny', session: SESSION, rule: 'verification-path', tool: 'Write', command: 'Write /repo/.github/workflows/ci.yml', refusedAt: expect.any(String) },
+    ])
+    for (const line of denials(s)) expect(journalEventSchema.safeParse({ ...line, at: new Date().toISOString(), run: '2026-10-06T01-02-03-004Z-a1b2c3', project: PROJECT, epic: EPIC }).success).toBe(true)
+    // the rest of the cut line, and nothing read twice
+    appendFileSync(s.guardLog, `${refusal(new Date(), 'read-only-agent').slice('{"time":"'.length)}`)
+    s.emit({ type: 'background_tasks', tasks: [] } as unknown as AgentEvent)
+    await settle()
+    expect(denials(s).map((line) => ('rule' in line ? line.rule : null))).toEqual(['uncommitted-work', 'verification-path', 'read-only-agent'])
+  })
+
+  it('reads once more when the run ends: a refusal of its last turn is in the Journal', async () => {
+    const s = standIn()
+    s.guardLog = guardFile()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    appendFileSync(s.guardLog, refusal(new Date(), 'uncommitted-work'))
+    await s.autopilot.forceStop(PROJECT)
+    await settle()
+    expect(denials(s)).toHaveLength(1)
+  })
+
+  it('a Session without a guard file, or a file that is not there yet: no line, and the run goes on', async () => {
+    const s = standIn()
+    await s.autopilot.start(PROJECT, EPIC)
+    await settle()
+    s.emit({ type: 'background_tasks', tasks: [] } as unknown as AgentEvent)
+    await settle()
+    const t = standIn()
+    t.guardLog = join(guardFile(), '..', 'not-there.jsonl')
+    await t.autopilot.start(PROJECT, EPIC)
+    await settle()
+    t.emit({ type: 'background_tasks', tasks: [] } as unknown as AgentEvent)
+    await settle()
+    expect([...denials(s), ...denials(t)]).toEqual([])
+    expect(t.autopilot.state(PROJECT)).toMatchObject({ status: 'running' })
   })
 })

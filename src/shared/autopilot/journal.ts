@@ -304,6 +304,20 @@
 //                                    home folder as `~`, at most COMMAND_MAX units. Off writes no
 //                                    such line: a refusal then is `refused-dialog` as before.
 //                                    Journals written before ticket 04 have none
+//   guard-deny     session, rule,    the Harness's guard hook refused a tool call of the run's Session
+//                  tool, command,    or of one of its Subagents (worfy-harness-guarantees ticket 10): a
+//                  refusedAt,        line the guard appended to WORFY_GUARD_LOG, which worfy gives every
+//                  agent?, ticket?   Session it starts (the format is the header of
+//                                    harness/hooks/guard.mjs), carried over when the run next reads the
+//                                    file — at the end of a turn, a change of the background tasks, the
+//                                    run's end. session: the Session's id; rule: the guard's id of the
+//                                    rule (`verification-path`, `uncommitted-work`…); tool: the tool it
+//                                    refused; command: the command as the guard cut it, then as
+//                                    journalCommand keeps it; refusedAt: when the guard refused, which
+//                                    is before `at`; agent: the Subagent (its type, else its id), absent
+//                                    for the Session's own call — the guard's agent_id null, whatever
+//                                    agent_type says; ticket: `<epic>/<NN>` the guard read for the
+//                                    decision. Journals written before the ticket have none
 //   human-input    source, what      a person stepped into the run; any such line is a defect
 //   background-tasks tasks           the live background tasks of the run's Orchestrator Session
 //                                    changed (ADR-0029); tasks: every one now, possibly none; also
@@ -474,6 +488,7 @@ export const JOURNAL_EVENT_KINDS = [
   'session-error',
   'refused-dialog',
   'auto-approval',
+  'guard-deny',
   'human-input',
   'background-tasks',
   'run-stopping',
@@ -664,6 +679,7 @@ export const journalEventSchema = z.discriminatedUnion('kind', [
     targets: z.array(text.max(COMMAND_MAX)),
     command: z.string().max(COMMAND_MAX).optional(),
   }),
+  event('guard-deny', { session, rule: text, tool: text, command: z.string().max(COMMAND_MAX), refusedAt: isoTime, agent: text.optional(), ticket: text.optional() }),
   event('human-input', { source: z.enum(HUMAN_INPUT_SOURCES), what: text }),
   event('background-tasks', { tasks }),
   event('run-stopping', { reason: text, ...wave, inWork: z.array(text) }),

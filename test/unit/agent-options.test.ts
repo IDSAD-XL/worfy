@@ -773,6 +773,13 @@ describe('sessionOptions of a Session that runs a Wave (worfy-continuity ticket 
     expect(sessionOptions(input({ epic: '' })).env).toBe(env)
   })
 
+  it('carries WORFY_GUARD_LOG, the file of the guard\'s refusals, when given one (worfy-harness-guarantees ticket 10); none without', () => {
+    expect(sessionOptions(input({ guardLog: '/data/guard-log/s1.jsonl' })).env).toEqual({ ...env, WORFY_GUARD_LOG: '/data/guard-log/s1.jsonl' })
+    expect(sessionOptions(input({ guardLog: '/data/guard-log/s1.jsonl', epic: 'e', environment: { TMPDIR: '/t' } })).env).toEqual({ ...env, TMPDIR: '/t', WORFY_EPIC: 'e', WORFY_GUARD_LOG: '/data/guard-log/s1.jsonl' })
+    expect(sessionOptions(input({})).env).toBe(env)
+    expect(sessionOptions(input({ guardLog: '' })).env).toBe(env)
+  })
+
   it('names the Epic in a line appended to the system prompt, after the servers\' instructions; without a Wave there is no such line', () => {
     const options = sessionOptions(input({ epic: 'worfy-continuity', canvas }))
     expect(options.systemPrompt).toEqual({ type: 'preset', preset: 'claude_code', append: `${canvas.instructions}\n${waveInstructions('worfy-continuity')}` })

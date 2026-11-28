@@ -332,6 +332,40 @@ export const prInboxSend = invokeChannel(
   'local',
 )
 
+/**
+ * What the owner's mark of a PR is about (worfy-harness-guarantees ticket 10; the spec of that Epic, Q3 (a)): `land
+ * --verification` of the Harness reads it by the rule `land` merges by. `needed` — the PR adds a verification path to
+ * the trail of a Ticket, or has no Ticket and changes one: `land` merges it only with the commit status `owner` success
+ * on its head, which Allow verification change writes. `lines` — what the mark allows, one line each («adds
+ * .github/workflows/ci.yml to the trail of worfy-x 07»); `allowed` — the status is success on `head` already; `error` —
+ * why it could not be read (then `needed` is false and nothing is offered).
+ */
+export const ownerMarkLookSchema = z.object({
+  needed: z.boolean(),
+  head: z.string().nullable(),
+  lines: z.array(z.string()),
+  allowed: z.boolean(),
+  error: z.string().nullable(),
+})
+export type OwnerMarkLook = z.infer<typeof ownerMarkLookSchema>
+
+/** What the owner's mark of the PR is about. Reads only: nothing is written to GitHub. */
+export const prInboxVerification = invokeChannel('prInbox.verification', pullInput, ownerMarkLookSchema, 'local')
+
+/**
+ * Allow verification change, on the owner's click only (src/main/github/owner-mark.ts): the commit status `owner`
+ * success on `head`, the head the view showed. `allowed` — written now; `already` — it was success on that head, nothing
+ * written; `refused` — nothing was sent to GitHub (the head moved, nothing to allow, no `github.account`, a click in
+ * flight); `failed` — GitHub or the network failed, never retried by itself. `look` — the PR as it is after it.
+ */
+export const prInboxAllowVerification = invokeChannel(
+  'prInbox.allowVerification',
+  pullInput.extend({ head: z.string().regex(/^[0-9a-f]{40}$/u) }),
+  z.object({ outcome: z.enum(['allowed', 'already', 'refused', 'failed']), reason: z.string().nullable(), look: ownerMarkLookSchema }),
+  'local',
+)
+export type OwnerMarkResult = z.infer<(typeof prInboxAllowVerification)['output']>
+
 declare module './channels' {
   interface IpcContract {
     'prInbox.digest': typeof prInboxDigest
@@ -342,5 +376,7 @@ declare module './channels' {
     'prInbox.saveDraft': typeof prInboxSaveDraft
     'prInbox.discard': typeof prInboxDiscard
     'prInbox.send': typeof prInboxSend
+    'prInbox.verification': typeof prInboxVerification
+    'prInbox.allowVerification': typeof prInboxAllowVerification
   }
 }

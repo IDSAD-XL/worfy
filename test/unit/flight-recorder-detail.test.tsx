@@ -518,3 +518,35 @@ describe('round 1 of the review', () => {
     expect(LANE_ROWS).toEqual({ wait: WAIT_LANE, orchestrator: ORCHESTRATOR_LANE })
   })
 })
+
+describe('the block «Guard» and its line in the header (worfy-harness-guarantees ticket 10)', () => {
+  const block = () => screen.getByTestId('run-history-guard')
+
+  it('a Run without a refusal has neither', async () => {
+    await show()
+    expect(screen.queryByTestId('run-history-guard')).toBeNull()
+    expect(screen.queryByTestId('run-history-guard-line')).toBeNull()
+  })
+
+  it('«Guard · 2 refused» and a row per refusal by its time: who (the Orchestrator for the Session\'s own call), the rule in words, the command', async () => {
+    const first = '2026-10-18T01:14:00.000Z'
+    const second = '2026-10-18T01:31:00.000Z'
+    await show({
+      ...NIGHT,
+      guard: [
+        { at: first, rule: 'verification-path', tool: 'Write', command: 'Write .github/workflows/ci.yml', agent: 'impl-07', ticket: 'worfy-x/07' },
+        { at: second, rule: 'merge-outside-land', tool: 'Bash', command: 'gh pr merge 1851 --admin' },
+      ],
+    })
+    expect(screen.getByTestId('run-history-guard-line').textContent).toBe('Guard · 2 refused')
+    expect(within(block()).getByTestId('run-history-guard-count').textContent).toBe('Guard · 2 refused')
+    const rows = within(block()).getAllByTestId('run-history-guard-refusal').map((row) => [...row.querySelectorAll('td')].map((cell) => cell.textContent))
+    expect(rows).toEqual([
+      [clock(Date.parse(first)), 'impl-07 (worfy-x/07)', 'verification path outside the trail', 'Write .github/workflows/ci.yml'],
+      [clock(Date.parse(second)), 'Orchestrator', 'merge-outside-land', 'gh pr merge 1851 --admin'],
+    ])
+    // It stays while a span is selected.
+    await select(IMPL_07_RETRY)
+    expect(block()).toBeTruthy()
+  })
+})

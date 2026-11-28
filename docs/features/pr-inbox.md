@@ -2,11 +2,12 @@
 
 The **PR inbox** of a Project: the user's open pull requests (PRs) and the review requests to the user in the
 Project's repositories, grouped by whose move it is, with the review threads and their last comments. The UI calls it
-**Pull requests**. It reads GitHub, and its search finds any other PR the Project's account can see. It posts two
+**Pull requests**. It reads GitHub, and its search finds any other PR the Project's account can see. It posts three
 things, each only on the user's click: a reply a Session drafted with skill `pr-reply`, which the user may edit, on
 **Send** ([ADR-0105](../adr/0105-pr-reply-only-on-the-users-click.md)), and a review of someone else's PR written in
 [Review mode](#review-mode), by the user or by an Agent review, on **Submit review**
-([ADR-0112](../adr/0112-pr-review-submit-only-on-the-users-click.md)). Nothing in it resolves, requests or marks
+([ADR-0112](../adr/0112-pr-review-submit-only-on-the-users-click.md)), and the owner's mark on a PR that changes a
+verification path, on **Allow verification change**. Nothing else in it resolves, requests or marks
 anything there. Terms are explained in [Concepts](concepts.md); the PR and CI badges of a Ticket are on
 [Gate and GitHub](gate-and-github.md).
 
@@ -120,6 +121,15 @@ chooses again only when the selected PR leaves the inbox. With one PR, that PR i
   approvals yet shows **Review** in its place (Approved, Changes requested, Review required, or None yet); **Merge** (Mergeable,
   Behind the base, Blocked, Checks failing, Conflicts, Draft, or Unknown, from GitHub's merge state); **Size** — the
   lines added and removed (`+184 −22`) with a bar of their shares, or `—` when GitHub gave none;
+- **Verification paths**, only for an open PR that `land` merges only with the owner's mark: one that adds a
+  verification path (CI files, the Harness, `CLAUDE.md` and the like) to the trail of its Ticket, or one with no Ticket
+  that changes such a path. A line says what it changes (`Verification paths: adds .github/workflows/ci.yml to the
+  trail of worfy-x 07`) and **Allow verification change** writes the commit status `owner` success on the PR's head,
+  once. After it the line says `Allowed: the commit status owner is on <head>, and land may merge it`, and the button
+  goes. A head that moved since the view read it, a PR that needs the mark no more, or a Profile with no
+  `github.account` is refused beside the button, and nothing is written. A new push needs a new click: the mark is of
+  one commit. A path outside the trail of the PR's own Ticket is never allowed this way. A PR that needs no mark shows
+  nothing; a Linked machine reads nothing;
 - **Open on GitHub**; **Code story**, which opens the Code story of the PR's Ticket in the Story view when the Tickets
   root has one, and otherwise builds the PR's story by the button, with a progress bar in its place, or opens the one
   kept before; **Rebuild story** once one is kept ([Workflow](workflow.md)); **Draft replies** (below; in the strip instead when it is the strip's button) and
@@ -458,6 +468,16 @@ draft: Start review is inactive there, and Review mode opens read only through *
   (GitHub may list a review late); none later — the same texts go through the checks and one POST, and only the mark of
   that POST replaces the old one. Main refuses changes of those texts (a comment saved or deleted, an Agent review).
   Never a review without `event` (a pending review on GitHub), never a second POST for one click.
+- Allow verification change (the fourth write of main): the strip asks `prInbox.verification` (`local`), which runs
+  `land --verification <N>` of the Harness in the Project's folder of the PR's repository, with GH_TOKEN of the
+  Profile's `github.account`. land answers one JSON line: the head, the PR's state, its `owner` status, the trail
+  extensions with verification paths, the verification paths of a PR with no Ticket, and whether it needs the mark;
+  the app keeps no second copy of the rule. It fetches the base branch and writes nothing. The click is
+  `prInbox.allowVerification` (`local`) with the head the view showed (`src/main/github/owner-mark.ts`): main reads land
+  again, refuses a closed PR, one that needs no mark or whose head moved, answers `already` for a head whose `owner` is
+  success, and otherwise sends one `POST repos/{o}/{r}/statuses/{head}` with `state=success`, `context=owner` and a
+  description. One click at a time per PR; a failure is answered with GitHub's reason and never retried by itself.
+  `land` itself never writes the status.
 
 ### Implementation
 
@@ -483,6 +503,7 @@ draft: Start review is inactive there, and Review mode opens read only through *
 | Start review ▾, Review mode, its column, the Project's last choice | `src/renderer/pr-review/StartReviewMenu.tsx`, `src/renderer/pr-review/ReviewMode.tsx`, `src/renderer/pr-review/review-store.ts`, `src/renderer/pr-review/pr-review.css`; the column — `src/renderer/pr-inbox/PrInboxView.tsx` |
 | Comments on lines of Review mode, «Not on a changed line», the bar Your review and Discard, the chip Review draft | `src/renderer/pr-review/review-comments.tsx`, `src/renderer/pr-review/ReviewBar.tsx`, the popover — `src/renderer/changes/LineComment.tsx`; the drafts of the Project — `useReviewDrafts` of `src/renderer/pr-review/review-store.ts`; the chip — `PrListItem` of `src/renderer/pr-inbox/PrInboxView.tsx` |
 | Start review in main: the draft, the files Viewed on github.com | `prReview.start` of `src/shared/ipc/pr-review.ts`, `src/main/ipc/pr-review.ts`; `viewedOnGithub` and `start` of `src/main/github/pr-review-draft.ts` |
+| Allow verification change: the strip, the look, the one POST | `src/renderer/pr-inbox/VerificationChange.tsx`; `prInbox.verification` and `prInbox.allowVerification` of `src/shared/ipc/pr-inbox.ts`, `src/main/ipc/pr-inbox.ts`; `src/main/github/owner-mark.ts`; the rule — `harness/bin/land --verification` |
 | Finish review and Submit: the dialog, the check, the one POST | `src/renderer/pr-review/FinishReviewDialog.tsx`, `src/renderer/pr-review/ReviewBar.tsx`; `prReview.check` and `prReview.submit` of `src/shared/ipc/pr-review.ts`, `src/main/ipc/pr-review.ts`; `src/main/github/pr-review-submit.ts`; the lint — `harness/bin/review-draft-lint` |
 
 Tests: `test/unit/pr-inbox-view.test.tsx`, `test/unit/pr-inbox-open.test.tsx`, `test/e2e/pr-inbox.spec.ts` (with the
@@ -491,5 +512,6 @@ in `test/contract/pr-inbox.test.ts` and `test/unit/pr-inbox-groups.test.ts`; dra
 `test/contract/pr-inbox-send.test.ts` and `test/unit/draft-thread.test.tsx`; the search in `test/unit/pr-search-view.test.tsx`,
 `test/e2e/pr-search.spec.ts` (with its screenshots at 1280 and 1600 px in both themes), `test/contract/pr-search.test.ts`
 and `test/unit/pr-search-query.test.ts`; Review mode in `test/unit/review-mode.test.tsx`, `test/unit/review-comments.test.tsx`, `test/contract/pr-review-draft.test.ts`,
-Submit review in `test/unit/finish-review-dialog.test.tsx`, `test/contract/pr-review-submit.test.ts`
+Allow verification change in `test/unit/pr-inbox-verification.test.tsx`, `test/unit/owner-mark.test.ts` and
+`harness/bin/tests/land-verification.test.sh`; Submit review in `test/unit/finish-review-dialog.test.tsx`, `test/contract/pr-review-submit.test.ts`
 and `test/e2e/pr-review.spec.ts` (with its screenshots at 1280 and 1600 px in both themes).

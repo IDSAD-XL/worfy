@@ -97,6 +97,7 @@ import { createRequire } from 'node:module'
 import { dirname, join, posix, win32 } from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
 import type { McpServerConfig, McpStdioServerConfig, Options, SpawnedProcess, SpawnOptions } from '@anthropic-ai/claude-agent-sdk'
+import { GUARD_LOG_VARIABLE } from '../../../shared/autopilot/guard-deny'
 import { DEFAULT_SETTINGS, EFFORT_LEVELS, PERMISSION_MODES, type EffortChoice, type PermissionModeChoice, type SessionSettings } from '../../../shared/agent/settings'
 import { BROWSER_SERVER_NAME } from '../../../shared/browser/tools'
 import { CANVAS_SERVER_NAME } from '../../../shared/canvas/tools'
@@ -411,6 +412,12 @@ export interface SessionOptionsInput {
    * compaction of the main Session (the spike of ticket 01, question 4). Absent or empty: neither.
    */
   epic?: string | undefined
+  /**
+   * The file of the guard's refusals (SessionStart.guardLog, worfy-harness-guarantees ticket 10): Claude Code, its hooks
+   * and its shell commands see `WORFY_GUARD_LOG`, and the Harness's guard hook appends a line to it on each refusal.
+   * Absent or empty: no such variable.
+   */
+  guardLog?: string | undefined
 }
 
 /**
@@ -798,11 +805,15 @@ export function harnessCheckOptions(input: { cwd: string; env: Env; runtime: Run
   return options
 }
 
-/** The environment of a Session's Claude Code: `env`, the Run's variables over it, the kind of a Product Session and the Epic of a Wave. */
+/**
+ * The environment of a Session's Claude Code: `env`, the Run's variables over it, the kind of a Product Session, the
+ * Epic of a Wave and the file of the guard's refusals.
+ */
 function sessionEnv(input: SessionOptionsInput): Env {
   const own: Env = {
     ...(input.kind === 'product' ? { [SESSION_KIND_VARIABLE]: 'product' } : {}),
     ...(input.epic !== undefined && input.epic !== '' ? { [EPIC_VARIABLE]: input.epic } : {}),
+    ...(input.guardLog !== undefined && input.guardLog !== '' ? { [GUARD_LOG_VARIABLE]: input.guardLog } : {}),
   }
   return input.environment === undefined && Object.keys(own).length === 0 ? input.env : { ...input.env, ...input.environment, ...own }
 }

@@ -128,6 +128,7 @@ import { claudeMcp } from '../vendors/claude/mcp'
 import { McpActionRefused } from '../vendors/mcp'
 import { rememberTaskOutputs } from '../autopilot/task-output'
 import { shownAttachments } from './attachments'
+import { guardLogFile } from './guard-log'
 import { PermissionGate } from './permissions'
 import { MessageQueue, type QueueEntry } from './queue'
 import { mergeSettings } from './session/models'
@@ -299,6 +300,11 @@ export class Session {
   /** Set while a look reads the files: the next one does not start beside it. */
   private lookBusy = false
   private readonly quietWatch: QuietWatch
+  /**
+   * The file the Harness's guard hook appends its refusals of this Session to (WORFY_GUARD_LOG), the same for every
+   * process of the Session; an Autopilot run reads it into its Journal. Null: the Session's agent gets no such variable.
+   */
+  readonly guardLog: string | null
 
   constructor(
     readonly cwd: string,
@@ -313,8 +319,14 @@ export class Session {
     private readonly parts: SessionVendorParts = STATIC_CLAUDE_PARTS,
     /** How the Session watches its turns for quiet: the app's (defaultQuietWatch), with what a test gives. */
     quiet: Partial<QuietWatch> = {},
+    /**
+     * The folder of the guard's refusals (src/main/agent/guard-log.ts, worfy-harness-guarantees ticket 10): the
+     * Session's file in it is its `WORFY_GUARD_LOG`, the same for every process it starts. Null: no such variable.
+     */
+    guardLogFolder: string | null = null,
   ) {
     this.quietWatch = { ...defaultQuietWatch(), ...quiet }
+    this.guardLog = guardLogFolder === null ? null : guardLogFile(guardLogFolder)
     // A new Session's id is the Vendor session id it asks the driver for (begin()).
     this.current = resume === undefined ? randomUUID() : `pending-${randomUUID()}`
     this.sdkSessionId = resume ?? null
@@ -1034,6 +1046,7 @@ export class Session {
       orchestrator: this.launch.orchestrator === true,
       ...(this.launch.kind === undefined ? {} : { kind: this.launch.kind }),
       ...(this.launch.epic === undefined ? {} : { epic: this.launch.epic }),
+      ...(this.guardLog === null ? {} : { guardLog: this.guardLog }),
       permissions: this.permissions,
       refused: (subject, message, details) => this.refuseDialog('permission_request', subject, message, details),
       ...this.approvalStart(),

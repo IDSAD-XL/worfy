@@ -8,7 +8,9 @@
 //
 // The selected PR also has "Draft replies" (a Session with skill pr-reply, `actions.prReply`) and, under each thread,
 // its draft reply (DraftThread.tsx, worfy-pr-inbox ticket 05): the only way to GitHub from this view is Send on a
-// draft, on the user's click (ADR-0105). Drafts are read for the selected PR only.
+// draft, on the user's click (ADR-0105). Drafts are read for the selected PR only. The other one is Allow verification
+// change under the facts of a PR that adds a verification path to a Ticket's trail, or has no Ticket and changes one
+// (VerificationChange.tsx, worfy-harness-guarantees ticket 10): the commit status `owner` on its head, on the click only.
 //
 // The strip of a PR to fix has its reasons for skill pr-fix as buttons — Resolve conflicts, Fix checks, Address
 // comments, the first one the main button — and Open checks after them as a link; the user's own PR that waits for an
@@ -49,6 +51,7 @@ import { DraftRepliesButton, PrDrafts } from './DraftThread'
 import { PrFollowButton } from './PrFollowButton'
 import { SearchBar } from './SearchBar'
 import { SearchResults } from './SearchResults'
+import { VerificationChange } from './VerificationChange'
 import {
   ageHeat,
   ageOf,
@@ -624,6 +627,8 @@ export function PrPane({ projectId, group, row, ticket, viewer, now, readOnly, s
                     <Size row={row} />
                   </Fact>
                 </div>
+                {/* The owner's mark of a PR that changes the verification paths (worfy-harness-guarantees ticket 10). */}
+                <VerificationChange projectId={projectId} repo={row.repo} number={row.number} head={row.headRefOid} readOnly={readOnly} />
                 <div className="w-pr-inbox-row__actions">
                   <ExternalLink url={row.url} className="w-pr-inbox-button w-pr-inbox-button--link" testId="pr-inbox-open-github">
                     Open on GitHub

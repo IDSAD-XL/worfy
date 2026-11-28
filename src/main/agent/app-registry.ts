@@ -16,6 +16,7 @@ import { app } from 'electron'
 import { exposeBrowserToolsToFakeAgent } from '../mcp/browser-server'
 import { projectStore } from '../projects/store'
 import { vendorDriver } from '../vendors/registry'
+import { makeGuardLogFolder } from './guard-log'
 import { LiveSessions } from './live-sessions'
 import { SessionRegistry } from './session'
 import { turnCostObserver } from './turn-cost'
@@ -89,6 +90,8 @@ export function sharedRegistry(): SessionRegistry {
       undefined,
       undefined,
       quietMarkSeam(process.env, app.isPackaged),
+      // Every Session gets WORFY_GUARD_LOG, a file in worfy's data folder (worfy-harness-guarantees ticket 10).
+      makeGuardLogFolder(),
     )
     const live = liveSessionsOf(registry, (projectId) => {
       // Asked every time, so a Project removed from the list is refused and its folder is not made again.

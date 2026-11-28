@@ -71,12 +71,16 @@
 //   Run's policy while its tasks end), as the line has it — the command stays as the Journal masked it. A line of
 //   another shape (journalEventSchema of src/shared/autopilot/journal.ts) is left out of the list and counted in
 //   `skipped`. The service counts the Project's Shadow decisions through this same reader.
+// - The refusals of the guard (`guard-deny`, worfy-harness-guarantees ticket 10), for the block «Guard» of Run history:
+//   every such line of the Run's file, in the order of the guard's own time (`refusedAt`; the run carries them over at
+//   the end of a turn, so a later line may hold an earlier refusal). A line of another shape is left out and counted in
+//   `skipped`.
 import { AUTO_APPROVAL_LINE_MODES, AUTO_APPROVAL_OUTCOMES } from '../agent/auto-approval'
 import type { AutopilotStopReason } from '../autopilot/cycle'
 import { COMMAND_MAX, RUN_STARTED_BY } from '../autopilot/journal'
 import { RUN_MODES, type RunMode } from '../autopilot/run-mode'
 import { isVendorId, type VendorId } from '../vendors/vendor'
-import type { AutoApprovalDecisionFact, OrchestratorMarkFact, RetryCauseFact, RunFact, SpanOutcome, StageEventFact, WaitCause, WaitFact, WaveFact } from './facts'
+import type { AutoApprovalDecisionFact, GuardDenialFact, OrchestratorMarkFact, RetryCauseFact, RunFact, SpanOutcome, StageEventFact, WaitCause, WaitFact, WaveFact } from './facts'
 import { parseJournal, runEpics, walkRun, type JournalEvent } from './journal-walk.mjs'
 
 type Iso = string
@@ -140,6 +144,8 @@ export interface JournalFacts {
   orchestratorMarks: OrchestratorMarkFact[]
   /** The `auto-approval` lines of the Run's file, in file order (worfy-auto-approve ticket 08). */
   autoApproval: AutoApprovalDecisionFact[]
+  /** The `guard-deny` lines of the Run's file, by the time of the refusal (worfy-harness-guarantees ticket 10). */
+  guard: GuardDenialFact[]
   /** The lines left out: not JSON, an unknown kind, fields that do not match, another Run's. */
   skipped: number
 }
@@ -230,6 +236,16 @@ function decisionOf(event: JournalEvent): AutoApprovalDecisionFact | null {
     ...(command === undefined ? {} : { command }),
     ...(agent === undefined ? {} : { agent }),
   }
+}
+
+/** A `guard-deny` line as a refusal; null when a field has another shape than the Journal's schema gives it. */
+function denialOf(event: JournalEvent): GuardDenialFact | null {
+  const { rule, tool, command, refusedAt, agent, ticket } = event
+  if (!isText(rule) || !isText(tool) || typeof command !== 'string' || command.length > COMMAND_MAX) return null
+  const when = moment(refusedAt)
+  if (when === null) return null
+  if ((agent !== undefined && !isText(agent)) || (ticket !== undefined && !isText(ticket))) return null
+  return { at: iso(when), rule, tool, command, ...(agent === undefined ? {} : { agent }), ...(ticket === undefined ? {} : { ticket }) }
 }
 
 /** A full timestamp with a zone: a moment. A date, or a time without a zone, is none. */
@@ -547,8 +563,16 @@ export function journalFacts(input: JournalInput): JournalFacts | null {
     return decision === null ? [] : [decision]
   })
 
-  // An auto-approval line of another shape is a line left out, as one with a field the walk relies on.
-  const facts: JournalFacts = { run, epic, epics, tickets, waves, ticketEvents, retryCauses, waits, orchestratorMarks, autoApproval, skipped: skipped + judged.length - autoApproval.length }
+  const refused = events.filter((event) => event.kind === 'guard-deny')
+  const guard = refused
+    .flatMap((event) => {
+      const denial = denialOf(event)
+      return denial === null ? [] : [denial]
+    })
+    .sort((a, b) => Date.parse(a.at) - Date.parse(b.at))
+
+  // An auto-approval or guard-deny line of another shape is a line left out, as one with a field the walk relies on.
+  const facts: JournalFacts = { run, epic, epics, tickets, waves, ticketEvents, retryCauses, waits, orchestratorMarks, autoApproval, guard, skipped: skipped + judged.length - autoApproval.length + refused.length - guard.length }
   // Another value of `by` reads as none (the run-started header of src/shared/autopilot/journal.ts).
   const by = (RUN_STARTED_BY as readonly unknown[]).includes(runStarted?.by) ? (runStarted?.by as string) : undefined
   if (by !== undefined) facts.by = by

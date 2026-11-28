@@ -6,6 +6,7 @@
 //   land <state.json> [--watch]
 //   land <state.json> --epic-story
 //   land --check <N> [-C <dir>]
+//   land --verification <N> [-C <dir>]
 //
 // The merge condition, on the PR's head commit (profile workflow.ci "pr": CI runs on every PR):
 //   - the PR is not a draft (isDraft): a draft waits with the reason `draft`, whatever its CI and review say, and the
@@ -44,9 +45,12 @@
 //     or no trail section in it — the PR waits, the reason saying which. A path outside the trail —
 //     the PR waits with `verification paths outside the trail of <epic> <NN>: <paths>`; a PR whose branch names no
 //     ticket and that changes a verification path waits with `verification paths, and the PR has no ticket (<why>):
-//     <paths> — the owner decides`. A PR that adds a verification path to the trail of any ticket (a ticket file under the
-//     tickets root whose trail at the head names a verification path its fork point does not) is a change of the
-//     verification paths too: it merges, and its line names it (no `owner` mark is asked for it yet). With tickets_root
+//     <paths> — the owner decides`, until the owner's mark is on its head. A PR that adds a verification path to the trail
+//     of any ticket (a ticket file under the tickets root whose trail at the head names a verification path its fork point
+//     does not) is a change of the verification paths too: it waits with `the owner's mark: verification paths added to
+//     the trail of <epic> <NN>` until the commit status `owner` is success on its head, and its line names it. Only worfy
+//     writes that status, on the owner's click of Allow verification change in the view of the PR, which reads what the
+//     mark is about with `land --verification <N>` (below). With tickets_root
 //     null the trail is read from the folder `ticket root` prints. A project with no profile has the defaults and no
 //     tickets: a PR that changes one waits for the owner. The profile or git unable to answer — the PR waits;
 //   - the main branch is not red (a PR with main_fix true, the fix of a red main branch or the revert of its culprit,
@@ -136,6 +140,10 @@
 // `#N unverified: <reason>`; exit 0 — ready, 1 — it waits, 2 — land cannot say (no profile, workflow.ci not "pr", no
 // workflow.ci_check, gh or git gave no answer, wrong arguments). It is meant for a guard hook to ask before an agent's
 // `gh pr merge`.
+//
+// land --verification <N> [-C <dir>] — the same setup as --check without the CI check, then only the verification paths
+// of the PR: one JSON line of what the owner's mark is about (the trails it extends, a PR with no ticket) and the state of
+// the `owner` status on its head; it writes nothing. Exit 0 answered, 2 land cannot say.
 //
 // The state file is the input and the record; every finished step is written to it at once, so a run
 // broken off (the session ended, a kill) goes on from there when it is run again on the same file: a PR
@@ -874,17 +882,35 @@ function trailExtensions(st, profile, list, paths, base, head, root) {
         if (!file.startsWith(`${tickets}/`) || !/\.md$/i.test(file)) continue
         const before = at(base, file)
         const added = at(head, file).filter((g) => !before.includes(g) && isVerificationPath(g, list, { root }))
-        if (added.length) out.push({ file, paths: added })
+        if (added.length) out.push({ file, ticket: ticketOfFile(field(profile, "tickets", "path"), file), paths: added })
     }
     return out
 }
-// The PR's verification paths against the trail of its ticket. The list is the defaults and the profile's
-// verification.paths, never the state file's; the ticket is the one of the PR's branch (tickets.branch), its trail read at
-// the tip of the base branch (refs/remotes/<remote>/<branch>, fetched at each pass), never at the fork point: a branch cut
-// before the orchestrator extended its trail needs no rebase, and the PR's own edit of its trail is not on the base branch,
-// so it allows nothing. A path outside the trail — the PR waits; a PR with no ticket and a verification path — it waits for
-// the owner. Returns the note for the line of the PR ("verification paths: …"), or null when it changes none.
-function verified(st, pr, head, view) {
+// `<epic> <NN>` of a ticket file by the template tickets.path (`.scratch/<epic>/issues/NN-*.md`), or null when the file
+// does not follow it: the words of the owner's mark name the ticket, else the file.
+function ticketOfFile(template, file) {
+    if (typeof template !== "string" || !template.includes("<epic>") || !/NN/.test(template)) return null
+    const re = template
+        .split(/(<epic>|<NN>|NN|\*)/)
+        .map((part) => (part === "<epic>" ? "(?<epic>[^/]+)" : part === "<NN>" || part === "NN" ? "(?<nn>[0-9]+)" : part === "*" ? "[^/]*" : part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")))
+        .join("")
+    let m
+    try {
+        m = new RegExp(`^${re}$`).exec(file)
+    } catch {
+        return null
+    }
+    return m && m.groups && m.groups.epic && m.groups.nn ? `${m.groups.epic} ${m.groups.nn}` : null
+}
+// What the owner's mark is about: the commit status `owner` success on the head, which only worfy writes, on the owner's
+// click of Allow verification change in the view of the PR (it reads `land --verification` first). It lets through a PR that adds a verification path to the trail of a ticket, and a PR with no ticket
+// that changes a verification path; never a path outside the trail of the PR's own ticket — that one goes into the trail.
+const OWNER_MARK = "owner"
+// The verification paths of a PR as they are, without a verdict (verified, `land --verification`): the paths it changes
+// that touch a verification path (touched), the ticket of its branch and that ticket's trail at the tip of the base
+// branch (trail: the readTrail answer, null when it touches none), the paths outside that trail (outside), and the
+// verification paths it adds to the trail of any ticket (added). Throws unread when git or the profile cannot answer.
+function verificationOf(st, pr, head, view) {
     const profile = profileOf(st)
     const list = verificationPaths(profile)
     if (!haveCommit(st, head, pr.number)) throw unread(`the head ${short(head)} is not in the checkout: its verification paths cannot be read`)
@@ -896,19 +922,39 @@ function verified(st, pr, head, view) {
     const root = path.resolve(st.repo)
     // a verification path, a submodule at a folder above one (tools above tools/check-*), or any symbolic link
     const touched = entries.filter((e) => touchesVerificationPath(e.path, list, { root, symlink: e.symlink, gitlink: e.gitlink })).map((e) => e.path)
-    const notes = []
+    let trail = null
+    let outside = []
     if (touched.length) {
         const tickets = field(profile, "tickets") || {}
-        const t = readTrail({ repo: st.repo, ref, branch: view && view.headRefName, tickets, git: GIT, folder: ticketsRoot(st) ? null : ticketsFolder(st) })
-        if (t.unread) throw unread(`the trail of the PR's ticket could not be read: ${t.reason}`)
-        if (!t.ticket) throw new Wait(`verification paths, and the PR has no ticket (${t.reason}): ${touched.join(", ")} — the owner decides`)
-        const name = `${t.ticket.epic} ${t.ticket.nn}`
-        if (!t.trail) throw new Wait(`verification paths outside the trail of ${name} (${t.reason}): ${touched.join(", ")}`)
-        const outside = touched.filter((p) => !namedByTrail(p, t.trail, { root }))
-        if (outside.length) throw new Wait(`verification paths outside the trail of ${name}: ${outside.join(", ")}`)
-        notes.push(`${touched.join(", ")} (trail of ${name})`)
+        trail = readTrail({ repo: st.repo, ref, branch: view && view.headRefName, tickets, git: GIT, folder: ticketsRoot(st) ? null : ticketsFolder(st) })
+        if (trail.unread) throw unread(`the trail of the PR's ticket could not be read: ${trail.reason}`)
+        if (trail.ticket && trail.trail) outside = touched.filter((p) => !namedByTrail(p, trail.trail, { root }))
     }
-    for (const e of trailExtensions(st, profile, list, paths, base, head, root)) notes.push(`added to the trail of ${e.file}: ${e.paths.join(", ")}`)
+    return { touched, trail, outside, added: trailExtensions(st, profile, list, paths, base, head, root) }
+}
+// The PR's verification paths against the trail of its ticket. The list is the defaults and the profile's
+// verification.paths, never the state file's; the ticket is the one of the PR's branch (tickets.branch), its trail read at
+// the tip of the base branch (refs/remotes/<remote>/<branch>, fetched at each pass), never at the fork point: a branch cut
+// before the orchestrator extended its trail needs no rebase, and the PR's own edit of its trail is not on the base branch,
+// so it allows nothing. A path outside the trail — the PR waits; a PR with no ticket and a verification path, or one that
+// adds a verification path to a trail — it waits for the owner's mark (OWNER_MARK success on the head, in marks).
+// Returns the note for the line of the PR ("verification paths: …"), or null when it changes none.
+function verified(st, pr, head, view, marks) {
+    const { touched, trail: t, outside, added } = verificationOf(st, pr, head, view)
+    const owner = !!(marks && marks[OWNER_MARK] && marks[OWNER_MARK].state === "success")
+    const notes = []
+    if (touched.length) {
+        if (!t.ticket && !owner) throw new Wait(`verification paths, and the PR has no ticket (${t.reason}): ${touched.join(", ")} — the owner decides`)
+        if (!t.ticket) notes.push(`${touched.join(", ")} (no ticket, the owner's mark)`)
+        else {
+            const name = `${t.ticket.epic} ${t.ticket.nn}`
+            if (!t.trail) throw new Wait(`verification paths outside the trail of ${name} (${t.reason}): ${touched.join(", ")}`)
+            if (outside.length) throw new Wait(`verification paths outside the trail of ${name}: ${outside.join(", ")}`)
+            notes.push(`${touched.join(", ")} (trail of ${name})`)
+        }
+    }
+    if (added.length && !owner) throw new Wait(`the owner's mark: verification paths added to the trail of ${added.map((e) => e.ticket || e.file).join(", ")}`)
+    for (const e of added) notes.push(`added to the trail of ${e.file}: ${e.paths.join(", ")}`)
     if (notes.length) log(`#${pr.number}: verification paths: ${notes.join("; ")}`)
     return notes.length ? `verification paths: ${notes.join("; ")}` : null
 }
@@ -922,7 +968,7 @@ function ready(st, pr, head, carry, view) {
     reviewed(st, pr, head, marks, carry)
     checked(pr, head, marks)
     storyGreen(st, pr, head)
-    const note = verified(st, pr, head, view)
+    const note = verified(st, pr, head, view, marks)
     mainAllows(st, pr, head)
     elsewhereAllows(st, pr, head)
     return note
@@ -1479,54 +1525,69 @@ function profileTicketsRoot(profile, repo) {
     return rel === "" || rel === "." || rel.startsWith("..") || path.isAbsolute(rel) ? null : rel
 }
 
+// The setup of the modes that answer for one PR with no state file (land --check, land --verification): the profile of
+// <dir>, the checkout, the base branch fetched, the PR as gh shows it. Returns {st, profile, checks, view} or {code, line}:
+// the exit code and the line (`unverified: …`, `waits: …`) when it cannot go on. ci — whether the CI check is needed
+// (--check merges on it; --verification reads paths only).
+function oneSetup(dir, n, ci) {
+    const r = run(program(process.env.LAND_PROFILE, [process.execPath, [path.join(__dirname, "profile")]]), ["-C", dir, "--json"], dir)
+    if (r.code === 3) return { code: 2, line: `unverified: no profile for ${dir} (bin/profile exit 3)` }
+    let profile
+    try {
+        profile = r.code === 0 ? JSON.parse(r.out) : null
+    } catch {}
+    if (!profile) return { code: 2, line: `unverified: the profile could not be read: bin/profile exit ${r.code}: ${firstLine(r.err || r.out) || "no JSON"}` }
+    profileRead = { profile }
+    const repo = field(profile, "_resolved", "checkout") || field(profile, "_resolved", "repo_root") || dir
+    const flow = field(profile, "workflow", "ci") || "pr"
+    if (ci && flow !== "pr") return { code: 2, line: `unverified: workflow.ci is ${JSON.stringify(flow)}: land merges on the CI check of a PR head, which only "pr" has` }
+    const check = field(profile, "workflow", "ci_check")
+    if (ci && (typeof check !== "string" || check.trim() === "")) return { code: 2, line: "unverified: the profile names no workflow.ci_check, the CI check a merge waits for" }
+    // the base branch: worktree.base (origin/main), else the branch origin/HEAD points to
+    let base = field(profile, "worktree", "base")
+    if (typeof base !== "string" || base.trim() === "") {
+        const h = run([GIT, []], ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], repo)
+        base = h.code === 0 ? h.out.trim() : ""
+    }
+    const cut = base.indexOf("/")
+    if (cut < 1 || cut === base.length - 1) return { code: 2, line: `unverified: the base branch cannot be told: worktree.base is ${JSON.stringify(base || null)}` }
+    const checks = (field(profile, "_resolved", "pipeline") || []).filter((s) => s && s.kind === "check" && typeof s.name === "string").map((s) => s.name)
+    const st = { repo, remote: base.slice(0, cut), branch: base.slice(cut + 1), ci: "pr", ci_check: check, ci_workflow: null, docs_only: null, red_elsewhere: null, tickets_root: profileTicketsRoot(profile, repo) }
+    const fetched = run([GIT, []], ["fetch", "-q", st.remote, `+refs/heads/${st.branch}:refs/remotes/${st.remote}/${st.branch}`], repo)
+    if (fetched.code !== 0) return { code: 2, line: `unverified: git fetch ${st.remote} ${st.branch} (exit ${fetched.code}): ${firstLine(fetched.err)}` }
+    return { st, profile, checks, view: prView(st, Number(n)) }
+}
+// The arguments of a mode for one PR: `--<mode> <N> [-C <dir>]`; {n, dir}, or null when they are wrong.
+function oneArgs(argv, flag) {
+    let n = null
+    let dir = process.cwd()
+    for (let i = 0; i < argv.length; i++) {
+        if (argv[i] === flag && n === null) n = argv[++i]
+        else if (argv[i] === "-C" && argv[i + 1]) dir = argv[++i]
+        else n = undefined
+    }
+    return typeof n === "string" && /^[1-9]\d*$/.test(n) ? { n, dir: path.resolve(dir) } : null
+}
+
 // land --check <N> [-C <dir>]: the merge condition of one PR, by the profile of <dir> (the working directory by default),
 // with no state file, writing nothing. Exit 0 — ready, 1 — it waits, the reason on one line; 2 — land cannot say: no
 // profile, gh or git gave no answer, the arguments are wrong. It is meant for a guard hook to ask before an agent's `gh pr merge`.
 async function checkOne(argv) {
-    let n = null
-    let dir = process.cwd()
-    for (let i = 0; i < argv.length; i++) {
-        if (argv[i] === "--check" && n === null) n = argv[++i]
-        else if (argv[i] === "-C" && argv[i + 1]) dir = argv[++i]
-        else n = undefined
-    }
-    if (typeof n !== "string" || !/^[1-9]\d*$/.test(n)) {
+    const args = oneArgs(argv, "--check")
+    if (!args) {
         process.stderr.write("usage: land --check <N> [-C <dir>]\n")
         return 2
     }
+    const { n } = args
     readOnly = true
     const say = (code, line) => {
         process.stdout.write(`#${n} ${line}\n`)
         return code
     }
     try {
-        dir = path.resolve(dir)
-        const r = run(program(process.env.LAND_PROFILE, [process.execPath, [path.join(__dirname, "profile")]]), ["-C", dir, "--json"], dir)
-        if (r.code === 3) return say(2, `unverified: no profile for ${dir} (bin/profile exit 3)`)
-        let profile
-        try {
-            profile = r.code === 0 ? JSON.parse(r.out) : null
-        } catch {}
-        if (!profile) return say(2, `unverified: the profile could not be read: bin/profile exit ${r.code}: ${firstLine(r.err || r.out) || "no JSON"}`)
-        profileRead = { profile }
-        const repo = field(profile, "_resolved", "checkout") || field(profile, "_resolved", "repo_root") || dir
-        const ci = field(profile, "workflow", "ci") || "pr"
-        if (ci !== "pr") return say(2, `unverified: workflow.ci is ${JSON.stringify(ci)}: land merges on the CI check of a PR head, which only "pr" has`)
-        const check = field(profile, "workflow", "ci_check")
-        if (typeof check !== "string" || check.trim() === "") return say(2, "unverified: the profile names no workflow.ci_check, the CI check a merge waits for")
-        // the base branch: worktree.base (origin/main), else the branch origin/HEAD points to
-        let base = field(profile, "worktree", "base")
-        if (typeof base !== "string" || base.trim() === "") {
-            const h = run([GIT, []], ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], repo)
-            base = h.code === 0 ? h.out.trim() : ""
-        }
-        const cut = base.indexOf("/")
-        if (cut < 1 || cut === base.length - 1) return say(2, `unverified: the base branch cannot be told: worktree.base is ${JSON.stringify(base || null)}`)
-        const checks = (field(profile, "_resolved", "pipeline") || []).filter((s) => s && s.kind === "check" && typeof s.name === "string").map((s) => s.name)
-        const st = { repo, remote: base.slice(0, cut), branch: base.slice(cut + 1), ci: "pr", ci_check: check, ci_workflow: null, docs_only: null, red_elsewhere: null, tickets_root: profileTicketsRoot(profile, repo) }
-        const fetched = run([GIT, []], ["fetch", "-q", st.remote, `+refs/heads/${st.branch}:refs/remotes/${st.remote}/${st.branch}`], repo)
-        if (fetched.code !== 0) return say(2, `unverified: git fetch ${st.remote} ${st.branch} (exit ${fetched.code}): ${firstLine(fetched.err)}`)
-        const v = prView(st, Number(n))
+        const set = oneSetup(args.dir, n, true)
+        if (!set.st) return say(set.code, set.line)
+        const { st, profile, checks, view: v } = set
         if (v.state !== "OPEN") return say(1, `waits: the PR is ${v.state}`)
         if (v.isDraft) return say(1, "waits: draft")
         const head = v.headRefOid
@@ -1544,13 +1605,51 @@ async function checkOne(argv) {
     }
 }
 
+// land --verification <N> [-C <dir>]: what the owner's mark (OWNER_MARK) of one PR is about, by the same reading as the
+// merge condition (verificationOf), with no state file, writing nothing — for the view of the PR in worfy, which shows
+// Allow verification change by it. One JSON line, exit 0:
+//   {"pr": N, "head": "<sha>", "state": "OPEN"|…, "owner": "<state of the owner status on the head>"|null,
+//    "needsOwner": bool, "added": [{"file", "ticket": "<epic> <NN>"|null, "paths": [...]}],
+//    "noTicket": {"reason", "paths": [...]}|null}
+// needsOwner — the PR adds a verification path to a trail, or has no ticket and changes one: it merges only with the
+// owner's mark on its head. Exit 2 with {"pr": N, "error": "<why>"} — land cannot say (no profile, gh or git gave no
+// answer); a closed PR is answered too, with needsOwner false.
+async function verificationOne(argv) {
+    const args = oneArgs(argv, "--verification")
+    if (!args) {
+        process.stderr.write("usage: land --verification <N> [-C <dir>]\n")
+        return 2
+    }
+    const n = Number(args.n)
+    readOnly = true
+    const say = (code, value) => {
+        process.stdout.write(JSON.stringify({ pr: n, ...value }) + "\n")
+        return code
+    }
+    try {
+        const set = oneSetup(args.dir, args.n, false)
+        if (!set.st) return say(2, { error: set.line.replace(/^unverified: /, "") })
+        const { st, view: v } = set
+        const head = v.headRefOid
+        if (v.state !== "OPEN") return say(0, { head, state: v.state, owner: null, needsOwner: false, added: [], noTicket: null })
+        const { touched, trail, added } = verificationOf(st, { number: n }, head, v)
+        const noTicket = touched.length && trail && !trail.ticket ? { reason: trail.reason, paths: touched } : null
+        const owner = statuses(st, head)[OWNER_MARK]
+        return say(0, { head, state: v.state, owner: owner ? owner.state : null, needsOwner: added.length > 0 || noTicket !== null, added, noTicket })
+    } catch (e) {
+        if (!(e instanceof Wait)) throw e
+        return say(2, { error: firstLine(e.message) })
+    }
+}
+
 async function main() {
     const argv = process.argv.slice(2)
     if (argv.includes("--check")) return checkOne(argv)
+    if (argv.includes("--verification")) return verificationOne(argv)
     const watch = argv.includes("--watch")
     const story = argv.includes("--epic-story")
     const files = argv.filter((a) => a !== "--watch" && a !== "--epic-story")
-    if (files.length !== 1 || files[0].startsWith("-") || (watch && story)) fail("usage: land <state.json> [--watch] | land <state.json> --epic-story | land --check <N> [-C <dir>]")
+    if (files.length !== 1 || files[0].startsWith("-") || (watch && story)) fail("usage: land <state.json> [--watch] | land <state.json> --epic-story | land --check <N> [-C <dir>] | land --verification <N> [-C <dir>]")
     const file = path.resolve(files[0])
     const st = load(file)
     if (story) {

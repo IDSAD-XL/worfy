@@ -305,6 +305,26 @@ export interface AutoApprovalDecisionFact {
   agent?: string
 }
 
+/**
+ * A refusal of the Harness's guard hook: a `guard-deny` line of the Journal (worfy-harness-guarantees ticket 10), as
+ * the line has it — the command already cleaned when the run wrote it (journalCommand). Not a part of RunFacts: no span
+ * is built from it; Run history lists it in the block «Guard» (RunView.guard).
+ */
+export interface GuardDenialFact {
+  /** When the guard refused. */
+  at: Iso
+  /** The guard's id of the rule. */
+  rule: string
+  /** The tool it refused. */
+  tool: string
+  /** The command as the Journal keeps it. */
+  command: string
+  /** The Subagent that made the call; absent for the Session's own call. */
+  agent?: string
+  /** The Ticket the guard read for the decision, `<epic>/<NN>`. */
+  ticket?: string
+}
+
 /** Everything a timeline is built from. */
 export interface RunFacts {
   run: RunFact

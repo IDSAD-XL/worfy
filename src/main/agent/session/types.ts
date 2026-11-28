@@ -172,6 +172,8 @@ export interface QueryRequest {
    * Claude Code's environment and a line of the system prompt (options.ts, waveInstructions). Absent: neither.
    */
   epic?: string | undefined
+  /** The file of the guard's refusals (SessionStart.guardLog): `WORFY_GUARD_LOG` in Claude Code's environment. Absent: none. */
+  guardLog?: string | undefined
   /**
    * Variables Claude Code gets over the agent environment: the Run's TMPDIR and git environment
    * (worfy-auto-approve ticket 04). Absent: none.

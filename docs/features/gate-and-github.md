@@ -219,8 +219,14 @@ point anywhere; a regular file hides no folder. The Ticket is the one the PR's b
 point the branch was cut from. So a trail that a documents PR extended after the branch was cut counts without a rebase,
 and a PR that writes the path into its own trail gains nothing. Only the list items of the trail count: a plain paragraph allows nothing, and
 a list item marked read only (`Read only:`) allows nothing either. A PR with such a path outside the trail waits, and the reason names the paths; so does a PR whose Ticket file is
-not on the main branch. A PR whose branch names no Ticket and that changes a verification path waits for the owner. The
-`land` line of a merged PR names its verification paths, and so does the line of a PR that adds one to a trail. The guard
+not on the main branch. Two kinds of PR wait for the owner's mark, the commit status `owner` success on the PR's head:
+a PR whose branch names no Ticket and that changes a verification path, and a PR that adds a verification path to the
+trail of a Ticket. The owner writes it with **Allow verification change** in the view of the PR
+([Pull requests](pr-inbox.md)); `land` never writes it, and a mark on an older commit counts for nothing. The mark never
+lets through a path outside the trail of the PR's own Ticket. `land --verification <N>` prints, as one line of JSON, what
+the mark of a PR is about: its head, its `owner` status, the trail extensions and whether it needs the mark; it writes
+nothing. The `land` line of a merged PR names its verification paths, and so does the line of a PR that adds one to a
+trail. The guard
 hook refuses a Subagent's edit of such a path by the same rule before the PR exists
 ([hooks](skills-agents-and-hooks.md)). The final
 CI check is the Profile's `workflow.ci_check`, and a state file that names another check is refused. When the Profile

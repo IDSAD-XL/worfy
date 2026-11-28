@@ -14,8 +14,9 @@
 // - the toolbar tab, the palette command, and the switch of Project settings.
 // main is a fake preload bridge; every fixture is invented — owners, repositories, logins and texts. Nothing
 // here reaches GitHub: of the `prInbox` channels the view sends only `prInbox.get`, `prInbox.markSeen` and, for the
-// selected PR, `prInbox.drafts`; `prInbox.send` only from a click on Send or on Send all in its dialog (ADR-0105; the
-// rest of Send is in test/unit/draft-thread.test.tsx).
+// selected PR, `prInbox.drafts` and `prInbox.verification`; `prInbox.send` only from a click on Send or on Send all in
+// its dialog (ADR-0105; the rest of Send is in test/unit/draft-thread.test.tsx); `prInbox.allowVerification` only from
+// a click on Allow verification change (test/unit/pr-inbox-verification.test.tsx).
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
@@ -201,6 +202,9 @@ function preload(options: { inbox: Record<string, PrInboxSnapshot>; models?: Rec
       // No build by the button under way (worfy-polish 122): "Code story" asks on mount.
       case 'stories.running':
         return { ok: true, value: null }
+      // The owner's mark (worfy-harness-guarantees ticket 10): these PRs need none.
+      case 'prInbox.verification':
+        return { ok: true, value: { needed: false, head: null, lines: [], allowed: false, error: null } }
       default:
         return { ok: true, value: { closed: true } }
     }
@@ -1056,8 +1060,9 @@ describe('selecting a PR', () => {
     // "3 new since you looked" goes with main's answer, in the list and in the pane.
     await waitFor(() => expect(text(rowOf(API, 118), 'pr-inbox-new')).toBeNull())
     expect(text(pane(), 'pr-inbox-pane-new')).toBeNull()
-    // The selected PR reads its draft replies (worfy-pr-inbox ticket 05); nothing is saved or sent without the user.
-    expect(channels().filter((channel) => channel.startsWith('prInbox.')).sort()).toEqual(['prInbox.drafts', 'prInbox.get', 'prInbox.markSeen'])
+    // The selected PR reads its draft replies (worfy-pr-inbox ticket 05) and what an owner's mark of it would allow
+    // (worfy-harness-guarantees ticket 10); nothing is saved, sent or marked without the user.
+    expect(channels().filter((channel) => channel.startsWith('prInbox.')).sort()).toEqual(['prInbox.drafts', 'prInbox.get', 'prInbox.markSeen', 'prInbox.verification'])
   })
 
   it('drafts are read for the selected PR only', async () => {

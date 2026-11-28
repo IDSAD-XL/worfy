@@ -16,9 +16,14 @@
 // counters of its decisions by mode (`would-*` for Shadow), with Shadow «Shadow: N decisions so far» over every
 // Run of the Project, and the list — time, outcome, rule, tool, targets, the command as the Journal masked it.
 // No block for a Run without a decision.
+//
+// Then the block «Guard» (worfy-harness-guarantees ticket 10): «Guard · N refused» and a row per refusal of the guard
+// hook in the Run, by its time — the time, who (the Subagent, or the Orchestrator for the Session's own call), the rule in
+// words, the tool and the command as the Journal masked it. No block for a Run without a refusal.
 import { useState, type ReactNode } from 'react'
 import { create } from 'zustand'
 import { autoApprovalCounts, ON_COUNTERS, SHADOW_COUNTERS } from '../../shared/autopilot/auto-approval-summary'
+import { guardCountText, guardRuleText } from '../../shared/autopilot/guard-deny'
 import { type FactSource, type Span } from '../../shared/flight-recorder/spans'
 import { selfTime } from '../../shared/flight-recorder/summary'
 import type { RunView } from '../../shared/ipc/runs'
@@ -454,12 +459,52 @@ export function AutoApprovalBlock({ view }: { view: RunView }) {
   )
 }
 
-/** The panel at the bottom of the screen with the block «Auto-approval» under it. */
+/** The block «Guard» of the Run; nothing for a Run without a refusal. */
+export function GuardBlock({ view }: { view: RunView }) {
+  const refusals = view.guard ?? []
+  if (refusals.length === 0) return null
+  return (
+    <section className="w-fr-approval" data-testid="run-history-guard" aria-label="Guard">
+      <div className="w-fr-approval__head">
+        <b data-testid="run-history-guard-count">{guardCountText(refusals.length)}</b>
+        <span className="w-fr-muted">Calls the Harness's guard refused: the agent was told why and what to do instead</span>
+      </div>
+      <table className="w-fr-approval__table">
+        <thead>
+          <tr>
+            <th scope="col">Time</th>
+            <th scope="col">Who</th>
+            <th scope="col">Rule</th>
+            <th scope="col">Command</th>
+          </tr>
+        </thead>
+        <tbody>
+          {refusals.map((refusal, index) => (
+            <tr key={index} data-testid="run-history-guard-refusal">
+              <td>{clock(Date.parse(refusal.at))}</td>
+              <td>
+                {refusal.agent ?? 'Orchestrator'}
+                {refusal.ticket === undefined ? null : <span className="w-fr-muted"> ({refusal.ticket})</span>}
+              </td>
+              <td title={refusal.rule}>{guardRuleText(refusal.rule)}</td>
+              <td>
+                <code>{refusal.command === '' ? refusal.tool : refusal.command}</code>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  )
+}
+
+/** The panel at the bottom of the screen with the blocks «Auto-approval» and «Guard» under it. */
 export function DetailPanel({ view }: { view: RunView }) {
   return (
     <>
       <SpanDetails view={view} />
       <AutoApprovalBlock view={view} />
+      <GuardBlock view={view} />
     </>
   )
 }
