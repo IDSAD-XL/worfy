@@ -75,8 +75,11 @@ Source: просьба владельца 2026-11-28 со screenshot-ом пан
 
 - [ ] Во вкладке Chat у каждого сообщения пользователя и Assistant-а — время, у сообщения другого дня — с датой, полное
       время в tooltip-е; у ожидающего ответа времени нет. Формат тот же, что в chat Session (общий модуль).
+  - evidence: test-run pass · `pnpm test test/unit/assistant-panel.test.tsx test/unit/session-view.test.tsx test/unit/product-transcript.test.tsx` exit 0 · mac - · dae605523
 - [ ] Unit test-ы в `test/unit/assistant-panel.test.tsx` красные до правки; test-ы Transcript зелёные без правок.
+  - evidence: test-run pass · `pnpm test test/unit/assistant-panel.test.tsx` exit 1 before the change (4 failed), exit 0 after; transcript tests unchanged, exit 0 · mac - · dae605523
 - [ ] `docs/features/assistant.md` и `docs/features/ru/assistant.md` говорят о времени сообщений.
+  - evidence: commit pass · worfy-polish/171: show the time of each message in the Assistant's Chat · - - · dae605523
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
 - [ ] (вручную) Сделай: в Stable worfy открой панель Assistant → Chat, напиши Assistant-у и дождись ответа → Должно
       быть: под обоими сообщениями — время в 24 h, под ответом — время ответа; у вчерашних сообщений — дата; наведение
