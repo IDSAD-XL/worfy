@@ -95,8 +95,10 @@ Seams (guard), «Сначала падающий test», 03, «Mutation testing�
       (shell test-ы и contract test Codex, красный на старом коде).
   - evidence: test-run pass · `bash harness/hooks/tests/guard-verification.test.sh` exit 0; `pnpm test -- test/contract/harness-codex-hooks.test.ts` exit 0 · mac - · a6ed5f8b87967019ffe7062a1cdd5ed0d19a2e8e
   - evidence: test-run pass · `bash harness/hooks/tests/guard-verification.test.sh` exit 0 (107 checks, review round 1 cases); `bash harness/bin/tests/land-verification.test.sh` exit 0 · mac - · 319495189b4b19be393dccb59084588a4df5e973
+  - evidence: test-run pass · `bash harness/hooks/tests/guard-verification.test.sh` exit 0 (124 checks: folder destinations, a rebase in progress, an exception inside the section) · mac - · 2fc01baf04b511fe782a60290495e0c0709bd172
 - [ ] Путь, который trail называет, проходит; главная Session проходит; Subagent без Ticket-а отказан.
   - evidence: test-run pass · `bash harness/hooks/tests/guard-verification.test.sh` exit 0 · mac - · a6ed5f8b87967019ffe7062a1cdd5ed0d19a2e8e
+  - evidence: test-run pass · `bash harness/hooks/tests/guard-verification.test.sh` exit 0 (a rebase in progress: a trail-named path passes) · mac - · 2fc01baf04b511fe782a60290495e0c0709bd172
 - [ ] Silent mode: trail читается из Workflow folder, правка раздела trail-а Subagent-ом отказана.
   - evidence: test-run pass · `bash harness/hooks/tests/guard-verification.test.sh` exit 0 (silent cases) · mac - · a6ed5f8b87967019ffe7062a1cdd5ed0d19a2e8e
 - [ ] `ticket mark` из Subagent-а и `profile-set` полей `verification.*`, `workflow.ci_check`, `workflow.pipeline`,
