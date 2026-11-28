@@ -1,7 +1,8 @@
 # 07: Проверка Harness при старте на Claude Code
 
 Type: task
-Status: claimed 2026-11-28T02:38Z
+Status: done 2026-11-28T05:20Z
+PR: #2353
 Branch: worfy-harness-guarantees/07
 Blocked by: 01
 Source: [spec.md](../spec.md), «Ticket-ы», 07; «Решение», 4; «Набросок функции» (шаг 1, notice «Harness did not load»);
@@ -76,12 +77,16 @@ Source: [spec.md](../spec.md), «Ticket-ы», 07; «Решение», 4; «На�
 - [ ] `sdkInit` читает `plugins` и `plugin_errors`; Session, где plugin `worfy` не загрузился или с ошибкой, показывает
       notice «Harness did not load» с Open Health и Copy details (unit и e2e, красный на старом коде).
   - evidence: test-run pass · `npx vitest run test/unit/claude-init-plugins.test.ts test/unit/session-view.test.tsx` exit 0 (red on origin/main c66e7215a; e2e test/e2e/harness-did-not-load.spec.ts runs in CI) · mac - · 033e10309cd186ec4c5fb175610e1f30f42faafb
+  - evidence: review pass · PR #2353 · - - · 6deeb0d93012d0324621177b0f7812cf0b9455b8
 - [ ] У драйвера Claude есть часть `harnessHooks`: запрос без модели читает `system/init` (и `get_hooks_listing`, если
       spike 01 его подтвердил) и отвечает `approved` или `unknown` с причиной.
   - evidence: test-run pass · `npx vitest run test/unit/claude-harness-hooks.test.ts test/contract/codex-harness-hooks.test.ts` exit 0 · mac - · 033e10309cd186ec4c5fb175610e1f30f42faafb
+  - evidence: review pass · PR #2353 · - - · 6deeb0d93012d0324621177b0f7812cf0b9455b8
 - [ ] Autopilot на Claude Code без Harness не стартует и называет причину, как на Codex.
   - evidence: test-run pass · `npx vitest run test/unit/claude-harness-hooks.test.ts test/contract/app-orchestrators.test.ts test/contract/codex-orchestrator.test.ts` exit 0 · mac - · 033e10309cd186ec4c5fb175610e1f30f42faafb
+  - evidence: review pass · PR #2353 · - - · 6deeb0d93012d0324621177b0f7812cf0b9455b8
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/46107330983/job/140869607170 · ci - · 6deeb0d93012d0324621177b0f7812cf0b9455b8
 
 ## Итог
 

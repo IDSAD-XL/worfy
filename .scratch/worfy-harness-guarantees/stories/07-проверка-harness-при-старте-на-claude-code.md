@@ -160,3 +160,88 @@ Code: `src/main/vendors/claude/harness-hooks.ts:155-159` · key lines: 159
 3. Что увидит Autopilot на машине со старым Harness?
    Ответ: старт без проверки — часть отвечает `approved`, потому что worfy не дал plugin.
    Строки: `src/main/vendors/claude/harness-hooks.ts:159-159`
+
+## 9. Что нашёл review и что осталось
+
+> VERIFIED
+>
+> Под линзой корректности блокирующих дефектов в PR #2353 (head 6deeb0d93) не нашёл. Все шесть оговорок implementer-а проверены.
+>
+> 1. Проверка перед Autopilot ограничена по времени и убирает за собой процесс. Её код — `src/main/vendors/claude/harness-hooks.ts:160-188`. По timeout-у query закрывается, даже если запустился поздно (`:182`). Query, который упал или ответил, закрывается в `finally` (`:175`). `close()` останавливает и вход (`stop.abort()`), и процесс (`handle.close()`, `src/main/vendors/claude/query.ts:417-420`). Предел 15 с и отказ при ответе `unknown` повторяют принятую схему Codex (`HOOKS_TRUST_TIMEOUT_MS`, `docs/features/autopilot.md`). Поэтому медленный старт, который приводит к отказу, — не дефект, а то же поведение, что у Codex.
+> 2. Про скрипт hook-а, которого нет на диске, сказано честно. Ни notice, ни отказа нет — это записано в Итоге ticket-а (пункт 3), в комментарии `harness-hooks.ts:12-13` и в `docs/features/harness.md`. Тот же случай без notice есть в fixture `init-plugin-errors.jsonl` (`cwd-init-missing-hook-script`, `plugin_errors` null). Больше ничего не потеряно.
+> 3. Сопоставление ошибки с Harness (`harness-hooks.ts:74-79`) считает только записи `@inline` и `inline[N]`. worfy даёт inline один plugin — Harness: `options.ts:793,893`, `assistant-session.ts:96`. У builtin plugin-ов путь `builtin`, ошибка чужого plugin-а не засчитывается. `basename` из `node:path` работает на той же ОС, где путь создан, так что Windows-пути разбираются верно. Ложных срабатываний и пропусков я не нашёл. Allowlist skills Harness не выключает (`options.ts:617`).
+> 4. Notice отправляется ровно один раз на процесс. `queryValue` присваивается только в `session.ts:400`, флаг `harnessChecked` стоит в `:568-569`. Resume и новая Session на каждую Wave создают новый handle, и проверка проходит заново — это верно.
+> 5. Отказ Codex не изменился. У части Codex нет `check`, и `orchestrator.ts:593` идёт прежней веткой `trust()`.
+> 6. В fixture `test/fixtures/sdk-events/claude.json` изменились 37 строк, все — строки `"type":"init"`. Пути в них — `<tmp>`, `<repo>`, `~/` или `builtin`. Имён пользователя, хоста и токенов нет.
+>
+> Находки:
+> - `src/main/vendors/claude/index.ts:53`: [low] Claude Code теперь проходит проверку перед каждым запуском Run, и при старте она идёт дважды подряд: `run.ts:1811` и `setUnattended` в `orchestrator.ts:394`. Каждый раз запускается свой процесс Claude Code с пределом 15 с. Под нагрузкой задержка старта до 2×15 с. Timeout на границе Wave (`run.ts:2989`) останавливает уже идущий Run с `session-error`. Схема та же, что у Codex, но теперь её платят Run-ы на Claude Code. Исправление: проверять один раз за старт, например передавать ответ из `run.ts` в `setUnattended`.
+>
+> Что запускал:
+> - Затронутые unit и contract test-ы под временным HOME: `node scripts/vitest-electron.mjs run` с 8 файлами — test-ы `claude-harness-hooks`, `claude-init-plugins`, `session-view`, `claude-events`, `agent-events`, `app-orchestrators`, `codex-harness-hooks`, `codex-orchestrator`. Exit code 1: из 23 файлов 22 прошли. Упал только `test/unit/first-run-dialog.test.tsx`. Этот test PR не трогает, он упал по timeout-у 15 с под нагрузкой; по правилу брифа я его не перезапускал.
+> - Mutation testing, 5 мутантов, все убиты (test-ы exit 1), каждый файл восстановлен и сверен `cmp`:
+>   - сопоставление по папке (`harness-hooks.ts:78`);
+>   - проверка `disabled` (`:123`);
+>   - закрытие query после timeout-а (`:182`);
+>   - флаг одного notice (`session.ts:568`);
+>   - ветка `approved` (`orchestrator.ts:594`).
+> - `story-check` против head: exit 0, 6 фрагментов, ok. SHA 033e10309 из строк evidence есть в ветке (`merge-base --is-ancestor`: exit 0).
+> - Worktree удалён, фоновых процессов не осталось.
+>
+> Что не проверил:
+> - Настоящий Claude Code (ответ `get_hooks_listing`, время старта, то, что `close()` действительно убивает процесс) — запускать его бриф запрещает. Форму ответа сверил с `sdk.d.ts` 0.3.322, записанного fixture-а этого ответа нет.
+> - e2e `harness-did-not-load.spec.ts` — локальный e2e запрещён.
+> - Gate fast не запускал: бриф его не требовал.
+>
+> Больше ничего не найдено.
+>
+> Review depth: medium — ticket
+
+Code: `src/main/vendors/claude/harness-hooks.ts:160-188` · key lines: 160
+
+```ts
+  const limit = options.timeoutMs ?? CLAUDE_HOOKS_TIMEOUT_MS
+  const started = options.start({ cwd, harnessPlugin: plugin })
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let late = false
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      late = true
+      reject(new Error('Claude Code did not answer in time'))
+    }, limit)
+  })
+  const asked = (async () => {
+    const query = await started
+    try {
+      return hooksListingAnswer(await query.getHooksListing())
+    } finally {
+      query.close()
+    }
+  })()
+  try {
+    return await Promise.race([asked, timeout])
+  } catch (error) {
+    // Past the time the query is closed as soon as it has started; one that failed closed itself.
+    if (late) started.then((query) => query.close()).catch(() => undefined)
+    asked.catch(() => undefined)
+    console.warn('[claude] could not read the hooks listing of Claude Code', error)
+    return { trust: 'unknown', reason: `worfy could not read the hooks listing of Claude Code: ${messageOf(error)}` }
+  } finally {
+    clearTimeout(timer)
+  }
+```
+
+Code: `src/main/vendors/claude/query.ts:417-420` · key lines: 417
+
+```ts
+    const product = request.kind === 'product'
+    const [{ query }, environment, attached, folder] = await Promise.all([
+      loadSdk(),
+      agentEnv(),
+```
+
+Code: `src/main/vendors/claude/index.ts:53-53` · key lines: 53
+
+```ts
+    harnessHooks: claudeHarnessHooks,
+```
