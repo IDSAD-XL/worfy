@@ -30,7 +30,8 @@ import { removeTree } from './remove-tree.mjs'
 
 /*
  * Pinned, so that a change of the default model does not look like a change of the plugin. A change
- * of any of the three asks for a full `pnpm eval:harness` (harness/README.md, "When to run the evals").
+ * of REGULAR_MODEL or JUDGE_MODEL asks for a full `pnpm eval:harness` (harness/README.md, "When to run
+ * the evals").
  */
 /** The agent of the regular runs: `pnpm eval:harness` and `pnpm eval:outcome`. */
 export const REGULAR_MODEL = 'claude-sonnet-5-5'

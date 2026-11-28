@@ -56,3 +56,24 @@ Source: [spec.md](../spec.md), «Ticket-ы», 02; «Решения владел�
 - [ ] `harness/README.md` называет место констант и новые модели.
 - [ ] PR называет Ticket 05 своим полным прогоном.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+
+## Итог
+
+- Одна константа `MODEL` в `scripts/eval-run-env.mjs` стала двумя: `REGULAR_MODEL = 'claude-sonnet-5-5'` (агент
+  `pnpm eval:harness` и `pnpm eval:outcome`) и `PILOT_MODEL = 'claude-opus-5-5'` (агент пилота и замера расхода, его
+  возьмёт runner Ticket-а 08). `JUDGE_MODEL` — `claude-opus-5-5`: и `--judge-model` у `claude plugin eval`, и judge
+  scorer-а (`judgeCommand` в `scripts/eval-outcome-lib.mjs`, импорт не менялся). Импорты `eval-harness.mjs` и
+  `eval-outcome.mjs` переведены; строки запуска называют новые модели.
+- Сначала падающий test: в `test/contract/harness-evals-run.test.ts` — test констант и test строки запуска и строк
+  `--dry-run`; в `test/contract/harness-evals-outcome.test.ts` — литералы моделей у judge и у вызова `eval:outcome`.
+  На старых константах красные 6 test-ов (`expected 'claude-haiku-4-5' to be 'claude-opus-5-5'`, `expected
+  'claude-sonnet-5' to be 'claude-sonnet-5-5'`), после правки оба файла зелёные.
+- `pnpm eval:harness -- --dry-run` (claude — stub, временный HOME), exit 0; строки вызовов:
+  `eval:harness: main — claude plugin eval <plugin-copy> --scaffold --trust-plugin --ablation none --threshold 0.8
+  --no-publish --model claude-sonnet-5-5 --judge-model claude-opus-5-5 --max-cost-usd 30 …` и такая же у `gui`.
+- `harness/README.md`: абзац о цене называет модели агента и judge и место констант; старая цена 15 USD помечена как
+  цена на `claude-sonnet-5` с judge `claude-haiku-4-5`. Правило полного прогона называет `REGULAR_MODEL` и
+  `JUDGE_MODEL` в `scripts/eval-run-env.mjs`. Вне списка файлов: `scripts/eval-outcome/README.md` называл judge
+  `claude-haiku-4-5`, исправлено на `claude-opus-5-5`.
+- Платного прогона в этом Ticket-е нет (решение владельца 2026-11-28): полный прогон на новых моделях — точка отсчёта,
+  Ticket 05; PR называет его своим полным прогоном.
