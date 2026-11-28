@@ -33,10 +33,11 @@
 //     or story-check unable to answer — it waits. A PR without a ticket is not checked;
 //   - its verification paths are in the trail of its ticket. The paths the PR changes from its fork point (as for
 //     docs_only) that touch a verification path — one of the defaults of lib/verification-paths.cjs and the profile's
-//     verification.paths (bin/profile --json), never a list of the state file; a folder above one (`.claude` above
-//     `.claude/**`); any symbolic link, which may point anywhere (touchesVerificationPath) — must each be named by the
+//     verification.paths (bin/profile --json), never a list of the state file; a submodule at a folder above one
+//     (`.claude` above `.claude/**`); any symbolic link, which may point anywhere (touchesVerificationPath) — must each be named by the
 //     trail of the PR's ticket: the ticket of the PR's branch by tickets.branch (`<epic>/<NN>`), its file by
-//     tickets.path, the paths of its section tickets.trail_section but those of a read-only item (bin/TICKETS.md, "Trail"),
+//     tickets.path, the paths on the list items of its section tickets.trail_section but those of a read-only item
+//     (bin/TICKETS.md, "Trail"),
 //     read at the tip of the base branch (`git show refs/remotes/<remote>/<branch>:<path>`, lib/ticket-trail.cjs, which a
 //     guard hook is to read the trail by as well), not at the fork point: a branch cut before the orchestrator extended
 //     its trail needs no rebase, and the PR's own edit of its trail allows nothing. No single file of the ticket there,
@@ -841,7 +842,8 @@ const field = (o, ...keys) => keys.reduce((v, k) => (v && typeof v === "object" 
 function changedPaths(st, base, head) {
     return git(["-c", "core.quotePath=false", "diff", "--name-only", "--no-renames", "-z", base, head], st.repo).split("\0").filter(Boolean)
 }
-// The same paths with whether the change is a symbolic link (mode 120000 before or after it): `git diff --raw -z` gives
+// The same paths with whether the change is a symbolic link (mode 120000 before or after it) or a submodule (160000):
+// `git diff --raw -z` gives
 // ":<old mode> <new mode> <old blob> <new blob> <status>" and the path, each ended by a NUL.
 function changedEntries(st, base, head) {
     const parts = git(["-c", "core.quotePath=false", "diff", "--raw", "--no-renames", "-z", base, head], st.repo).split("\0")
@@ -849,7 +851,8 @@ function changedEntries(st, base, head) {
     for (let i = 0; i + 1 < parts.length; i += 2) {
         const modes = /^:(\d{6}) (\d{6}) /.exec(parts[i])
         if (!modes || !parts[i + 1]) continue
-        out.push({ path: parts[i + 1], symlink: modes[1] === "120000" || modes[2] === "120000" })
+        const was = (mode) => modes[1] === mode || modes[2] === mode
+        out.push({ path: parts[i + 1], symlink: was("120000"), gitlink: was("160000") })
     }
     return out
 }
@@ -891,8 +894,8 @@ function verified(st, pr, head, view) {
     const paths = entries.map((e) => e.path)
     // an absolute root: a relative one would resolve from the working directory (a realpath on macOS)
     const root = path.resolve(st.repo)
-    // a verification path, a folder above one (a link .claude in place of the folder of .claude/**), or any symbolic link
-    const touched = entries.filter((e) => touchesVerificationPath(e.path, list, { root, symlink: e.symlink })).map((e) => e.path)
+    // a verification path, a submodule at a folder above one (tools above tools/check-*), or any symbolic link
+    const touched = entries.filter((e) => touchesVerificationPath(e.path, list, { root, symlink: e.symlink, gitlink: e.gitlink })).map((e) => e.path)
     const notes = []
     if (touched.length) {
         const tickets = field(profile, "tickets") || {}

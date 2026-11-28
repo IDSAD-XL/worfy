@@ -356,7 +356,7 @@ describe('review round 2: a relative root and the . segments of a glob', () => {
 // path matches no glob.
 type Change = VerificationPaths & {
   isVerificationParent: (file: string, paths: readonly string[], options?: Options) => boolean
-  touchesVerificationPath: (file: string, paths: readonly string[], options?: Options & { symlink?: boolean }) => boolean
+  touchesVerificationPath: (file: string, paths: readonly string[], options?: Options & { symlink?: boolean; gitlink?: boolean }) => boolean
 }
 const vc = vp as Change
 
@@ -377,10 +377,21 @@ describe('a change above a verification path', () => {
     expect(vc.isVerificationParent('../x', DEFAULTS, linux)).toBe(false)
   })
 
-  it('touchesVerificationPath: a verification path, a folder above one, or any symbolic link', () => {
+  it('touchesVerificationPath: a verification path, a submodule above one, or any symbolic link', () => {
     expect(vc.touchesVerificationPath('.claude/settings.json', DEFAULTS, linux)).toBe(true)
-    expect(vc.touchesVerificationPath('.claude', DEFAULTS, linux)).toBe(true)
+    expect(vc.touchesVerificationPath('.claude', DEFAULTS, { ...linux, gitlink: true })).toBe(true)
+    expect(vc.touchesVerificationPath('tools', ['tools/check-*'], { ...linux, gitlink: true })).toBe(true)
     expect(vc.touchesVerificationPath('docs/link', DEFAULTS, { ...linux, symlink: true })).toBe(true)
     expect(vc.touchesVerificationPath('docs/x/settings.json', DEFAULTS, linux)).toBe(false)
+    expect(vc.touchesVerificationPath('docs', DEFAULTS, { ...linux, gitlink: true })).toBe(false)
+  })
+
+  it('touchesVerificationPath: a regular file hides no folder, so the folder rule is not its', () => {
+    // with a glob that starts with **, every path is "above" it; only a submodule or a link can stand for a folder
+    expect(vc.isVerificationParent('docs/a.md', ['**/CLAUDE.md'], linux)).toBe(true)
+    expect(vc.touchesVerificationPath('docs/a.md', ['**/CLAUDE.md'], linux)).toBe(false)
+    expect(vc.touchesVerificationPath('docs/a.md', ['**/CLAUDE.md'], { ...linux, gitlink: true })).toBe(true)
+    expect(vc.touchesVerificationPath('tools', ['tools/check-*'], linux)).toBe(false)
+    expect(vc.touchesVerificationPath('docs/CLAUDE.md', ['**/CLAUDE.md'], linux)).toBe(true)
   })
 })

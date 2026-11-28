@@ -206,6 +206,14 @@ state 1
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -qx "#1 waits: verification paths outside the trail of e 01: tools" "$W/out" \
     && ok "parent folder: a submodule at tools (above tools/check-*) -> waits, tools named" || bad "parent folder: exit $rc: $(cat "$W/out")"
+# a regular file there hides no folder: it merges, and its line names no verification path
+new_world parent-file 1
+main_file "$TICKET" "$(ticket_text f1.txt)"
+pr_file 1 tools "a plain file"
+state 1
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 0 ] && [ "$(merged_of 1)" = 1 ] && grep -q "^#1 merged [0-9a-f]\{40\}$" "$W/out" \
+    && ok "parent folder: a regular file tools is no folder above tools/check-* -> merged" || bad "parent file: exit $rc: $(cat "$W/out")"
 
 # the ticket file missing at the tip of main, or there twice: the PR waits
 new_world noticketfile 1
@@ -228,6 +236,11 @@ state 1
 "$LAND" "$S" >"$W/out" 2>&1; rc=$?
 [ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -qx "#1 waits: verification paths outside the trail of e 01: $VP" "$W/out" \
     && ok "read only: the trail lists $VP as read only -> waits" || bad "read only: exit $rc: $(cat "$W/out")"
+# the shape most tickets have: a plain read-only paragraph (the Russian words) with a continuation line of no indent
+main_file "$TICKET" "$(printf '# 01: a ticket\n\nStatus: claimed\n\n## Where in the code\n\n- `f1.txt`\n\nТолько читать: `docs/a.md`,\n`%s`, `AGENTS.md`.\n' "$VP")"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -qx "#1 waits: verification paths outside the trail of e 01: $VP" "$W/out" \
+    && ok "read only: a plain paragraph 'Только читать:' allows nothing -> waits" || bad "read only paragraph: exit $rc: $(cat "$W/out")"
 
 # a PR that turns into a draft between the first reading and the one under the main-branch lock
 new_world draft-late 1

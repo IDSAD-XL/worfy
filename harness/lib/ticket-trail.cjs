@@ -20,7 +20,9 @@
 //                                          of the ticket is there) or null when the branch names no ticket, trail a
 //                                          list or null, reason why either is missing; unread — git could not answer
 //
-// A trail entry is a span in single backticks with no space in it that looks like a path (it holds a "/" or a "."):
+// A trail entry is a span in single backticks, on a list item line of the section (as the worfy app reads the trail: a
+// plain paragraph, such as a "Read only: …" line written without a list marker, and a continuation line of an item allow
+// nothing), with no space in it that looks like a path (it holds a "/" or a "."):
 // `harness/bin/land`, `.github/actions/setup/action.yml`, `test/quarantine/**`. A line suffix (`land:755-764`) is dropped; a
 // span of a line number alone (`:356`) or of a word (`PR_FIELDS`, `ready()`) names no file. "\" reads as "/" (a trail
 // written on Windows). Code blocks are skipped, and so is a heading inside them.
@@ -63,11 +65,14 @@ const LINES = /:\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*$/
 
 // A read-only item of a trail (bin/TICKETS.md, "Trail"): a list item whose text starts with "Read only" or "Read-only" (or
 // the same words of another language, lib/input-words.json trailReadOnly), maybe bold, then anything up to a colon. Its
-// paths are files the ticket reads, not files it may edit: they and its continuation lines (more indented) do not count.
+// paths are files the ticket reads, not files it may edit: they and its nested items (more indented, blank lines between
+// them included) do not count.
 const READ_ONLY_WORDS = ["Read only", "Read-only", ...(require("./input-words.json").trailReadOnly || [])]
 const literalWord = (w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/[ -]/g, "[ -]")
 const READ_ONLY = new RegExp(`^([ \\t]*)(?:[-*+]|\\d+[.)])[ \\t]+(?:\\*\\*|__)?(?:${READ_ONLY_WORDS.map(literalWord).join("|")})(?![\\p{L}\\p{N}])[^:\\n]*:`, "iu")
 const HEADING = /^#{1,6}[ \t]/
+// A list item line, the rule the worfy app reads the trail by.
+const LIST_ITEM = /^[ \t]*(?:[-*+]|\d+[.)])[ \t]+/
 const indentOf = (line) => /^[ \t]*/.exec(line)[0].length
 
 /**
@@ -102,6 +107,7 @@ function trailPaths(text, heading) {
             readOnly = ro[1].length
             continue
         }
+        if (!LIST_ITEM.test(line)) continue
         for (const m of line.matchAll(/`([^`]+)`/g)) {
             const span = m[1].trim().replace(/\\/g, "/").replace(LINES, "")
             if (span === "" || /\s/.test(span) || !/[/.]/.test(span) || span.startsWith(":")) continue

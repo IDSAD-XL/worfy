@@ -99,6 +99,30 @@ describe('trailPaths', () => {
     for (const p of ['harness/bin/profile', 'harness/profiles/README.md', 'harness/hooks/hooks.json', 'src/read-only.ts', 'src/read-only-bold.ts']) expect(trail).not.toContain(p)
   })
 
+  it('takes only list items, as the app reads the trail: a plain paragraph allows nothing', () => {
+    expect(tt.trailPaths(`${HEADING}\n\n- \`a/x.ts\`\n\nТолько читать: \`.claude/settings.json\`\n`, HEADING)).toEqual(['a/x.ts'])
+    // the shape of the tickets on the main branch: a plain read-only paragraph whose continuation lines have no indent
+    const plain = [
+      HEADING,
+      '',
+      '- `scripts/spikes/compaction/` (новый)',
+      '',
+      'Только читать: `scripts/spikes/harness-plugin/probe.ts`, `harness/hooks/hooks.json`,',
+      '`src/main/vendors/claude/options.ts`, `src/main/vendors/claude/session.ts`,',
+      '`sdk.d.ts` пакета `@anthropic-ai/claude-agent-sdk`.',
+      '',
+      '## Вне скоупа',
+    ].join('\n')
+    expect(tt.trailPaths(plain, HEADING)).toEqual(['scripts/spikes/compaction/**'])
+    // a list item's continuation line is not a list item either
+    expect(tt.trailPaths(`${HEADING}\n\n- \`a/x.ts\` and\n  \`a/wrapped.ts\`\n`, HEADING)).toEqual(['a/x.ts'])
+  })
+
+  it('skips a read-only item past a blank line inside it: its nested items stay read only', () => {
+    const text = `${HEADING}\n\n- Read only:\n\n  - \`CLAUDE.md\`\n  - \`.claude/settings.json\`\n\n- \`a/x.ts\`\n`
+    expect(tt.trailPaths(text, HEADING)).toEqual(['a/x.ts'])
+  })
+
   it('finds the heading by the rule the app reads sections by: spacing and a heading given without its #', () => {
     expect(tt.trailPaths(TICKET.replace(HEADING, '##  Где в коде  '), HEADING)).toEqual(trail)
     expect(tt.trailPaths(TICKET, 'Где в коде')).toEqual(trail)

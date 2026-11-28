@@ -1304,7 +1304,8 @@ of `land`. For each PR, in the order of the state file, `land`:
 
 The state file — one per set of PRs; a new set gets a new file. `<CI check>` is `F workflow.ci_check`, the
 final check: `land` refuses a state file that names another one. With no `workflow.ci_check` in the profile the block
-puts the placeholder there: write the final check the project's rules name, and `land` prints the line `the CI check
+(the field missing, or `null`: `profile --field` prints `null` with exit 0) puts the placeholder there: write
+the final check the project's rules name, and `land` prints the line `the CI check
 <name> is the state file's: the profile names no workflow.ci_check` (carry it into the Wave report). `<CI workflow>` is
 the workflow file the project's rules name. Each PR is
 `<N>:<epic>:<NN>:<head>:<checks>[:main-fix]`: `<head>` — the head SHA the review verified; `main-fix` —
@@ -1328,7 +1329,7 @@ outside the repository, or Silent mode, means no documents PR:
 ```bash
 F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$@" 2>/dev/null; }
 S=<state file>                                 # e.g. <orchestrator scratchpad>/land-<epic>-1.json
-node - "$S" <repo> <main branch> "$(F workflow.ci)" "$(F workflow.ci_check || echo '<CI check>')" <CI workflow> "$(F docs.handoff.check)" "$(F tickets.root)" "$(F _resolved.mode)" "<documents-only command>" ["--red-elsewhere=<label>|<command>"] <N>:<epic>:<NN>:<head>:<checks>[:main-fix]… <<'NODE'
+node - "$S" <repo> <main branch> "$(F workflow.ci)" "$(c="$(F workflow.ci_check)"; [ "${c:-null}" = null ] && c='<CI check>'; printf '%s' "$c")" <CI workflow> "$(F docs.handoff.check)" "$(F tickets.root)" "$(F _resolved.mode)" "<documents-only command>" ["--red-elsewhere=<label>|<command>"] <N>:<epic>:<NN>:<head>:<checks>[:main-fix]… <<'NODE'
 const fs = require("fs"), path = require("path"), os = require("os")
 const [file, repo, branch, ci, check, workflow, docs, root, mode, docsOnly, ...args] = process.argv.slice(2)
 const named = args.filter((a) => a.startsWith("--red-elsewhere=")), prs = args.filter((a) => !a.startsWith("--red-elsewhere="))

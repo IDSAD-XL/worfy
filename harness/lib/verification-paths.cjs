@@ -24,9 +24,9 @@
 //   isVerificationParent(file, paths, { platform, root })
 //                                         whether the file is a folder above one of the globs (`.claude` above
 //                                         `.claude/**`)
-//   touchesVerificationPath(file, paths, { platform, root, symlink })
+//   touchesVerificationPath(file, paths, { platform, root, symlink, gitlink })
 //                                         whether a change of the file changes a verification path: it is one, a
-//                                         folder above one, or the change is a symbolic link
+//                                         submodule (gitlink) at a folder above one, or the change is a symbolic link
 //
 // A glob is matched against the whole path from the root of the repository: `*` and `?` never cross a
 // "/", `**` as a whole segment is any number of segments (none too), `{a,b}` is one of its parts. Any
@@ -210,9 +210,9 @@ function isVerificationPath(file, paths, options = {}) {
 
 /**
  * Whether `file` is a folder above one of the globs `paths`: its segments match the first segments of a glob that has more
- * of them (a `**` segment matches any rest). `.claude` is above `.claude/**`, `.github` above `.github/workflows/**`. A change
- * of such a path — a symbolic link put in its place, the folder removed or moved as a whole — changes the files under it,
- * though the path itself matches no glob.
+ * of them (a `**` segment matches any rest). `.claude` is above `.claude/**`, `.github` above `.github/workflows/**`. A
+ * submodule or a symbolic link at such a path changes the files under it, though the path itself matches no glob; a
+ * regular file there hides no folder (and with a glob that starts with `**` every path is above it).
  */
 function isVerificationParent(file, paths, options = {}) {
     const p = normalizePath(file, options)
@@ -233,12 +233,14 @@ function isVerificationParent(file, paths, options = {}) {
 }
 
 /**
- * Whether a change of `file` changes a verification path: the file is one, or a folder above one (isVerificationParent),
- * or the change is a symbolic link (options.symlink) — a link may point anywhere, so no glob can tell what it reaches.
+ * Whether a change of `file` changes a verification path: the file is one; the change is a submodule (options.gitlink,
+ * mode 160000) at a folder above one (isVerificationParent), whose files git puts under it; or the change is a symbolic
+ * link (options.symlink, mode 120000) — a link may point anywhere, so no glob can tell what it reaches.
  */
 function touchesVerificationPath(file, paths, options = {}) {
     if (options.symlink) return normalizePath(file, options) !== null
-    return isVerificationPath(file, paths, options) || isVerificationParent(file, paths, options)
+    if (isVerificationPath(file, paths, options)) return true
+    return options.gitlink === true && isVerificationParent(file, paths, options)
 }
 
 module.exports = {
