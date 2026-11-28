@@ -34,7 +34,17 @@ describe('worfy never turns on Claude Code’s Code Mode (worfy-polish ticket 17
   })
 
   it('draftSessionOptions, inventoryOptions and harnessCheckOptions', () => {
-    expect(codeModeIn(draftSessionOptions({ cwd: '/repo', env, runtime, persistSession: false }))).toEqual([])
+    const draft = draftSessionOptions({
+      cwd: '/repo',
+      env,
+      runtime,
+      outputFormat: { type: 'json_schema', schema: { type: 'object' } },
+      allowedTools: ['Read'],
+      disallowedTools: ['Bash'],
+      harnessPlugin: null,
+      persistSession: false,
+    })
+    expect(codeModeIn(draft)).toEqual([])
     expect(codeModeIn(inventoryOptions({ cwd: '/worfy', env, runtime, disabled: ['server-1'] }))).toEqual([])
     expect(codeModeIn(harnessCheckOptions({ cwd: '/worfy', env, runtime, harnessPlugin: '/harness' }))).toEqual([])
   })
