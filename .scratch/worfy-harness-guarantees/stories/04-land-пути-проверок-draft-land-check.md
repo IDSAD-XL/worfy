@@ -11,7 +11,7 @@ Kind: pr · Epic: worfy-harness-guarantees · Ticket: 04 · PR: - · Language: r
 
 ## 2. Draft не сливается
 
-Code: `harness/bin/land:1006-1015` · key lines: 1009, 1011
+Code: `harness/bin/land:1009-1018` · key lines: 1012, 1014
 
 ```js
         } else {
@@ -36,7 +36,7 @@ Code: `harness/bin/land:1006-1015` · key lines: 1009, 1011
 
 ## 3. Пути проверок против trail-а Ticket-а
 
-Code: `harness/bin/land:884-911` · key lines: 890, 895, 899, 901, 903, 905
+Code: `harness/bin/land:887-914` · key lines: 893, 898, 902, 904, 906, 908
 
 ```js
 function verified(st, pr, head, view) {
@@ -49,8 +49,8 @@ function verified(st, pr, head, view) {
     const paths = entries.map((e) => e.path)
     // an absolute root: a relative one would resolve from the working directory (a realpath on macOS)
     const root = path.resolve(st.repo)
-    // a verification path, a folder above one (a link .claude in place of the folder of .claude/**), or any symbolic link
-    const touched = entries.filter((e) => touchesVerificationPath(e.path, list, { root, symlink: e.symlink })).map((e) => e.path)
+    // a verification path, a submodule at a folder above one (tools above tools/check-*), or any symbolic link
+    const touched = entries.filter((e) => touchesVerificationPath(e.path, list, { root, symlink: e.symlink, gitlink: e.gitlink })).map((e) => e.path)
     const notes = []
     if (touched.length) {
         const tickets = field(profile, "tickets") || {}
@@ -70,7 +70,7 @@ function verified(st, pr, head, view) {
 ```
 
 - Что делает: берёт список из Profile-а (никогда из state file), записи diff-а от merge-base (`git diff --raw`: путь и
-  признак symlink-а), считает затронутыми путь проверки, папку над ним и любой symlink, Ticket по ветке PR и его
+  признаки symlink-а и submodule), считает затронутыми путь проверки, submodule на папке над ним и любой symlink, Ticket по ветке PR и его
   trail на вершине base branch (`ref`), а не на merge-base; путь вне trail-а — ждёт, PR без Ticket-а — ждёт владельца.
 - Почему здесь: Ticket называет шаг `verified(st, pr, head)` в `ready()` и чтение trail-а на вершине base branch
   (решение владельца по возражению 2 critic-а).
@@ -82,7 +82,7 @@ function verified(st, pr, head, view) {
 
 ## 4. PR, который расширяет trail
 
-Code: `harness/bin/land:869-877` · key lines: 872, 873
+Code: `harness/bin/land:872-880` · key lines: 875, 876
 
 ```js
     const out = []
@@ -106,7 +106,7 @@ Code: `harness/bin/land:869-877` · key lines: 872, 873
 
 ## 5. Имя check-а CI — из Profile-а
 
-Code: `harness/bin/land:1448-1464` · key lines: 1456, 1458, 1461
+Code: `harness/bin/land:1451-1467` · key lines: 1459, 1461, 1464
 
 ```js
 function ciCheckAgrees(file, st) {
@@ -138,7 +138,7 @@ function ciCheckAgrees(file, st) {
 
 ## 6. `land --check <N>`: ответ за один PR
 
-Code: `harness/bin/land:1526-1541` · key lines: 1528, 1531, 1533, 1536, 1540
+Code: `harness/bin/land:1529-1544` · key lines: 1531, 1534, 1536, 1539, 1543
 
 ```js
         const v = prView(st, Number(n))
@@ -171,7 +171,7 @@ Code: `harness/bin/land:1526-1541` · key lines: 1528, 1531, 1533, 1536, 1540
 
 ## 7. Один helper trail-а для `land` и guard-а
 
-Code: `harness/lib/ticket-trail.cjs:161-184` · key lines: 162, 166, 167, 174, 177, 183
+Code: `harness/lib/ticket-trail.cjs:167-190` · key lines: 168, 172, 173, 180, 183, 189
 
 ```js
     // the names are relative; the root is absolute, so the match never depends on the working directory
@@ -208,31 +208,33 @@ Code: `harness/lib/ticket-trail.cjs:161-184` · key lines: 162, 166, 167, 174, 1
 - Требование: [Готово, когда, п. 6](../issues/04-land-пути-проверок-draft-land-check.md#готово-когда)
 - Риски и пробелы test-ов: записи trail-а проекта с несколькими репозиториями сравниваются как написаны — `shortcut:`.
 
-## 8. Symlink и папка над путём проверки
+## 8. Symlink и submodule над путём проверки
 
-Code: `harness/lib/verification-paths.cjs:237-242` · key lines: 240, 241
+Code: `harness/lib/verification-paths.cjs:240-244` · key lines: 241, 242, 243
 
 ```js
- * or the change is a symbolic link (options.symlink) — a link may point anywhere, so no glob can tell what it reaches.
- */
 function touchesVerificationPath(file, paths, options = {}) {
     if (options.symlink) return normalizePath(file, options) !== null
-    return isVerificationPath(file, paths, options) || isVerificationParent(file, paths, options)
+    if (isVerificationPath(file, paths, options)) return true
+    return options.gitlink === true && isVerificationParent(file, paths, options)
 }
 ```
 
-- Что делает: изменение считается правкой пути проверки, если путь сам в списке, если это папка над glob-ом списка
-  (`.claude` над `.claude/**`, `tools` над `tools/check-*`) или если это symlink — куда угодно внутри репозитория.
+- Что делает: изменение считается правкой пути проверки, если путь сам в списке, если это submodule (mode 160000) на
+  папке над glob-ом списка (`tools` над `tools/check-*`) или если это symlink — куда угодно внутри репозитория. Обычный
+  файл папку не скрывает: с glob-ом `**/CLAUDE.md` иначе любой файл был бы «над» ним (review раунда 2).
 - Почему здесь: review раунда 1 попросил правило в `lib/verification-paths.cjs`, чтобы его взял и guard из спеки;
   правило записано в спеке.
 - Без него: PR с symlink-ом `.claude` → `docs/x` (и `docs/x/settings.json`) или с submodule `tools` сливался бы без
-  trail-а (test-ы «link», «link-any», «parent» и unit test helper-а красные на мутантах).
+  trail-а (test-ы «link», «link-any», «parent» и unit test helper-а красные на мутантах); без условия `gitlink` любой
+  файл ждал бы владельца (test «parent-file» и unit test `**/CLAUDE.md` красные на мутанте).
 - Требование: [Решения по реализации](../spec.md#решения-по-реализации)
 - Риски и пробелы test-ов: symlink считается всегда, даже если указывает в безобидную папку — trail должен его назвать.
+  Submodule в test-е указывает на коммит, которого нет в origin: `land` смотрит только на режим записи.
 
-## 9. Пункт «Только читать» не разрешает правку
+## 9. Trail — только пункты списка; «Только читать» не разрешает правку
 
-Code: `harness/lib/ticket-trail.cjs:96-104` · key lines: 97, 100, 102
+Code: `harness/lib/ticket-trail.cjs:101-110` · key lines: 102, 105, 107, 110
 
 ```js
         if (readOnly !== null) {
@@ -244,22 +246,28 @@ Code: `harness/lib/ticket-trail.cjs:96-104` · key lines: 97, 100, 102
             readOnly = ro[1].length
             continue
         }
+        if (!LIST_ITEM.test(line)) continue
 ```
 
-- Что делает: пункт trail-а, который начинается с «Read only» / «Read-only» или тех же слов по-русски
-  (`lib/input-words.json` `trailReadOnly`) и двоеточия, и его строки с большим отступом не дают путей.
+- Что делает: путь считается только на строке пункта списка, как trail читает приложение worfy; абзац «Только читать:
+  …» без маркера и строки продолжения ничего не дают. Пункт, который начинается с «Read only» / «Read-only» или тех же
+  слов по-русски (`lib/input-words.json` `trailReadOnly`) и двоеточия, и его вложенные пункты (и после пустой строки)
+  тоже не дают путей.
 - Почему здесь: правило Ticket-ов — `harness/bin/TICKETS.md`, раздел **Trail**; review раунда 1 указал, что такие
   пути считались разрешёнными.
-- Без него: Ticket, который только читает `CLAUDE.md`, разрешал бы его правку (test «readonly» и unit test-ы красные на
-  мутанте).
+- Без него: Ticket, который только читает `CLAUDE.md`, разрешал бы его правку. На main так написано большинство
+  Ticket-ов — абзацем (около 259 строк против 51 пункта списка, review раунда 2): test «readonly» с абзацем, unit test
+  с формой настоящего Ticket-а и пустой строкой внутри пункта красные на мутантах.
 - Требование: [Решения по реализации](../spec.md#решения-по-реализации)
-- Риски и пробелы test-ов: другие формулировки («только просмотр») не распознаются: список слов закрытый.
+- Риски и пробелы test-ов: путь, перенесённый на строку продолжения обычного пункта, теперь тоже не считается — PR
+  ждёт, пока trail не назовёт его на строке пункта; в пункте «только просмотр» и других формулировках пути считаются.
 
 ## 10. Как проверено
 
-`bash harness/bin/tests/land-verification.test.sh` — exit 0 (37 проверок; на коде раунда 1 — 16 FAIL из 19, новые
-случаи раунда review — красные до правки); 13 мутантов (флаги `PR_FIELDS`, symlink, папка, «Только читать», UNKNOWN,
-строка `ci_check`, оба чтения draft-а, `unread` папки) — все красные;
+`bash harness/bin/tests/land-verification.test.sh` — exit 0 (39 проверок; на коде раунда 1 — 16 FAIL из 19, новые
+случаи раундов review — красные до правки или на мутанте); 19 мутантов (флаги `PR_FIELDS`, symlink, папка, «Только читать», UNKNOWN,
+строка `ci_check`, оба чтения draft-а, `unread` папки, условие `gitlink`, строки вне пунктов списка, пустая строка в
+пункте «Только читать») — все красные;
 `land.test.sh`, `land-story.test.sh`, `land-epic-story.test.sh` — exit 0; `test/unit/ticket-trail.test.ts` —
 exit 0; `test/unit/verification-paths.test.ts`, `plugin-neutral.test.sh` — exit 0; `pnpm lint`, `pnpm typecheck` — exit 0.
 
@@ -267,7 +275,7 @@ exit 0; `test/unit/verification-paths.test.ts`, `plugin-neutral.test.sh` — exi
 
 1. Почему PR, который сам дописал `.github/workflows/ci.yml` в свой trail, всё равно ждёт?
    - Ответ: trail читается на вершине base branch (`ref`), а правки самого PR-а там нет.
-   - Строки: `harness/bin/land:888-899`
+   - Строки: `harness/bin/land:891-902`
 2. Чем `land --check` отличает «ждёт» от «не может сказать»?
    - Ответ: Wait с флагом `unread` (сбой `gh`, git или Profile-а) даёт exit 2, любой другой Wait — exit 1.
-   - Строки: `harness/bin/land:1540`
+   - Строки: `harness/bin/land:1543`

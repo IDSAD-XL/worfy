@@ -86,6 +86,7 @@ draft, `land --check`»); «Решения по test-ам», Seams (`land`) и �
       Ticket-а с путём проверки ждёт владельца; ветка старше расширения trail-а не ждёт (shell test-ы).
   - evidence: test-run pass · `bash harness/bin/tests/land-verification.test.sh` exit 0 · mac - · 1053c3b169c62803d406ee5042a51cd111f631d7
   - evidence: test-run pass · `bash harness/bin/tests/land-verification.test.sh` exit 0 · mac - · 2edface78e1702614a104cc7309f115379ea3259
+  - evidence: test-run pass · `bash harness/bin/tests/land-verification.test.sh` exit 0 · mac - · e9bfbf434e9f379cc46f637b42f9e2d8ab782879
 - [ ] Строка `land` и отчёт Wave называют пути проверок каждого PR, и PR, который расширяет trail, тоже.
   - evidence: test-run pass · `bash harness/bin/tests/land-verification.test.sh` exit 0 · mac - · 1053c3b169c62803d406ee5042a51cd111f631d7
   - evidence: test-run pass · `bash harness/bin/tests/land-verification.test.sh` exit 0 · mac - · 2edface78e1702614a104cc7309f115379ea3259
@@ -99,6 +100,7 @@ draft, `land --check`»); «Решения по test-ам», Seams (`land`) и �
 - [ ] Helper чтения trail-а лежит в `harness/lib/` и готов для guard-а Ticket-а 03.
   - evidence: test-run pass · `pnpm test test/unit/ticket-trail.test.ts` exit 0 · mac - · 1053c3b169c62803d406ee5042a51cd111f631d7
   - evidence: test-run pass · `pnpm exec vitest run test/unit/ticket-trail.test.ts test/unit/verification-paths.test.ts` exit 0 · mac - · 2edface78e1702614a104cc7309f115379ea3259
+  - evidence: test-run pass · `pnpm exec vitest run test/unit/ticket-trail.test.ts test/unit/verification-paths.test.ts` exit 0 · mac - · e9bfbf434e9f379cc46f637b42f9e2d8ab782879
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR, включая Windows verdict.
 
 ## Итог
@@ -186,3 +188,25 @@ draft, `land --check`»); «Решения по test-ам», Seams (`land`) и �
 - Gate fast на Mac на 2edface78 — exit 2: только watcher test-ы `test/contract/workflow-reader.test.ts` (3 и 4 из
   них в двух запусках, разные — `fs.watch`/`fseventsd` на этом Mac); lint и typecheck зелёные, `src/` правка не трогает.
   Вердикт — CI.
+
+### Review, раунд 2 (вердикт REJECTED на 716882eea)
+
+- Trail — только строки пунктов списка (med): так trail читает приложение worfy (`codeSection`). Абзац «Только
+  читать: …» без маркера списка — так написано большинство Ticket-ов на main — и его строки продолжения без отступа
+  ничего не разрешают; пункт «Только читать:» с вложенными пунктами (и после пустой строки) — тоже. Ticket
+  `worfy-continuity/01` теперь даёт только `scripts/spikes/compaction/**`, без `harness/hooks/hooks.json`. Правило —
+  `harness/bin/TICKETS.md` («Trail»), спека, `docs/features/gate-and-github.md`. Test-ы: unit «takes only list items»
+  (минимальный случай и форма настоящего Ticket-а), `land-verification` «read only: a plain paragraph».
+- Папка над glob-ом — только для submodule (low): обычный файл папку не скрывает, а с glob-ом `**/CLAUDE.md` иначе
+  каждый файл считался бы правкой пути проверки. `land` передаёт признак `gitlink` (mode 160000) из `git diff --raw`.
+  Test-ы: unit «a regular file hides no folder», `land-verification` «parent-file» (обычный файл `tools` сливается).
+- Пустая строка внутри пункта «Только читать» (low): вложенные пункты после неё остаются read only; test на это, мутант
+  M10 теперь красный.
+- `<CI check>` в блоке `land` skill-а `epic-wave` (low): при `workflow.ci_check` = `null` (`profile --field` печатает
+  `null` с exit 0) или без поля ставится placeholder, а не строка `null`. Test-а на блок skill-а нет: выражение
+  проверено в shell на `null`, на exit 4 и на `ci-ok`.
+- Сначала падающий test: новые unit-тесты — 2 FAIL на коде раунда 1; мутанты раунда 2 (6: условие `gitlink` в helper-е —
+  unit и `land`, признак `gitlink` в `land`, строки вне пунктов списка — unit и `land`, пустая строка в read-only пункте)
+  — все красные.
+- Gate fast на Mac на e9bfbf434 — exit 2: только watcher test-ы `test/contract/workflow-reader.test.ts` (`fseventsd`);
+  lint и typecheck зелёные.
