@@ -129,3 +129,24 @@ Source: [spec.md](../spec.md), «Ticket-ы», 08; «Решение», 4; «Ре�
 - Case 2 не забирает test `harness-plugin.test.ts:103`: тот проверяет, что `WORFY_SESSION_KIND` доходит до hook-а (три вида
   Session на plugin-пробе), case — что правила полного Harness-а доходят до модели. Оба остаются.
 - Windows локально не проверен: verdict — job Windows в CI.
+
+Review round 1 (PR #2345, REJECTED на 32785ef5e). Каждое исправление — с test-ом, который был красным на 32785ef5e:
+- **[high] Сломанный Harness выходил как `not-run`.** Копия, где `hooks/stage-lines.mjs` (UserPromptSubmit) выходит с
+  кодом 2, давала «Claude Code never asked the stand-in … (exit code 0)». Теперь решение о прогоне — функция `judgeRun`
+  (`src/main/harness/contract/runner.ts`): пришёл `system/init`, а хода к stand-in-у нет — `failed`, с блокирующим hook-ом
+  в причине. Блокирующий hook — `hook_response` с `exit_code` 2 (`outcome: "error"`, так его пишет 2.1.322) или с JSON
+  `decision: "block"` / `continue: false`. `not-run` остался для: binary не стартовал, нет `system/init`, stand-in не
+  слушает, и — когда ни один hook не блокировал — ошибка API, нет `result`, предел времени. Test «a UserPromptSubmit hook
+  that blocks every prompt»: на 32785ef5e `not-run`, теперь `failed`.
+- **[med] Исключение в `check` роняло весь набор.** `check` теперь в try/catch: `failed` с «the check threw: …», набор
+  отвечает за каждый case. Test «a check that throws»: на 32785ef5e — SyntaxError из `runContractSet`.
+- **[med] Предел времени всегда давал `not-run`.** Stop, который держит каждый ход, на case-е `subagent-agent-id` давал
+  «did not finish … 20 turns». С блокирующим hook-ом это теперь `failed` с его именем. Test «a Stop hook that holds every
+  turn» (предел runner-а `ms(5_000)`; на case-е `plugin-loaded` Claude Code сам заканчивает ход, поэтому case 6): на
+  32785ef5e `not-run`.
+- **[low] Тело запроса stand-in читал по кускам.** Символ на границе двух chunk-ов становился U+FFFD. Теперь байты
+  собираются и декодируются один раз; так же stdout и stderr Claude Code в runner-е. Test «reads a character split between
+  two chunks»: на 32785ef5e `MARKER ��� split`.
+- Ветки «нет init», «ошибка API», «нет result», «предел времени» с блоком и без — unit test
+  `test/unit/harness-contract-judge.test.ts` (13 test-ов, без процессов).
+- `test/fixtures/sdk-messages/README.md:30` называет новый путь stand-in-а рядом со старым.

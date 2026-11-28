@@ -13,7 +13,7 @@ Kind: pr · Epic: worfy-harness-guarantees · Ticket: 08 · PR: - · Language: r
 
 ## 2. Stand-in ведёт цепочку вызовов на разговор
 
-Code: `src/main/harness/contract/messages-api-stand-in.ts:216-223` · key lines: 216, 218, 219
+Code: `src/main/harness/contract/messages-api-stand-in.ts:217-224` · key lines: 217, 219, 220
 ```ts
       const first = textOf(messages[0]?.content)
       requests.push({ system: textOf(json.system), first, last: textOf(messages.at(-1)?.content), tools })
@@ -36,32 +36,43 @@ Code: `src/main/harness/contract/messages-api-stand-in.ts:216-223` · key lines:
 
 ## 3. Runner отличает «не смог запустить» от красного case-а
 
-Code: `src/main/harness/contract/runner.ts:162-174` · key lines: 162, 165, 167, 171, 174
+Code: `src/main/harness/contract/runner.ts:179-198` · key lines: 183, 187, 189, 196, 197
 ```ts
-    if (spawned.error !== undefined) return notRun(`could not start ${options.binary}: ${spawned.error.code ?? spawned.error.message}`)
-    const lines = parseLines(spawned.out)
-    const requests = standIn.requests()
-    if (spawned.timedOut) return notRun(`Claude Code did not finish in ${options.runLimitMs} ms and was stopped; ${requests.length} turns asked the stand-in; stderr: ${tail(spawned.err)}`)
-    const init = lines.find((line) => line.type === 'system' && line.subtype === 'init')
-    if (init === undefined) return notRun(`Claude Code printed no system/init (exit code ${String(spawned.code)}); stderr: ${tail(spawned.err)}`)
-    if (requests.length === 0) return notRun(`Claude Code never asked the stand-in of the Messages API (exit code ${String(spawned.code)}); stderr: ${tail(spawned.err)}`)
-    const result = lines.find((line) => line.type === 'result')
-    if (result === undefined) return notRun(`Claude Code printed no result (exit code ${String(spawned.code)}); stderr: ${tail(spawned.err)}`)
-    if (result.is_error === true) return notRun(`the turn ended with an error of the API or of Claude Code: ${tail(JSON.stringify(result), 400)}`)
-    const run: CaseRun = { ...context, lines, init, requests, toolResult: (callId) => standIn?.toolResult(callId), exitCode: spawned.code, stderr: spawned.err }
-    const why = contractCase.check(run)
-    return why === null ? { id, title, status: 'passed' } : { id, title, status: 'failed', reason: why }
+export function judgeRun(trace: RunTrace): RunVerdict {
+  if (trace.startError !== undefined) return { status: 'not-run', reason: `could not start the binary: ${trace.startError}` }
+  const init = trace.lines.find((line) => line.type === 'system' && line.subtype === 'init')
+  const stderr = `stderr: ${tail(trace.stderr)}`
+  if (init === undefined)
+    return { status: 'not-run', reason: `Claude Code printed no system/init (${trace.timedOut ? `stopped at the limit of ${trace.limitMs} ms` : `exit code ${String(trace.exitCode)}`}); ${stderr}` }
+  const blocked = blockingHooks(trace.lines)
+  const holding = blocked.length === 0 ? '' : `; hooks of the plugin blocked: ${[...new Set(blocked)].join('; ')}`
+  if (trace.requests === 0) return { status: 'failed', reason: `Claude Code started with the plugin but asked the stand-in no turn (exit code ${String(trace.exitCode)})${holding}; ${stderr}` }
+  const result = trace.lines.find((line) => line.type === 'result')
+  const ended = trace.timedOut
+    ? `Claude Code did not finish in ${trace.limitMs} ms and was stopped; ${trace.requests} turns asked the stand-in`
+    : result === undefined
+      ? `Claude Code printed no result (exit code ${String(trace.exitCode)})`
+      : result.is_error === true
+        ? `the turn ended with an error of the API or of Claude Code: ${tail(JSON.stringify(result), 400)}`
+        : undefined
+  if (ended === undefined) return { status: 'ran', init }
+  return blocked.length > 0 ? { status: 'failed', reason: `${ended}${holding}` } : { status: 'not-run', reason: `${ended}; ${stderr}` }
+}
 ```
 
-- Что делает: прогон без старта binary, без `system/init`, без запроса к stand-in-у, без `result`, с ошибкой API или
-  дольше предела — `not-run` с причиной и хвостом stderr; только состоявшийся прогон идёт в `check` case-а, и его
-  отказ — `failed`.
+- Что делает: `not-run` — только пока о Harness-е сказать нечего: binary не стартовал, нет `system/init`, или, когда ни
+  один hook plugin-а не блокировал, прогон кончился ошибкой API, без `result` или пределом времени. Пришёл
+  `system/init`, а к stand-in-у не пришло ни одного хода, — `failed`; ошибка или предел при блокирующем hook-е
+  (exit 2 или JSON с `decision: "block"`) — тоже `failed` с именем hook-а. Полный прогон идёт в `check` case-а.
 - Почему здесь: Ticket требует, чтобы Health (Ticket 09) писал «не смог запустить» и «guard не отказал» разными
-  строками; spec называет риск «Stand-in отстаёт от API».
-- Без него: binary, который не стартовал, выглядел бы как сломанный Harness, и наоборот.
+  строками; spec называет риск «Stand-in отстаёт от API». Правило «init есть, хода нет — failed» — из review round 1
+  PR #2345.
+- Без него: Harness, чей UserPromptSubmit блокирует каждый prompt или чей Stop держит каждый ход, выглядел бы как
+  «не смог запустить», и Health не покраснел бы.
 - Требование: [Готово, когда, п. 2](../issues/08-contract-set-без-модели.md#готово-когда)
-- Риски и пробелы test-ов: test-ом проверены две ветки — несуществующий binary (`not-run`) и сломанный `hooks.json`
-  (`failed`); ветки «нет init», «ошибка API» и предел времени test-а не имеют.
+- Риски и пробелы test-ов: каждая ветка — unit test `test/unit/harness-contract-judge.test.ts`; на настоящем binary —
+  несуществующий binary, сломанный `hooks.json`, блокирующий UserPromptSubmit и Stop, который держит каждый ход.
+  Блокирующий hook узнаётся по `exit_code` 2 или JSON-ответу; другие формы блока Claude Code не сняты.
 
 ## 4. Stop при красном gate: gate — stub
 
@@ -94,7 +105,7 @@ Code: `src/main/harness/contract/cases.ts:120-130` · key lines: 125, 126, 129, 
 
 ## 5. Красный case на сломанном `hooks.json`
 
-Code: `test/contract/harness-guarantees.test.ts:45-52` · key lines: 47, 48, 50, 51
+Code: `test/contract/harness-guarantees.test.ts:47-54` · key lines: 49, 50, 52, 53
 ```ts
   it('a copy of the Harness whose hooks.json does not parse (test/fixtures/harness-broken-hooks) gives a red case', async () => {
     const broken = join(scratch, 'harness-broken-hooks')
@@ -127,13 +138,15 @@ Code: `test/contract/harness-guarantees.test.ts:45-52` · key lines: 47, 48, 50,
 - `pnpm test test/contract/harness-guarantees.test.ts` — exit 1 до кода (`Cannot find module`), exit 0 после.
 - Четыре мутации копии Harness (временный test, не в PR) краснят каждая свой case: 4, 5, 6, 2.
 - `pnpm lint` — exit 0, `pnpm typecheck` — exit 0, `pnpm test` — exit 0; gate fast — exit 0.
+- Review round 1: четыре новых test-а были красными на 32785ef5e (блокирующий UserPromptSubmit, Stop, который держит
+  каждый ход, `check`, который бросает исключение, символ на границе chunk-ов); `test/unit/harness-contract-judge.test.ts` — exit 0.
 
 ## Проверить себя
 
 1. Почему зависший прогон Claude Code не превращается в timeout test-а?
    Ответ: У runner-а свой предел `runLimitMs` ниже предела test-а; по нему процесс останавливается по своему pid, и
-   case приходит как `not-run` с причиной и stderr.
-   Lines: `src/main/harness/contract/runner.ts:162-174`
+   case приходит как `not-run` — или как `failed`, если hook plugin-а блокировал ходы.
+   Lines: `src/main/harness/contract/runner.ts:179-198`
 2. Чем case 5 заменяет настоящий прогон gate?
    Ответ: Resolver-stub называет репозиторий зарегистрированным, а маркер `red-<key>-<tag>` — то, что оставляет
    красный `gate.mjs fast`; `stop.mjs` держит ход по ним.
