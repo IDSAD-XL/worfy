@@ -213,10 +213,24 @@ expect "Bash: perl -pi -> deny" deny "$(bash_ "perl -pi -e 's/a/b/' ${GW}/main.y
 expect "Bash: ln -s onto a verification path -> deny" deny "$(bash_ 'ln -sf /tmp/x '"$GW"'/main.yml' "$W" "$IMPL")" "$GW/main.yml (a symbolic link, which may point anywhere) is a verification path, and the trail of ep 07 does not name it"
 expect "Bash: a symbolic link anywhere in the repository counts, as in land -> deny" deny "$(bash_ 'ln -s ../x src/link' "$W" "$IMPL")" "src/link (a symbolic link, which may point anywhere) is a verification path, and the trail of ep 07 does not name it"
 expect "Bash: a hard link outside the verification paths -> allow" allow "$(bash_ 'ln src/a.ts src/b.ts' "$W" "$IMPL")"
-expect "Bash: cp -R of a folder onto a folder above the verification paths -> deny" deny "$(bash_ 'cp -R tmpl .github' "$W" "$IMPL")" ".github is a verification path"
-expect "Bash: cp -r of a folder into a folder above them -> deny" deny "$(bash_ 'cp -r tmpl/workflows .github/' "$W" "$IMPL")" "is a verification path"
-expect "Bash: mv a folder onto .github in two steps -> deny" deny "$(bash_ 'mv tmpl .github2 && mv .github2 .github' "$W" "$IMPL")" ".github is a verification path"
-expect "Bash: rsync of a folder onto .github -> deny" deny "$(bash_ 'rsync -a --exclude x tmpl/ .github/' "$W" "$IMPL")" ".github is a verification path"
+# A folder copy or move: a destination that ends in "/" or is a folder that exists gets each source under its own name,
+# so only a source that lands as (or over) a folder above a verification path is refused. tools/ does not exist in W.
+mkdir -p "$W/tmpl/workflows" "$W/docs" && printf 'x\n' >"$W/notes.md" && printf '* @x\n' >"$W/CODEOWNERS"
+expect "Bash: cp -r of a folder into a folder above them, under its own name -> deny" deny "$(bash_ 'cp -r tmpl/workflows .github/' "$W" "$IMPL")" ".github/workflows is a verification path"
+expect "Bash: mv of a folder into a folder above them, under its own name -> deny" deny "$(bash_ 'mv tmpl/workflows .github/' "$W" "$IMPL")" ".github/workflows is a verification path"
+expect "Bash: cp -R of a folder onto a folder that does not exist and is above a verification path -> deny" deny "$(bash_ 'cp -R tmpl tools' "$W" "$IMPL")" "tools is a verification path"
+expect "Bash: mv of a folder onto a folder that does not exist and is above a verification path -> deny" deny "$(bash_ 'mv tmpl tools' "$W" "$IMPL")" "tools is a verification path"
+expect "Bash: cp -RT (no target folder) onto .github -> deny" deny "$(bash_ 'cp -RT tmpl .github' "$W" "$IMPL")" ".github is a verification path"
+expect "Bash: mv -T (no target folder) onto .github, in two steps -> deny" deny "$(bash_ 'mv tmpl .github2 && mv -T .github2 .github' "$W" "$IMPL")" ".github is a verification path"
+expect "Bash: rsync of a folder's contents onto .github -> deny" deny "$(bash_ 'rsync -a --exclude x tmpl/ .github/' "$W" "$IMPL")" ".github is a verification path"
+expect "Bash: rsync of a folder into .github under its own name -> deny" deny "$(bash_ 'rsync -a tmpl/workflows .github' "$W" "$IMPL")" ".github/workflows is a verification path"
+expect "Bash: cp -R of a folder into an existing .github lands as .github/tmpl -> allow" allow "$(bash_ 'cp -R tmpl .github' "$W" "$IMPL")"
+expect "Bash: mv of a folder into an existing .github lands as .github/docs -> allow" allow "$(bash_ 'mv docs .github' "$W" "$IMPL")"
+expect "Bash: mv of a file into tools/ (above tools/check-*.mjs) -> allow" allow "$(bash_ 'mv notes.md tools/' "$W" "$IMPL")"
+expect "Bash: cp -r of a file into tools/ -> allow" allow "$(bash_ 'cp -r notes.md tools/' "$W" "$IMPL")"
+expect "Bash: mv CODEOWNERS .github/ (the default paths: .github/workflows/**) -> allow" allow "$(bash_ 'mv CODEOWNERS .github/' "$W" "$IMPL")"
+expect "Bash: mv of a file to the name of a folder that does not exist -> allow" allow "$(bash_ 'mv notes.md tools' "$W" "$IMPL")"
+expect "Bash: rsync of a folder into .github under its own name, not above a verification path -> allow" allow "$(bash_ 'rsync -a docs .github/' "$W" "$IMPL")"
 expect "Bash: a plain cp of one file into .github/ (not a verification path) -> allow" allow "$(bash_ 'cp notes.md .github/' "$W" "$IMPL")"
 expect "Bash: >| -> deny" deny "$(bash_ 'echo x >| '"$GW"'/main.yml' "$W" "$IMPL")" "$OUTSIDE"
 expect "Bash: \$PWD/ -> deny" deny "$(bash_ 'echo x > "$PWD/'"$GW"'/main.yml"' "$W" "$IMPL")" "$OUTSIDE"
@@ -289,6 +303,28 @@ decide "$(edit "$W/${GW}/main.yml" "$W" "$IMPL")" >/dev/null
     && ok "without WORFY_GUARD_LOG a refusal writes no file" || bad "without WORFY_GUARD_LOG a file was written"
 got="$(WORFY_GUARD_LOG="$T/no-such-dir/x/guard.jsonl" decide "$(edit "$W/${GW}/main.yml" "$W" "$IMPL")")"
 [[ "$got" == deny* ]] && ok "WORFY_GUARD_LOG that cannot be written: the refusal still holds" || bad "unwritable WORFY_GUARD_LOG: ${got:0:300}"
+
+# --- a failure inside the section ------------------------------------------------------------------------------------
+# An exception inside the verification-path section lets the call through (the spec's risks: land checks the diff at
+# merge): a replace_all Edit of a ticket in the Workflow folder whose result would pass the longest string node allows.
+BIG="$WF/.scratch/ep/issues/09-big.md"
+{ printf '# 09\n\n## Where in code\n\n'; head -c 1048576 /dev/zero | tr '\0' a; } >"$BIG"
+expect "an exception inside the section (a string too long to build) -> allow, the call goes through" allow \
+    "$(printf '{"tool_name":"Edit","tool_input":{"file_path":%s,"old_string":"a","new_string":%s,"replace_all":true},"cwd":%s,%s}' "$(q "$BIG")" "$(q "$(printf 'b%.0s' $(seq 1 600))")" "$(q "$S")" "$IMPL")"
+rm -f "$BIG"
+
+# --- a rebase stopped on a conflict --------------------------------------------------------------------------------
+# HEAD is detached during a rebase: the branch being rebased (rebase-merge/head-name) is the branch, not a review tree.
+SIDE="$T/side"
+git -C "$R" worktree add -q -b side "$SIDE" main && printf 'export const a = 3\n' >"$SIDE/src/a.ts" && git -C "$SIDE" commit -q -am side
+printf 'export const a = 2\n' >"$W/src/a.ts" && git -C "$W" commit -q -am "ours"
+git -C "$W" rebase side >/dev/null 2>&1
+[ "$(git -C "$W" rev-parse --abbrev-ref HEAD)" = HEAD ] && ok "setup: the rebase of ep/07 stopped on a conflict, HEAD detached" || bad "setup: the rebase did not stop"
+expect "a rebase in progress: a verification path the trail names -> allow" allow "$(edit "$W/${GW}/named.yml" "$W" "$IMPL")"
+expect "a rebase in progress: a verification path the trail does not name -> deny, the ordinary refusal" deny "$(edit "$W/${GW}/main.yml" "$W" "$IMPL")" "$OUTSIDE. $STEP"
+expect "a rebase in progress: Bash into a verification path the trail does not name -> deny" deny "$(bash_ 'echo x > '"$GW"'/main.yml' "$W" "$IMPL")" "$OUTSIDE"
+git -C "$W" rebase --abort >/dev/null 2>&1
+expect "a detached tree with no rebase is still a review tree -> deny" deny "$(edit "$D/CLAUDE.md" "$D" "$IMPL")" "Mutate a copy outside the repository"
 
 # --- the matcher --------------------------------------------------------------------------------------------------
 [ "$(jq -r '.hooks.PreToolUse[] | select(.hooks[].command | test("guard.mjs")) | .matcher' "$HOOKS/hooks.json")" = "Bash|apply_patch|Edit|Write|MultiEdit|NotebookEdit" ] \
