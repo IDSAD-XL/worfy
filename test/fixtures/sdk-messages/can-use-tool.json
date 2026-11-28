@@ -6,7 +6,7 @@
         "toolName": "Bash",
         "input": {
           "command": "mkdir -p <tmp>/perm/one",
-          "description": "Create directory perm/one in the probe folder"
+          "description": "Create directory perm/one"
         },
         "options": {
           "suggestions": [
@@ -36,9 +36,9 @@
           ],
           "blockedPath": "<tmp>/perm/one",
           "displayName": "Bash",
-          "description": "Create directory perm/one in the probe folder",
-          "toolUseID": "toolu_0191EwmpqAruiAyZ5R8FcNe7",
-          "requestId": "00000000-0000-4000-8000-000000000096",
+          "description": "Create directory perm/one",
+          "toolUseID": "toolu_01PHdLDoZoCogEtFPnZUuUvw",
+          "requestId": "00000000-0000-4000-8000-000000000293",
           "signal": "<AbortSignal aborted=false>"
         }
       },
@@ -46,7 +46,7 @@
         "behavior": "allow",
         "updatedInput": {
           "command": "mkdir -p <tmp>/perm/one",
-          "description": "Create directory perm/one in the probe folder"
+          "description": "Create directory perm/one"
         },
         "updatedPermissions": [
           {

@@ -617,7 +617,9 @@ const otherCalls = (lines: string[]) => lines.filter((l) => !/ auth token -u /.t
 function profileAccount(): string {
   const fromFlag = flag('--account')
   if (fromFlag) return fromFlag
-  return execFileSync(join(home, '.claude', 'bin', 'profile'), ['-C', repo, '--field', 'github.account'], { encoding: 'utf8' }).trim()
+  // The repository's own copy of the Harness: ~/.claude/bin/profile is gone since the Harness became
+  // the worfy plugin.
+  return execFileSync(join(repo, 'harness', 'bin', 'profile'), ['-C', repo, '--field', 'github.account'], { encoding: 'utf8' }).trim()
 }
 
 /** Files that contain a string — the string itself is never printed. */

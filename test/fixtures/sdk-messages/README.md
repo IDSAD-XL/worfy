@@ -7,14 +7,17 @@ JSON на строку, в том порядке, в каком их отдал 
 бинарник из пакета SDK), Electron 44.10.2, macOS arm64, вход по подписке. Первое снятие — 2026-10-05,
 SDK 0.3.289, Claude Code 2.1.289; что из него новое снятие не повторило, сказано у файлов ниже.
 
-2026-11-28 (worfy-polish 175, SDK 0.3.332, Claude Code 2.1.332) заново сняты только файлы без модели и без
-входа, под обычным Node 24 (не Electron): `no-login.jsonl` (`node scripts/spikes/sdk-probe.ts no-login --env
-HOME=<пустая папка> --fixtures <папка>`), `init-plugin-errors.jsonl` (`node scripts/spikes/harness-hooks/probe.ts
-init-errors --fixtures <папка>`), `plugin-mcp-name-*.jsonl` и `plugin-mcp-live-*.jsonl` с `../mcp-live/*.json`
-(`node scripts/spikes/harness-plugin/probe.ts mcp-name mcp-live --fixtures <папка>`). Остальные файлы — ещё с
-2.1.322: им нужна настоящая модель и вход по подписке (`plugin-integrations-*` — без модели, но с окном Electron);
-список и команды — «Итог» тикета worfy-polish 175. Пока они не сняты, проверка «every captured system/init comes
-from the Claude Code of the manifest» в `test/contract/sdk-compat.test.ts` красная.
+2026-11-28 (worfy-polish 175) все файлы сняты заново: SDK 0.3.332, Claude Code 2.1.332, Electron 44.10.2, macOS
+arm64. Без модели и без входа, под обычным Node 24 (не Electron): `no-login.jsonl` (`node scripts/spikes/sdk-probe.ts
+no-login --env HOME=<пустая папка> --fixtures <папка>`), `init-plugin-errors.jsonl` (`node
+scripts/spikes/harness-hooks/probe.ts init-errors --fixtures <папка>`), `plugin-mcp-name-*.jsonl` и
+`plugin-mcp-live-*.jsonl` с `../mcp-live/*.json` (`node scripts/spikes/harness-plugin/probe.ts mcp-name mcp-live
+--fixtures <папка>`). С моделью и входом по подписке владельца, под Electron (`pnpm exec electron`): `sdk-probe.ts
+init controls stop-hook permissions bypass background-tasks --env CLAUDE_GATE_STATE=<пустая папка> --fixtures …` и
+`harness-plugin/probe.ts` `known`, `workflow-hooks`, `env-file`, `integrations` (последний — без модели).
+`CLAUDE_GATE_STATE` с пустой папкой нужен, когда spike идёт из worktree с красным gate: иначе Stop hook пользователя
+держит каждый ход сценариев `init`…`background-tasks` (сценарий `stop-hook` ставит свою папку сам). В
+`rate_limit_event` этого снятия — `allowed_warning`: окно `seven_day` аккаунта прошло порог 75%.
 
 `manifest.json` — с чем сняты эти сообщения: версия SDK (`sdk`), Claude Code внутри него
 (`claudeCode`) и методы `Query` из `sdk.d.ts` (`queryMethods`). Contract test

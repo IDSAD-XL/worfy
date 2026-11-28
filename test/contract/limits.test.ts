@@ -104,10 +104,10 @@ describe('LimitsTracker', () => {
     await handle.interrupt()
     expect(query.interrupted).toBe(1)
 
-    // init.jsonl: seven_day 0.34 (the rateLimitType, status allowed) and no five-hour window.
+    // init.jsonl: seven_day 0.77 (the rateLimitType, status allowed_warning past the 75% threshold) and no five-hour window.
     expect(limits.snapshot()).toEqual({
       windows: {
-        seven_day: { utilization: 0.34, resetsAt: 1794801600, status: 'allowed', receivedAt: NOW, source: 'sdk' },
+        seven_day: { utilization: 0.77, resetsAt: 1796011200, status: 'allowed_warning', receivedAt: NOW, source: 'sdk' },
       },
     })
   })
@@ -138,7 +138,7 @@ describe('LimitsTracker', () => {
     const first = tracker()
     for (const message of recorded('bypass.jsonl')) first.recordSdkMessage(message)
     const saved = first.snapshot()
-    expect(saved.windows.seven_day?.utilization).toBe(0.34)
+    expect(saved.windows.seven_day?.utilization).toBe(0.78)
 
     expect(readdirSync(dataDir)).toEqual(['limits.json'])
     expect(tracker(NOW + 1).snapshot()).toEqual(saved)
@@ -512,7 +512,7 @@ describe('observeSessionLimits over the limits and limit_reached events (worfy-m
     ]
     const messages = files.flatMap(lines).filter((message) => (message as { type?: unknown }).type === 'rate_limit_event')
     expect(messages.length).toBeGreaterThanOrEqual(5)
-    expect(new Set(messages.map((message) => (message as { rate_limit_info: { status: string } }).rate_limit_info.status))).toEqual(new Set(['allowed', 'rejected']))
+    expect(new Set(messages.map((message) => (message as { rate_limit_info: { status: string } }).rate_limit_info.status))).toEqual(new Set(['allowed', 'allowed_warning', 'rejected']))
     expect(observed(messages)).toEqual(asBefore(messages))
   })
 
