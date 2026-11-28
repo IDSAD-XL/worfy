@@ -2,6 +2,7 @@
 
 Type: task
 Status: claimed 2026-11-28T07:10Z
+PR: #2371
 Branch: worfy-polish/176
 Blocked by: None — can start immediately
 Source: решение владельца 2026-11-28 по worfy-harness-eval 06 (одноразовая статика SkillEvaluator по 35 skill-ам Harness,
