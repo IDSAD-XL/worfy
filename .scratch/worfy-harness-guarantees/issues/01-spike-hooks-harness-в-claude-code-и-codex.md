@@ -69,14 +69,22 @@ Source: [spec.md](../spec.md), «Ticket-ы», 01; «Решения по реал
 
 - [ ] «Итог»: что приходит в `plugins` и `plugin_errors` при сломанном `hooks.json` и при отсутствующем скрипте hook-а;
       fixture `system/init` лежит в `test/fixtures/sdk-messages/`.
+  - evidence: commit pass · worfy-harness-guarantees/01: spike on how Claude Code and Codex call the Harness hooks · - - · 96f722ed5
 - [ ] «Итог»: ответ `get_hooks_listing` — видны ли hooks PreToolUse и Stop plugin-а `worfy` и их выключение.
+  - evidence: commit pass · worfy-harness-guarantees/01: spike on how Claude Code and Codex call the Harness hooks · - - · 96f722ed5
 - [ ] «Итог»: срабатывает ли matcher `Edit|Write|MultiEdit|NotebookEdit` в `bypassPermissions` у главной Session и у
       Subagent-а; какое поле отличает Subagent (`agent_type` или `agent_id`), с выводом обоих случаев.
+  - evidence: commit pass · worfy-harness-guarantees/01: spike on how Claude Code and Codex call the Harness hooks · - - · 96f722ed5
 - [ ] «Итог»: спрашивает ли `permissionDecision: "ask"` человека в `bypassPermissions` — да или нет, с выводом.
+  - evidence: commit pass · worfy-harness-guarantees/01: spike on how Claude Code and Codex call the Harness hooks · - - · 96f722ed5
 - [ ] «Итог»: что делает Claude Code при невыполненном `engines["claude-code"]`; ведёт ли stand-in ход Subagent-а;
       список путей `~/.claude`, которые Claude Code пишет инструментами Session.
+  - evidence: commit pass · worfy-harness-guarantees/01: spike on how Claude Code and Codex call the Harness hooks · - - · 96f722ed5
 - [ ] «Итог»: пути `apply_patch` и `agent_type` в PreToolUse Codex по fixture-ам.
+  - evidence: commit pass · worfy-harness-guarantees/01: spike on how Claude Code and Codex call the Harness hooks · - - · 96f722ed5
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: test-run pass · `pnpm lint && pnpm typecheck && pnpm test` exit 0 · mac - · 814a4329fa8d5687bcabe7f90318f78e1b45b0f0
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 814a4329fa8d5687bcabe7f90318f78e1b45b0f0
 
 ## Итог
 
