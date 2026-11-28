@@ -152,3 +152,23 @@ Review round 1 (PR #2345, REJECTED на 32785ef5e). Каждое исправл�
 - Ветки «нет init», «ошибка API», «нет result», «предел времени» с блоком и без — unit test
   `test/unit/harness-contract-judge.test.ts` (13 test-ов, без процессов).
 - `test/fixtures/sdk-messages/README.md:30` называет новый путь stand-in-а рядом со старым.
+
+Review round 2 (PR #2345, REJECTED на ea5f8fc97), после rebase на origin/main:
+- **[med] «init есть, хода нет — failed» стоял раньше веток предела и ошибки API.** Недоступный API
+  (`ANTHROPIC_BASE_URL=http://127.0.0.1:9`) и медленная машина давали ложный красный. Теперь без хода `failed` только
+  тогда, когда hook plugin-а блокировал или начал (`hook_started`) и не ответил (нет `hook_response` с его `hook_id`);
+  иначе `not-run` с причиной окружения. Четыре unit test-а в `test/unit/harness-contract-judge.test.ts` (предел, ошибка
+  API, без hook-а — `not-run`; висящий hook — `failed`) были красными до правки.
+- **[low] По пределу runner убивал только Claude Code, и hook-и переживали прогон.** Claude Code 2.1.322 запускает каждый
+  hook в своей process group (pgid hook-а равен его pid), поэтому kill группы Claude Code их не достаёт. Теперь runner до
+  kill-а читает дерево процессов (`ps -A -o pid=,ppid=`) и убивает всех потомков pid Claude Code; на Windows —
+  `taskkill /T /F` (`killTool`). Test «a hook that hangs at the time limit ends with the run»: Stop-hook копии пишет свой
+  pid и висит; после прогона процесса нет. С kill-ом группы этот test был красным (hook жив).
+
+Известные пределы (не исправлены, по решению review round 2):
+- Блокирующий hook решает `failed` раньше `check` case-а: если прогон case-а 5 (Stop держит ход при красном gate)
+  упрётся в предел уже после удержания, case красный, хотя `check` прошёл бы.
+- SessionStart и UserPromptSubmit идут до `system/init`: такой hook, который висит, даёт `not-run` («printed no
+  system/init»), а не `failed`.
+- Hook, который висит, когда ходы уже дошли до stand-in-а (например, Stop), не считается удержанием: по пределу —
+  `not-run`.
