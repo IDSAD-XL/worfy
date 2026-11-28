@@ -9,7 +9,9 @@
 //   so tests run a stand-in.
 // - Search: one `gh api graphql` call with two `search(type: ISSUE)` fields, `review-requested:@me` and
 //   `involves:@me`, over `repo:` of every repository; one page, only number, updatedAt, headRefOid and the
-//   repository of each PR; with them the viewer's login and the rate limit.
+//   repository of each PR; with them the viewer's login and the rate limit. The snapshot names every PR it found and
+//   whether it was whole — each search below its one page (`search`, worfy-polish 172): the attention core closes the
+//   item of a PR no whole search finds any more, merged or closed.
 // - Details: a second query only for the PRs whose `updatedAt` moved past what the cache holds, 10 PRs a call, without
 //   `diffHunk` or `files` (large pages timed out with 504 on a big repository). CI finishing or a new conflict does
 //   not move `updatedAt`, so a cached PR whose CI runs or whose mergeability GitHub had not computed yet is read again
@@ -403,6 +405,8 @@ interface ProjectState {
   repos: string[]
   /** The PRs the last search found, by key, with their `updatedAt` then and whether a review is asked. */
   members: Map<string, { updatedAt: string; reviewRequested: boolean }>
+  /** Each of the two searches of the last one gave fewer than INBOX_SEARCH_LIMIT PRs: `members` is every open PR. */
+  searchComplete: boolean
   enabled: boolean
   readAt: number | null
   /** When the last read began, whatever its end: the read on opening waits INBOX_OPEN_READ_MS after it. */
@@ -581,6 +585,8 @@ export class PrInbox {
       error: on && state ? this.errorOf(project, state) : null,
       signInFailed: on && state !== undefined && state.signIn,
       notice: on && state ? (this.trigger?.notice(state.account ?? '') ?? null) : null,
+      // By the search, not by the rows: a PR whose details did not read is out of the cache, and still open.
+      search: on && state && state.readAt !== null ? { complete: state.searchComplete, found: [...state.members.keys()].sort() } : null,
     }
   }
 
@@ -648,7 +654,7 @@ export class PrInbox {
   private stateOf(projectId: string): ProjectState {
     let state = this.states.get(projectId)
     if (state === undefined) {
-      state = { account: null, repos: [], members: new Map(), enabled: true, readAt: null, startedAt: -Infinity, nextAt: -Infinity, intervalMs: this.base, error: null, signIn: false, running: null }
+      state = { account: null, repos: [], members: new Map(), searchComplete: false, enabled: true, readAt: null, startedAt: -Infinity, nextAt: -Infinity, intervalMs: this.base, error: null, signIn: false, running: null }
       this.states.set(projectId, state)
     }
     return state
@@ -805,6 +811,7 @@ export class PrInbox {
       }
     }
     state.members = members
+    state.searchComplete = data.review.nodes.length < INBOX_SEARCH_LIMIT && data.involves.nodes.length < INBOX_SEARCH_LIMIT
   }
 
   /**

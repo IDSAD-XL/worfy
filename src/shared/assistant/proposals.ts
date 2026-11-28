@@ -13,6 +13,10 @@ import { changeRowSchema, settingsChangeSchema, settingsRestoreSchema } from './
 export const PROPOSAL_TITLE_MAX = 200
 /** The longest «why» of a proposal. */
 export const PROPOSAL_WHY_MAX = 2_000
+/** The longest why of a proposal the Assistant closed (`proposal_remove` with `why`, worfy-polish 172). */
+export const PROPOSAL_CLOSE_WHY_MAX = 200
+/** How long the book keeps a proposal the Assistant closed: as long as the attention core keeps an item. */
+export const PROPOSAL_CLOSED_KEEP_DAYS = 14
 /** The longest text of a prepared Session. */
 export const PREPARE_TEXT_MAX = 20_000
 
@@ -43,6 +47,12 @@ export const assistantProposalSchema = z.object({
    * each setting it named as it was before the Apply, for Undo (ticket 25); absent for one applied before Undo existed.
    */
   applied: z.object({ at: z.number(), rows: z.array(changeRowSchema), before: settingsRestoreSchema.optional() }).nullable().optional(),
+  /**
+   * The Assistant closed it on a wake, having read that what it asked was done (worfy-polish 172: `proposal_remove`
+   * with `why`): when, by whom and why. A closed proposal is no longer open — the window, `proposals_list` and the first
+   * message of a Session leave it out — and the book keeps it PROPOSAL_CLOSED_KEEP_DAYS. Absent or null: open.
+   */
+  closed: z.object({ at: z.number(), by: z.literal('assistant'), why: z.string() }).nullable().optional(),
   createdAt: z.number(),
   updatedAt: z.number(),
 })

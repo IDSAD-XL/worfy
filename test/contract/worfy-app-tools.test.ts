@@ -284,6 +284,7 @@ async function world(options: { confirm?: 'cancel' | 'budget-aware'; language?: 
       ]),
     projects: () => [{ id: PROJECT, name: 'alpha' }],
     items: () => [...core.items(null), ...core.items(PROJECT)],
+    closeItem: (item: AttentionItem, why: string) => core.close(item.projectId, item.id, { by: 'assistant', why }),
     duties,
     workflow: () => Promise.resolve(MODEL),
     prInbox: (projectId: string) => (projectId === PROJECT ? INBOX : null),
@@ -1013,6 +1014,75 @@ describe('worfy-app: help about worfy, from the feature pages of the build', () 
   })
 })
 
+// worfy-polish ticket 172: what worfy cannot re-check itself the model closes on a wake, with why; the stub here stands
+// for the model's answer — the calls a Session would make.
+describe('worfy-app: the model closes what is done (item_close, proposal_remove with why)', () => {
+  it.each(['slack', 'jira', 'autopilot'] as const)('item_close closes an open item of %s with who and why; it leaves the open list', async (source) => {
+    const { rpc, core, itemOf, journal } = await world()
+    const id = itemOf(source)
+    expect(json(await rpc.call('item_close', { id, why: 'The run was started again and finished' }))).toEqual({ closed: id })
+    const item = core.items(PROJECT).find((each) => each.source === source)!
+    expect(item).toMatchObject({ state: 'closed', closedBy: 'assistant', closedWhy: 'The run was started again and finished' })
+    const open = json<{ items: { id: string }[] }>(await rpc.call('items_list'))
+    expect(open.items.map((each) => each.id)).not.toContain(id)
+    // No line of the journal of actions: the trace is the closed item (owner's decision 2026-11-28).
+    expect(journal).not.toHaveBeenCalled()
+  })
+
+  it('a new event of the same subject opens the item again, without the old why', async () => {
+    const { rpc, core, itemOf } = await world()
+    await rpc.call('item_close', { id: itemOf('slack'), why: 'Answered in the thread' })
+    core.ingest({ ...EVENTS[2]!, revision: '2026-11-25T09:50:00Z', text: 'One more question' })
+    const item = core.items(PROJECT).find((each) => each.source === 'slack')!
+    expect(item.state).toBe('new')
+    expect(item.closedBy).toBeUndefined()
+    expect(item.closedWhy).toBeUndefined()
+  })
+
+  it('refuses an item worfy re-checks itself, an unknown id, a closed item and an empty or long why; nothing changes', async () => {
+    const { rpc, core, itemOf } = await world()
+    const before = JSON.stringify(core.items(PROJECT))
+    const refused = async (args: Record<string, unknown>, pattern?: RegExp) => {
+      const result = await rpc.call('item_close', args)
+      expect(result.isError, textOf(result)).toBe(true)
+      if (pattern !== undefined) expect(textOf(result)).toMatch(pattern)
+    }
+    await refused({ id: itemOf('pr-inbox'), why: 'Merged' }, /worfy re-checks/u)
+    await refused({ id: itemOf('session'), why: 'Answered' }, /worfy re-checks/u)
+    await refused({ id: 'item-0000000000000000', why: 'Done' }, /No item/u)
+    await refused({ id: itemOf('slack'), why: '' })
+    await refused({ id: itemOf('slack'), why: '   ' })
+    await refused({ id: itemOf('slack'), why: 'x'.repeat(201) })
+    expect(JSON.stringify(core.items(PROJECT))).toBe(before)
+    await rpc.call('item_close', { id: itemOf('jira'), why: 'Moved to Done' })
+    await refused({ id: itemOf('jira'), why: 'Again' }, /not open/u)
+  })
+
+  it('refuses a health item too: worfy re-checks it', async () => {
+    const { rpc, core, app } = await world()
+    core.ingest({ source: 'health', id: 'harness', revision: 'warn', projectId: null, subject: { kind: 'check', id: 'harness', label: 'Harness plugin' }, kind: 'check-warning', text: 'Harness plugin: replace it' })
+    const id = app.publicItemId(core.items(null)[0]!.id)
+    const result = await rpc.call('item_close', { id, why: 'Replaced' })
+    expect(result.isError).toBe(true)
+    expect(core.items(null)[0]!.state).toBe('new')
+  })
+
+  it('proposal_remove with why closes the proposal and keeps its why; without why it removes it, as before', async () => {
+    const { rpc, proposals } = await world()
+    json(await rpc.call('proposal_create', { title: '7 draft replies wait for your Send', why: 'They are drafted' }))
+    json(await rpc.call('proposal_create', { title: 'Look at the Limits', why: 'Close to the end' }))
+    expect(json(await rpc.call('proposal_remove', { id: 'prop-1', why: 'The drafts were sent' }))).toEqual({ removed: 'prop-1' })
+    expect(proposals.list().map((each) => each.id)).toEqual(['prop-2'])
+    expect(proposals.closed()).toEqual([expect.objectContaining({ id: 'prop-1', closed: { at: NOW, by: 'assistant', why: 'The drafts were sent' } })])
+    expect(json<{ proposals: { id: string }[] }>(await rpc.call('proposals_list')).proposals.map((each) => each.id)).toEqual(['prop-2'])
+    expect((await rpc.call('proposal_remove', { id: 'prop-1', why: 'Again' })).isError).toBe(true)
+    expect((await rpc.call('proposal_remove', { id: 'prop-2', why: 'x'.repeat(201) })).isError).toBe(true)
+    expect(json(await rpc.call('proposal_remove', { id: 'prop-2' }))).toEqual({ removed: 'prop-2' })
+    expect(proposals.list()).toEqual([])
+    expect(proposals.closed().map((each) => each.id)).toEqual(['prop-1'])
+  })
+})
+
 describe('worfy-app: nothing goes out', () => {
   it('has exactly the reading, proposal and action tools: no reply to a PR, no send, no post', async () => {
     const { rpc } = await world()
@@ -1023,6 +1093,7 @@ describe('worfy-app: nothing goes out', () => {
         'autopilot_runs_read',
         'features_read',
         'features_search',
+        'item_close',
         'items_list',
         'limits_read',
         'memory_forget',

@@ -45,11 +45,13 @@ import {
   oldHarnessPresent,
   runChecks,
   useLoginCandidate,
+  type CheckDeps,
   type Env,
   type GithubAccessDeps,
   type GithubProject,
   type ProjectProfile,
 } from '../first-run/checks'
+import { followHarnessRow } from '../first-run/harness-row'
 import { healthReports } from '../first-run/health-reports'
 import { appVendorRows } from '../first-run/vendor-checks'
 import { remoteRepos } from '../github/inbox'
@@ -67,7 +69,7 @@ import { HARNESS_SCRIPT_TIMEOUT_MS, profileRunner, readGithubAccount, runHarness
 import { appBuildNumber } from '../build-number'
 import { bundledClaudeCodeVersion } from '../vendors/claude/account'
 import { queryFactoryFromEnv } from '../vendors/claude/query'
-import { appInstaller } from './harness'
+import { appInstaller, onHarnessInstalled } from './harness'
 import { appUpdate } from './update'
 import { workflowHub } from './workflow'
 import { planOptions } from './harness-migration'
@@ -180,6 +182,12 @@ export const askSignedInAccount = async (signal?: AbortSignal): Promise<AccountI
 /** The Limits bridge of this build (worfy-windows ticket 13); a dev build has none of its own. */
 const limitsBridge = (): string | null => (app.isPackaged ? bridgeFile(process.platform, process.resourcesPath) : null)
 
+/**
+ * The Update of this copy as the checks read it: the build version that runs, as the Update check names it
+ * (src/main/ipc/update.ts, appRunning), and its build number (worfy-update ticket 14).
+ */
+const updateDep: NonNullable<CheckDeps['update']> = () => ({ snapshot: appUpdate().snapshot(), version: bundledHarnessVersion() ?? app.getVersion(), number: appBuildNumber() })
+
 async function checks(): Promise<FirstRunReport> {
   const env = await loginEnv()
   return runChecks({
@@ -193,9 +201,7 @@ async function checks(): Promise<FirstRunReport> {
     homes: { harnessHome: harnessHome(), claudeHome: claudeHome() },
     projects: () => projectProfiles(env),
     limitsBridge: limitsBridge(),
-    // The build version that runs, as the Update check names it (src/main/ipc/update.ts, appRunning),
-    // and its build number (worfy-update ticket 14).
-    update: () => ({ snapshot: appUpdate().snapshot(), version: bundledHarnessVersion() ?? app.getVersion(), number: appBuildNumber() }),
+    update: updateDep,
     // The Codex sign-in (worfy-auth-check ticket 08).
     vendorRows: appVendorRows,
   })
@@ -287,6 +293,9 @@ app.on('browser-window-focus', () => void health.focus())
 // after a feature's failure or on the focus. The re-check never rejects: a Project gone, or no longer on
 // GitHub, drops its row (null); one whose repositories cannot be read is `unknown`.
 health.registerNetworkRows(async () => githubAccessRows(await githubProjects(), githubAccessDeps()))
+// The Harness row after each install and on the focus (worfy-polish 172): its «Replace Harness» item closes once it is
+// done, by the installer's local state alone.
+followHarnessRow(health, { harness: () => appInstaller().status(), update: updateDep }, onHarnessInstalled)
 health.registerRecheck('github-access', async (project) => {
   if (project === undefined) return null
   try {

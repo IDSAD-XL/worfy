@@ -314,6 +314,21 @@ describe('non-urgent items go in one batch in work hours', () => {
     expect(batch?.type === 'wake' && batch.items.map((item) => item.id)).toEqual([pr.id])
   })
 
+  // worfy-polish ticket 172: the model checks these again only on the wakes that go anyway.
+  it('open items of Slack, Jira and Autopilot handed over already plan no wake to check them again', () => {
+    const wake = planner()
+    clock = wed(9)
+    arrive({ source: 'slack', subject: { kind: 'message', id: 'slack-1', label: 'carol' }, kind: 'message' })
+    arrive({ source: 'jira', subject: { kind: 'message', id: 'jira-1', label: 'dave' }, kind: 'message' })
+    arrive({ id: 'p1|run|r-9|run-finished|1', source: 'autopilot', subject: { kind: 'run', id: 'r-9', label: 'Autopilot · e' }, kind: 'run-finished' })
+    expect(wake.evaluate()).toMatchObject({ type: 'wake', reason: 'morning', items: expect.arrayContaining([expect.objectContaining({ source: 'slack' })]) })
+    for (const hour of [10, 12, 14, 17]) {
+      clock = wed(hour)
+      expect(wake.evaluate()).toBeNull()
+    }
+    expect(wakesNoted()).toHaveLength(1)
+  })
+
   it('an item the user saw or dismissed is not pending', () => {
     const wake = planner()
     clock = wed(9)

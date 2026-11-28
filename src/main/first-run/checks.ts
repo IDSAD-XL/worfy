@@ -984,6 +984,40 @@ async function guarded(run: () => Promise<Row> | Row): Promise<Row> {
   }
 }
 
+/** One snapshot of Update, or none where Update is off; one that does not read throws when it is asked. */
+function updateOf(deps: Pick<CheckDeps, 'update'>): CheckDeps['update'] {
+  try {
+    const answer = deps.update?.()
+    return answer?.snapshot.enabled === true ? () => answer : undefined
+  } catch (error) {
+    // A state that does not read: the row says so, and the Harness row goes by the installer alone.
+    return () => {
+      throw error
+    }
+  }
+}
+
+const behindOf = (update: CheckDeps['update']): HarnessBehind | null => {
+  try {
+    return update?.().snapshot.harnessBehind ?? null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The row `harness` alone (worfy-polish 172): checked again after an install and on the focus of a window. It reads only
+ * the installer's local state — `status` when the install gave it — and GitHub's last word on which build is newer as
+ * the Update state keeps it (`harnessBehind`): no call to the network. A state that does not read fails the row.
+ */
+export async function harnessCheck(deps: Pick<CheckDeps, 'harness' | 'update'>, status?: HarnessStatus): Promise<Check> {
+  const { id, group, title } = CHECKS.find((check) => check.id === 'harness')!
+  const update = updateOf(deps)
+  const answered = await guarded(async () => harness(status ?? (await deps.harness()), behindOf(update)))
+  // The level of the Harness row does not depend on a Project on GitHub.
+  return { id, group, title, ...answered, severity: severityOf({ id, status: answered.status }, { githubProject: true }) }
+}
+
 /** Every check, in the screen's order. Writes nothing. */
 export async function runChecks(deps: CheckDeps): Promise<FirstRunReport> {
   const timeoutMs = deps.toolTimeoutMs ?? TOOL_TIMEOUT_MS
@@ -1008,23 +1042,8 @@ export async function runChecks(deps: CheckDeps): Promise<FirstRunReport> {
   const harnessStatus = Promise.resolve().then(() => deps.harness())
   harnessStatus.catch(() => undefined)
   // One snapshot of Update feeds "worfy version" and the Harness row; none where Update is off.
-  let update: CheckDeps['update']
-  try {
-    const answer = deps.update?.()
-    if (answer?.snapshot.enabled === true) update = () => answer
-  } catch (error) {
-    // A state that does not read: the row says so, and the Harness row goes by the installer alone.
-    update = () => {
-      throw error
-    }
-  }
-  const behind = (): HarnessBehind | null => {
-    try {
-      return update?.().snapshot.harnessBehind ?? null
-    } catch {
-      return null
-    }
-  }
+  const update = updateOf(deps)
+  const behind = (): HarnessBehind | null => behindOf(update)
   const listed = CHECKS.filter((check) => (machine.windows || check.windows !== true) && (check.id !== 'worfy-update' || update !== undefined))
   const onWindows = (run: () => Promise<Row> | Row): Promise<Row> | null => (machine.windows ? guarded(run) : null)
   const rows: Record<MachineCheckId, Promise<Row> | null> = {

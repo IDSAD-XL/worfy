@@ -1,7 +1,8 @@
 # 172 — Waits сам закрывает то, что пользователь уже сделал
 
 Type: polish
-Status: open
+Status: claimed 2026-11-28T03:27Z
+Branch: worfy-polish/172
 Blocked by: None — can start immediately
 Source: просьба владельца 2026-11-28 со screenshot-ом панели Assistant: на вкладке «Waits 6» висят, например, «Resolve
 conflicts in PR #8406», «7 draft replies wait for your Send», «Replace Harness» и Linked machine, которая не отвечает.
@@ -204,3 +205,43 @@ Unit test-ы, по три случая на каждый вид: условие 
       оно просит (отправь или удали черновики), и дождись следующего batch- или morning-wake-а → Должно быть:
       предложение ушло из Waits.
   - needs: mac stable
+
+## Итог
+
+- **PR смержен или закрыт.** Snapshot PR inbox несёт `search: { complete, found }` (`src/shared/ipc/pr-inbox.ts`):
+  номера всех PR, которые нашёл последний поиск (с cache details или без), и полноту — каждый из двух `search` дал
+  меньше `INBOX_SEARCH_LIMIT` (`src/main/github/inbox.ts`, `search()`). `prInboxAttention`
+  (`src/main/assistant/core/sources.ts`) после строк закрывает открытый пункт `pr-inbox`, чьего PR нет в `found`, —
+  только при `error === null`, `complete` и известном `search`. Новых вызовов GitHub нет: данные — из того же ответа
+  поиска.
+- **Harness.** `harnessCheck` (`src/main/first-run/checks.ts`) считает одну строку `harness` по локальному
+  `appInstaller().status()` и прошлому `harnessBehind` из snapshot-а Update. `followHarnessRow`
+  (`src/main/first-run/harness-row.ts`, новый файл) регистрирует re-check `harness` (focus, не чаще раза в 5 мин) и
+  подписывается на `onHarnessInstalled`: после Install/Update/Replace строка пересчитывается с тем статусом, что
+  вернула установка, через новый `HealthReports.recheckNow` — он ждёт идущий re-check той же строки, а не теряет
+  пересчёт. Пункт закрывает существующий путь строки `ok`.
+- **Уборка model-ю на wake-ах.** `wakePrompt` (`src/main/assistant/session/runner.ts`) на batch/urgent/morning
+  добавляет раздел «Open items worfy cannot re-check»: открытые пункты `slack`, `jira`, `autopilot`
+  (`ASSISTANT_RECHECKED_SOURCES`, `src/shared/assistant/attention.ts`), не переданные этим wake-ом, до 10 самых старых
+  (`WAKE_UNCHECKED_RECORDS_MAX`) короткими записями `worfy-app` (тексты — outside-text) и число остальных. Run на
+  сообщение пользователя раздела не получает; пустой список — раздела нет. Planner не тронут: новых wake-ов нет.
+- **`item_close { id, why }`** (`src/shared/assistant/app-tools.ts`, `src/main/mcp/app-server.ts`): закрывает только
+  открытый пункт Slack, Jira, Autopilot; пункты других источников, неизвестный id, пункт Linked machine, не открытый
+  пункт, пустой или длиннее 200 символов `why` — отказ. Пункт получает `closedBy: 'assistant'` и `closedWhy`
+  (`AttentionCore.close`); новое событие того же предмета открывает пункт и снимает обе метки.
+- **`proposal_remove` с `why`** помечает предложение `closed: { at, by: 'assistant', why }`
+  (`src/shared/assistant/proposals.ts`, `src/main/assistant/proposals/book.ts`): `list()`, окно, `proposals_list` и
+  первое сообщение (`memoryView`, `src/main/assistant/session/memory.ts`) его не видят; book хранит его 14 дней и
+  выбрасывает при следующей записи. Без `why` — удаление, как раньше. Journal не тронут (решение владельца).
+- **Дата.** `shortTime` (`src/renderer/assistant/format.ts`): старше 6 календарных дней — `Nov 20`.
+- **Тексты.** `harness/hooks/rules/assistant.md` (tools и раздел «Closing what is done»),
+  `src/main/mcp/agent-instructions-app.md` (тот же раздел: файл меняют вместе с `app-tools.ts`, по его комментарию),
+  `docs/features/assistant.md` и `docs/features/ru/assistant.md` (абзац «Items»/«Пункты» и время пункта).
+- **Test-ы**, красные до правки: `test/contract/pr-inbox.test.ts` (полнота и номера, 100 PR — не полный),
+  `test/unit/assistant-attention-sources.test.ts` (закрытие по полному поиску), `test/contract/health-harness-row.test.ts`
+  (новый: install, focus, 5 мин, непрочитанный статус), `test/unit/assistant-session.test.ts` (раздел wake-а, закрытое
+  предложение в памяти), `test/contract/worfy-app-tools.test.ts` (`item_close`, `proposal_remove` с `why`, список
+  tools), `test/unit/assistant-short-time.test.tsx` (новый). Зелёные с первого прогона — охранные: «держится» и
+  «проверить нельзя» для PR, «PR inbox и Health check не закрывают Slack/Jira/Autopilot»,
+  `test/unit/assistant-wake-planner.test.ts` (только такие пункты — wake-а нет), отказ `item_close` для Linked machine
+  в `test/contract/assistant-two-machines.test.ts`.

@@ -409,6 +409,30 @@ describe('the search of a Project', () => {
     expect(inbox.snapshot('p1').error).toBeNull()
   })
 
+  it('the snapshot names every PR the search found and whether it was whole; a PR whose details did not read is found still (worfy-polish 172)', async () => {
+    const gh = world([stubPull(API, 1), stubPull(API, 2, { missing: true }), stubPull(WEB, 3, { author: ANA, requested: [ME], involves: false })])
+    const inbox = reader(gh, [project('p1', [API, WEB])])
+    expect(inbox.snapshot('p1').search ?? null).toBeNull()
+    await inbox.tick()
+    const snapshot = inbox.snapshot('p1')
+    expect(rowsOf(snapshot)).toEqual([`${API}#1`, `${WEB}#3`])
+    expect(snapshot.search).toEqual({ complete: true, found: [`${API}#1`, `${API}#2`, `${WEB}#3`] })
+    expect(prInboxSnapshotSchema.parse(snapshot).search).toEqual(snapshot.search)
+  })
+
+  it('a search that filled its page (100 PRs) is not whole (worfy-polish 172)', async () => {
+    const hundred = Array.from({ length: 100 }, (_, n) => quietPull(API, n + 1))
+    const gh = world(hundred)
+    const inbox = reader(gh, [project('p1', [API])])
+    await inbox.tick()
+    expect(inbox.snapshot('p1').search).toMatchObject({ complete: false })
+    gh.set(hundred.slice(0, 99))
+    clock += INBOX_SEARCH_INTERVAL_MS
+    await inbox.tick()
+    expect(inbox.snapshot('p1').search).toMatchObject({ complete: true })
+    expect(inbox.snapshot('p1').search?.found).toHaveLength(99)
+  })
+
   it('refresh on a Project never read makes no call', async () => {
     const gh = world([stubPull(API, 1)])
     const inbox = reader(gh, [project('p1', [API])])
