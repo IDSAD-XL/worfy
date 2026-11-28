@@ -44,7 +44,7 @@ export function sessionTopicCall(items: readonly TranscriptItem[]): SessionTopic
 
 ## 3. Панель и заголовок берут тему из событий своей Session
 
-Code: `src/renderer/session/ProductSessionPanel.tsx:111-140` · key lines: 116, 131, 138
+Code: `src/renderer/session/ProductSessionPanel.tsx:133-168` · key lines: 138, 165, 166
 
 ```tsx
 const topicCalls = new WeakMap<readonly AgentEvent[], SessionTopicCall | null>()
@@ -63,23 +63,29 @@ function topicCallOf(events: readonly AgentEvent[]): SessionTopicCall | null {
  * in its events — on this Machine and in a window on a Linked machine alike — unless a chip of another topic
  * switched it after that call; while the loaded events hold no such call, the one this window showed last for the
  * Node. A change of the Project's topics (`product.changed`), by any Session, does not switch it. `last` is the id
- * of that call, the moment a chip's choice is made at.
+ * of that call and `anchor` the last of the events: the moment a chip's choice is made at.
  */
-function useShownTopic(projectId: string, nodeId: string, events: readonly AgentEvent[] | undefined): { name: string | undefined; last: string | null } {
+function useShownTopic(
+  projectId: string,
+  nodeId: string,
+  events: readonly AgentEvent[] | undefined,
+): { name: string | undefined; last: string | null; anchor: AgentEvent | null } {
   const key = `${projectId}:${nodeId}`
-  const session = useMemo(() => topicCallOf(events ?? NO_EVENTS), [events])
+  const list = events ?? NO_EVENTS
+  const session = useMemo(() => topicCallOf(list), [list])
   const chosen = useChosenTopics((topics) => topics[key])
   const last = session?.call ?? null
   const own = session?.topic
   useEffect(() => {
     if (own !== undefined) keepTopicName(key, own)
   }, [key, own])
-  const name = chosen !== undefined && chosen.since === last ? chosen.name : (own ?? readTopicName(key))
-  return { name, last }
+  const holds = useMemo(() => chosen !== undefined && chipHolds(chosen, list, last), [chosen, list, last])
+  const name = holds && chosen !== undefined ? chosen.name : (own ?? readTopicName(key))
+  return { name, last, anchor: list.at(-1) ?? null }
 }
 ```
 
-- Что делает: тема — выбор чипа, если он сделан после последнего вызова Session (`since === last`), иначе тема
+- Что делает: тема — выбор чипа, пока он держится (`chipHolds`, шаг 4), иначе тема
   последнего вызова, иначе имя из localStorage этого Node. Подписки на `product.changed` здесь больше нет. Свёртка
   событий кэшируется по массиву (`WeakMap`), так что панель и `ProductTopicName` (ему `SessionView.tsx` теперь
   передаёт те же `events`) сворачивают их один раз.
@@ -93,25 +99,31 @@ function useShownTopic(projectId: string, nodeId: string, events: readonly Agent
 
 ## 4. Чип другой темы держится до следующего вызова
 
-Code: `src/renderer/session/ProductSessionPanel.tsx:103-108` · key lines: 106
+Code: `src/renderer/session/ProductSessionPanel.tsx:123-130` · key lines: 124, 126, 129
 
 ```tsx
-/** Switches the Node's Mind map to `name` until the Session's next call that names a topic. */
-function chooseTopic(key: string, name: string, since: string | null): void {
-  const was = useChosenTopics.getState()[key]
-  if (was?.name !== name || was.since !== since) useChosenTopics.setState({ [key]: { name, since } })
-  keepTopicName(key, name)
+function chipHolds(chosen: ChosenTopic, events: readonly AgentEvent[], last: string | null): boolean {
+  if (chosen.since === last || last === null) return true
+  if (chosen.anchor === null) return false
+  const anchorAt = events.lastIndexOf(chosen.anchor)
+  if (anchorAt < 0) return false
+  const callAt = events.findIndex((event) => event.type === 'tool_use' && event.id === last)
+  return callAt >= 0 && callAt < anchorAt
 }
 ```
 
-- Что делает: клик по чипу другой темы (`useTopicOfChip`, строка 187) запоминает тему вместе с id последнего вызова
-  Session на этот момент. Новый вызов Session даёт другой id, и выбор чипа перестаёт действовать.
+- Что делает: клик по чипу другой темы (`useTopicOfChip`, `chooseTopic`, строка 215) запоминает тему, id последнего
+  вызова Session (`since`) и последнее событие (`anchor`) на этот момент. Выбор держится, пока последний вызов тот же,
+  или пока он стоит в событиях раньше `anchor`: так «Load earlier», который кладёт старые события в начало, выбор не
+  сбрасывает. Вызов после `anchor` — новый вызов Session, и карта идёт за ним. Если `anchor` в событиях уже нет
+  (транскрипт прочитан заново), выбор сбрасывает любой другой вызов.
 - Почему здесь: Ticket требует, чтобы чип переключал карту (worfy-polish 147), а следующий вызов Session возвращал её.
-  Почему мерилом выбран id вызова, а не сравнение тем, — not recorded в Ticket-е; это решение исполнителя.
+  Сравнение с `anchor` — замечание [low] ревью раунда 1: без него «Load earlier» со старым вызовом сбрасывал выбор, сделанный, пока вызовов в загруженной части не было. Почему мерилом выбран вызов, а не сравнение тем, — not recorded в Ticket-е; это решение исполнителя.
 - Без него: чип либо не переключал бы карту, либо держал её навсегда.
 - Требование: [Что строить, п. 3](../issues/173-mind-map-product-session-по-своим-вызовам.md#что-строить)
-- Риски и пробелы test-ов: новый массив событий без нового вызова выбор чипа не сбрасывает — это проверяет test
-  «after a chip of another topic…».
+- Риски и пробелы test-ов: новый массив событий без нового вызова выбор не сбрасывает (test «after a chip of another
+  topic…»); «Load earlier» со старым вызовом — тоже (test «a chip chosen while the loaded transcript held no topic
+  call…», красный до правки).
 
 ## 5. Test: переключение Session, красный до правки
 
@@ -168,10 +180,11 @@ Product Session без сообщения и писали файлы темы р
 1. Почему тема больше не берётся из `product.changed`?
    - Ответ: событие уходит всем окнам обеих машин и не говорит, какая Session меняла тему; даже первое чтение темы
      другим окном его шлёт.
-   - Строки: `src/renderer/session/ProductSessionPanel.tsx:138`
+   - Строки: `src/renderer/session/ProductSessionPanel.tsx:166`
 2. Как выбор чипа узнаёт, что Session сделала следующий вызов?
-   - Ответ: он хранит id последнего вызова на момент клика; новый вызов меняет `last`, и `since === last` ложно.
-   - Строки: `src/renderer/session/ProductSessionPanel.tsx:106`, `src/renderer/session/ProductSessionPanel.tsx:138`
+   - Ответ: он хранит id последнего вызова и последнее событие на момент выбора; новый вызов стоит после этого события,
+     а старый, принесённый «Load earlier», — до него.
+   - Строки: `src/renderer/session/ProductSessionPanel.tsx:124`, `src/renderer/session/ProductSessionPanel.tsx:129`
 3. Почему вызов Subagent-а Session не переключает карту?
    - Ответ: тема ищется в свёртке `foldTranscript`, а она берёт только главный поток, как и чипы.
-   - Строки: `src/renderer/session/ProductSessionPanel.tsx:116`
+   - Строки: `src/renderer/session/ProductSessionPanel.tsx:138`
