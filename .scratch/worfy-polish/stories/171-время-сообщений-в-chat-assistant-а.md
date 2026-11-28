@@ -93,7 +93,7 @@ Code: `src/renderer/assistant/assistant.css:746-754` · key lines: 747, 748, 752
 
 ## 5. Test: pending без времени, failed со временем
 
-Code: `test/unit/assistant-panel.test.tsx:545-551` · key lines: 547, 550
+Code: `test/unit/assistant-panel.test.tsx:549-555` · key lines: 551, 554
 
 ```tsx
   it('shows no time while the answer is being written, and the time of an answer that failed', () => {
