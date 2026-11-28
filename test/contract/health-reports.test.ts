@@ -345,3 +345,31 @@ describe('a token never reaches the report or the log', () => {
     expect(rowOf(reports.current(), 'github-access', ALPHA)?.hint).toContain('GH_TOKEN')
   })
 })
+
+// worfy-harness-guarantees ticket 09: the rows "Harness on Claude Code" run for seconds; Health reads them as they
+// stand and waits for none.
+describe('live rows', () => {
+  it('are read at each merge and never open First run; a checked row of the same key comes first; a source that throws has none; the notify sends the report', () => {
+    const { reports, events } = setup()
+    let live: Check[] = [machineRow('harness-claude', 'unknown', { detail: 'running' })]
+    const notify = reports.registerLiveRows(() => live)
+    reports.registerLiveRows(() => {
+      throw new Error('broken')
+    })
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    reports.setChecks(report(machineRow('git', 'ok'), machineRow('harness-claude-terminal', 'ok', { detail: 'checked' })))
+    live = [...live, machineRow('harness-claude-terminal', 'fail', { detail: 'live' })]
+    expect(reports.current()?.checks.map((check) => [check.id, check.detail, check.opensFirstRun])).toEqual([
+      ['git', 'found', undefined],
+      ['harness-claude-terminal', 'checked', undefined],
+      ['harness-claude', 'running', false],
+    ])
+    const before = events.length
+    live = [machineRow('harness-claude', 'ok', { detail: 'done' })]
+    notify()
+    expect(events.length).toBe(before + 1)
+    expect(rowOf(events.at(-1) ?? null, 'harness-claude')).toMatchObject({ status: 'ok', detail: 'done' })
+    notify()
+    expect(events.length).toBe(before + 1)
+  })
+})

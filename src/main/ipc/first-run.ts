@@ -27,9 +27,11 @@
 // then the network rows are checked again.
 //
 // Harness on Claude Code (worfy-harness-guarantees ticket 09): the contract set of the Harness on worfy's copy of
-// Claude Code and on the terminal's (src/main/first-run/harness-claude.ts). Its rows join the network rows: they take
-// seconds when a pair of versions is new, and the start does not wait for them either. Each has its re-check (the
-// focus) and "Run again" (`firstRun.harnessClaude`). Under WORFY_AGENT=fake the set is fakeSetRun of
+// Claude Code and on the terminal's (src/main/first-run/harness-claude.ts). Its rows are live rows of Health: a new
+// pair of versions takes up to half a minute per case, so each network check only starts the check and answers
+// without it; the rows show "running the checks…", then the answer, each change sent as `firstRun.reportChanged`.
+// "Run again" (`firstRun.harnessClaude`) runs one copy anew; on quit the runs under way end with their processes and
+// temporary folders. Under WORFY_AGENT=fake the set is fakeSetRun of
 // WORFY_HARNESS_CONTRACT, and without that variable there are no such rows: the e2e runs of other features count
 // the rows of Health.
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
@@ -59,7 +61,7 @@ import {
   type ProjectProfile,
 } from '../first-run/checks'
 import { followHarnessRow } from '../first-run/harness-row'
-import { contractSetRun, copyOfRow, fakeSetRun, HARNESS_CLAUDE_CACHE, HARNESS_CLAUDE_ROWS, HarnessClaudeCheck, terminalClaude, type ClaudeFound } from '../first-run/harness-claude'
+import { contractSetRun, copyOfRow, fakeSetRun, HARNESS_CLAUDE_CACHE, HarnessClaudeCheck, showInHealth, terminalClaude, type ClaudeFound } from '../first-run/harness-claude'
 import { healthReports } from '../first-run/health-reports'
 import { appVendorRows } from '../first-run/vendor-checks'
 import { remoteRepos } from '../github/inbox'
@@ -330,8 +332,8 @@ const harnessClaude: HarnessClaudeCheck | null =
         runSet: process.env.WORFY_AGENT === 'fake' ? fakeSetRun(harnessClaudeSpec ?? '') : contractSetRun(loginEnv),
       })
 if (harnessClaude !== null) {
-  health.registerNetworkRows(() => harnessClaude.rows())
-  for (const copy of ['worfy', 'terminal'] as const) health.registerRecheck(HARNESS_CLAUDE_ROWS[copy], () => harnessClaude.row(copy))
+  showInHealth(harnessClaude, health)
+  app.on('will-quit', () => harnessClaude.stop())
 }
 health.registerRecheck('github-access', async (project) => {
   if (project === undefined) return null
@@ -416,7 +418,7 @@ export default [
   defineHandler(firstRunHealth, () => health.current()),
   // "Run again" of a row "Harness on Claude Code": that row's copy runs the set anew, whatever the cache holds.
   defineHandler(firstRunHarnessClaude, async ({ id }) => {
-    if (harnessClaude !== null) await health.recheckNow(id, undefined, () => harnessClaude.row(copyOfRow(id), { again: true }))
+    if (harnessClaude !== null) await harnessClaude.row(copyOfRow(id), { again: true })
     return remember(health.current() ?? (await localReport()).merged)
   }),
   defineHandler(firstRunRun, async ({ action, projectName, projectId, login }, { event }) => {

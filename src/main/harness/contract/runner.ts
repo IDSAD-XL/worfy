@@ -16,6 +16,8 @@
 //   - not-run: nothing about the Harness can be said — the binary did not start, the stand-in could
 //     not listen, Claude Code printed no system/init, or, with no hook of the plugin blocking, ended
 //     its turn with an API error, printed no result or did not finish within the limit.
+// A stop (`signal`: worfy quits) ends the running case as the limit does, with every process of its tree,
+// removes its temporary folder at once and runs no case after it; those are not-run (STOPPED).
 import { spawn, spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -87,6 +89,11 @@ export interface ContractSetOptions {
   runLimitMs: number
   /** Where the temporary folders of the runs go; the system temporary folder without it. Each run removes its own. */
   scratch?: string
+  /**
+   * Stops the set (worfy quitting, ticket 09): the running case ends at once with its processes, as at the limit,
+   * its temporary folder goes, and every case left is not run.
+   */
+  signal?: AbortSignal
 }
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e))
@@ -138,7 +145,7 @@ function descendants(root: number | undefined): number[] {
   return found
 }
 
-function runBinary(binary: string, args: string[], cwd: string, env: Record<string, string>, limitMs: number): Promise<Spawned> {
+function runBinary(binary: string, args: string[], cwd: string, env: Record<string, string>, limitMs: number, signal?: AbortSignal): Promise<Spawned> {
   return new Promise((resolve) => {
     // Bytes, decoded once at the end: a character split between two chunks stays whole.
     const out: Buffer[] = []
@@ -150,8 +157,8 @@ function runBinary(binary: string, args: string[], cwd: string, env: Record<stri
     // its run otherwise. Claude Code 2.1.322 starts each hook in a process group of its own, so a kill of
     // Claude Code's group misses them: the tree is walked from the pid of the process the runner started
     // (on Windows taskkill /T does that, killTool).
-    const timer = setTimeout(() => {
-      timedOut = true
+    // The same stop at the limit and on `signal`; synchronous up to the kill, so a quit of worfy does not outrun it.
+    const stop = (): void => {
       if (process.platform === 'win32') return killTool(child, process.platform, process.env)
       for (const pid of descendants(child.pid)) {
         try {
@@ -161,12 +168,18 @@ function runBinary(binary: string, args: string[], cwd: string, env: Record<stri
         }
       }
       child.kill('SIGKILL')
+    }
+    const timer = setTimeout(() => {
+      timedOut = true
+      stop()
     }, limitMs)
+    signal?.addEventListener('abort', stop, { once: true })
     child.stdout.on('data', (chunk: Buffer) => out.push(chunk))
     child.stderr.on('data', (chunk: Buffer) => err.push(chunk))
     child.on('error', (e) => (error = e))
     child.on('close', (code) => {
       clearTimeout(timer)
+      signal?.removeEventListener('abort', stop)
       resolve({ out: Buffer.concat(out).toString('utf8'), err: Buffer.concat(err).toString('utf8'), code, timedOut, ...(error === undefined ? {} : { error }) })
     })
   })
@@ -250,6 +263,9 @@ export function judgeRun(trace: RunTrace): RunVerdict {
 export async function runContractCase(contractCase: ContractCase, options: ContractSetOptions): Promise<CaseOutcome> {
   const { id, title } = contractCase
   const notRun = (reason: string): CaseOutcome => ({ id, title, status: 'not-run', reason })
+  // A function, not a read: the signal changes while the case runs.
+  const stopped = (): boolean => options.signal?.aborted === true
+  if (stopped()) return notRun(STOPPED)
   // The real path, long form on Windows (not RUNNER~1): the Stop case names the tree's gate marker by
   // the path git prints for it, and git prints the path the process's folder was given as.
   const root = realpathSync.native(mkdtempSync(join(options.scratch ?? tmpdir(), `contract-${id}-`)))
@@ -272,7 +288,21 @@ export async function runContractCase(contractCase: ContractCase, options: Contr
     }
     const env = { ...claudeEnv(standIn, context.home), HARNESS_HOME: context.harnessHome, ...extra }
     const args = ['-p', contractCase.prompt, '--output-format', 'stream-json', '--verbose', '--include-hook-events', '--model', MODEL, '--setting-sources', '', '--permission-mode', 'bypassPermissions', '--plugin-dir', options.pluginDir]
-    const spawned = await runBinary(options.binary, args, context.cwd, env, options.runLimitMs)
+    // On a stop the folder goes at once, after the kill (the listener of runBinary comes first): when worfy quits,
+    // the `finally` below may never run.
+    const removeNow = (): void => {
+      try {
+        removeTree(root)
+      } catch {
+        // A file the killed processes still hold (Windows): the folder stays in the system's temporary folder.
+      }
+    }
+    // Stopped while it laid out the run: nothing starts, and the `finally` removes the folder.
+    if (stopped()) return notRun(STOPPED)
+    const running = runBinary(options.binary, args, context.cwd, env, options.runLimitMs, options.signal)
+    options.signal?.addEventListener('abort', removeNow, { once: true })
+    const spawned = await running.finally(() => options.signal?.removeEventListener('abort', removeNow))
+    if (stopped()) return notRun(STOPPED)
     const lines = parseLines(spawned.out)
     const requests = standIn.requests()
     const verdict = judgeRun({
@@ -303,6 +333,9 @@ export async function runContractCase(contractCase: ContractCase, options: Contr
     }
   }
 }
+
+/** The reason of a case the set's `signal` stopped, or never started. */
+export const STOPPED = 'the run was stopped: worfy is quitting'
 
 /** Runs the cases one after another (each with folders of its own) and returns their outcomes in order. */
 export async function runContractSet(cases: readonly ContractCase[], options: ContractSetOptions): Promise<CaseOutcome[]> {

@@ -14,6 +14,10 @@
 // - On the focus of a worfy window (Q8) only rows not in `ok`, last checked over 5 minutes ago, are
 //   checked again, each through its registered re-check. No timer, no polling.
 //
+// - A live row (registerLiveRows; worfy-harness-guarantees ticket 09: the contract set of the Harness on Claude Code)
+//   is the feature's own: Health reads it at each merge and never waits for it, and the feature says when it changed.
+//   A row of the same id and Project a check made comes first.
+//
 // - A row may have a `subject` (worfy-integrations ticket 09: an Integration): one id and Project then
 //   hold a row per subject, each kept and taken back to `ok` on its own.
 //
@@ -77,6 +81,7 @@ export class HealthReports {
   private messages = new Map<string, Message>()
   private rechecks = new Map<CheckId, Recheck>()
   private networkSources: (() => Promise<Check[]>)[] = []
+  private liveSources: (() => readonly Check[])[] = []
   private lastRecheck = new Map<string, number>()
   /** The rows whose re-check is running, with its end: a second one waits for nothing and starts nothing. */
   private inFlight = new Map<string, Promise<void>>()
@@ -99,6 +104,15 @@ export class HealthReports {
   /** Rows checked over the network (`gh api` on a repo): checkNetwork() runs them after the local checks. */
   registerNetworkRows(source: () => Promise<Check[]>): void {
     this.networkSources.push(source)
+  }
+
+  /**
+   * Rows a feature keeps itself and answers for at once (`read`); nothing here awaits it, so a slow one holds back no
+   * other row. Returns what the feature calls after each change of them: the report goes to the listeners.
+   */
+  registerLiveRows(read: () => readonly Check[]): () => void {
+    this.liveSources.push(read)
+    return () => this.changed()
   }
 
   /**
@@ -262,6 +276,12 @@ export class HealthReports {
       merged.push({ check: network || check.project !== undefined ? { ...check, opensFirstRun: false } : check, at: Math.max(stored.at, message?.at ?? 0) })
     }
     for (const [key, message] of this.messages) if (!seen.has(key)) merged.push({ check: fromMessage(message, undefined), at: message.at })
+    for (const check of this.liveSources.flatMap(readLive)) {
+      const key = keyOfCheck(check)
+      if (seen.has(key)) continue
+      seen.add(key)
+      merged.push({ check: { ...check, opensFirstRun: false }, at: this.now() })
+    }
     return merged
   }
 
@@ -278,6 +298,16 @@ export class HealthReports {
         console.warn('[health] a listener of the report failed:', error instanceof Error ? error.name : 'error')
       }
     }
+  }
+}
+
+/** The rows of a live source; one that throws has none. */
+function readLive(read: () => readonly Check[]): readonly Check[] {
+  try {
+    return read()
+  } catch (error) {
+    console.warn('[health] live rows could not be read:', error instanceof Error ? error.name : 'error')
+    return []
   }
 }
 

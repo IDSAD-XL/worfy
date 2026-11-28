@@ -125,5 +125,24 @@ merge нужен Windows verdict.
   Run again, Copy details и Changelog — там. Ещё вне «Где в коде»: `src/shared/ipc/first-run.ts` (id, действия, канал),
   `src/shared/health/severity.ts` (уровень строк — non-critical), `src/main/ipc/first-run.ts` (связка),
   `src/renderer/main.tsx` (toast), `docs/features/onboarding.md` (строка таблицы Health).
-- Строки идут вместе с сетевыми строками Health (`registerNetworkRows`): новая пара занимает секунды, и старт их не ждёт.
+- Строки — live rows Health (`registerLiveRows` в `src/main/first-run/health-reports.ts`, вне «Где в коде»; связка —
+  `showInHealth`): новая пара занимает секунды, и ни старт, ни «Check again» их не ждут.
 - Под `WORFY_AGENT=fake` без `WORFY_HARNESS_CONTRACT` строк нет: e2e других функций считают строки Health.
+
+Review, раунд 1 (PR #2390, REJECTED: две находки med, две low):
+- **Выход worfy (med).** `HarnessClaudeCheck.stop()` на `will-quit` (`src/main/ipc/first-run.ts`) отменяет `signal`
+  набора: runner (`src/main/harness/contract/runner.ts`) убивает дерево процессов идущего `claude -p` тем же `stop()`,
+  что и таймер (POSIX — потомки SIGKILL, Windows — `taskkill /T`), сразу удаляет его временную папку `contract-*` и
+  больше case-ов не запускает; они `not-run` с причиной «the run was stopped: worfy is quitting». Test —
+  `test/unit/contract-runner-stop.test.ts` (shell script вместо `claude`: script и его ребёнок мертвы, папки нет сразу
+  после `abort()`); на Windows пропускается, там ветка `killTool` та же, что у таймера.
+- **Сетевые строки не ждут набор (med).** Строки набора — live rows: сетевой источник только запускает `refresh()` и
+  сразу отвечает `[]`, так что «Check again», «Use <login>» и строки GitHub access ответа набора не ждут. Новая пара
+  показывает «<версия> (<копия>) · running the checks…», готовый ответ уходит через `firstRun.reportChanged`. Run again
+  ждёт свою копию. Более старый `refresh`, закончившийся позже нового, строку не перезаписывает. Test-ы — в
+  `test/unit/harness-claude-health.test.ts` и `test/contract/health-reports.test.ts`.
+- **`not-run` не кэшируется (low).** Ответ, где хоть один case `not-run`, в файл не пишется: следующий старт прогонит
+  пару снова; в этом запуске worfy он показывается из памяти и набор заново не идёт.
+- **Ошибка записи кэша (low).** Запись — в своём `try/catch`: строка показывает ответ, в log — одна строка
+  предупреждения, следующий старт прогонит пару снова.
+- Каждый test новой логики проверен мутантом (копия файла в памяти, восстановление из неё): 14 мутантов, все красные.

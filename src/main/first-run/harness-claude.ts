@@ -7,8 +7,13 @@
 // - The set runs once per pair of a Claude Code version and a Harness version (bundledHarnessVersion()). The answer
 //   is kept in worfy's data folder (ADR-0005), <data>/harness-claude.json; a later check, a new start included, reads
 //   it and runs nothing. A new version on either side is a new pair, so Claude Code updated in the terminal is
-//   checked once, the next time Health checks. Both copies on one version share the run.
+//   checked once, the next time Health checks. Both copies on one version share the run. An answer with a case that
+//   did not run (a time limit on a busy machine, worfy quitting) stays for this app run only: the next start runs the
+//   pair again. A cache that cannot be written loses no answer: the row shows it.
 // - "Run again" (`again`) runs the set anew whatever the cache holds and keeps the new answer.
+// - Health never waits for the set (showInHealth): the rows are live rows — "running the checks…" while a new pair
+//   runs, then the answer, each change sent to the renderer. stop() (worfy quits) ends the runs under way with their
+//   processes and temporary folders.
 // - The row: every case passed — ok, "<version> (<copy>) · 6 of 6 checks · <when>"; a case failed (Claude Code
 //   started with the Harness and the Harness did not do its part) — fail, with the case's name and reason; a case
 //   that did not run (the binary did not start, the stand-in fell behind the API) — unknown: nothing is known about
@@ -30,8 +35,9 @@ import { severityOf } from '../../shared/health/severity'
 import type { Check } from '../../shared/ipc/first-run'
 import { getVar, type FileExists } from '../agent/env'
 import { CONTRACT_CASES } from '../harness/contract/cases'
-import { runContractSet, type CaseOutcome, type ContractCase, type StreamLine } from '../harness/contract/runner'
+import { runContractSet, STOPPED, type CaseOutcome, type ContractCase, type StreamLine } from '../harness/contract/runner'
 import { runTool, windowsProgram, type Env, type ToolRun } from './tools'
+import type { HealthReports } from './health-reports'
 
 /** Which Claude Code a row speaks for: worfy's own copy (the SDK's binary) or the terminal's. */
 export type ClaudeCopy = 'worfy' | 'terminal'
@@ -69,8 +75,8 @@ export interface HarnessClaudeDeps {
   harness: () => { dir: string; version: string | undefined }
   /** The binary of a copy of Claude Code and its version. */
   claude: (copy: ClaudeCopy) => Promise<ClaudeFound>
-  /** Runs the contract set on `binary` with the Harness in `pluginDir`. */
-  runSet: (binary: string, pluginDir: string, copy: ClaudeCopy) => Promise<SetRun>
+  /** Runs the contract set on `binary` with the Harness in `pluginDir`; `signal` ends it (worfy quits). */
+  runSet: (binary: string, pluginDir: string, copy: ClaudeCopy, signal?: AbortSignal) => Promise<SetRun>
   now?: () => Date
 }
 
@@ -112,41 +118,115 @@ const when = (at: string): string => {
   return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(date)
 }
 
+const COPIES = ['worfy', 'terminal'] as const
+
 export class HarnessClaudeCheck {
   /** The runs under way, by pair: a second ask of the same pair waits for that run. */
   private readonly running = new Map<string, Promise<Entry>>()
+  /** The answers of this app run, by pair, kept in the file or not (one with a case not run is not: written below). */
+  private readonly answers = new Map<string, Entry>()
+  /** The rows as they stand now, which Health reads at each merge (current()). */
+  private readonly shown = new Map<ClaudeCopy, Check>()
+  /** Per copy, the newest refresh: an older one that ends later does not overwrite its row. */
+  private readonly turn = new Map<ClaudeCopy, number>()
+  private readonly listeners = new Set<() => void>()
+  private readonly stopping = new AbortController()
 
   constructor(private readonly deps: HarnessClaudeDeps) {}
 
-  /** Both rows, worfy's copy first; the terminal's only when a `claude` is there. */
-  async rows(): Promise<Check[]> {
-    const rows = await Promise.all((['worfy', 'terminal'] as const).map((copy) => this.row(copy)))
-    return rows.filter((row): row is Check => row !== null)
+  /** The rows now, worfy's copy first; the terminal's only when a `claude` is there. Starts nothing. */
+  current(): Check[] {
+    return COPIES.flatMap((copy) => this.shown.get(copy) ?? [])
   }
 
-  /** The row of one copy: from the cache, or after a run of the set; `again` — run it anew. Null: no such Claude Code, or no Harness copy. */
+  /** Follows every change of current(); returns the unsubscribe. */
+  onChange(listener: () => void): () => void {
+    this.listeners.add(listener)
+    return () => this.listeners.delete(listener)
+  }
+
+  /**
+   * worfy quits: the runs under way end now with their processes and temporary folders (the runner's signal), and
+   * none starts after this.
+   */
+  stop(): void {
+    this.stopping.abort()
+  }
+
+  /**
+   * Checks both copies again: a pair with an answer shows it at once; a new pair shows a row "running the checks…"
+   * (`pending`) and runs. Resolves when every run it started is over; a caller that must not wait does not await it.
+   */
+  async refresh(): Promise<void> {
+    await Promise.all(COPIES.map((copy) => this.refreshCopy(copy, false)))
+  }
+
+  /** Both rows after a refresh. */
+  async rows(): Promise<Check[]> {
+    await this.refresh()
+    return this.current()
+  }
+
+  /** The row of one copy after its refresh; `again` — run the set anew (Run again). Null: no such Claude Code, or no Harness copy. */
   async row(copy: ClaudeCopy, { again = false }: { again?: boolean } = {}): Promise<Check | null> {
-    const [claude, worfy] = await Promise.all([this.deps.claude(copy), copy === 'terminal' ? this.deps.claude('worfy') : Promise.resolve(null)])
-    if (claude.kind === 'missing') return null
+    await this.refreshCopy(copy, again)
+    return this.shown.get(copy) ?? null
+  }
+
+  private async refreshCopy(copy: ClaudeCopy, again: boolean): Promise<void> {
+    const turn = (this.turn.get(copy) ?? 0) + 1
+    this.turn.set(copy, turn)
+    const show = (row: Check | null): void => {
+      if (this.turn.get(copy) === turn) this.show(copy, row)
+    }
+    let claude: ClaudeFound
+    let worfy: ClaudeFound | null
+    try {
+      ;[claude, worfy] = await Promise.all([this.deps.claude(copy), copy === 'terminal' ? this.deps.claude('worfy') : Promise.resolve(null)])
+    } catch (error) {
+      return show(this.notRun(copy, `unknown version (${copy})`, message(error), []))
+    }
+    if (claude.kind === 'missing') return show(null)
     const label = `${claude.kind === 'found' ? claude.version : (claude.version ?? 'unknown version')} (${copy})`
     const links = copy === 'terminal' && worfy?.kind === 'found' && claude.version !== undefined && newer(claude.version, worfy.version)
     const extra: Check['actions'] = links ? [{ id: 'open-link', label: 'Changelog', url: CLAUDE_CODE_CHANGELOG_URL }] : []
-    if (claude.kind === 'unusable') return this.notRun(copy, label, claude.reason, extra)
+    if (claude.kind === 'unusable') return show(this.notRun(copy, label, claude.reason, extra))
     const { dir, version } = this.deps.harness()
     // No Harness copy of this build (a dev build before its first build, a unit test): nothing to check, no row. A
     // packaged build without one fails the row "Harness plugin" already.
-    if (version === undefined) return null
-    let entry: Entry
+    if (version === undefined) return show(null)
+    const key = keyOf(claude.version, version)
+    const known = again || this.running.has(key) ? undefined : this.known(key)
+    if (known !== undefined) return show(rowOf(copy, label, known, extra))
+    show(make(copy, 'unknown', `${label} · running the checks…`, 'The contract set of the Harness runs on this Claude Code; it takes a few seconds', [], `${TITLE} ${label}: running`))
     try {
-      entry = await this.entry(claude, { dir, version }, copy, again)
+      show(rowOf(copy, label, await this.entry(claude, { dir, version }, copy, again), extra))
     } catch (error) {
-      return this.notRun(copy, label, message(error), extra)
+      show(this.notRun(copy, label, message(error), extra))
     }
-    return rowOf(copy, label, entry, extra)
+  }
+
+  private show(copy: ClaudeCopy, row: Check | null): void {
+    const before = this.shown.get(copy)
+    if (JSON.stringify(before ?? null) === JSON.stringify(row)) return
+    if (row === null) this.shown.delete(copy)
+    else this.shown.set(copy, row)
+    for (const listener of this.listeners) {
+      try {
+        listener()
+      } catch (error) {
+        console.warn('[harness-claude] a listener failed:', error instanceof Error ? error.name : 'error')
+      }
+    }
   }
 
   private notRun(copy: ClaudeCopy, label: string, reason: string, extra: Check['actions']): Check {
     return make(copy, 'unknown', `${label} · the checks could not run: ${brief(reason)}`, 'Nothing is known about the Harness on this Claude Code; Run again', [RUN_AGAIN, ...extra], `${TITLE} ${label}: the checks could not run: ${reason}`)
+  }
+
+  /** The answer of a pair: of this app run, else from the file. */
+  private known(key: string): Entry | undefined {
+    return this.answers.get(key) ?? this.read().find((each) => keyOf(each.claudeVersion, each.harnessVersion) === key)
   }
 
   private async entry(claude: Extract<ClaudeFound, { kind: 'found' }>, harness: { dir: string; version: string }, copy: ClaudeCopy, again: boolean): Promise<Entry> {
@@ -154,13 +234,24 @@ export class HarnessClaudeCheck {
     const under = this.running.get(key)
     if (under !== undefined) return under
     if (!again) {
-      const kept = this.read().find((each) => keyOf(each.claudeVersion, each.harnessVersion) === key)
+      const kept = this.known(key)
       if (kept !== undefined) return kept
     }
+    if (this.stopping.signal.aborted) throw new Error(STOPPED)
     const run = (async (): Promise<Entry> => {
-      const result = await this.deps.runSet(claude.binary, harness.dir, copy)
+      const result = await this.deps.runSet(claude.binary, harness.dir, copy, this.stopping.signal)
       const entry: Entry = { claudeVersion: claude.version, harnessVersion: harness.version, at: (this.deps.now?.() ?? new Date()).toISOString(), outcomes: result.outcomes, warnings: result.warnings }
-      this.write(entry)
+      this.answers.set(key, entry)
+      // A case that did not run (a time limit on a busy machine, worfy quitting) is not kept: the next start runs the
+      // pair again. This app run keeps the answer (`answers`), so Health does not run it again on every check.
+      if (entry.outcomes.every((each) => each.status !== 'not-run')) {
+        try {
+          this.write(entry)
+        } catch (error) {
+          // The answer still shows; only the next start runs the pair again.
+          console.warn('[harness-claude] the answer could not be kept:', error instanceof Error ? error.message : 'error')
+        }
+      }
       return entry
     })()
     this.running.set(key, run)
@@ -190,6 +281,19 @@ export class HarnessClaudeCheck {
     writeFileSync(tmp, `${JSON.stringify({ entries }, null, 2)}\n`)
     renameSync(tmp, file)
   }
+}
+
+/**
+ * Puts the rows of `check` into Health as live rows: each network check of Health ("Check again", "Use <login>", the
+ * start) starts a refresh and does not wait for it, so the GitHub rows answer without the set; each change of the rows
+ * goes out as a change of the report.
+ */
+export function showInHealth(check: HarnessClaudeCheck, health: Pick<HealthReports, 'registerLiveRows' | 'registerNetworkRows'>): void {
+  check.onChange(health.registerLiveRows(() => check.current()))
+  health.registerNetworkRows(() => {
+    check.refresh().catch((error: unknown) => console.warn('[harness-claude] the check failed:', error instanceof Error ? error.name : 'error'))
+    return Promise.resolve([])
+  })
 }
 
 const RUN_AGAIN: Check['actions'][number] = { id: 'harness-claude-run', label: 'Run again' }
@@ -251,7 +355,7 @@ const PASSED_ON = ['PATH', 'CLAUDE_CODE_GIT_BASH_PATH'] as const
  * runner's environment (claudeEnv takes worfy's own PATH), and the plugin warnings of each run's system/init kept.
  */
 export function contractSetRun(loginEnv: () => Promise<Env>, run: typeof runContractSet = runContractSet, runLimitMs = HEALTH_RUN_LIMIT_MS): HarnessClaudeDeps['runSet'] {
-  return async (binary, pluginDir) => {
+  return async (binary, pluginDir, _copy, signal) => {
     const env = await loginEnv()
     const passed: Record<string, string> = {}
     for (const name of PASSED_ON) {
@@ -267,7 +371,7 @@ export function contractSetRun(loginEnv: () => Promise<Env>, run: typeof runCont
         return each.check(caseRun)
       },
     }))
-    const outcomes = await run(cases, { binary, pluginDir, runLimitMs })
+    const outcomes = await run(cases, { binary, pluginDir, runLimitMs, signal })
     return { outcomes, warnings: [...warnings] }
   }
 }

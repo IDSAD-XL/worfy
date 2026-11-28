@@ -64,7 +64,7 @@ describe('Health: Harness on Claude Code — once per pair of versions', () => {
     const first = await health.row('worfy')
     const second = await health.row('worfy')
     expect(runSet).toHaveBeenCalledTimes(1)
-    expect(runSet).toHaveBeenCalledWith('/opt/claude-2.1.322', '/opt/harness', 'worfy')
+    expect(runSet).toHaveBeenCalledWith('/opt/claude-2.1.322', '/opt/harness', 'worfy', expect.any(AbortSignal))
     expect(first).toMatchObject({ id: 'harness-claude', title: 'Harness on Claude Code', status: 'ok', severity: 'non-critical' })
     expect(first?.detail).toMatch(/^2\.1\.322 \(worfy\) · 6 of 6 checks · Nov 14, 10:02$/)
     expect(second).toEqual(first)
@@ -225,9 +225,10 @@ describe('Health: Harness on Claude Code — the runs', () => {
       )
     })
     const setRun = contractSetRun(() => Promise.resolve({ PATH: '/login/bin:/usr/bin', HOME: '/home/someone' }), run)
-    const result = await setRun('/opt/claude', '/opt/harness', 'terminal')
+    const stop = new AbortController()
+    const result = await setRun('/opt/claude', '/opt/harness', 'terminal', stop.signal)
     expect(seen?.cases.map((each) => each.id)).toEqual(CONTRACT_CASES.map((each) => each.id))
-    expect(seen?.options).toMatchObject({ binary: '/opt/claude', pluginDir: '/opt/harness' })
+    expect(seen?.options).toMatchObject({ binary: '/opt/claude', pluginDir: '/opt/harness', signal: stop.signal })
     expect(result.outcomes.every((each) => each.status === 'passed')).toBe(true)
     expect(result.warnings).toEqual(['worfy engine-range-exempt: requires claude-code >=9.0.0'])
   })
@@ -268,5 +269,100 @@ describe('Health: Harness on Claude Code — the runs', () => {
     const cmd = await terminalClaude({ Path: 'C:\\npm', PATHEXT: '.EXE;.CMD' }, { platform: 'win32', run, exists: (file) => file === 'C:\\npm\\claude.cmd' })
     expect(cmd).toMatchObject({ kind: 'unusable', version: '2.1.330' })
     expect(await terminalClaude({ Path: 'C:\\npm' }, { platform: 'win32', run, exists: () => false })).toEqual({ kind: 'missing' })
+  })
+})
+
+// Review round 1 of PR #2390: the set must not hold back Health's other rows, must end with worfy, and keeps in the
+// cache only an answer it can stand by.
+describe('Health: Harness on Claude Code — live rows, the stop and the cache', () => {
+  /** A set whose answer the test gives: each run waits until `finish` is called. */
+  function heldSet() {
+    const waiting: ((run: SetRun) => void)[] = []
+    runSet.mockImplementation(() => new Promise<SetRun>((resolve) => waiting.push(resolve)))
+    return { finish: (run: SetRun = { outcomes: passedAll(), warnings: [] }) => waiting.shift()?.(run), held: () => waiting.length }
+  }
+
+  it('Health\'s network check answers before the set ends: the row says "running the checks…", and the answer comes as a change of the report', async () => {
+    const { HealthReports } = await import('../../src/main/first-run/health-reports')
+    const { showInHealth } = await import('../../src/main/first-run/harness-claude')
+    const { finish, held } = heldSet()
+    const health = new HealthReports(() => 1_000)
+    const events: string[][] = []
+    health.subscribe((report) => events.push(report.checks.map((each) => `${each.id}:${each.status}:${each.detail.split(' · ')[1] ?? ''}`)))
+    health.registerNetworkRows(() => Promise.resolve([]))
+    const harness = check()
+    showInHealth(harness, health)
+    health.setChecks({ checks: [], checkedAt: new Date(0).toISOString() })
+    await health.checkNetwork()
+    await vi.waitFor(() => expect(held()).toBe(2))
+    expect(health.current()?.checks.map((each) => [each.id, each.status, each.detail])).toEqual([
+      ['harness-claude', 'unknown', '2.1.322 (worfy) · running the checks…'],
+      ['harness-claude-terminal', 'unknown', '2.1.330 (terminal) · running the checks…'],
+    ])
+    finish()
+    finish({ outcomes: withOutcome('guard-reset-hard', { status: 'failed', reason: 'the edit was wiped' }), warnings: [] })
+    await vi.waitFor(() => expect(events.at(-1)).toEqual(['harness-claude:ok:6 of 6 checks', 'harness-claude-terminal:fail:guard-reset-hard: the edit was wiped']))
+    expect(health.current()?.checks.every((each) => each.opensFirstRun === false)).toBe(true)
+    // A second network check with the answers known runs nothing and waits for nothing.
+    await health.checkNetwork()
+    expect(runSet).toHaveBeenCalledTimes(2)
+  })
+
+  it('stop() ends the runs under way through their signal and starts none after it', async () => {
+    const { finish } = heldSet()
+    const harness = check()
+    const row = harness.row('worfy')
+    await vi.waitFor(() => expect(runSet).toHaveBeenCalledTimes(1))
+    const signal = runSet.mock.calls[0]?.[3]
+    expect(signal?.aborted).toBe(false)
+    harness.stop()
+    expect(signal?.aborted).toBe(true)
+    finish({ outcomes: passedAll().map((each) => ({ ...each, status: 'not-run', reason: 'the run was stopped: worfy is quitting' })), warnings: [] })
+    expect((await row)?.status).toBe('unknown')
+    versions.terminal = found('2.1.340')
+    expect((await harness.row('terminal'))?.detail).toBe('2.1.340 (terminal) · the checks could not run: the run was stopped: worfy is quitting')
+    expect(runSet).toHaveBeenCalledTimes(1)
+  })
+
+  it('an answer with a case that did not run is not kept in the file, so the next start runs the pair again; this run shows it without a new run', async () => {
+    answer = () => ({ outcomes: withOutcome('stop-holds-on-red', { status: 'not-run', reason: 'did not finish in 30 s' }), warnings: [] })
+    const harness = check()
+    expect((await harness.row('worfy'))?.status).toBe('unknown')
+    expect((await harness.row('worfy'))?.status).toBe('unknown')
+    expect(runSet).toHaveBeenCalledTimes(1)
+    expect(readdirSync(data)).toEqual([])
+    answer = () => ({ outcomes: passedAll(), warnings: [] })
+    expect((await check().row('worfy'))?.status).toBe('ok')
+    expect(runSet).toHaveBeenCalledTimes(2)
+    expect(readdirSync(data)).toEqual(['harness-claude.json'])
+  })
+
+  it('a cache that cannot be written loses no answer: the row shows it, and the next start runs again', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    writeFileSync(join(data, 'file'), '')
+    const blocked = join(data, 'file', 'harness-claude.json')
+    answer = () => ({ outcomes: withOutcome('guard-reset-hard', { status: 'failed', reason: 'the edit was wiped' }), warnings: [] })
+    expect((await check({ cacheFile: blocked }).row('worfy'))?.status).toBe('fail')
+    expect(warn).toHaveBeenCalledWith('[harness-claude] the answer could not be kept:', expect.any(String))
+    expect((await check({ cacheFile: blocked }).row('worfy'))?.status).toBe('fail')
+    expect(runSet).toHaveBeenCalledTimes(2)
+    warn.mockRestore()
+  })
+
+  it('an older refresh that ends after a newer one does not overwrite its row', async () => {
+    const ends: ((run: SetRun) => void)[] = []
+    runSet.mockImplementation(() => new Promise<SetRun>((resolve) => ends.push(resolve)))
+    const harness = check()
+    const first = harness.row('worfy')
+    await vi.waitFor(() => expect(ends).toHaveLength(1))
+    versions.worfy = found('2.1.323')
+    const second = harness.row('worfy')
+    await vi.waitFor(() => expect(ends).toHaveLength(2))
+    // The run of the new version ends first, then the old one, failed.
+    ends[1]?.({ outcomes: passedAll(), warnings: [] })
+    await second
+    ends[0]?.({ outcomes: withOutcome('guard-reset-hard', { status: 'failed', reason: 'old' }), warnings: [] })
+    await first
+    expect(harness.current().map((each) => [each.status, each.detail.split(' · ')[0]])).toEqual([['ok', '2.1.323 (worfy)']])
   })
 })
