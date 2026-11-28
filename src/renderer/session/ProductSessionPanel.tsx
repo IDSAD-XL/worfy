@@ -8,13 +8,14 @@ import { flattenSubagents, type SubagentInfo } from '../../shared/transcript/sub
 import { hiddenIdsOf, useHiddenSubagents, useSubagentTree, withoutHidden } from '../claude-home/subagents'
 import { invoke, showSubscribeError, subscribe } from '../ipc'
 import { MindMap } from '../product/MindMap'
-import { pickNode, useMindMapFocus, type NodeRef } from '../product/node-chips'
+import { pickNode, sessionTopicCall, useMindMapFocus, type NodeRef, type SessionTopicCall } from '../product/node-chips'
 import { useMindMap } from '../product/useMindMap'
 import { useProjects } from '../projects/useProjects'
 import { setAppSettings, useAppSettings } from '../settings/useAppSettings'
 import { showToast } from '../toast/toasts'
 import { ProductAgentsList } from './ProductAgentsList'
 import { draftsOf, productAgentOrder, type ProductDraft } from './product-agents'
+import { foldTranscript } from './fold'
 import { CriticPanel, DraftsPanel, IdeasPanel } from './ProductRailPanels'
 import { ProductSessionContext } from './product-session'
 import type { RailBlockProps } from './rail/index'
@@ -36,11 +37,13 @@ import { SplitDivider } from './SplitDivider'
 // A Product Session is bound to no Ticket and no Epic.
 //
 // The left pane draws the Mind map (../product/MindMap.tsx, ticket 08) of the topic the advisor works on.
-// A Product Session is bound to no topic in its data, so the pane follows the topic of the Project whose
-// files changed last while it is open — the advisor's `mind_map_*` writes are such changes — and keeps
-// that name per Node in this window's localStorage, to show the same topic when the Session is opened
-// again. Until a topic is known, or while its folder is gone, the pane holds the empty state; when
-// `product.topic` fails, it says why.
+// A Product Session is bound to no topic in its data, so the pane shows the topic of the Session's own last
+// `mind_map_*` call that names one, read from its events (the loaded transcript and the live ones; in a window
+// on a Linked machine the transcript is read from that Machine), so every window of either Machine shows the
+// same one (worfy-polish ticket 173). A change of the Project's topics by another Session does not switch it.
+// A chip of another topic switches it until the Session's next such call. The name is kept per Node in this
+// window's localStorage only for when the loaded part of the transcript holds no such call. Until a topic is
+// known, or while its folder is gone, the pane holds the empty state; when `product.topic` fails, it says why.
 //
 // ProductTopicName is the topic in the Session's header (SessionView.tsx; ticket 19).
 //
@@ -82,39 +85,86 @@ function readTopicName(key: string): string | undefined {
   }
 }
 
-/** The topic each Node's Mind map follows, by `<projectId>:<nodeId>`: the pane and the header show the same one. */
-const useFollowedTopics = create<Readonly<Record<string, string>>>(() => ({}))
-
-/** Makes `name` the topic the Node's Mind map shows, here and at the next start. */
-function followTopic(key: string, name: string): void {
-  if (useFollowedTopics.getState()[key] !== name) useFollowedTopics.setState({ [key]: name })
+/** Keeps `name` as the topic the Node's Mind map showed last, for when its loaded transcript names none. */
+function keepTopicName(key: string, name: string): void {
   try {
-    globalThis.localStorage.setItem(TOPIC_PREFIX + key, name)
+    if (globalThis.localStorage.getItem(TOPIC_PREFIX + key) !== name) globalThis.localStorage.setItem(TOPIC_PREFIX + key, name)
   } catch (error) {
     console.error('[product-session] could not keep the topic of the Mind map', error)
   }
 }
 
 /**
- * The topic the Node's Mind map shows: the last one of the Project reported by `product.changed` while
- * the pane is open, or the one a chip of another topic switched it to (useTopicOfChip), else the one it showed before.
+ * The topic a chip of another topic switched each Node's Mind map to (useTopicOfChip), by `<projectId>:<nodeId>`,
+ * with the id of the Session's last topic call at that moment (`since`) and the last of its events then (`anchor`):
+ * the choice holds until the Session calls again.
  */
-function useShownTopic(projectId: string, nodeId: string): string | undefined {
+interface ChosenTopic {
+  name: string
+  since: string | null
+  anchor: AgentEvent | null
+}
+
+const useChosenTopics = create<Readonly<Record<string, ChosenTopic>>>(() => ({}))
+
+/** Switches the Node's Mind map to `name` until the Session's next call that names a topic. */
+function chooseTopic(key: string, chosen: ChosenTopic): void {
+  const was = useChosenTopics.getState()[key]
+  if (was?.name !== chosen.name || was.since !== chosen.since || was.anchor !== chosen.anchor) useChosenTopics.setState({ [key]: chosen })
+  keepTopicName(key, chosen.name)
+}
+
+/**
+ * Whether a chip's choice still holds: the Session's last topic call (`last`) is the one it was made after, or one
+ * that was in its events already then. «Load earlier» puts older events in front, so an older call found there after
+ * the choice comes before its `anchor`; a call the Session made since comes after it. With the anchor gone from the
+ * events (they were read anew), any other call ends the choice.
+ */
+function chipHolds(chosen: ChosenTopic, events: readonly AgentEvent[], last: string | null): boolean {
+  if (chosen.since === last || last === null) return true
+  if (chosen.anchor === null) return false
+  const anchorAt = events.lastIndexOf(chosen.anchor)
+  if (anchorAt < 0) return false
+  const callAt = events.findIndex((event) => event.type === 'tool_use' && event.id === last)
+  return callAt >= 0 && callAt < anchorAt
+}
+
+/** The Session's last topic call in `events`, folded once per array: the pane and the header are given the same one. */
+const topicCalls = new WeakMap<readonly AgentEvent[], SessionTopicCall | null>()
+
+function topicCallOf(events: readonly AgentEvent[]): SessionTopicCall | null {
+  let found = topicCalls.get(events)
+  if (found === undefined) {
+    found = sessionTopicCall(foldTranscript(events))
+    topicCalls.set(events, found)
+  }
+  return found
+}
+
+/**
+ * The topic the Node's Mind map shows (worfy-polish ticket 173): the one of the Session's own last `mind_map_*` call
+ * in its events — on this Machine and in a window on a Linked machine alike — unless a chip of another topic
+ * switched it after that call; while the loaded events hold no such call, the one this window showed last for the
+ * Node. A change of the Project's topics (`product.changed`), by any Session, does not switch it. `last` is the id
+ * of that call and `anchor` the last of the events: the moment a chip's choice is made at.
+ */
+function useShownTopic(
+  projectId: string,
+  nodeId: string,
+  events: readonly AgentEvent[] | undefined,
+): { name: string | undefined; last: string | null; anchor: AgentEvent | null } {
   const key = `${projectId}:${nodeId}`
-  const followed = useFollowedTopics((topics) => topics[key])
+  const list = events ?? NO_EVENTS
+  const session = useMemo(() => topicCallOf(list), [list])
+  const chosen = useChosenTopics((topics) => topics[key])
+  const last = session?.call ?? null
+  const own = session?.topic
   useEffect(() => {
-    let unsubscribe: (() => void) | undefined
-    try {
-      unsubscribe = subscribe('product.changed', (change) => {
-        if (change.projectId !== projectId || change.topic === null) return
-        followTopic(key, change.name)
-      })
-    } catch (error) {
-      showSubscribeError('product.changed', error)
-    }
-    return () => unsubscribe?.()
-  }, [projectId, key])
-  return followed ?? readTopicName(key)
+    if (own !== undefined) keepTopicName(key, own)
+  }, [key, own])
+  const holds = useMemo(() => chosen !== undefined && chipHolds(chosen, list, last), [chosen, list, last])
+  const name = holds && chosen !== undefined ? chosen.name : (own ?? readTopicName(key))
+  return { name, last, anchor: list.at(-1) ?? null }
 }
 
 /** The node of a chip whose topic the Node's Mind map is switching to, by `<projectId>:<nodeId>` (useTopicOfChip). */
@@ -133,9 +183,10 @@ function wantTopic(key: string, ref: NodeRef | null): void {
  * A chip of the chat names a node of a topic the map does not show (worfy-polish ticket 147, audit finding 63): the
  * Mind map of `shown` acts only on its own nodes. This reads the chip's topic; once it is read the map follows it,
  * and once that map is drawn the node is picked again on it, which selects it and brings it into view. A topic that
- * is gone or cannot be read says so in a toast, and the map stays as it was.
+ * is gone or cannot be read says so in a toast, and the map stays as it was. The map stays on the chip's topic until
+ * the Session's next call that names a topic (`last` and `anchor`, useShownTopic; worfy-polish ticket 173).
  */
-function useTopicOfChip(projectId: string, nodeId: string, shown: ProductTopicState | null | undefined): void {
+function useTopicOfChip(projectId: string, nodeId: string, shown: ProductTopicState | null | undefined, last: string | null, anchor: AgentEvent | null): void {
   const key = `${projectId}:${nodeId}`
   const wanted = useChipTopics((all) => all[key]) ?? null
   const latest = useRef(shown?.name)
@@ -161,7 +212,7 @@ function useTopicOfChip(projectId: string, nodeId: string, shown: ProductTopicSt
       pickNode(wanted)
       wantTopic(key, null)
     } else if (topic !== undefined && topic !== null) {
-      followTopic(key, wanted.topic)
+      chooseTopic(key, { name: wanted.topic, since: last, anchor })
     } else if (topic === null || error !== undefined) {
       showToast({
         kind: 'error',
@@ -170,16 +221,28 @@ function useTopicOfChip(projectId: string, nodeId: string, shown: ProductTopicSt
       })
       wantTopic(key, null)
     }
-  }, [key, shown, wanted, topic, error])
+  }, [key, shown, wanted, topic, error, last, anchor])
 }
 
 /**
  * The topic of the Node's Mind map in the header of a Product Session (ticket 19, Q3): « · » and its title,
  * else its folder name while the topic is read; `fallback` (the Project's name) until a topic is known.
- * It reads the same shared copy of the topic as the Mind map pane (useMindMap).
+ * It reads the same shared copy of the topic as the Mind map pane (useMindMap), and takes the topic from the same
+ * events of the Session (useShownTopic).
  */
-export function ProductTopicName({ projectId, nodeId, fallback }: { projectId: string; nodeId: string; fallback: string | undefined }) {
-  const name = useShownTopic(projectId, nodeId)
+export function ProductTopicName({
+  projectId,
+  nodeId,
+  fallback,
+  events,
+}: {
+  projectId: string
+  nodeId: string
+  fallback: string | undefined
+  /** The Session's events, the loaded transcript and the live ones, as the pane is given them. */
+  events?: readonly AgentEvent[] | undefined
+}) {
+  const { name } = useShownTopic(projectId, nodeId, events)
   const { topic } = useMindMap(projectId, name)
   const shown = topic?.title || name || fallback
   if (!shown) return null
@@ -437,8 +500,9 @@ export function ProductSessionPanel({ children, events, busy = false, ...rail }:
   const session = rail.claudeSessionId ?? rail.sessionId
   const { agents, root } = useSessionAgents(rail.projectId, session)
   const drafts = useMemo(() => draftsOf(events ?? [], root), [events, root])
-  const { topic, error } = useMindMap(rail.projectId, useShownTopic(rail.projectId, rail.nodeId))
-  useTopicOfChip(rail.projectId, rail.nodeId, topic)
+  const shown = useShownTopic(rail.projectId, rail.nodeId, events)
+  const { topic, error } = useMindMap(rail.projectId, shown.name)
+  useTopicOfChip(rail.projectId, rail.nodeId, topic, shown.last, shown.anchor)
   return (
     <div className="w-product" data-testid="product-session-panel">
       <div className="w-product__split">

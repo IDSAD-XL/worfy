@@ -1,7 +1,8 @@
 # 173 — Mind map Product Session показывает тему своей Session, а не последнюю изменённую в Project-е
 
 Type: bug
-Status: open
+Status: claimed 2026-11-28T05:20Z
+Branch: worfy-polish/173
 Blocked by: None — can start immediately
 Source: два bug-а владельца 2026-11-28, оба про Link (Link — связь двух машин worfy: гость смотрит и ведёт Session-ы
 хоста). Слова владельца:
@@ -117,16 +118,60 @@ Root cause у обоих bug-ов один: тема, чей Mind map рисуе
 
 - [ ] Панель Product Session и её заголовок показывают тему последнего вызова `mind_map_*` своей Session. При
       переключении на другую Session карта переключается; запись другой Session в её тему карту не меняет.
+  - evidence: test-run pass · `pnpm test` exit 0 (test/unit/product-session-panel.test.tsx, test/unit/node-chips.test.tsx) · mac - · d97b8bb6e5df9416500be3aace4e7b4320af0194
 - [ ] Session, запущенная на другой машине, при первом открытии на этой показывает свою карту без клика по идее.
+  - evidence: test-run pass · `pnpm test` exit 0 (test/unit/product-session-panel.test.tsx, test/unit/node-chips.test.tsx) · mac - · d97b8bb6e5df9416500be3aace4e7b4320af0194
 - [ ] Чип другой темы переключает карту и выделяет узел; следующий вызов Session возвращает карту на её тему.
+  - evidence: test-run pass · `pnpm test` exit 0 (test/unit/product-session-panel.test.tsx, test/unit/node-chips.test.tsx) · mac - · d97b8bb6e5df9416500be3aace4e7b4320af0194
 - [ ] Unit test-ы на оба bug-а, в том числе в окне гостя через stub Link bridge, красные до правки; test `:955`
       переписан под новое поведение.
+  - evidence: test-run pass · `pnpm test` test/unit/product-session-panel.test.tsx exit 1 on origin/main panel (10 red), exit 0 after the change · mac - · d97b8bb6e5df9416500be3aace4e7b4320af0194
 - [ ] Абзац «Which topic shows» в `docs/features/product-session.md` и `docs/features/ru/product-session.md` говорит,
       откуда берётся тема.
+  - evidence: commit pass · worfy-polish/173: a Product Session's Mind map shows the topic of its own calls · - - · d97b8bb6e5df9416500be3aace4e7b4320af0194
 - [ ] (вручную) Сделай: на Mac в Stable worfy (хост) открой Project с двумя Product Session, у которых разные темы;
       на ПК открой этот Project через Link. На ПК переключись с первой Session на вторую и обратно, пока advisor
-      первой ещё пишет → Должно быть: каждый раз граф своей Session, и запись первой не перекидывает вторую. Затем
-      запусти на ПК новую Product Session и дождись первого узла; на Mac открой эту Session → Должно быть: граф виден
-      сразу, без клика по идее в чате.
-  - needs: mac stable, windows stable
+      первой ещё пишет → Должно быть: каждый раз граф своей Session, и запись первой не перекидывает вторую.
+  - needs: windows stable
+- [ ] (вручную) Сделай: на ПК в Stable worfy открой через Link Project Mac-а (хост), запусти на ПК новую Product
+      Session и дождись первого узла; на Mac открой эту Session → Должно быть: граф виден сразу, без клика по идее в
+      чате.
+  - needs: mac stable
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: gate pass · `gate fast` exit 0 · mac - · d97b8bb6e5df9416500be3aace4e7b4320af0194
+
+## Итог
+
+- Тема карты и заголовка Product Session теперь берётся из вызовов самой Session: `sessionTopicCall`
+  (`src/renderer/product/node-chips.ts`) ищет в свёрнутом `foldTranscript` транскрипте последний удачный
+  `mind_map_add`, `mind_map_update`, `mind_map_decide` или `mind_map_read` с `topic`. Свёртка та же, что у чипов,
+  поэтому вызовы Subagent-ов не считаются, как и в `transcriptChips`. `ProductTopicName` получает те же `events`, что
+  панель (`SessionView.tsx`); свёртка делается один раз на массив событий (`WeakMap` в `ProductSessionPanel.tsx`).
+- Подписка панели на `product.changed` Project-а убрана: событие другой Session и первое чтение темы watcher-ом больше
+  не переключают карту. `useMindMap` по-прежнему обновляет копию показанной темы по `product.changed`. Других
+  подписчиков, которых это событие переключало бы, в renderer нет (`grep 'product.changed' src/renderer`: только
+  `useMindMap` и счётчик принятых советов в заголовке). Main не менялся.
+- Чип другой темы переключает карту до следующего вызова Session: выбор чипа хранит id последнего вызова Session на
+  момент клика; новый вызов (другой id) возвращает карту к теме Session.
+- localStorage по Node остаётся запасом: пишется из вызовов Session и из клика по чипу, читается, только пока в
+  загруженной части транскрипта нет ни одного такого вызова.
+- Test-ы сначала красные: на коде `origin/main` (без правки панели) 10 test-ов блока «the Mind map pane of a Product
+  Session» в `test/unit/product-session-panel.test.tsx` падали — переключение Session (bug 1), первое открытие без
+  событий (bug 2), оба случая в окне гостя через stub `linked.invoke` / `linked.event`, запас из localStorage, чип и
+  возврат после чипа. Test «draws the Mind map of the topic whose files changed…» переписан под новое поведение. В трёх
+  прежних test-ах (ошибка чтения темы, чип другой темы, чип пропавшей темы) тема теперь задаётся вызовом Session в
+  `events`, а не `product.changed`: старый способ больше не переключает карту; проверки этих test-ов не менялись.
+  Чистые test-ы `sessionTopicCall` — в `test/unit/node-chips.test.tsx`.
+- Абзац «Which topic shows» в `docs/features/product-session.md` и `docs/features/ru/product-session.md` переписан.
+- E2e на CI (windows-e2e 1/4, первый head PR) упал: `test/e2e/a11y.spec.ts:99` и ещё три test-а
+  `test/e2e/product-session.spec.ts` (вторая половина test-а про перетаскивание узла после перезапуска, длинные тексты,
+  Graph) открывали новую Product Session без единого сообщения и писали файлы темы руками, полагаясь на старое
+  поведение «карта идёт за изменённой темой». Теперь в них сначала ход fake-агента `product-mind-map` (его
+  `mind_map_add` называет тему `roadmap`), потом запись файла; проверки test-ов не менялись. Эти файлы вне
+  «Где в коде», правка вынужденная. Локально e2e не запускались (бриф), решает CI.
+- Ревью, раунд 1 (VERIFIED с [low]): выбор чипа, сделанный, пока в загруженном транскрипте не было вызова
+  `mind_map_*`, больше не сбрасывает «Load earlier» со старым вызовом — выбор помнит последнее событие на момент
+  выбора, и сбрасывает его только вызов после этого события (`chipHolds`; test «a chip chosen while the loaded
+  transcript held no topic call…» был красным до правки); два пропущенных пробела исправлены; ручной пункт разбит на
+  два — `needs: windows stable` (ПК-гость) и `needs: mac stable` (Mac-хост), чтобы `ticket evidence` их читал.
+- Ручные пункты (Mac-хост и ПК-гость через Link) не проверялись: нужен владелец на обеих машинах.

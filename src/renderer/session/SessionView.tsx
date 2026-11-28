@@ -355,7 +355,7 @@ export function SessionPanel({ projectId, projectName, nodeId, blocks }: Session
           {heading}
           {/* A Product Session names the topic its Mind map shows, once there is one (ticket 19, Q3). */}
           {product ? (
-            <ProductTopicName projectId={projectId} nodeId={nodeId} fallback={projectName} />
+            <ProductTopicName projectId={projectId} nodeId={nodeId} fallback={projectName} events={events} />
           ) : projectName ? (
             <>
               <span className="w-session__dot"> · </span>

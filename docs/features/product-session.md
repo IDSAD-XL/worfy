@@ -303,9 +303,13 @@ A rejected Decision stays on the map, struck through, grey and faded, with a das
 an earlier one has a red dashed "Replaces" arrow to it. In "Tree", where the two often stand one under the other, the
 arrow loops out past their right side; in "Graph" it bends to the side that runs over the fewest other nodes. The legend under the map shows each kind's shape and both arrows.
 
-**Which topic shows.** A Product Session is bound to no topic. While the Session view is open, the Mind map follows the topic
-of the Project whose files changed last; that following is live in this window only. The last topic is remembered per Node
-on this Machine and shows again when the Session is opened once more. Until then it says "The Mind map
+**Which topic shows.** A Product Session is bound to no topic. The Mind map and the topic in the header show the topic
+of the Session's own last successful `mind_map_add`, `mind_map_update`, `mind_map_decide` or `mind_map_read` that
+names one, read from its transcript and live events; calls of its Subagents do not count. It is the same on the host
+and in a guest's window over Link, the first time the Session is opened there too. Another Session writing its own
+topic does not switch the map. A chip of a node of another topic switches the map to that topic until the Session's
+next such call, which takes the map back. The topic is also remembered per Node in this window, and shows only while
+the loaded part of the transcript holds no such call. With no topic yet the map says "The Mind map
 appears once the advisor adds its first node". When the topic cannot be read, it says "Could not read the Mind map:"
 and the reason. On Windows, a file or folder of the topic (`map.md`, `mind-map.json`, `issues/` or a Ticket in it)
 that is a link leading to another host is never read, by the screen or by `mind_map_read`, and `mind-map.json` is

@@ -55,6 +55,19 @@ const readMap = (): MindMapFile => JSON.parse(readFileSync(mapFile, 'utf8')) as 
 
 const sessionView = (window: Page): Locator => window.locator('.w-shell__view[data-view="session"]').getByTestId('session-view')
 
+/**
+ * The advisor's turn of agent script product-mind-map: its mind_map_add names the topic, and a Product Session's
+ * Mind map shows the topic of its own calls (worfy-polish ticket 173). The fake agent writes no file: the test does.
+ */
+async function adviseOnce(view: Locator): Promise<void> {
+  const field = view.getByRole('textbox', { name: /^Message / })
+  await expect(field).toBeEnabled()
+  await field.fill('What could we sell?')
+  await field.press('Enter')
+  await expect(view.getByTestId('transcript-text').last()).toContainText('One idea on the map')
+  await expect(view.getByTestId('session-state')).toHaveText('idle')
+}
+
 /** The node's place as React Flow draws it, from its wrapper's transform. */
 async function drawnPlace(node: Locator): Promise<{ x: number; y: number }> {
   const transform = await node.locator('xpath=ancestor::div[contains(@class, "react-flow__node")][1]').evaluate((element) => (element as unknown as { style: { transform: string } }).style.transform)
@@ -172,7 +185,7 @@ test('the advisor’s mind_map_add shows its node without a reload and a chip un
 
   // After a restart the place is in the file and the screen draws the node there. The Session of the first
   // start has ended (a finished Session opens read-only, without its Mind map), so a new Product Session
-  // shows the topic once its folder changes: an edit of the topic's map.md, as the advisor would make.
+  // shows the topic once its own advisor calls a tool of it (worfy-polish ticket 173).
   const second = await launchApp({ env })
   try {
     const { window } = second
@@ -186,7 +199,7 @@ test('the advisor’s mind_map_add shows its node without a reload and a chip un
     await expect(view).toBeVisible()
     await expect(view).not.toHaveAttribute('data-node-id', seen.nodeId)
     await expect(view.getByTestId('product-session-map-empty')).toBeVisible()
-    writeFileSync(join(projectPath, 'docs', 'product', TOPIC, 'map.md'), '# Roadmap of alpha\n\n## Destination\n\nA calmer week, with a map.\n')
+    await adviseOnce(view)
     const node = view.getByTestId('product-session-map').locator(`[data-testid="mind-node"][data-id="${NODE.id}"]`)
     await expect(node).toBeVisible()
     await expect.poll(() => drawnPlace(node)).toEqual(seen.written)
@@ -286,6 +299,7 @@ test('the Mind map keeps long texts inside their nodes, opens the card beside it
     await expect(view).toBeVisible()
     const map = view.getByTestId('product-session-map')
     await expect(map.getByTestId('product-session-map-empty')).toBeVisible()
+    await adviseOnce(view)
     writeFileSync(mapFile, `${JSON.stringify({ version: 1, nodes: LONG_MAP }, null, 2)}\n`)
     const nodes = map.getByTestId('mind-node')
     // The topic and the eight nodes.
@@ -456,6 +470,7 @@ test('the Mind map’s Graph puts the topic in the middle and its branches round
     await expect(view).toBeVisible()
     const map = view.getByTestId('product-session-map')
     await expect(map.getByTestId('product-session-map-empty')).toBeVisible()
+    await adviseOnce(view)
     writeFileSync(mapFile, `${JSON.stringify({ version: 1, nodes: GRAPH_MAP }, null, 2)}\n`)
     const nodes = map.getByTestId('mind-node')
     await expect(nodes).toHaveCount(GRAPH_MAP.length + 1)

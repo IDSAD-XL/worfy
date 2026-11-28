@@ -61,6 +61,34 @@ function writtenNode(call: { name: string; input: unknown; result: { content: st
   return node.success ? { topic, node: node.data, change: changeOf(tool, node.data) } : null
 }
 
+/** The calls that name the topic a Product Session works on (worfy-polish ticket 173): the writes and a read of one topic. */
+const TOPIC_TOOLS: ReadonlySet<string> = new Set([...WRITING_TOOLS.keys(), mindMapToolUseName('mind_map_read')])
+
+/** The topic of a Session's last successful `mind_map_*` call that names one, and the id of that call. */
+export interface SessionTopicCall {
+  topic: string
+  call: string
+}
+
+/**
+ * The topic the Session works on, by its own calls (worfy-polish ticket 173): the `topic` of its last successful
+ * mind_map_add, mind_map_update, mind_map_decide or mind_map_read with one. The calls counted are the ones the chips
+ * count (transcriptChips): the main thread's, as foldTranscript folds them. Null while the items hold none.
+ */
+export function sessionTopicCall(items: readonly TranscriptItem[]): SessionTopicCall | null {
+  for (let at = items.length - 1; at >= 0; at--) {
+    const item = items[at]
+    if (item?.kind !== 'tools') continue
+    for (let index = item.calls.length - 1; index >= 0; index--) {
+      const call = item.calls[index]
+      if (call === undefined || !TOPIC_TOOLS.has(call.name) || call.result === null || call.result.isError) continue
+      const topic = typeof call.input === 'object' && call.input !== null ? (call.input as { topic?: unknown }).topic : undefined
+      if (typeof topic === 'string' && topic !== '') return { topic, call: call.id }
+    }
+  }
+  return null
+}
+
 const KIND: Readonly<Record<NodeChip['node']['kind'], string>> = { idea: 'Idea', question: 'Question', decision: 'Decision', objection: 'Objection' }
 
 /** The chip's line: what the calls did, the kind (a Decision with its status mark) and the node's text. */
