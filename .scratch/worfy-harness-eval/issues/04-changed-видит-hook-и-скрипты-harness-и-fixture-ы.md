@@ -1,7 +1,8 @@
 # 04: `--changed` видит hook-скрипты, скрипты и библиотеки Harness и fixture-ы
 
 Type: task
-Status: claimed 2026-11-28T02:59Z
+Status: done 2026-11-28T07:47Z
+PR: #2355
 Branch: worfy-harness-eval/04
 Blocked by: None — can start immediately
 Source: [spec.md](../spec.md), «Ticket-ы», 04; «Решения владельца», «Что значит весь Harness» (`--changed` видит
@@ -59,13 +60,18 @@ test краснеет.
 - [ ] Карта покрытия знает hook-скрипты, скрипты и библиотеки Harness и общие fixture-ы; `coverageProblems` требует
       каждый из них ровно один раз.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/harness-evals-run.test.ts` exit 0 · mac - · d4463a5f2d73cd149ac67f77e16970773ac07e5f
+  - evidence: review pass · PR #2355 · - - · e7104bc37e3348c051fd89fdb321b37fa2da54a7
 - [ ] `--changed` выбирает по ним case-ы и запускает `compaction-state` отдельным вызовом, когда меняются его файлы.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/harness-evals-run.test.ts` exit 0 · mac - · d4463a5f2d73cd149ac67f77e16970773ac07e5f
+  - evidence: review pass · PR #2355 · - - · e7104bc37e3348c051fd89fdb321b37fa2da54a7
 - [ ] `pnpm eval:harness -- --changed origin/main --dry-run` в описании PR; PR называет Ticket 05 своим полным
       прогоном.
+  - evidence: review pass · PR #2355 · - - · e7104bc37e3348c051fd89fdb321b37fa2da54a7
 - [ ] `harness/README.md` описывает новый вид файлов карты.
   - evidence: commit pass · worfy-harness-eval/04: --changed sees hook scripts, Harness scripts and libraries, shared fixtures · - - · d4463a5f2d73cd149ac67f77e16970773ac07e5f
+  - evidence: review pass · PR #2355 · - - · e7104bc37e3348c051fd89fdb321b37fa2da54a7
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/46117973411/job/140910150813 · ci - · e7104bc37e3348c051fd89fdb321b37fa2da54a7
 
 ## Итог
 

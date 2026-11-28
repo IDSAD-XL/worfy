@@ -151,3 +151,62 @@ Code: `scripts/eval-harness.mjs:349-357` · key lines: 349, 357
    Ответ: ещё `pr-fix-comments`, `pr-fix-conflicts`, `pr-fix-conflicts-silent`: их `scaffold.sh` запускает
    `../pr-fix-checks/fixture/pr-fix.cjs`, и папка `evals/pr-fix-checks/fixture/` становится их общим fixture-ом.
    Lines: `scripts/eval-harness-coverage.mjs:88-95`
+
+## 9. Что нашёл review и что осталось
+
+> VERIFIED
+>
+> Все пять замечаний первого раунда исправлены:
+> - **`harness/evals/lib/coverage.json:59`** — исправлено. В запись `hooks/gate-paths.mjs` добавлен `hooks/gate-resolve.mjs`.
+> - **`coverage.json:49`** — исправлено. У `bin/ticket` теперь есть `bin/epic-status`, `bin/evidence-check`, `bin/review-draft-lint` и `bin/silent-check`.
+> - **`coverage.json:37`** — исправлено. У `bin/evidence-check` теперь есть `bin/ticket`.
+> - **`coverage.json:77`** — исправлено. У `lib/input-words.json` теперь есть `bin/ticket`.
+> - **Описание PR #2355** — исправлено. В строке 16 есть предложение о цене будущих платных прогонов: правка `bin/profile` или `hooks/eval-env.cjs` выбирает все 28 case-ов, а `compaction-state` идёт отдельным вызовом в том же бюджете 30 USD.
+>
+> Пятый пропуск, который нашёл новый test, тоже исправлен (`coverage.json:65`). `hooks/after-compact.mjs:193` запускает `stage-lines.mjs`, и теперь он есть в записи `stage-lines.mjs`.
+>
+> Rebase-конфликт в `scripts/eval-harness.mjs:84` решён правильно. `REGULAR_MODEL` импортируется и используется в строках 99 и 402. Удалённый `MODEL` нигде не импортируется. Свои `MODEL` есть только у spike-скриптов в `scripts/spikes/`, к `eval-run-env.mjs` они не относятся.
+>
+> **Новый test** (`test/contract/harness-evals-run.test.ts:825-870`) работает как заявлено:
+> - **Карта первого раунда.** На ней test красный, ровно 7 рёбер. Среди них все три пропуска уровня med и `after-compact`, так что утверждение тикета «7 рёбер» подтверждено.
+> - **Мутанты.** Я убирал по одному ребру: `gate-resolve`, `bin/ticket` у `evidence-check` и четыре скрипта у `bin/ticket`. Каждый раз exit 1, и test называет точное ребро.
+> - **Пропуски, которые test может не видеть.** Я прогнал свой, более широкий поиск: любое упоминание имени файла в строке кода. Пропущенных рёбер он не нашёл. Все его кандидаты оказались строками-литералами, а не загрузкой файла: тексты в `bin/profile:345-348`, таблица timeout-ов в `hooks/hook-stdin.mjs:27-30`, `TICKETS.md`.
+> - **Мутант пропуска комментариев.** Я убрал фильтр комментариев, и test остался зелёным (exit 0). Сегодня ни одна строка комментария не даёт лишнего ребра, то есть фильтр пока ничего не меняет. Это не дефект.
+>
+> Новые замечания:
+> - `test/contract/harness-evals-run.test.ts:845` и `harness/README.md`: [low] регулярка не видит загрузку вида `createRequire(import.meta.url)("../lib/x")`. Она используется в `hooks/after-compact.mjs:52`, `hooks/gate.mjs:877`, `hooks/session-start.mjs:186` и `bin/ticket:494`. Комментарий и README говорят только о «пути, собранном иначе», а это явный путь-литерал. Поэтому test не поймал пропуск `input-words.json`. Сегодня все четыре ребра покрыты: вписаны вручную или через другие скрипты. Исправление: добавить `\)\(` в регулярку или назвать этот случай в комментарии.
+>
+> Что запускал, всё под временным HOME:
+> - `pnpm install --frozen-lockfile`: exit 0.
+> - `node scripts/vitest-electron.mjs run test/contract/harness-evals-run.test.ts test/contract/harness-evals.test.ts`: exit 0, 809 passed, 8 skipped.
+> - `pnpm eval:harness -- --changed origin/main --dry-run`: exit 0, три вызова: main, gui и alone-compaction-state.
+> - `story-check --head HEAD` (e7104bc37): exit 0, 5 фрагментов совпали.
+> - Коммит d4463a5f2 есть в ветке: `git merge-base --is-ancestor` exit 0.
+> - Мутанты M1–M3: exit 1 каждый, M4: exit 0, прогон на старой карте: exit 1. После каждого файлы восстановлены, `cmp` совпал.
+> - Worktree удалён, временные файлы тоже, фоновых процессов нет.
+>
+> Не проверил:
+> - CI на e7104bc еще идёт, `ci-ok` я не смотрел.
+> - Платный eval и gate не запускал: бриф этого не просил, платные вызовы запрещены.
+>
+> Больше ничего не найдено.
+>
+> Review depth: medium — ticket
+
+Code: `harness/evals/lib/coverage.json:59-59` · key lines: 59
+
+```json
+    "hooks/gate-paths.mjs": ["hooks/gate-resolve.mjs", "hooks/gate.mjs", "hooks/guard.mjs", "hooks/stop.mjs"],
+```
+
+Code: `scripts/eval-harness.mjs:84-84` · key lines: 84
+
+```mjs
+import { checkVersion, claudeBinary, cleanEnv, gitFolder, gitForRuns, JUDGE_MODEL, pluginCopy, REGULAR_MODEL, runClaude } from './eval-run-env.mjs'
+```
+
+Code: `test/contract/harness-evals-run.test.ts:845-845` · key lines: 845
+
+```ts
+      for (const line of code) {
+```
