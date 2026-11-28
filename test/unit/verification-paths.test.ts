@@ -350,3 +350,48 @@ describe('review round 2: a relative root and the . segments of a glob', () => {
     expect(vp.isVerificationPath('x\\y', ['x\\.\\y'], win)).toBe(true)
   })
 })
+
+// worfy-harness-guarantees ticket 04, review round 1: a change of a folder above a verification glob — a symbolic link
+// `.claude` that points elsewhere, a folder removed or moved as a whole — changes the files under it, though its own
+// path matches no glob.
+type Change = VerificationPaths & {
+  isVerificationParent: (file: string, paths: readonly string[], options?: Options) => boolean
+  touchesVerificationPath: (file: string, paths: readonly string[], options?: Options & { symlink?: boolean; gitlink?: boolean }) => boolean
+}
+const vc = vp as Change
+
+describe('a change above a verification path', () => {
+  it('counts a folder that holds a verification glob', () => {
+    for (const file of ['.claude', '.codex', '.github', '.github/workflows', '.github/actions', './.claude/', '.github\\workflows'])
+      expect([file, vc.isVerificationParent(file, DEFAULTS, linux)]).toEqual([file, true])
+    expect(vc.isVerificationParent('harness/hooks', ['harness/hooks/{guard,gate}.mjs'], linux)).toBe(true)
+    expect(vc.isVerificationParent('test', ['test/quarantine/**'], linux)).toBe(true)
+    expect(vc.isVerificationParent('a/x/y', ['a/**/b'], linux)).toBe(true)
+    expect(vc.isVerificationParent('scripts', ['scripts/ci-*.mjs'], linux)).toBe(true)
+    expect(vc.isVerificationParent('.GitHub', DEFAULTS, { platform: 'darwin', root: '/work/repo' })).toBe(true)
+  })
+
+  it('does not count a sibling, a file itself, or a folder outside every glob', () => {
+    for (const file of ['.claude-old', '.githubx', 'CLAUDE.md', 'docs', 'src/.claude', '.GitHub'])
+      expect([file, vc.isVerificationParent(file, DEFAULTS, linux)]).toEqual([file, false])
+    expect(vc.isVerificationParent('../x', DEFAULTS, linux)).toBe(false)
+  })
+
+  it('touchesVerificationPath: a verification path, a submodule above one, or any symbolic link', () => {
+    expect(vc.touchesVerificationPath('.claude/settings.json', DEFAULTS, linux)).toBe(true)
+    expect(vc.touchesVerificationPath('.claude', DEFAULTS, { ...linux, gitlink: true })).toBe(true)
+    expect(vc.touchesVerificationPath('tools', ['tools/check-*'], { ...linux, gitlink: true })).toBe(true)
+    expect(vc.touchesVerificationPath('docs/link', DEFAULTS, { ...linux, symlink: true })).toBe(true)
+    expect(vc.touchesVerificationPath('docs/x/settings.json', DEFAULTS, linux)).toBe(false)
+    expect(vc.touchesVerificationPath('docs', DEFAULTS, { ...linux, gitlink: true })).toBe(false)
+  })
+
+  it('touchesVerificationPath: a regular file hides no folder, so the folder rule is not its', () => {
+    // with a glob that starts with **, every path is "above" it; only a submodule or a link can stand for a folder
+    expect(vc.isVerificationParent('docs/a.md', ['**/CLAUDE.md'], linux)).toBe(true)
+    expect(vc.touchesVerificationPath('docs/a.md', ['**/CLAUDE.md'], linux)).toBe(false)
+    expect(vc.touchesVerificationPath('docs/a.md', ['**/CLAUDE.md'], { ...linux, gitlink: true })).toBe(true)
+    expect(vc.touchesVerificationPath('tools', ['tools/check-*'], linux)).toBe(false)
+    expect(vc.touchesVerificationPath('docs/CLAUDE.md', ['**/CLAUDE.md'], linux)).toBe(true)
+  })
+})

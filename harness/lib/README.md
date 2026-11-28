@@ -12,6 +12,9 @@ the plugin, where `lib/` lies next to `bin/` and `hooks/`.
 - `verification-paths.cjs` — the verification paths, the files that judge work: the defaults of every project, the
   globs of `verification.paths` that only add to them, and whether a path is one (`\` read as `/`, letter case
   ignored on Windows and macOS); `bin/profile` prints the whole list; the guard hook and `bin/land` are to read it here, never from a copy.
+- `ticket-trail.cjs` — the trail of a ticket: the ticket of a branch by `tickets.branch`, its file by `tickets.path` and
+  the paths in backticks of its section `tickets.trail_section`, read at a ref of the base branch (`git show`), never from
+  the working tree; `bin/land` checks a PR's verification paths with it, and the guard hook is to read the trail the same way.
 - `workflow-move.cjs` — the move of a project's workflow files between Full mode and Silent mode: the paths that
   move, the checks before it (clean trees, open PRs of the tickets' branches, Full mode for several repositories), the
   copy and the commit on each side, the rollback, and the marker of a move under way that the next move reads to

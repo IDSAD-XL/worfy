@@ -1230,7 +1230,7 @@ is `F workflow.merge_gate`:
 
 - absent or `null` — the Harness requires no gate full before the merge (the project's `rules.md` may).
   With `F workflow.ci` `pr` the merge condition of a PR with code is CI on its head: the project's final
-  CI check (its `rules.md` names it, for example `ci-ok`) completed with `success` and no run of the CI
+  CI check (`F workflow.ci_check`; with none, the one its `rules.md` names, for example `ci-ok`) completed with `success` and no run of the CI
   workflow still queued or running on that head, plus the `review` mark `success` on the same head and
   the Check marks of "Checks before merge". The orchestrator merges these PRs only through `bin/land`
   ("Merge with land" below);
@@ -1264,6 +1264,14 @@ of `land`. For each PR, in the order of the state file, `land`:
   in the head (in Silent mode, in the Workflow folder) and `story-check` green on it against the head. No story or
   a red one — the PR waits red, the reason naming the path or the first problem: the implementer adds or fixes the
   story on the branch (skill `/worfy:ship-ticket`, step 8). A PR without a ticket is not checked;
+- never merges a draft: it waits with the reason `draft`;
+- needs each verification path the PR changes (the defaults and `F verification.paths`, never a list of
+  the state file) named by the trail of the PR's ticket — the ticket of the PR's branch by `F tickets.branch`,
+  its section `F tickets.trail_section` read at the tip of the main branch, not at the PR's fork point. A path
+  outside the trail — the PR waits with `verification paths outside the trail of <epic> <NN>: <paths>`: extend
+  the trail with a documents PR (the implementer's branch needs no rebase after it merges) or take the path out
+  of the PR. A PR whose branch names no ticket and that changes a verification path waits for the owner. A PR
+  that adds a verification path to the trail of any ticket merges, and its line names it;
 - needs the main branch not red: the latest push run of the CI workflow on it with a verdict is not red
   ("A red push run on the main branch" below). A run still queued or in progress is passed over, so no
   merge waits the length of a push run, and so is the run of a commit with documents only (it may check
@@ -1294,8 +1302,12 @@ of `land`. For each PR, in the order of the state file, `land`:
   PR merges on the final check alone, under the same lock. A documents PR closed without a merge is
   replaced by a new one for the same tickets.
 
-The state file — one per set of PRs; a new set gets a new file. `<CI check>` and `<CI workflow>` are
-the final check and the workflow file the project's rules name. Each PR is
+The state file — one per set of PRs; a new set gets a new file. `<CI check>` is `F workflow.ci_check`, the
+final check: `land` refuses a state file that names another one. With no `workflow.ci_check` in the profile the block
+(the field missing, or `null`: `profile --field` prints `null` with exit 0) puts the placeholder there: write
+the final check the project's rules name, and `land` prints the line `the CI check
+<name> is the state file's: the profile names no workflow.ci_check` (carry it into the Wave report). `<CI workflow>` is
+the workflow file the project's rules name. Each PR is
 `<N>:<epic>:<NN>:<head>:<checks>[:main-fix]`: `<head>` — the head SHA the review verified; `main-fix` —
 the PR fixes the red main branch or reverts its culprit and merges while the branch is red; `<checks>` — the
 names of the Pipeline's `check` Stages (`F _resolved.pipeline`, `kind` `check`) this PR needs by the
@@ -1317,7 +1329,7 @@ outside the repository, or Silent mode, means no documents PR:
 ```bash
 F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$@" 2>/dev/null; }
 S=<state file>                                 # e.g. <orchestrator scratchpad>/land-<epic>-1.json
-node - "$S" <repo> <main branch> "$(F workflow.ci)" <CI check> <CI workflow> "$(F docs.handoff.check)" "$(F tickets.root)" "$(F _resolved.mode)" "<documents-only command>" ["--red-elsewhere=<label>|<command>"] <N>:<epic>:<NN>:<head>:<checks>[:main-fix]… <<'NODE'
+node - "$S" <repo> <main branch> "$(F workflow.ci)" "$(c="$(F workflow.ci_check)"; [ "${c:-null}" = null ] && c='<CI check>'; printf '%s' "$c")" <CI workflow> "$(F docs.handoff.check)" "$(F tickets.root)" "$(F _resolved.mode)" "<documents-only command>" ["--red-elsewhere=<label>|<command>"] <N>:<epic>:<NN>:<head>:<checks>[:main-fix]… <<'NODE'
 const fs = require("fs"), path = require("path"), os = require("os")
 const [file, repo, branch, ci, check, workflow, docs, root, mode, docsOnly, ...args] = process.argv.slice(2)
 const named = args.filter((a) => a.startsWith("--red-elsewhere=")), prs = args.filter((a) => !a.startsWith("--red-elsewhere="))
@@ -1464,10 +1476,14 @@ write them into the ticket files in the Workflow folder. Then, with `run_in_back
 ```
 
 `--watch` repeats the pass every 5 min while a PR waits for CI, for at most 110 min. The output is one
-line per PR — `#N merged <sha>` or `#N waits: <reason>`, the documents PR the same way — then
+line per PR — `#N merged <sha>` or `#N waits: <reason>`, the documents PR the same way; a merged PR that
+changed verification paths ends its line with ` — verification paths: <paths> (trail of <epic> <NN>)`,
+and one that added a verification path to a trail with `added to the trail of <ticket file>: <paths>` — then
 `LAND=green` (`EXIT=0`: everything merged), `LAND=red` (`EXIT=2`: a red final check, a failed review
 or Check, a red documents check) or `LAND=unverified` (`EXIT=3`: something waits for CI, a mark or a
-rebase). `EXIT=1` — the state file is wrong, the message says how. The full log is `<state file>`
+rebase). `EXIT=1` — the state file is wrong, the message says how; a `ci_check` other than
+`F workflow.ci_check` is such a state file. With no `workflow.ci_check` in the profile the state file's check
+stands, and one output line says so. The full log is `<state file>`
 without `.json`, plus `.log`. A `waits` PR: red CI — a rework round or the project's quarantine rule;
 no `review` — section 3; `conflict: rebase` (or `BEHIND: … rebase` under protection that requires an
 up-to-date branch) — the implementer rebases; a Check mark missing —
@@ -1929,6 +1945,11 @@ the verifier's answer yourself before quoting it.
 Every entry of an implementer's `sign_in_needed` goes under the table as one line, word for word:
 `<NN>: sign-in needed as <role>` or `<NN>: sign-in expired in Browser profile <name>`; a wave
 without such entries has no such line. The ticket is not `blocked` for it.
+
+Every PR whose `land` line names verification paths goes under the table as one line, its text after
+the dash word for word: `#<N> (<NN>): verification paths: <paths> (trail of <epic> <NN>)`, and for a PR
+that extended a trail `#<N>: verification paths: added to the trail of <ticket file>: <paths>` — the owner
+looks at these first. A wave whose PRs change none has no such line.
 
 With `F workflow.ci` `batch` one line goes under the table: `CI on <main branch>: <URL> — green`,
 `— red: <failing jobs and tests>`, `— not verified: <why>`, or `— none: the wave merged no code`.

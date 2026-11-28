@@ -136,6 +136,19 @@ take them from one rule, `lib/code-fence.cjs`. A file without an H1 has an empty
 instead. worfy reads the H1 of `spec.md` by the same rule; both readers are tested on the files of
 `bin/tests/fixtures/ticket-title`.
 
+**Trail**
+The section of a ticket under the heading `tickets.trail_section` of the profile: the files the ticket may edit. A file
+counts when a list item line of the section (`- `, `* `, `1. `) names it in single backticks — a path, a glob
+(`test/quarantine/**`) or a folder (`docs/x/`). A plain paragraph and a continuation line of an item allow nothing: a
+paragraph `Read only: …` (or the same words of another language) without a list marker names no file the ticket may
+edit, whatever lines follow it. A line suffix (`land:12-20`) is dropped, and a span with a space or without a `/` and a `.` (`ready()`, `PR_FIELDS`) names
+no file. A **read-only item** names files the ticket only reads: a list item whose text starts with `Read only` or
+`Read-only` (or the same words of another language, `lib/input-words.json`, `trailReadOnly`), maybe in bold, then
+anything up to a colon, then the paths in backticks (`- Read only:`, `- **Read-only (Linked machine):**`). Its paths, and
+those of its nested items (more indented, past a blank line too), do not count. Code blocks are skipped. The section is found by its heading at its own level, the rule the done section is
+read by, and ends at the next heading of that level or above. `bin/land` reads the trail of a PR's ticket at the tip of
+the base branch (`lib/ticket-trail.cjs`), never at the PR's fork point or in a working tree.
+
 **Evidence**
 What proves an item of the ticket's "done" section and where it was checked: a nested list item under the
 item, one fact per line. The section is the heading `tickets.done_section` of the profile (`## Done when`

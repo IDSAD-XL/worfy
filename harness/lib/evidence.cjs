@@ -274,4 +274,5 @@ module.exports = {
     formatEvidence,
     parseDoneSection,
     itemState,
+    sectionHeadings,
 }

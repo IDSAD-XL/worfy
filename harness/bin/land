@@ -5,8 +5,11 @@
 //
 //   land <state.json> [--watch]
 //   land <state.json> --epic-story
+//   land --check <N> [-C <dir>]
 //
 // The merge condition, on the PR's head commit (profile workflow.ci "pr": CI runs on every PR):
+//   - the PR is not a draft (isDraft): a draft waits with the reason `draft`, whatever its CI and review say, and the
+//     reading under the main-branch lock asks again;
 //   - no run of the CI workflow (ci_workflow) on the head is queued or in progress — a newer run is coming,
 //     even when an older check of ci_check exists;
 //   - the latest check run named ci_check is completed with conclusion success;
@@ -28,6 +31,24 @@
 //     (Silent mode, a tickets root outside the repository) from the folder `ticket root` prints. No story, two
 //     stories or a red story-check — the PR waits red, the reason naming the path or the first problem; the profile
 //     or story-check unable to answer — it waits. A PR without a ticket is not checked;
+//   - its verification paths are in the trail of its ticket. The paths the PR changes from its fork point (as for
+//     docs_only) that touch a verification path — one of the defaults of lib/verification-paths.cjs and the profile's
+//     verification.paths (bin/profile --json), never a list of the state file; a submodule at a folder above one
+//     (`.claude` above `.claude/**`); any symbolic link, which may point anywhere (touchesVerificationPath) — must each be named by the
+//     trail of the PR's ticket: the ticket of the PR's branch by tickets.branch (`<epic>/<NN>`), its file by
+//     tickets.path, the paths on the list items of its section tickets.trail_section but those of a read-only item
+//     (bin/TICKETS.md, "Trail"),
+//     read at the tip of the base branch (`git show refs/remotes/<remote>/<branch>:<path>`, lib/ticket-trail.cjs, which a
+//     guard hook is to read the trail by as well), not at the fork point: a branch cut before the orchestrator extended
+//     its trail needs no rebase, and the PR's own edit of its trail allows nothing. No single file of the ticket there,
+//     or no trail section in it — the PR waits, the reason saying which. A path outside the trail —
+//     the PR waits with `verification paths outside the trail of <epic> <NN>: <paths>`; a PR whose branch names no
+//     ticket and that changes a verification path waits with `verification paths, and the PR has no ticket (<why>):
+//     <paths> — the owner decides`. A PR that adds a verification path to the trail of any ticket (a ticket file under the
+//     tickets root whose trail at the head names a verification path its fork point does not) is a change of the
+//     verification paths too: it merges, and its line names it (no `owner` mark is asked for it yet). With tickets_root
+//     null the trail is read from the folder `ticket root` prints. A project with no profile has the defaults and no
+//     tickets: a PR that changes one waits for the owner. The profile or git unable to answer — the PR waits;
 //   - the main branch is not red (a PR with main_fix true, the fix of a red main branch or the revert of its culprit,
 //     skips this): the push runs of ci_workflow on the branch check the merged PRs together, so the latest one with a
 //     verdict must not be red. A run still queued or in progress is passed over (no merge waits the length of a push
@@ -103,13 +124,29 @@
 // runs it before land (skill epic-wave, "The epic story"). Exit 0 — answered, 1 — the input, 3 — the tickets could
 // not be read.
 //
+// --check <N> [-C <dir>]: the merge condition of one PR with no state file, by the profile of <dir> (the working directory
+// by default; bin/profile --json): the checkout _resolved.checkout, the base branch worktree.base (`origin/main`; without
+// it the branch origin/HEAD points to), the CI check workflow.ci_check, the Check marks of every `check` Stage of the
+// Pipeline (_resolved.pipeline), the tickets root tickets.root, and as the CI workflow the workflow of the run that holds
+// the latest ci_check check run on the head. It fetches the base branch, then reads what a pass reads — not a draft, the
+// CI check and no CI run in progress, the `review` mark (never carried: there is no verified head), the Check marks, the
+// Code story of the branch's ticket, the verification paths, the main branch not red (docs_only: only the tickets root is
+// documents) — and a conflict or a mergeable GitHub has not computed (UNKNOWN: not ready). It does not read red_elsewhere (the project's rules, not the profile's) and writes nothing: no log, no
+// marker of the main branch, nothing merged. One line `#N ready[ — verification paths: …]`, `#N waits: <reason>` or
+// `#N unverified: <reason>`; exit 0 — ready, 1 — it waits, 2 — land cannot say (no profile, workflow.ci not "pr", no
+// workflow.ci_check, gh or git gave no answer, wrong arguments). It is meant for a guard hook to ask before an agent's
+// `gh pr merge`.
+//
 // The state file is the input and the record; every finished step is written to it at once, so a run
 // broken off (the session ended, a kill) goes on from there when it is run again on the same file: a PR
 // recorded as merged, or one GitHub already shows as merged, is never merged again. The orchestrator writes:
 //   repo          absolute path of a checkout of the main branch (git and gh run here)
 //   branch        the main branch; remote — optional, "origin"
 //   ci            profile workflow.ci: "pr" (anything else — exit 1)
-//   ci_check      the name of the check run that is the merge condition
+//   ci_check      the name of the check run that is the merge condition: the profile's workflow.ci_check — a state
+//                 file naming another is refused (exit 1); with no workflow.ci_check in the profile this name stands,
+//                 and the output gets the line `the CI check <name> is the state file's: the profile names no
+//                 workflow.ci_check`
 //   ci_workflow   the workflow (file name) of the CI runs on a PR head
 //   docs_check    null, or a shell command run in the documents worktree before its commit (profile
 //                 docs.handoff.check)
@@ -140,10 +177,13 @@
 //                 optional, [{path, from}]: the extra files of the documents PR that closes this PR's ticket — path
 //                 relative to the tickets root, inside it (`<epic>/story.md` for the story of the epic), from the
 //                 absolute path of the ready file; the orchestrator gives them to the epic's last PR with code
-// land adds: prs[].result {status: merged|waits, sha, head | reason, kind, at} (head — the head that was merged),
-// docs [{branch, prs, pr, closed, result}], runs [{started, ended, land}].
+// land adds: prs[].result {status: merged|waits, sha, head, verification? | reason, kind, at} (head — the head that was
+// merged, verification — the note of its verification paths), docs [{branch, prs, pr, closed, result}], runs [{started,
+// ended, land}].
 //
-// Output: one line per PR, `#N merged <sha>` or `#N waits: <reason>`, the documents PR the same way; while the
+// Output: one line per PR, `#N merged <sha>` or `#N waits: <reason>`, the documents PR the same way; a merged PR that
+// changed verification paths or added one to a trail has them on its line: `#N merged <sha> — verification paths:
+// <paths> (trail of <epic> <NN>); added to the trail of <ticket file>: <paths>`; while the
 // main branch is red, the line `<branch> red since <sha> (#<PR>, <time>) — code PRs wait; fix forward until
 // <time + 1 h>, then revert #<PR>`; then `LAND=green` (every PR and the documents PR merged), `LAND=red` (a PR waits
 // on a red verdict: a red or cancelled check, a review or Check mark failure, a red docs_check) or `LAND=unverified`
@@ -175,6 +215,10 @@ const { findVerdict } = require("../lib/verdict.cjs")
 const privacy = require("../lib/privacy.cjs")
 // The code blocks of a ticket file: the rule bin/ticket and bin/epic-status read a header by.
 const { codeLines: codeFence } = require("../lib/code-fence.cjs")
+// The verification paths (the one list: defaults and the profile's verification.paths) and the trail of a ticket, read the
+// way the guard hook reads it.
+const { verificationPaths, isVerificationPath, touchesVerificationPath } = require("../lib/verification-paths.cjs")
+const { ticketOfBranch, trailPaths, namedByTrail, readTrail } = require("../lib/ticket-trail.cjs")
 
 const SHA = /^[0-9a-f]{40}$/
 const MERGEABLE_RETRIES = 6
@@ -203,6 +247,10 @@ class Wait extends Error {
         this.kind = kind
     }
 }
+// A wait because git, gh or the profile gave no answer (not because of the PR): `land --check` exits 2 on it, not 1.
+const unread = (reason) => Object.assign(new Wait(reason), { unread: true })
+// --check: read only — no log, no state file, no marker of the main branch.
+let readOnly = false
 const now = () => new Date().toISOString().replace(/\.\d+Z$/, "Z")
 const short = (sha) => (sha || "").slice(0, 8)
 const firstLine = (s) => (s || "").trim().split("\n")[0]
@@ -336,7 +384,7 @@ function save(file, st) {
 // --- git and gh ------------------------------------------------------------------------------
 function git(args, cwd) {
     const r = run([GIT, []], args, cwd)
-    if (r.code !== 0) throw new Wait(`git ${args.join(" ")} (exit ${r.code}): ${firstLine(r.err)}`)
+    if (r.code !== 0) throw unread(`git ${args.join(" ")} (exit ${r.code}): ${firstLine(r.err)}`)
     return r.out.trim()
 }
 function gh(st, args) {
@@ -346,14 +394,16 @@ function gh(st, args) {
 }
 function ghJson(st, args, what) {
     const r = gh(st, args)
-    if (r.code !== 0) throw new Wait(`${what}: gh exit ${r.code}: ${firstLine(r.err)}`)
+    if (r.code !== 0) throw unread(`${what}: gh exit ${r.code}: ${firstLine(r.err)}`)
     try {
         return JSON.parse(r.out)
     } catch {
-        throw new Wait(`${what}: gh printed no JSON`)
+        throw unread(`${what}: gh printed no JSON`)
     }
 }
-const PR_FIELDS = "number,state,headRefOid,mergeable,mergeStateStatus,mergeCommit"
+// isDraft: a draft never merges; headRefName: the branch names the PR's ticket (tickets.branch), whose trail allows its
+// verification paths.
+const PR_FIELDS = "number,state,headRefOid,mergeable,mergeStateStatus,mergeCommit,isDraft,headRefName"
 const prView = (st, n) => ghJson(st, ["pr", "view", String(n), "--json", PR_FIELDS], `gh pr view ${n}`)
 // The commit statuses of a commit, the latest per context: {context: {state, description}}.
 function statuses(st, sha) {
@@ -368,14 +418,30 @@ function ciGreen(st, head) {
     const runs = ghJson(st, ["run", "list", "--workflow", st.ci_workflow, "--commit", head, "--limit", "20", "--json", "databaseId,status,conclusion"], `the ${st.ci_workflow} runs`)
     const open = (Array.isArray(runs) ? runs : []).filter((r) => r.status !== "completed")
     if (open.length) throw new Wait(`${st.ci_workflow} run ${open[0].databaseId} is ${open[0].status} on ${short(head)}`, "ci")
+    const last = latestCheck(st, head)
+    if (last.status !== "completed") throw new Wait(`${st.ci_check} is ${last.status} on ${short(head)}`, "ci")
+    if (last.conclusion !== "success") throw new Wait(`${st.ci_check} ${last.conclusion} on ${short(head)}`, "red")
+}
+// The latest check run named ci_check on head; none yet — a wait for CI.
+function latestCheck(st, head) {
     const cr = ghJson(st, ["api", `repos/{owner}/{repo}/commits/${head}/check-runs?per_page=100`], `the check runs of ${short(head)}`)
     const mine = (Array.isArray(cr.check_runs) ? cr.check_runs : [])
         .filter((c) => c.name === st.ci_check)
         .sort((a, b) => String(a.started_at || "").localeCompare(String(b.started_at || "")) || (a.id || 0) - (b.id || 0))
     const last = mine[mine.length - 1]
     if (!last) throw new Wait(`no ${st.ci_check} check on ${short(head)}`, "ci")
-    if (last.status !== "completed") throw new Wait(`${st.ci_check} is ${last.status} on ${short(head)}`, "ci")
-    if (last.conclusion !== "success") throw new Wait(`${st.ci_check} ${last.conclusion} on ${short(head)}`, "red")
+    return last
+}
+// --check has no state file to name the CI workflow: it is the workflow of the run that holds the latest ci_check check
+// run on head (its details_url .../actions/runs/<id>/job/<id>), by name, as `gh run list --workflow` takes it.
+function ciWorkflowOf(st, head) {
+    const last = latestCheck(st, head)
+    const m = /\/actions\/runs\/(\d+)(?:\/|$)/.exec(String(last.details_url || ""))
+    if (!m) throw unread(`the workflow of the ${st.ci_check} check on ${short(head)} cannot be told: its details_url names no run`)
+    const runs = ghJson(st, ["run", "list", "--commit", head, "--limit", "50", "--json", "databaseId,workflowName"], `the runs of ${short(head)}`)
+    const hit = (Array.isArray(runs) ? runs : []).find((r) => r && String(r.databaseId) === m[1])
+    if (!hit || typeof hit.workflowName !== "string" || !hit.workflowName) throw unread(`the run ${m[1]} of the ${st.ci_check} check is not among the runs of ${short(head)}`)
+    return hit.workflowName
 }
 // The PR's diff from its fork point off the main branch, outside the tickets root, without the `index` lines
 // (blob ids change with a rebase even when the change does not).
@@ -514,6 +580,7 @@ function mainMarkerFile(st) {
 }
 // red: the marker's fields, or null — the branch is not red.
 function markMain(st, red) {
+    if (readOnly) return
     const file = mainMarkerFile(st)
     if (!file) return
     if (!red) {
@@ -613,9 +680,7 @@ function documentsOnly(st, pr, head) {
     try {
         if (!haveCommit(st, head, pr.number)) return false
         const base = git(["merge-base", head, `refs/remotes/${st.remote || "origin"}/${st.branch}`], st.repo)
-        // -z: a path as it is, not quoted (non-ASCII letters, spaces)
-        const paths = git(["-c", "core.quotePath=false", "diff", "--name-only", "--no-renames", "-z", base, head], st.repo).split("\0").filter(Boolean)
-        return pathsAreDocuments(st, paths, `#${pr.number}`)
+        return pathsAreDocuments(st, changedPaths(st, base, head), `#${pr.number}`)
     } catch (e) {
         if (!(e instanceof Wait)) throw e
         log(`#${pr.number}: documents only? ${e.message} — counted as code`)
@@ -751,16 +816,116 @@ function storyGreen(st, pr, head) {
         fs.rmSync(tmp, { recursive: true, force: true })
     }
 }
-// The whole merge condition of a code PR on head; carry — whether a missing review may be carried.
-function ready(st, pr, head, carry) {
+// --- the verification paths of a PR (lib/verification-paths.cjs, the profile's verification.paths) ----------------------
+// The profile of the checkout (bin/profile --json), read once per run: null — the project has no profile (exit 3); any other
+// failure — every PR waits (unread), never merges.
+let profileRead = null
+function profileOf(st) {
+    if (!profileRead) {
+        const r = run(program(process.env.LAND_PROFILE, [process.execPath, [path.join(__dirname, "profile")]]), ["-C", st.repo, "--json"], st.repo)
+        if (r.code === 3) profileRead = { profile: null }
+        else if (r.code !== 0) profileRead = { reason: `bin/profile exit ${r.code}: ${firstLine(r.err || r.out)}` }
+        else
+            try {
+                profileRead = { profile: JSON.parse(r.out) }
+            } catch {
+                profileRead = { reason: "bin/profile --json printed no JSON" }
+            }
+        log(`the profile: ${profileRead.reason || (profileRead.profile ? "read" : "none (bin/profile exit 3), the default verification paths only")}`)
+    }
+    if (profileRead.reason) throw unread(`the profile could not be read: ${profileRead.reason}`)
+    return profileRead.profile
+}
+const field = (o, ...keys) => keys.reduce((v, k) => (v && typeof v === "object" ? v[k] : undefined), o)
+// The paths a PR changes from its fork point base to head (documentsOnly, verified); -z: a path as it is, not quoted
+// (non-ASCII letters, spaces).
+function changedPaths(st, base, head) {
+    return git(["-c", "core.quotePath=false", "diff", "--name-only", "--no-renames", "-z", base, head], st.repo).split("\0").filter(Boolean)
+}
+// The same paths with whether the change is a symbolic link (mode 120000 before or after it) or a submodule (160000):
+// `git diff --raw -z` gives
+// ":<old mode> <new mode> <old blob> <new blob> <status>" and the path, each ended by a NUL.
+function changedEntries(st, base, head) {
+    const parts = git(["-c", "core.quotePath=false", "diff", "--raw", "--no-renames", "-z", base, head], st.repo).split("\0")
+    const out = []
+    for (let i = 0; i + 1 < parts.length; i += 2) {
+        const modes = /^:(\d{6}) (\d{6}) /.exec(parts[i])
+        if (!modes || !parts[i + 1]) continue
+        const was = (mode) => modes[1] === mode || modes[2] === mode
+        out.push({ path: parts[i + 1], symlink: was("120000"), gitlink: was("160000") })
+    }
+    return out
+}
+// The verification paths a PR adds to the trail of any ticket: for each ticket file it changes inside the tickets root,
+// the trail entries at head that its fork point does not have and that are verification paths.
+// shortcut: an added entry counts when it is itself a verification path ("x/ci.yml", "x/**" under a glob of the list); a
+// wider entry that only covers one (".github/" over ".github/workflows/**") is not named; redo when an owner's mark comes to
+// depend on this.
+function trailExtensions(st, profile, list, paths, base, head, root) {
+    const tickets = ticketsRoot(st)
+    const heading = field(profile, "tickets", "trail_section")
+    if (!tickets || typeof heading !== "string") return []
+    const at = (sha, file) => {
+        const r = run([GIT, []], ["show", `${sha}:${file}`], st.repo)
+        return r.code === 0 ? trailPaths(r.out, heading) || [] : []
+    }
+    const out = []
+    for (const file of paths) {
+        if (!file.startsWith(`${tickets}/`) || !/\.md$/i.test(file)) continue
+        const before = at(base, file)
+        const added = at(head, file).filter((g) => !before.includes(g) && isVerificationPath(g, list, { root }))
+        if (added.length) out.push({ file, paths: added })
+    }
+    return out
+}
+// The PR's verification paths against the trail of its ticket. The list is the defaults and the profile's
+// verification.paths, never the state file's; the ticket is the one of the PR's branch (tickets.branch), its trail read at
+// the tip of the base branch (refs/remotes/<remote>/<branch>, fetched at each pass), never at the fork point: a branch cut
+// before the orchestrator extended its trail needs no rebase, and the PR's own edit of its trail is not on the base branch,
+// so it allows nothing. A path outside the trail — the PR waits; a PR with no ticket and a verification path — it waits for
+// the owner. Returns the note for the line of the PR ("verification paths: …"), or null when it changes none.
+function verified(st, pr, head, view) {
+    const profile = profileOf(st)
+    const list = verificationPaths(profile)
+    if (!haveCommit(st, head, pr.number)) throw unread(`the head ${short(head)} is not in the checkout: its verification paths cannot be read`)
+    const ref = `refs/remotes/${st.remote || "origin"}/${st.branch}`
+    const base = git(["merge-base", head, ref], st.repo)
+    const entries = changedEntries(st, base, head)
+    const paths = entries.map((e) => e.path)
+    // an absolute root: a relative one would resolve from the working directory (a realpath on macOS)
+    const root = path.resolve(st.repo)
+    // a verification path, a submodule at a folder above one (tools above tools/check-*), or any symbolic link
+    const touched = entries.filter((e) => touchesVerificationPath(e.path, list, { root, symlink: e.symlink, gitlink: e.gitlink })).map((e) => e.path)
+    const notes = []
+    if (touched.length) {
+        const tickets = field(profile, "tickets") || {}
+        const t = readTrail({ repo: st.repo, ref, branch: view && view.headRefName, tickets, git: GIT, folder: ticketsRoot(st) ? null : ticketsFolder(st) })
+        if (t.unread) throw unread(`the trail of the PR's ticket could not be read: ${t.reason}`)
+        if (!t.ticket) throw new Wait(`verification paths, and the PR has no ticket (${t.reason}): ${touched.join(", ")} — the owner decides`)
+        const name = `${t.ticket.epic} ${t.ticket.nn}`
+        if (!t.trail) throw new Wait(`verification paths outside the trail of ${name} (${t.reason}): ${touched.join(", ")}`)
+        const outside = touched.filter((p) => !namedByTrail(p, t.trail, { root }))
+        if (outside.length) throw new Wait(`verification paths outside the trail of ${name}: ${outside.join(", ")}`)
+        notes.push(`${touched.join(", ")} (trail of ${name})`)
+    }
+    for (const e of trailExtensions(st, profile, list, paths, base, head, root)) notes.push(`added to the trail of ${e.file}: ${e.paths.join(", ")}`)
+    if (notes.length) log(`#${pr.number}: verification paths: ${notes.join("; ")}`)
+    return notes.length ? `verification paths: ${notes.join("; ")}` : null
+}
+
+// The whole merge condition of a code PR on head; carry — whether a missing review may be carried; view — the PR as
+// `gh pr view` shows it (its branch). Returns the note of its verification paths, or null.
+function ready(st, pr, head, carry, view) {
     ciGreen(st, head)
     sameChange(st, pr, head)
     const marks = statuses(st, head)
     reviewed(st, pr, head, marks, carry)
     checked(pr, head, marks)
     storyGreen(st, pr, head)
+    const note = verified(st, pr, head, view)
     mainAllows(st, pr, head)
     elsewhereAllows(st, pr, head)
+    return note
 }
 
 // --- the merge, under the main-branch lock -------------------------------------------------------------
@@ -803,6 +968,7 @@ async function mergeOne(st, n, head, verify) {
             v = prView(st, n)
             if (v.state === "MERGED") return (v.mergeCommit && v.mergeCommit.oid) || "unknown"
             if (v.state !== "OPEN") throw new Wait(`the PR is ${v.state}`)
+            if (v.isDraft) throw new Wait("draft")
             if (v.headRefOid !== head) throw new Wait(`the head moved from ${short(head)} to ${short(v.headRefOid)} during the check`, "ci")
             if (v.mergeable !== "UNKNOWN" || retry >= MERGEABLE_RETRIES) break
             log(`#${n}: mergeable UNKNOWN, asking again in ${T.retry} s (retry ${retry + 1} of ${MERGEABLE_RETRIES})`)
@@ -836,17 +1002,20 @@ async function landPr(file, st, pr) {
     try {
         const v = prView(st, pr.number)
         let sha
+        let note = null
         if (v.state === "MERGED") {
             sha = (v.mergeCommit && v.mergeCommit.oid) || "unknown"
             log(`#${pr.number}: GitHub shows it merged already (${sha}), recorded`)
         } else {
             if (v.state !== "OPEN") throw new Wait(`the PR is ${v.state}`)
+            // a draft is not for merging, whatever its CI and review say
+            if (v.isDraft) throw new Wait("draft")
             const head = v.headRefOid
-            ready(st, pr, head, true)
-            sha = await mergeOne(st, pr.number, head, () => ready(st, pr, head, false))
+            note = ready(st, pr, head, true, v)
+            sha = await mergeOne(st, pr.number, head, () => ready(st, pr, head, false, v))
             log(`#${pr.number}: merged at ${head} as ${sha}`)
         }
-        pr.result = { status: "merged", sha, head: v.headRefOid, at: now() }
+        pr.result = { status: "merged", sha, head: v.headRefOid, ...(note ? { verification: note } : {}), at: now() }
     } catch (e) {
         if (!(e instanceof Wait)) throw e
         pr.result = { status: "waits", reason: e.message, kind: e.kind, at: now() }
@@ -1275,12 +1444,113 @@ async function landDocs(file, st, madeThisRun) {
 
 const waitingForCi = (st) => [...st.prs, ...st.docs].some((x) => x.result && x.result.status === "waits" && x.result.kind === "ci")
 
+// The CI check of the state file is the profile's workflow.ci_check: a state file naming another is refused. A profile that
+// names none (or no profile) leaves the state file's, with a log line.
+// shortcut: with no workflow.ci_check the state file still names the check, redo (refuse) once every registered profile has
+// the field (bin/profile-set --field workflow.ci_check writes it).
+function ciCheckAgrees(file, st) {
+    let profile
+    try {
+        profile = profileOf(st)
+    } catch (e) {
+        if (!(e instanceof Wait)) throw e
+        return // every PR waits on the same reason in verified()
+    }
+    const named = field(profile, "workflow", "ci_check")
+    if (typeof named === "string" && named.trim() !== "") {
+        if (named !== st.ci_check)
+            fail(`${file}: "ci_check" is ${JSON.stringify(st.ci_check)}, but the profile's workflow.ci_check is ${JSON.stringify(named)}: land merges on the check the profile names`)
+    } else {
+        ciCheckNote = `the CI check ${st.ci_check} is the state file's: the profile names no workflow.ci_check`
+        log(ciCheckNote)
+    }
+}
+// The output line of a state file's CI check the profile does not name (ciCheckAgrees), or null.
+let ciCheckNote = null
+
+// The tickets root of a profile inside the repository, relative to it, or null: Silent mode, a root outside the repository
+// or none (the state-file block of skill epic-wave makes the same choice).
+function profileTicketsRoot(profile, repo) {
+    if (field(profile, "_resolved", "mode") === "silent") return null
+    const root = field(profile, "tickets", "root")
+    if (typeof root !== "string" || root.trim() === "") return ".scratch"
+    const abs = root.startsWith("~/") ? path.join(os.homedir(), root.slice(2)) : root
+    const rel = (path.isAbsolute(abs) ? path.relative(repo, abs) : abs).split(path.sep).join("/").replace(/\/+$/, "")
+    return rel === "" || rel === "." || rel.startsWith("..") || path.isAbsolute(rel) ? null : rel
+}
+
+// land --check <N> [-C <dir>]: the merge condition of one PR, by the profile of <dir> (the working directory by default),
+// with no state file, writing nothing. Exit 0 — ready, 1 — it waits, the reason on one line; 2 — land cannot say: no
+// profile, gh or git gave no answer, the arguments are wrong. It is meant for a guard hook to ask before an agent's `gh pr merge`.
+async function checkOne(argv) {
+    let n = null
+    let dir = process.cwd()
+    for (let i = 0; i < argv.length; i++) {
+        if (argv[i] === "--check" && n === null) n = argv[++i]
+        else if (argv[i] === "-C" && argv[i + 1]) dir = argv[++i]
+        else n = undefined
+    }
+    if (typeof n !== "string" || !/^[1-9]\d*$/.test(n)) {
+        process.stderr.write("usage: land --check <N> [-C <dir>]\n")
+        return 2
+    }
+    readOnly = true
+    const say = (code, line) => {
+        process.stdout.write(`#${n} ${line}\n`)
+        return code
+    }
+    try {
+        dir = path.resolve(dir)
+        const r = run(program(process.env.LAND_PROFILE, [process.execPath, [path.join(__dirname, "profile")]]), ["-C", dir, "--json"], dir)
+        if (r.code === 3) return say(2, `unverified: no profile for ${dir} (bin/profile exit 3)`)
+        let profile
+        try {
+            profile = r.code === 0 ? JSON.parse(r.out) : null
+        } catch {}
+        if (!profile) return say(2, `unverified: the profile could not be read: bin/profile exit ${r.code}: ${firstLine(r.err || r.out) || "no JSON"}`)
+        profileRead = { profile }
+        const repo = field(profile, "_resolved", "checkout") || field(profile, "_resolved", "repo_root") || dir
+        const ci = field(profile, "workflow", "ci") || "pr"
+        if (ci !== "pr") return say(2, `unverified: workflow.ci is ${JSON.stringify(ci)}: land merges on the CI check of a PR head, which only "pr" has`)
+        const check = field(profile, "workflow", "ci_check")
+        if (typeof check !== "string" || check.trim() === "") return say(2, "unverified: the profile names no workflow.ci_check, the CI check a merge waits for")
+        // the base branch: worktree.base (origin/main), else the branch origin/HEAD points to
+        let base = field(profile, "worktree", "base")
+        if (typeof base !== "string" || base.trim() === "") {
+            const h = run([GIT, []], ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], repo)
+            base = h.code === 0 ? h.out.trim() : ""
+        }
+        const cut = base.indexOf("/")
+        if (cut < 1 || cut === base.length - 1) return say(2, `unverified: the base branch cannot be told: worktree.base is ${JSON.stringify(base || null)}`)
+        const checks = (field(profile, "_resolved", "pipeline") || []).filter((s) => s && s.kind === "check" && typeof s.name === "string").map((s) => s.name)
+        const st = { repo, remote: base.slice(0, cut), branch: base.slice(cut + 1), ci: "pr", ci_check: check, ci_workflow: null, docs_only: null, red_elsewhere: null, tickets_root: profileTicketsRoot(profile, repo) }
+        const fetched = run([GIT, []], ["fetch", "-q", st.remote, `+refs/heads/${st.branch}:refs/remotes/${st.remote}/${st.branch}`], repo)
+        if (fetched.code !== 0) return say(2, `unverified: git fetch ${st.remote} ${st.branch} (exit ${fetched.code}): ${firstLine(fetched.err)}`)
+        const v = prView(st, Number(n))
+        if (v.state !== "OPEN") return say(1, `waits: the PR is ${v.state}`)
+        if (v.isDraft) return say(1, "waits: draft")
+        const head = v.headRefOid
+        const ticket = ticketOfBranch(v.headRefName, field(profile, "tickets", "branch"))
+        const pr = { number: Number(n), checks, ...(ticket ? { epic: ticket.epic, ticket: ticket.nn } : {}) }
+        st.ci_workflow = ciWorkflowOf(st, head)
+        const note = ready(st, pr, head, false, v)
+        if (v.mergeable === "CONFLICTING" || v.mergeStateStatus === "DIRTY") return say(1, `waits: conflict: rebase (mergeable ${v.mergeable}, mergeStateStatus ${v.mergeStateStatus})`)
+        // GitHub has not computed it yet: a merge now may still meet a conflict, so not ready (a later --check may be)
+        if (v.mergeable === "UNKNOWN") return say(1, "waits: mergeable UNKNOWN: GitHub has not computed it yet, ask again")
+        return say(0, `ready${note ? ` — ${note}` : ""}`)
+    } catch (e) {
+        if (!(e instanceof Wait)) throw e
+        return e.unread ? say(2, `unverified: ${firstLine(e.message)}`) : say(1, `waits: ${firstLine(e.message)}`)
+    }
+}
+
 async function main() {
     const argv = process.argv.slice(2)
+    if (argv.includes("--check")) return checkOne(argv)
     const watch = argv.includes("--watch")
     const story = argv.includes("--epic-story")
     const files = argv.filter((a) => a !== "--watch" && a !== "--epic-story")
-    if (files.length !== 1 || files[0].startsWith("-") || (watch && story)) fail("usage: land <state.json> [--watch] | land <state.json> --epic-story")
+    if (files.length !== 1 || files[0].startsWith("-") || (watch && story)) fail("usage: land <state.json> [--watch] | land <state.json> --epic-story | land --check <N> [-C <dir>]")
     const file = path.resolve(files[0])
     const st = load(file)
     if (story) {
@@ -1296,6 +1566,7 @@ async function main() {
     logFile = file.replace(/\.json$/, "") + ".log"
     const started = now()
     log(`land ${file}${watch ? " --watch" : ""}`)
+    ciCheckAgrees(file, st)
     const deadline = Date.now() + T.watch * 1000
     const madeThisRun = { done: false }
     for (;;) {
@@ -1314,7 +1585,9 @@ async function main() {
     }
     const lines = []
     for (const pr of st.prs) {
-        lines.push(pr.result.status === "merged" ? `#${pr.number} merged ${pr.result.sha}` : `#${pr.number} waits: ${pr.result.reason}`)
+        // the verification paths of a merged PR are named on its line, for the Wave report (skill epic-wave, section 4)
+        const named = pr.result.verification ? ` — ${pr.result.verification}` : ""
+        lines.push(pr.result.status === "merged" ? `#${pr.number} merged ${pr.result.sha}${named}` : `#${pr.number} waits: ${pr.result.reason}`)
         // no documents PR: the Evidence lines go into the tickets outside the repository by the orchestrator's hand
         if (st.tickets_root === null && pr.result.status === "merged" && Array.isArray(pr.evidence) && pr.evidence.length)
             lines.push(`evidence of #${pr.number} is the orchestrator's (tickets outside the repository)`)
@@ -1332,6 +1605,8 @@ async function main() {
     lines.push(...outside.lines)
     // while the main branch is red: one line with the culprit and the deadline of the fix forward
     if (mainRed) lines.push(mainRed)
+    // a CI check the profile does not name: the orchestrator and the Wave report see it, not only the log
+    if (ciCheckNote) lines.push(ciCheckNote)
     const all = [...st.prs.map((p) => p.result), ...st.docs.map((d) => d.result).filter((r) => r && r.status !== "empty")]
     if (outside.kind) all.push({ status: "waits", kind: outside.kind })
     const verdict = all.every((r) => r.status === "merged") ? "green" : all.some((r) => r.kind === "red") ? "red" : "unverified"
