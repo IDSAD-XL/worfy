@@ -35,7 +35,7 @@ const sdkInit = z.object({
   slash_commands: z.array(str),
   // The plugins Claude Code loaded and its load-time errors (worfy-harness-guarantees ticket 07; the forms of
   // test/fixtures/sdk-messages/init-plugin-errors.jsonl). An entry of another shape is dropped, not the init:
-  // `plugins` of a shape worfy does not know reads as absent (null), which checks nothing.
+  // `plugins` of a shape worfy does not know reads as absent, which checks nothing.
   plugins: z.array(z.object({ name: str, path: optStr })).nullish().catch(null),
   plugin_errors: z
     .array(z.unknown())
@@ -233,8 +233,8 @@ function mapSystem(subtype: string, message: unknown): AgentEvent[] {
           cwd: m.cwd,
           claudeCodeVersion: orNull(m.claude_code_version),
           slashCommands: m.slash_commands,
-          plugins: m.plugins == null ? null : m.plugins.map((plugin) => ({ name: plugin.name, path: orNull(plugin.path) })),
-          pluginErrors: m.plugin_errors,
+          // Only an init that lists its plugins tells them, with their errors; one that does not (the fake agent's) stays as it was.
+          ...(m.plugins == null ? {} : { plugins: m.plugins.map((plugin) => ({ name: plugin.name, path: orNull(plugin.path) })), pluginErrors: m.plugin_errors }),
         },
       ]
     }

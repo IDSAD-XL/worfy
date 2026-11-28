@@ -67,7 +67,7 @@ function bareName(id: string): string {
  */
 export function harnessLoadProblems(init: Pick<InitEvent, 'plugins' | 'pluginErrors'>, given: string | null | undefined): HarnessLoadProblem[] {
   const plugins = init.plugins
-  if (plugins === null || plugins === undefined) return []
+  if (plugins === undefined) return []
   const loaded = plugins.find((plugin) => plugin.name === HARNESS)
   // An inline plugin's error names its folder, `<folder>@inline`; one that failed before it had a name, `inline[N]`
   // (sdk.d.ts) — worfy passes no inline plugin but the Harness.

@@ -85,8 +85,10 @@ Source: [spec.md](../spec.md), «Ticket-ы», 07; «Решение», 4; «На�
 Сделано 2026-11-28 на SDK 0.3.322 (Claude Code 2.1.322). Модели, ключа и входа не было.
 
 - `sdkInit` (`src/shared/vendors/claude/events.ts`) читает `plugins` и `plugin_errors`; событие `init` несёт `plugins`
-  (null — init их не назвал) и `pluginErrors` (`src/shared/agent/events.ts`). Запись `plugin_errors` чужой формы
-  отбрасывается, а не весь init.
+  и `pluginErrors` (`src/shared/agent/events.ts`), только когда init перечислил `plugins`: init fake agent-а их не
+  называет и остаётся прежним, так что записанные события Autopilot (`auto-approve-claude.test.ts`) не изменились.
+  Запись `plugin_errors` чужой формы отбрасывается, а не весь init. Запись событий записанных SDK-сообщений
+  `test/fixtures/sdk-events/claude.json` написана заново: изменились только 37 строк `init`.
 - `src/main/vendors/claude/harness-hooks.ts` (новый): `harnessLoadProblems` и `harnessNotice` — разбор init против
   Harness, который worfy дал Session; `hooksListingAnswer` и `readClaudeHooks` — часть `harnessHooks` драйвера Claude
   (`src/main/vendors/claude/index.ts`). Handle Claude (`src/main/vendors/claude/session.ts`) шлёт notice «Harness did
@@ -134,7 +136,9 @@ Source: [spec.md](../spec.md), «Ticket-ы», 07; «Решение», 4; «На�
 фабрика — notice шлёт main), `src/main/agent/session/types.ts`, `src/shared/agent/events.ts`, `src/renderer/session/fold.ts`,
 `session.css`, `src/main/vendors/driver.ts` (комментарий). Test-ы: `test/contract/app-orchestrators.test.ts` теперь
 ставит `WORFY_AGENT=fake` и подменяет папку копии на `harness/` — иначе проверка части Claude запустила бы настоящий
-Claude Code; в `test/contract/codex-orchestrator.test.ts` поправлен устаревший комментарий; notice-блок — в
+Claude Code; в `test/contract/codex-orchestrator.test.ts` поправлен устаревший комментарий;
+`test/contract/codex-harness-hooks.test.ts` ждёт у драйвера Claude его часть вместо её отсутствия;
+`test/contract/agent-events.test.ts` ждёт у init `plugins` и `pluginErrors`; notice-блок — в
 `test/unit/session-view.test.tsx`. Fake-скрипт — `test/fixtures/agent-scripts/harness-did-not-load.jsonl`.
 
 Красный на старом коде: те же test-ы на дереве `origin/main` (c66e7215a) — `claude-init-plugins` (init без `plugins`

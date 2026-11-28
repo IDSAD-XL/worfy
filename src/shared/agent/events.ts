@@ -217,11 +217,11 @@ export const agentEvent = z.discriminatedUnion('type', [
     claudeCodeVersion: nullableString,
     slashCommands: z.array(z.string()),
     /**
-     * The plugins Claude Code loaded (worfy-harness-guarantees ticket 07): null when the init did not say,
-     * absent from a Vendor that does not tell (Codex).
+     * The plugins Claude Code loaded (worfy-harness-guarantees ticket 07); absent when the init did not list them,
+     * and from a Vendor that does not tell (Codex).
      */
-    plugins: z.array(z.object({ name: z.string(), path: nullableString })).nullable().optional(),
-    /** Claude Code's load-time errors of plugins; `plugin` is `<name>@<marketplace>`, of an inline plugin `<folder>@inline`. */
+    plugins: z.array(z.object({ name: z.string(), path: nullableString })).optional(),
+    /** Claude Code's load-time errors of those plugins, with `plugins`; `plugin` is `<name>@<marketplace>`, of an inline plugin `<folder>@inline`. */
     pluginErrors: z.array(z.object({ plugin: z.string(), type: z.string(), message: z.string() })).optional(),
   }),
   /** The Session's temporary id was replaced by the id Claude Code gave it; `from` is the old one. */

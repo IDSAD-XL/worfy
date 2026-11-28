@@ -45,9 +45,14 @@ describe('system/init tells the plugins and their load errors', () => {
 
   it('an init without `plugins` says nothing of them; entries of another shape are dropped, not the init', () => {
     const without = Object.fromEntries(Object.entries(intact).filter(([key]) => key !== 'plugins'))
-    expect(initOf(without)).toMatchObject({ type: 'init', plugins: null, pluginErrors: [] })
-    const odd = initOf({ ...brokenHooksJson, plugins: 'all of them', plugin_errors: [{ plugin: 7 }, { plugin: 'x@inline', type: 'generic-error' }] })
-    expect(odd).toMatchObject({ type: 'init', plugins: null, pluginErrors: [{ plugin: 'x@inline', type: 'generic-error', message: '' }] })
+    expect(initOf(without)).toMatchObject({ type: 'init', sdkSessionId: intact.session_id })
+    expect(initOf(without)).not.toHaveProperty('plugins')
+    expect(initOf(without)).not.toHaveProperty('pluginErrors')
+    const odd = initOf({ ...brokenHooksJson, plugins: 'all of them' })
+    expect(odd).toMatchObject({ type: 'init', sdkSessionId: brokenHooksJson.session_id })
+    expect(odd).not.toHaveProperty('plugins')
+    const someErrors = initOf({ ...brokenHooksJson, plugin_errors: [{ plugin: 7 }, { plugin: 'x@inline', type: 'generic-error' }] })
+    expect(someErrors).toMatchObject({ pluginErrors: [{ plugin: 'x@inline', type: 'generic-error', message: '' }] })
   })
 })
 
