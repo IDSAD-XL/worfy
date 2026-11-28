@@ -1,7 +1,8 @@
 # 171 — Время у сообщений во вкладке Chat панели Assistant
 
 Type: polish
-Status: open
+Status: claimed 2026-11-28T03:27Z
+Branch: worfy-polish/171
 Blocked by: None — can start immediately
 Source: просьба владельца 2026-11-28 со screenshot-ом панели Assistant (вкладки Waits / Summary / Journal / Chat): во
 вкладке Chat у сообщений нет времени. Слова владельца: «добавь время сообщений у ассистента».
@@ -74,10 +75,34 @@ Source: просьба владельца 2026-11-28 со screenshot-ом пан
 
 - [ ] Во вкладке Chat у каждого сообщения пользователя и Assistant-а — время, у сообщения другого дня — с датой, полное
       время в tooltip-е; у ожидающего ответа времени нет. Формат тот же, что в chat Session (общий модуль).
+  - evidence: test-run pass · `pnpm test test/unit/assistant-panel.test.tsx test/unit/session-view.test.tsx test/unit/product-transcript.test.tsx` exit 0 · mac - · dae605523
 - [ ] Unit test-ы в `test/unit/assistant-panel.test.tsx` красные до правки; test-ы Transcript зелёные без правок.
+  - evidence: test-run pass · `pnpm test test/unit/assistant-panel.test.tsx` exit 1 before the change (4 failed), exit 0 after; transcript tests unchanged, exit 0 · mac - · dae605523
 - [ ] `docs/features/assistant.md` и `docs/features/ru/assistant.md` говорят о времени сообщений.
+  - evidence: commit pass · worfy-polish/171: show the time of each message in the Assistant's Chat · - - · dae605523
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
 - [ ] (вручную) Сделай: в Stable worfy открой панель Assistant → Chat, напиши Assistant-у и дождись ответа → Должно
       быть: под обоими сообщениями — время в 24 h, под ответом — время ответа; у вчерашних сообщений — дата; наведение
       на время показывает полное время.
   - needs: mac stable
+
+## Итог
+
+- `useToday`, `rowTime`, `useRowTime` и `NowContext` перенесены из `Transcript.tsx` в общий модуль
+  `src/renderer/session/row-time.ts`, компонент `RowTime` — в `src/renderer/session/RowTime.tsx`. Два файла, а не один
+  `row-time.tsx`: правило eslint `react-refresh/only-export-components` не пускает hook-и и context в файл с компонентом.
+  Добавлена `rowTimeOf(at, now)` — та же проверка «время, которое держит Date», что была в `useRowTime`, но с явным
+  «сегодня»: Chat берёт его из своего `useToday`, а не из `NowContext` (default 0). `RowTime` получил необязательный
+  `className` (по умолчанию `w-tr__time`), Transcript рисует время как раньше.
+- `Chat` (`AssistantPanel.tsx`): bubble и время под ним — в колонке `.w-asst-said`, у пользователя справа, у Assistant-а
+  слева после avatar-а. Время — `RowTime` с классом `w-asst-time` (11 px, `--text-muted`, `tabular-nums`); дата другого
+  дня стоит в той же строке перед временем. Avatar поднят на высоту строки времени, чтобы стоять вровень с низом bubble.
+  У `pending` времени нет, у `failed` есть. Предел ширины 88% перешёл с bubble на колонку.
+- Test-ы: четыре новых в `test/unit/assistant-panel.test.tsx` (24 h у обеих сторон, tooltip `YYYY-MM-DD HH:MM:SS`, дата
+  другого дня и другого года, `pending` без времени и `failed` со временем) — красные до правки (4 failed из 35), зелёные
+  после. `test/unit/session-view.test.tsx` и `test/unit/product-transcript.test.tsx` зелёные без правок.
+- `docs/features/assistant.md` и `docs/features/ru/assistant.md` — одна фраза о времени сообщений в абзаце **Chat**.
+- Раунд 2 (review #2357 r1): у `.w-asst-bubble` — `box-sizing: border-box`, иначе в колонке `.w-asst-said` 100% плюс
+  padding и border выводили bubble с широким code block за край панели. jsdom не считает раскладку, поэтому test
+  `assistant-panel` закрепляет само правило CSS (mutant без него — красный). В test времени Transcript
+  (`session-view`) добавлена проверка класса `w-tr__time` у `RowTime` по умолчанию (mutant с другим классом — красный).

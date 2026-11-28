@@ -5,6 +5,8 @@
 // card of the first setup of its introduction follows the message that hands it over.
 import { Fragment, useEffect, useRef, useState, type KeyboardEvent, type ReactElement } from 'react'
 import type { AssistantView, JournalRow, WindowItem, WindowProposal } from '../../shared/assistant/window'
+import { rowTimeOf, useToday } from '../session/row-time'
+import { RowTime } from '../session/RowTime'
 import { ErrorBoundary } from '../shell/ErrorBoundary'
 import { shortTime } from './format'
 import { Icon, Spark } from './icons'
@@ -342,8 +344,15 @@ function Journal({ view }: { view: AssistantView }): ReactElement {
   )
 }
 
+/** When a message of Chat was written, in the format of a Session's chat (worfy-polish ticket 171); none without a time. */
+function MessageTime({ at, now }: { at: number; now: number }): ReactElement | null {
+  const when = rowTimeOf(at, now)
+  return when === null ? null : <RowTime at={at} when={when} className="w-asst-time" />
+}
+
 function Chat({ view }: { view: AssistantView }): ReactElement {
   const end = useRef<HTMLDivElement>(null)
+  const now = useToday()
   const count = view.conversation.length
   // In braces: Chromium may answer scrollIntoView with a Promise, and React calls what an effect returns (worfy-polish 165).
   useEffect(() => { end.current?.scrollIntoView?.({ block: 'end' }) }, [count])
@@ -353,8 +362,11 @@ function Chat({ view }: { view: AssistantView }): ReactElement {
       {view.conversation.map((message) => {
         if (message.who === 'you') {
           return (
-            <div key={message.id} className="w-asst-message w-asst-message--you">
-              <div className="w-asst-bubble">{message.text}</div>
+            <div key={message.id} className="w-asst-message w-asst-message--you" data-testid="assistant-your-message">
+              <div className="w-asst-said">
+                <div className="w-asst-bubble">{message.text}</div>
+                <MessageTime at={message.at} now={now} />
+              </div>
             </div>
           )
         }
@@ -365,19 +377,23 @@ function Chat({ view }: { view: AssistantView }): ReactElement {
               <span className="w-asst-avatar w-asst-avatar--small">
                 <Spark size={11} />
               </span>
-              <div className="w-asst-bubble">
-                {message.state === 'pending' ? (
-                  <span className="w-asst-typing" aria-label="Assistant is writing">
-                    <i />
-                    <i />
-                    <i />
-                  </span>
-                ) : (
-                  <>
-                    <AssistantWords text={message.text} />
-                    <RateButtons target={{ kind: 'message', id: message.id }} rating={message.rating} />
-                  </>
-                )}
+              <div className="w-asst-said">
+                <div className="w-asst-bubble">
+                  {message.state === 'pending' ? (
+                    <span className="w-asst-typing" aria-label="Assistant is writing">
+                      <i />
+                      <i />
+                      <i />
+                    </span>
+                  ) : (
+                    <>
+                      <AssistantWords text={message.text} />
+                      <RateButtons target={{ kind: 'message', id: message.id }} rating={message.rating} />
+                    </>
+                  )}
+                </div>
+                {/* A pending answer's time is when the question went, not when it was answered: none until it comes. */}
+                {message.state === 'pending' ? null : <MessageTime at={message.at} now={now} />}
               </div>
             </div>
             {handed?.change === null || handed?.change === undefined ? null : <ChangeCard proposal={handed} change={handed.change} />}
