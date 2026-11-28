@@ -2,6 +2,7 @@
 
 Type: task
 Status: claimed 2026-11-28T03:00Z
+PR: #2350
 Branch: worfy-harness-eval/06
 Blocked by: None — can start immediately
 Source: [spec.md](../spec.md), «Ticket-ы», 06; «Решения владельца», «SkillEvaluator» (Ticket 02 и 03 темы: бесплатная

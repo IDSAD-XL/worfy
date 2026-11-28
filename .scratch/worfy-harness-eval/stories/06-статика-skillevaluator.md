@@ -12,7 +12,7 @@ Codex skill-ы Harness. Владелец согласился на один бе
 
 ## 2. Общая причина degraded у всех 35 skill-ов
 
-Code: `.scratch/worfy-harness-eval/issues/06-статика-skillevaluator.md:83-89` · key lines: 83, 84, 86, 87
+Code: `.scratch/worfy-harness-eval/issues/06-статика-skillevaluator.md:84-90` · key lines: 84, 85, 87, 88
 
 ```md
 Для всех 35 skill-ов ответ одинаковый: **Claude Code — degraded, Codex — degraded**; drops нет ни у одного. Причина
@@ -36,7 +36,7 @@ Claude Code degraded, Codex loads; с `--context-tokens 1000000` — оба load
 
 ## 3. Чего статика не проверила
 
-Code: `.scratch/worfy-harness-eval/issues/06-статика-skillevaluator.md:116-119` · key lines: 116, 117, 119
+Code: `.scratch/worfy-harness-eval/issues/06-статика-skillevaluator.md:117-120` · key lines: 117, 118, 120
 
 ```md
 - **Hook-и и `bin/` Tier 1 не сканировал вовсе.** Ни одной находки по `hooks/hooks.json`, в выводе нет слова «hook»;
@@ -72,7 +72,7 @@ Code: `.scratch/worfy-harness-eval/issues/06-статика-skillevaluator.md:11
 1. Почему все 35 skill-ов получили degraded и у Claude Code, и у Codex, хотя сами skill-ы разные?
    Ответ: Причина — сумма description всего каталога (9 668 символов) больше бюджета списка skill-ов (8 000 при
    неизвестном окне); при окне 1M tokens оба агента skill-ы загружают.
-   Lines: `.scratch/worfy-harness-eval/issues/06-статика-skillevaluator.md:83-89`
+   Lines: `.scratch/worfy-harness-eval/issues/06-статика-skillevaluator.md:84-90`
 2. Почему отсутствие находок по hook-ам — не «hook-и чисты»?
    Ответ: Tier 1 по plugin-у hook-и и `bin/` не сканировал вовсе: даже ожидаемая шумовая BH1 не пришла.
-   Lines: `.scratch/worfy-harness-eval/issues/06-статика-skillevaluator.md:116-119`
+   Lines: `.scratch/worfy-harness-eval/issues/06-статика-skillevaluator.md:117-120`
