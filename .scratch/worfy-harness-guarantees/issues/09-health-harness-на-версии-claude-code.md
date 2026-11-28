@@ -68,11 +68,15 @@ merge нужен Windows verdict.
 
 - [ ] Settings → Health показывает строку «Harness on Claude Code» для копии worfy и для Claude Code терминала; набор
       идёт один раз на пару версий, итог в кэше, Run again повторяет.
+  - evidence: test-run pass · `pnpm test test/unit/harness-claude-health.test.ts test/unit/harness-claude-toasts.test.tsx test/unit/settings-health.test.tsx` exit 0 · mac - · 1a30deccb03e0bf11e6c78c2700e9228c7f415d5
 - [ ] Провал — toast и красная строка с именем case-а и Copy details; «не смог запустить» отличается от «guard не
       отказал».
+  - evidence: test-run pass · `pnpm test test/unit/harness-claude-health.test.ts test/unit/harness-claude-toasts.test.tsx test/unit/settings-health.test.tsx` exit 0 · mac - · 1a30deccb03e0bf11e6c78c2700e9228c7f415d5
 - [ ] Строка с новой версией Claude Code терминала даёт ссылку на changelog (Q7 (б)); платного eval-а нет (Q6 (а)).
+  - evidence: test-run pass · `pnpm test test/unit/harness-claude-health.test.ts test/unit/harness-claude-toasts.test.tsx test/unit/settings-health.test.tsx` exit 0 · mac - · 1a30deccb03e0bf11e6c78c2700e9228c7f415d5
 - [ ] `engines["claude-code"]` в `plugin.json` стоит, только если spike 01 подтвердил ошибку при невыполненном
       `engines`; иначе «Итог» называет причину.
+  - evidence: commit pass · worfy-harness-guarantees/09: Health runs the Harness contract set on worfy's and the terminal's Claude Code · - - · 1a30deccb03e0bf11e6c78c2700e9228c7f415d5
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR, включая Windows verdict.
 
 ## Итог
