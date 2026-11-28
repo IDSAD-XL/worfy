@@ -10,6 +10,15 @@ conflicts in PR #8406», «7 draft replies wait for your Send», «Replace Harne
 
 Кто: агент. Глубина review — `medium`. Не платформенный PR.
 
+## Решения владельца
+
+- 2026-11-28 (ответ на PR #2346): строки Journal для пункта, который закрылся сам, нет. След — существующее состояние
+  `closed`.
+- 2026-11-28 (ответ на PR #2346, против рекомендации «оставить до Dismiss»): то, что worfy проверить не может, —
+  предложения без пункта («7 draft replies wait for your Send»), Slack, Jira, Autopilot — перепроверяет model. На
+  каждом wake Assistant-а она смотрит такие открытые пункты и закрывает сделанные. Лишних wake-ов ради уборки нет:
+  проверка едет на тех, что и так были. У закрытого model-ю пункта записано, почему он закрыт.
+
 ## Что происходит
 
 Во вкладке Waits (`Waits`, `src/renderer/assistant/AssistantPanel.tsx:134`) три вида строк:
@@ -85,14 +94,42 @@ Journal (`src/main/assistant/actions/journal.ts`) — журнал действ�
      перепроверяется на focus окна, не чаще раза в 5 мин, — так ловится Replace, сделанный в терминале.
    - Re-check читает только локальное состояние (`appInstaller().status()`). Последний ответ GitHub о том, какая
      сборка новее (`behind`), берётся из прошлой проверки, без нового вызова.
-3. **То, что проверить нечем, остаётся:** предложения без пункта, Slack, Jira, Autopilot. Ни одна перепроверка их не
-   закрывает. Дату у них видно уже сейчас (`shortTime`, `AssistantPanel.tsx:93`). Но для старше 6 дней `shortTime`
-   показывает только день недели (`src/renderer/assistant/format.ts:6-11`), и возраст неясен. Для таких — дата
-   (`Nov 20`).
-4. **След.** Закрытие — через существующее состояние `closed`: Journal не трогать. В `docs/features/assistant.md`
-   (абзац **Items**, строки 182-188) и в `docs/features/ru/assistant.md` к списку «An item closes when…» добавить
-   смерженный или закрытый PR и заменённый Harness. Отдельно сказать, что предложения без пункта, Slack, Jira и
-   Autopilot закрывает только пользователь.
+3. **То, что worfy проверить не может, перепроверяет model на wake-ах, которые и так идут** (решение владельца
+   2026-11-28). Сюда входят предложения без пункта, пункты Slack, Jira и Autopilot.
+   - Новых wake-ов нет. Planner (`src/main/assistant/wake/planner.ts`) не планирует wake ради уборки. Daily limit
+     (`ASSISTANT_DAILY_WAKE_LIMIT` = 20, `src/shared/assistant/budget.ts:26`) и правило про 5-часовое окно
+     (wake ждёт, пока окно занято больше 80 %, `src/main/assistant/budget/wake-gate.ts:6-7`) не меняются.
+     Перепроверка едет только на автоматических wake-ах (urgent, batch, morning). Run на сообщение пользователя её
+     не делает: пользователь ждёт ответа.
+   - Первое сообщение wake-а (`wakePrompt`, `src/main/assistant/session/runner.ts:93-108`) получает короткий раздел:
+     «Open items worfy cannot re-check». В нём записи, как у handed-over items (id, kind, source, возраст), не
+     больше 10 самых старых, и число остальных (их model дочитает через `items_list`). Тексты — outside-text
+     objects, как у остальных записей. Пустой список — раздела нет. Предложения без пункта model уже видит в своей
+     memory (`memoryForPrompt`, `src/main/assistant/session/memory.ts:93`): им нужна только строка в правилах.
+   - Чем закрывать:
+     - предложение — существующий `proposal_remove` (`src/shared/assistant/app-tools.ts:77`). У него появляется
+       необязательный `why`. С `why` book не удаляет предложение, а помечает закрытым: when, `by: 'assistant'`,
+       `why`. Такое предложение окно не показывает, book хранит его 14 дней, как пункты;
+     - пункт — нового tool-а в `worfy-app` нет, его надо завести: `item_close { id, why }`. Он закрывает только
+       открытые пункты источников `slack`, `jira` и `autopilot`. Пункты, которые worfy проверяет сам (session,
+       pr-inbox, health, limits, ci и другие), он отказывает с понятной ошибкой. Пункт уходит в `closed` с одной
+       строкой о причине в самом пункте (например, `closedBy: 'assistant'`, `closedWhy` до 200 символов, в схеме
+       `src/shared/assistant/attention.ts:87-122`). Новое событие того же предмета открывает пункт снова, как
+       сегодня (`new` после `closed`).
+   - Правила Assistant-а — `harness/hooks/rules/assistant.md`, список tools (строки 22-24) и абзац о первом
+     сообщении (строки 30-37). Новая строка: на wake-е посмотри «Open items worfy cannot re-check» и свои
+     предложения без пункта. Закрой только то, что точно сделано по тому, что ты прочитал (`autopilot_runs_read`,
+     `pr_threads_read`, connector Slack или Jira, если он есть в этой Session). Если не уверен — оставь. Описания
+     tools — в `app-tools.ts` (строки 118-126).
+   - Расход: раздел — около 1 KB текста на wake. Tool calls — только на то, что model закрывает. Больше ничего не
+     нужно: usage этих wake-ов и так считается.
+4. **Возраст того, что осталось.** Дату у строк Waits видно уже сейчас (`shortTime`, `AssistantPanel.tsx:93`). Но для
+   старше 6 дней `shortTime` показывает только день недели (`src/renderer/assistant/format.ts:6-11`), и возраст
+   неясен. Для таких — дата (`Nov 20`).
+5. **След.** Journal не трогать (решение владельца). Закрытое worfy — состояние `closed`. Закрытое model-ю — `closed`
+   и строка о причине в пункте или в предложении. В `docs/features/assistant.md` (абзац **Items**, строки 182-188) и в
+   `docs/features/ru/assistant.md` к «An item closes when…» добавить смерженный или закрытый PR, заменённый Harness и
+   уборку model-ю на wake-ах — с тем, что закрытое model-ю хранит причину.
 
 ## Где в коде
 
@@ -102,6 +139,12 @@ Journal (`src/main/assistant/actions/journal.ts`) — журнал действ�
 - `src/main/ipc/harness.ts:50-56`, `:70-78` — `onHarnessInstalled`; `src/main/ipc/first-run.ts:286-292` — образец
   `registerRecheck`; `src/main/first-run/health-reports.ts:95`, `:175-184`.
 - `src/main/first-run/checks.ts:810-819` — строка `harness`.
+- `src/main/assistant/session/runner.ts:53-58` (`WHY`), `:93-108` (`wakePrompt`).
+- `src/shared/assistant/app-tools.ts:74-78`, `:118-126` — схемы и описания tools;
+  `src/main/mcp/app-server.ts:659-666` — `proposal_remove`, рядом ляжет `item_close`.
+- `src/main/assistant/proposals/book.ts`, `src/shared/assistant/proposals.ts:32-49` — закрытое предложение.
+- `src/shared/assistant/attention.ts:87-122`, `src/main/assistant/core/attention-core.ts:229-233` — пункт и `resolve`.
+- `harness/hooks/rules/assistant.md:22-37` — правила Assistant-а.
 - `src/renderer/assistant/format.ts:6-11` — `shortTime`.
 - `docs/features/assistant.md:182-188`, `docs/features/ru/assistant.md`.
 
@@ -121,8 +164,20 @@ Unit test-ы, по три случая на каждый вид: условие 
   - статус по-прежнему outdated → пункт открыт;
   - статус не прочитался → строка не `ok`, пункт открыт;
   - re-check на focus зовётся не чаще раза в 5 мин.
-- `test/unit/assistant-attention-sources.test.ts`: Slack, Jira, Autopilot и предложение без пункта перепроверка не
-  закрывает.
+- `test/unit/assistant-attention-sources.test.ts`: ни PR inbox, ни Health check не закрывают пункты Slack, Jira,
+  Autopilot и предложения без пункта.
+- `test/unit/assistant-session.test.ts`, `wakePrompt`:
+  - у batch-, urgent- и morning-wake-а есть раздел с открытыми пунктами Slack, Jira и Autopilot, не больше 10, и с
+    числом остальных;
+  - у run-а на сообщение пользователя и при пустом списке раздела нет;
+  - тексты пунктов — outside-text objects.
+- `test/unit/worfy-app-tools.test.ts` (tools `worfy-app`), со stub-ом ответа model-и вместо настоящей Session:
+  - `item_close` с `why` закрывает открытый пункт Slack (Jira, Autopilot): `closed`, `closedBy`, `closedWhy`;
+  - отказывает пункту pr-inbox и health, неизвестному id, уже закрытому пункту, пустому или длинному `why`;
+  - `proposal_remove` с `why` прячет предложение и хранит причину; без `why` — удаляет, как сегодня.
+- Тот же stub-сценарий целиком (stub Session зовёт `item_close`): пункт ушёл из Waits, новое событие того же предмета
+  открывает его снова. В `test/unit/assistant-wake-planner.test.ts`: при одних только открытых пунктах Slack, Jira и
+  Autopilot planner не планирует wake.
 - Unit test на `shortTime`: старше 6 дней — дата.
 - E2e не нужен.
 
@@ -132,11 +187,20 @@ Unit test-ы, по три случая на каждый вид: условие 
       неполном поиске или PR, ушедшем только из cache, пункт остаётся. Новых вызовов GitHub нет.
 - [ ] Пункт строки Health check `harness` закрывается после Install, Update или Replace и после Replace в терминале
       (re-check на focus); при непрочитанном статусе остаётся.
-- [ ] Предложения без пункта, Slack, Jira и Autopilot перепроверка не закрывает; их дата старше 6 дней видна как дата.
-- [ ] Unit test-ы на каждый вид («держится», «ушло», «нельзя проверить») красные до правки там, где закрытия не было.
-- [ ] `docs/features/assistant.md` и `docs/features/ru/assistant.md` говорят, что закрывается само, а что — нет.
+- [ ] На автоматическом wake-е model получает до 10 открытых пунктов Slack, Jira и Autopilot и может закрыть
+      сделанные (`item_close`) и свои предложения без пункта (`proposal_remove` с `why`); у закрытого записана
+      причина; новых wake-ов нет, daily limit и правило 80 % не тронуты.
+- [ ] Что осталось открытым, старше 6 дней показывает дату.
+- [ ] Unit test-ы на каждый вид («держится», «ушло», «нельзя проверить») и на уборку model-ю (stub ответа model-и)
+      красные до правки там, где закрытия не было.
+- [ ] `harness/hooks/rules/assistant.md`, `docs/features/assistant.md` и `docs/features/ru/assistant.md` говорят, что
+      закрывает worfy, что — model на wake-е, а что — только пользователь.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
 - [ ] (вручную) Сделай: в Stable worfy дождись пункта Waits о своём PR, смержи или закрой PR на GitHub и подожди до
       5 мин (или открой вид Pull requests) → Должно быть: пункт и его предложение ушли из Waits. Затем при пункте
       «Replace Harness» нажми Replace в popover-е версии → Должно быть: пункт ушёл.
+  - needs: mac stable
+- [ ] (вручную) Сделай: дождись предложения Assistant-а без пункта, например о черновиках ответов. Сделай то, о чём
+      оно просит (отправь или удали черновики), и дождись следующего batch- или morning-wake-а → Должно быть:
+      предложение ушло из Waits.
   - needs: mac stable
