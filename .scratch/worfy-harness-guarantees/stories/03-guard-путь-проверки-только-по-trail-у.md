@@ -390,3 +390,69 @@ Windows и Git Bash — только CI.
 3. Почему Edit главного потока Session, запущенной с `--agent`, не отказан, хотя в нём есть `agent_type`?
    - Ответ: Subagent на Claude Code узнаётся по `agent_id`, который есть только внутри Subagent-а.
    - Строки: `harness/hooks/guard.mjs:126-130`
+
+## 13. Что нашёл review и что осталось
+
+> VERIFIED: round 3 found one [med] lexical bypass of the guard (glob and trailing-slash `cp`/`mv` sources, guard.mjs:1159-1160); the reviewer agrees it is debt within the spec, land being the backstop. Merge after the header comment at guard.mjs:1088-1090 is narrowed and the debt is recorded in the ticket.
+>
+> ## Round-3 report (reviewer)
+>
+> Reviewer's first line: «REJECTED — the rework opened a new gap. A subagent can now copy or move a folder into `.github` and write `.github/workflows/*.yml` with a glob source (`cp -r tmpl/* .github/`) or, on macOS, a source with a trailing slash (`cp -R tmpl/ .github`). The round-2 head 1fbd3a296 refused both.»
+>
+> Round-2 findings:
+> - Fixed: [med] a move or copy into an existing folder counted as writing the whole folder (`mv notes.md tools/`, `mv CODEOWNERS .github/` refused). See guard.mjs:1149-1163. The tests are at guard-verification.test.sh:219-233. Three mutants fail them: the into-folder rule off at :1154, the folder check on the destination off at :1154, and the file-source check off at :1162.
+> - Fixed: [med] every detached HEAD counted as a review tree, so an implementer mid-rebase got the reviewer refusal. See guard.mjs:1291 and :1297-1313. The test "a rebase in progress" (around :316-327) fails 3 checks when `rebasedBranch` is off.
+> - Fixed: [low] no test that an exception inside the section lets the call through. The test is at :307-313. A mutant that turns guard.mjs:1483 `catch {}` into a refusal fails it.
+>
+> Windows CI: the Windows guard tests did run on this head. `gh pr checks 2386` shows run 46166257054, whose head is c66ec9bdf. Both "windows (harness-scripts 1/2)" and "(2/2)" jobs passed in full-suite mode. Their logs show guard-verification.test.sh, guard-silent.test.sh, rules-hooks.test.sh and land-verification.test.sh each exiting 0. Only the "listed-tests" variants, macos-tests and macos-package were skipped.
+>
+> New findings:
+> - [med] guard.mjs:1159-1160: a source the guard cannot stat is checked as `<dest>/<basename>`. A glob or a trailing slash is not expanded, so the guard never sees the folder that actually lands over the parent. I reproduced each of these against the PR's guard:
+>   - Allowed: `cp -r tmpl/* .github/`, `cp -r tmpl/* .github` and `mv tmpl/* .github/` (tmpl holds `workflows/`, so `.github/workflows` gets written on any OS).
+>   - Allowed: `cp -R tmpl/ .github`, `cp -R tmpl/ .github/` and `cp -r tmpl/ .github`. BSD cp on macOS copies the contents of a source that ends in `/`, like rsync does. On this Mac, `cp -R tmpl/ .github` wrote `.github/workflows/evil.yml`.
+>   - The round-2 head refused all six. Fix: treat a source that ends in `/` (for cp, as for rsync) as landing on the destination itself. Treat a glob source as landing on the destination too, or expand it against the file system.
+> - [low] guard-verification.test.sh, rebase block: no test covers the `rebase-apply` backend. Dropping `--git-path rebase-apply/head-name` at guard.mjs:1299 passes all 124 checks. The code itself works: `git rebase --apply` stopped on a conflict allows the trail-named file and refuses `main.yml` with the ordinary message.
+>
+> Other cases I checked, all correct:
+> - Several sources, `-t` and `--target-directory=` (GNU), `cp -a src/. .github`, absolute destination, `cd` then a relative destination, a destination that is a symlink to `.github`, `-RT`, `mv -T`.
+> - File globs such as `mv *.md .github/` are allowed.
+> - `git am` stopped: HEAD stays on the branch, so the ordinary rule applies.
+> - Rebase of the branch `misc`: "names no ticket", which is right.
+> - Rebase of a detached HEAD, and cherry-pick on a detached HEAD: the review-tree refusal, which is right, since neither is a ticket branch.
+>
+> Commands, all under a temporary HOME:
+> - `pnpm install --frozen-lockfile`: exit 0.
+> - guard-verification.test.sh: exit 0 (124 passed).
+> - guard-silent.test.sh: exit 0 (203 passed).
+> - rules-hooks.test.sh: exit 0 (387 passed).
+> - plugin-neutral.test.sh: exit 0 (37 passed).
+> - land-verification.test.sh: exit 0 (39 passed).
+> - `node scripts/vitest-electron.mjs` on the three files: exit 0 (136 tests).
+> - A scenario script of 45 cases plus the rebase, am, cherry-pick and bisect states, run against c66ec9bdf and against 1fbd3a296.
+>
+> Mutants: 8 run on the reworked lines, 7 caught, each in a fresh copy of harness/ through `HOOKS_DIR`.
+> - Caught: into-folder off, file-source check off, `-T` handling off, rsync contents rule off, folder check on the destination off, `rebasedBranch` off, catch turned into a refusal.
+> - Survived: the `rebase-apply` lookup dropped.
+> - The worktree's `git diff HEAD` was clean before removal.
+>
+> Could not verify: live Claude Code or Codex input, by the brief's rules. I did not try GNU cp locally; GNU cp puts `tmpl/` under its own name, so the trailing-slash gap is specific to macOS.
+>
+> The worktree ~/Stuff/CanvasForAI/.claude/worktrees/rev-2386-r3 and my scratch folder are removed, and no background processes are left.
+>
+> Nothing else found.
+>
+> ## Sceptic question to the reviewer (Orchestrator)
+>
+> The Orchestrator asked whether the [med] at guard.mjs:1159-1160 is debt within the spec («Риски», «Лексический guard обходится»: land is the backstop) or a merge blocker. The reviewer's answer:
+>
+> AGREE: this can be debt within the spec, not a merge blocker. The spec's risks section accepts lexical bypasses of the guard («Лексический guard обходится») and makes land the backstop. land would still refuse a PR that writes `.github/workflows/*.yml` outside the trail. The gap needs a deliberate command, not ordinary work, and I found no false refusal or crash for ordinary commands.
+>
+> Two corrections for the debt item. First, the old refusal of these exact commands was not over-refusing: `cp -R tmpl/ .github` really writes `.github/workflows/evil.yml` on macOS. Second, the header comment at guard.mjs:1088-1090 claims the guard catches a folder that `cp -R` lands over, which these cases contradict. The debt item should either cover both trailing-slash and glob sources, or narrow that comment to what the code does. The fix is small: count a `cp` source ending in `/`, or a glob source, as landing on the destination itself.
+>
+> ## Decision
+>
+> The [med] is debt within the spec, not a merge blocker (reviewer AGREE). Before the merge, the branch narrows the header comment at guard.mjs:1088-1090 to what the code does and records the trailing-slash and glob sources of cp/mv as debt in the ticket «Итог»; no code change, so no further review round (three-round cap).
+>
+> Review depth: medium — round 3
+>
+> Head: 2116a10f3 — after the round-3 review the branch changed only comments (guard.mjs header and :1088-1097), the feature page sentence, the ticket «Итог» debt list and the Code story ranges; ci-ok green on it.

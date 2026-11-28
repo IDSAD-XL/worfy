@@ -1,7 +1,7 @@
 # 03: guard: путь проверки — только по trail-у
 
 Type: task
-Status: claimed 2026-11-28T13:58Z
+Status: done 2026-11-28T17:13Z
 PR: #2386
 Blocked by: 01, 02, 04
 Source: [spec.md](../spec.md), «Ticket-ы», 03; «Решение», 1; «Набросок функции» (шаги 2–4, схема решения guard-а);
@@ -96,21 +96,29 @@ Seams (guard), «Сначала падающий test», 03, «Mutation testing�
   - evidence: test-run pass · `bash harness/hooks/tests/guard-verification.test.sh` exit 0; `pnpm test -- test/contract/harness-codex-hooks.test.ts` exit 0 · mac - · a6ed5f8b87967019ffe7062a1cdd5ed0d19a2e8e
   - evidence: test-run pass · `bash harness/hooks/tests/guard-verification.test.sh` exit 0 (107 checks, review round 1 cases); `bash harness/bin/tests/land-verification.test.sh` exit 0 · mac - · 319495189b4b19be393dccb59084588a4df5e973
   - evidence: test-run pass · `bash harness/hooks/tests/guard-verification.test.sh` exit 0 (124 checks: folder destinations, a rebase in progress, an exception inside the section) · mac - · 2fc01baf04b511fe782a60290495e0c0709bd172
+  - evidence: review pass · PR #2386 · - - · 2116a10f31b62e72e5843f47272b58e554f33541
 - [ ] Путь, который trail называет, проходит; главная Session проходит; Subagent без Ticket-а отказан.
   - evidence: test-run pass · `bash harness/hooks/tests/guard-verification.test.sh` exit 0 · mac - · a6ed5f8b87967019ffe7062a1cdd5ed0d19a2e8e
   - evidence: test-run pass · `bash harness/hooks/tests/guard-verification.test.sh` exit 0 (a rebase in progress: a trail-named path passes) · mac - · 2fc01baf04b511fe782a60290495e0c0709bd172
+  - evidence: review pass · PR #2386 · - - · 2116a10f31b62e72e5843f47272b58e554f33541
 - [ ] Silent mode: trail читается из Workflow folder, правка раздела trail-а Subagent-ом отказана.
   - evidence: test-run pass · `bash harness/hooks/tests/guard-verification.test.sh` exit 0 (silent cases) · mac - · a6ed5f8b87967019ffe7062a1cdd5ed0d19a2e8e
+  - evidence: review pass · PR #2386 · - - · 2116a10f31b62e72e5843f47272b58e554f33541
 - [ ] `ticket mark` из Subagent-а и `profile-set` полей `verification.*`, `workflow.ci_check`, `workflow.pipeline`,
       `workflow.merge` любой Session агента отказаны.
   - evidence: test-run pass · `bash harness/hooks/tests/guard-verification.test.sh` exit 0 (ticket mark and profile-set cases) · mac - · a6ed5f8b87967019ffe7062a1cdd5ed0d19a2e8e
   - evidence: test-run pass · `bash harness/hooks/tests/guard-verification.test.sh` exit 0 (profile-set --field workflow and --field verification.paths cases) · mac - · 319495189b4b19be393dccb59084588a4df5e973
+  - evidence: review pass · PR #2386 · - - · 2116a10f31b62e72e5843f47272b58e554f33541
 - [ ] `deny()` пишет строку JSON в `WORFY_GUARD_LOG`, когда переменная задана; формат записан в шапке `guard.mjs`.
   - evidence: test-run pass · `bash harness/hooks/tests/guard-verification.test.sh` exit 0 (refusal log cases) · mac - · a6ed5f8b87967019ffe7062a1cdd5ed0d19a2e8e
+  - evidence: review pass · PR #2386 · - - · 2116a10f31b62e72e5843f47272b58e554f33541
 - [ ] Тексты implementer-а и skill `epic-wave` называют шаг после отказа.
   - evidence: commit pass · worfy-harness-guarantees/03: the guard refuses a subagent edit of a verification path outside its trail · - - · a6ed5f8b87967019ffe7062a1cdd5ed0d19a2e8e
+  - evidence: review pass · PR #2386 · - - · 2116a10f31b62e72e5843f47272b58e554f33541
 - [ ] Mutation testing reviewer-а: снятие каждого нового правила deny краснит хотя бы один test.
+  - evidence: review pass · PR #2386 · - - · 2116a10f31b62e72e5843f47272b58e554f33541
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR, включая Windows verdict.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/46168405377/job/141053338174 · ci - · 2116a10f31b62e72e5843f47272b58e554f33541
 
 ## Итог
 
