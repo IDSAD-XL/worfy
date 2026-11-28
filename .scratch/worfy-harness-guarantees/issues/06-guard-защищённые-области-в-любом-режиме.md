@@ -1,7 +1,8 @@
 # 06: guard: защищённые области в любом режиме
 
 Type: task
-Status: open
+Status: claimed 2026-11-28T17:38Z
+Branch: worfy-harness-guarantees/06
 Blocked by: 01, 03, 08
 Source: [spec.md](../spec.md), «Ticket-ы», 06; «Решение», 3; «Решения по реализации» («guard: защищённые области»,
 «Один список в двух языках»); «Решения по test-ам», Seams (contract test равенства), «Сначала падающий test», 06,
@@ -84,11 +85,79 @@ Windows verdict.
 
 - [ ] Запись и удаление в защищённых областях отказаны в `bypassPermissions` и в Codex Full access; `.git/hooks/` и
       `.git/config` — тоже (shell test-ы, красный на старом коде).
+  - evidence: test-run pass · `bash harness/hooks/tests/guard-areas.test.sh` exit 0 (172 passed; exit 1 with 126 failed on the old guard) · mac - · 3548d9652e5dad542342b622490394f65b312ffd
 - [ ] Чтение правил Harness, память Claude Code, файлы Session по spike-у 01 и папка Card-ов открыты.
+  - evidence: test-run pass · `bash harness/hooks/tests/guard-areas.test.sh` exit 0 (open places and reads) · mac - · 3548d9652e5dad542342b622490394f65b312ffd
 - [ ] Ручные Session-ы — по Q2 (в): unattended — отказ; ручная — `ask` или отказ по ответу spike-а 01, ветка названа в
       «Итог».
+  - evidence: test-run pass · `bash harness/hooks/tests/guard-areas.test.sh` exit 0 (Q2 branch (в): unattended deny, manual ask, Codex deny) · mac - · 3548d9652e5dad542342b622490394f65b312ffd
 - [ ] Contract test: области и id правил guard-а равны `roots.ts` и `policy.ts`; таблица команд даёт одно hard-решение
       в `shell.ts` и guard-е, расхождение с lease записано.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/guard-policy-parity.test.ts` exit 0 · mac - · 3548d9652e5dad542342b622490394f65b312ffd
 - [ ] Contract set Ticket-а 08 получил case-ы области `~/.claude` и правила Ticket-а 03.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/harness-guarantees.test.ts` exit 0 · mac - · 3548d9652e5dad542342b622490394f65b312ffd
 - [ ] Mutation testing reviewer-а: снятие каждого нового правила deny краснит хотя бы один test.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR, включая Windows verdict.
+
+## Итог
+
+- Сначала падающий test: `harness/hooks/tests/guard-areas.test.sh` на старом guard-е — 126 из 170 case-ов красные,
+  первый — «`echo x > ~/.claude/settings.json` in bypassPermissions, no person at the Session -> deny»: guard пропускал
+  запись (`allow`). После правки — 172 из 172 зелёные.
+- Ветка Q2 — (в). Spike 01, пункт 4: `permissionDecision: "ask"` в `bypassPermissions` спрашивает человека (SDK зовёт
+  `canUseTool`), а в `claude -p` без permission prompt tool `ask` сам становится отказом. Поэтому:
+  - Session без человека — отказ. Признак — `WORFY_UNATTENDED=1`: worfy задаёт его unattended Session-у Claude
+    (`sessionEnv`, `src/main/vendors/claude/options.ts`) и Codex (окружение app-server-а, `src/main/vendors/codex/session.ts`)
+    через `guardVariables` (`src/main/vendors/session.ts`);
+  - ручная Session Claude Code (и терминал) — `ask`; `ask` не пишет строку в `WORFY_GUARD_LOG`: это не отказ;
+  - Codex — отказ всегда, и в ручной Session: парсер ответа PreToolUse Codex 0.166 не принимает `ask` («invalid
+    pre-tool-use JSON output», hook считается упавшим, и вызов проходит; `test/fixtures/codex-app-server/hook-runner.mjs`
+    по `output_parser.rs`). На Codex действует Q2 (а).
+  - `ask` ждёт разделы 1–3: их отказ сильнее (test «a commit with workflow traces and a protected write»).
+- Области — `harness/lib/protected-areas.cjs` (новый модуль, вне trail-а: contract test должен прочесть список guard-а,
+  а `guard.mjs` — скрипт, который читает stdin, его нельзя импортировать): `HOME_AREAS` в порядке и с id `roots.ts`,
+  `XDG_CONFIG_HOME/{gh,git}`, `%APPDATA%` на Windows, данные worfy, Harness home (`harnessHome` из `eval-env.cjs`).
+  Дома — `HOME` (форма Git Bash `/c/…` читается как `C:/…`) и домашняя папка системы. Регистр не важен на Windows и macOS.
+  Путь сравнивается как назван и через ссылки ближайшей существующей папки; удаление папки над областью (`rm -rf ~`)
+  — тоже отказ.
+- Данные worfy: `WORFY_GUARD_DATA_DIR` (имя — предложение тикета) worfy задаёт, только когда `WORFY_DATA_DIR` увёл папку
+  с default-а (`dataRoot()`); без неё guard знает оба default-а платформы — `worfy` и `worfy-dev`.
+- Открыто: память Claude Code `<home>/.claude/projects/*/memory/` и планы `<home>/.claude/plans/` (spike 01, пункт 7: их
+  модель пишет Write/Edit; `tasks/` matcher не видит вовсе), папки Card-ов `<данные worfy>/*/cards/` любого Project-а, и
+  `TMPDIR` Session-а, если он лежит внутри области: unattended Session получает `<данные worfy>/autopilot-tmp/<run>`
+  (`runTempsDir`), без исключения guard отказал бы каждому временному файлу Autopilot-а. Чтение не отказывается.
+- `.git/hooks/` (и ниже) и `.git/config` любого репозитория — прямой путь записи, id `git-files`, как у политики; папка
+  над ними (`rm -rf .git`, временный репозиторий test-а) не отказывается. `git config …` идёт как прежде.
+- Команды: `os-settings` — программы списка `policy.ts` (`sudo`, `su`, `doas`, `launchctl`, `security`, `pfctl`,
+  `socketfilterfw`, `netsh`, `reg`, `crontab`; `defaults`, `schtasks`, `networksetup` — кроме чтения), и за обёртками
+  (`env`, `nohup`, `xargs`, `timeout`…), и в `-c` shell-а на уровень вниз. `run-download` — загрузка `curl`/`wget`, которую
+  pipe несёт в shell без `-c` или в интерпретатор без скрипта (`| sh`, `| python3`), и `sh -c "$(curl …)"`,
+  `bash <(curl …)`, `eval "$(curl …)"`.
+- Contract test `test/contract/guard-policy-parity.test.ts`: области и id guard-а равны `rootsOf` (`roots.ts`) на linux,
+  darwin и win32; id guard-а — id `HARD_HINTS`, а каждое hard-правило политики либо у guard-а, либо в списке «оставлено
+  политике» (корни Run-а и правила git push/веток — раздел merge Ticket-а 05). Таблица из 36 команд идёт через `judge`
+  (парсер `shell.ts`) и через процесс guard-а. Записанные расхождения — три, не одно:
+  - `--force-with-lease`: политика — `git-force-push`, guard пропускает (lease в ветку PR, Ticket 05);
+  - `cat ~/.ssh/id_demo`: политика отказывает чтению секрета, guard чтение не отказывает (spec, «Решение», 3);
+  - `curl … | jq`: политика считает `run-download`, потому что `jq` вне таблицы её парсера и «может исполнить»
+    прочитанное; guard отказывает только shell-у и интерпретатору, которые исполняют вход: отказ на каждом вызове каждой
+    Session не должен ломать обычную работу.
+- Contract set Ticket-а 08 (`src/main/harness/contract/cases.ts`): case 7 `guard-claude-home` — Bash
+  `echo … > ~/.claude/settings.json` в `bypassPermissions`, `WORFY_UNATTENDED=1`, ждёт отказ по `claude-home`; case 8
+  `guard-verification-trail` — Subagent пишет новый `.github/workflows/new.yml`, которого trail `ep 07` на `origin/main` не
+  называет, ждёт отказ правила Ticket-а 03. Оба зелёные на binary SDK со stand-in-ом (`harness-guarantees.test.ts`).
+- Mutation testing сам, в копии через `HOOKS_DIR`: снятие gnupg из `HOME_AREAS`, исключения Card-ов, `.git/hooks`,
+  `.git/config`, списка `os-settings`, `defaults`, `run-download`, `XDG_CONFIG_HOME`, Harness home, исключения `TMPDIR`,
+  проверки по реальному пути, отказа на Codex и `ask` ручной Session — каждое краснит от 1 до 27 case-ов.
+- Вне trail-а, по необходимости: `src/main/vendors/session.ts` (`guardVariables`, общий для обоих Vendor-ов),
+  `harness/lib/README.md`, `harness/evals/lib/coverage.json` (новый lib назван, иначе `harness-evals-run.test.ts`
+  красный), test-ы `test/unit/agent-options.test.ts` и `test/contract/codex-session.test.ts`, строка Codex в
+  `docs/features/harness.md`. Три test-а сравнивали окружение Session-а целиком и получили переменные guard-а в
+  ожидании: `test/unit/agent-query-factory.test.ts`, `test/contract/workflow-profile.test.ts`,
+  `test/contract/orchestrator-wave-epic.test.ts` (test-ы ставят `WORFY_DATA_DIR`, поэтому `WORFY_GUARD_DATA_DIR` есть).
+- Риски и пробелы: guard лексический — скрипт, который пишет файл сам (`node -e …`), и путь за переменной, которую guard
+  не читает, проходят (spec, «Риски»; второй проверки для областей нет). Раскрываются `$HOME`, `$TMPDIR`, `$APPDATA`,
+  `$USERPROFILE`, `$XDG_CONFIG_HOME`; синтаксис cmd `%APPDATA%` — нет. `CLAUDE_CONFIG_DIR` и `CODEX_HOME` вне дома не
+  защищены (политика их тоже не знает). Tool PowerShell Claude Code на Windows matcher не видит. Память Claude Code открыта
+  (spec, «Риски»). Windows-ветки shell test-а (`%APPDATA%`, путь Git Bash, обратные слэши) идут только в Git Bash на ПК;
+  чтение путей win32 модулем проверено на любой системе — Windows verdict даёт CI.
