@@ -176,6 +176,17 @@ describe('the seven sources', () => {
       stop()
     })
 
+    it('a PR one whole search missed and the next one finds again, unchanged, opens its item again', () => {
+      const { core, next, states, stop } = opened()
+      next(read({ rows: [], search: { complete: true, found: [] } }))
+      expect(states()).toEqual(['closed'])
+      next(read())
+      // The same read again is a repeat: nothing changes.
+      next(read())
+      expect(core.items(ALPHA.id).map((item) => [item.state, item.events])).toEqual([['new', 2]])
+      stop()
+    })
+
     it.each<[string, Read]>([
       ['the read failed', { rows: [], error: 'HTTP 502', search: { complete: true, found: [] } }],
       ['the search filled its page (100 PRs)', { rows: [], search: { complete: false, found: [] } }],

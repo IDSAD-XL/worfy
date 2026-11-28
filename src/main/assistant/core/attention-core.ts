@@ -236,6 +236,23 @@ export class AttentionCore {
     if (this.settle(file, subject, 'closed')) this.save(scope, file)
   }
 
+  /**
+   * The subject left its source, which cannot say why (a PR no whole search of the PR inbox finds: merged, closed, or
+   * missed by that one search; worfy-polish 172): its open items close as in resolve(), and the source's keys of it —
+   * those whose event id starts with `idPrefix` — are dropped, so the same event, seen again, opens the item again.
+   */
+  resolveGone(scope: string | null, subject: AttentionSubject, source: AttentionSource, idPrefix: string): void {
+    const file = this.load(scope)
+    let changed = this.settle(file, subject, 'closed')
+    const head = `${source}\0${idPrefix}`
+    for (const key of Object.keys(file.seen)) {
+      if (!key.startsWith(head)) continue
+      delete file.seen[key]
+      changed = true
+    }
+    if (changed) this.save(scope, file)
+  }
+
   /** Names a «nothing happened» condition; one already raised with this revision is not armed again. */
   expect(expectation: AttentionExpectation): void {
     const { quietMs, from, ...condition } = expectation

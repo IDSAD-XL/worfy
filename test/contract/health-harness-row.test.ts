@@ -23,9 +23,16 @@ async function setup(first: HarnessStatus = SAME_SEMVER) {
   let now = 1_000_000
   let current: HarnessStatus | Error = first
   let reads = 0
+  /** The next read's answer, when the test holds it back: a re-check that is still reading. */
+  let held: Promise<HarnessStatus> | null = null
   const deps = {
     harness: () => {
       reads += 1
+      if (held !== null) {
+        const answer = held
+        held = null
+        return answer
+      }
       return current instanceof Error ? Promise.reject(current) : Promise.resolve(current)
     },
   }
@@ -52,6 +59,7 @@ async function setup(first: HarnessStatus = SAME_SEMVER) {
       await settle()
     },
     set: (next: HarnessStatus | Error) => void (current = next),
+    slow: (answer: Promise<HarnessStatus>) => void (held = answer),
     tick: (ms: number) => void (now += ms),
     reads: () => reads,
     settle,
@@ -122,6 +130,25 @@ describe('the Harness row on the focus of a window', () => {
     s.tick(RECHECK_ON_FOCUS_MS)
     await s.health.focus()
     expect(s.reads()).toBe(2)
+    s.stop()
+  })
+
+  it('an Install that ends while a focus re-check still reads the old state: the install waits for it, then the row is ok', async () => {
+    const s = await setup()
+    let answer: (status: HarnessStatus) => void = () => undefined
+    const slow = new Promise<HarnessStatus>((resolve) => (answer = resolve))
+    s.slow(slow)
+    s.tick(RECHECK_ON_FOCUS_MS + 1)
+    const focus = s.health.focus()
+    await s.settle()
+    expect(s.reads()).toBe(1)
+    // The Install answers while the focus re-check waits for the installer.
+    const install = s.install(INSTALLED)
+    answer(SAME_SEMVER)
+    await focus
+    await install
+    await s.settle()
+    expect([s.row()?.status, s.item()]).toEqual(['ok', 'closed'])
     s.stop()
   })
 

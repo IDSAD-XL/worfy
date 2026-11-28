@@ -15,7 +15,7 @@ import { ticketKey, type Ticket, type WorkflowDelta, type WorkflowModel } from '
 import { waitBody, waitKey, waitsForPerson } from '../../workflow/waits-notify'
 import type { AttentionCore } from './attention-core'
 
-type Core = Pick<AttentionCore, 'ingest' | 'resolve' | 'expect' | 'batch' | 'items'>
+type Core = Pick<AttentionCore, 'ingest' | 'resolve' | 'resolveGone' | 'expect' | 'batch' | 'items'>
 
 /**
  * How long a Session may stay silent after the end of its turn before it waits for the user: 15 minutes, the
@@ -184,7 +184,8 @@ function takePrInbox(core: Core, snapshot: PrInboxSnapshot): void {
   if (snapshot.error !== null || snapshot.search == null || !snapshot.search.complete) return
   const found = new Set(snapshot.search.found)
   for (const item of core.items(snapshot.projectId)) {
-    if (item.source === 'pr-inbox' && item.subject.kind === 'pr' && OPEN_STATES.includes(item.state) && !found.has(item.subject.id)) core.resolve(snapshot.projectId, item.subject)
+    // The keys of its events go too: a PR this one search missed, found again unchanged, waits again.
+    if (item.source === 'pr-inbox' && item.subject.kind === 'pr' && OPEN_STATES.includes(item.state) && !found.has(item.subject.id)) core.resolveGone(snapshot.projectId, item.subject, 'pr-inbox', `${item.subject.id}:`)
   }
 }
 

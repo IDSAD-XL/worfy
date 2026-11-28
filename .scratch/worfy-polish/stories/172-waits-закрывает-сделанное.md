@@ -30,22 +30,23 @@ Code: `src/main/github/inbox.ts:812-815` · key lines: 814
 
 ## 3. Attention core закрывает пункт PR, которого полный поиск не нашёл
 
-Code: `src/main/assistant/core/sources.ts:184-189` · key lines: 184, 187
+Code: `src/main/assistant/core/sources.ts:184-190` · key lines: 184, 188
 
 ```ts
   if (snapshot.error !== null || snapshot.search == null || !snapshot.search.complete) return
   const found = new Set(snapshot.search.found)
   for (const item of core.items(snapshot.projectId)) {
-    if (item.source === 'pr-inbox' && item.subject.kind === 'pr' && OPEN_STATES.includes(item.state) && !found.has(item.subject.id)) core.resolve(snapshot.projectId, item.subject)
+    // The keys of its events go too: a PR this one search missed, found again unchanged, waits again.
+    if (item.source === 'pr-inbox' && item.subject.kind === 'pr' && OPEN_STATES.includes(item.state) && !found.has(item.subject.id)) core.resolveGone(snapshot.projectId, item.subject, 'pr-inbox', `${item.subject.id}:`)
   }
 }
 ```
 
-- Что делает: после строк snapshot-а `prInboxAttention` проходит по открытым пунктам `pr-inbox` Project-а и закрывает (`resolve`) те, чьего PR нет в `search.found`. Ошибка чтения, неполный поиск или snapshot без `search` не закрывают ничего.
+- Что делает: после строк snapshot-а `prInboxAttention` проходит по открытым пунктам `pr-inbox` Project-а и закрывает те, чьего PR нет в `search.found`, через `resolveGone`: он ещё снимает ключи `seen` этого PR, так что PR, найденный снова с тем же `updatedAt`, открывает пункт снова (ревью, раунд 1). Ошибка чтения, неполный поиск или snapshot без `search` не закрывают ничего.
 - Почему здесь: Ticket называет `sources.ts:160-179` (`takePrInbox`); `readAt === null` и выключенный reader отсекает уже первая строка `takePrInbox`.
 - Без него: пункт смерженного PR и предложение на нём («Resolve conflicts in PR #8406») висят до удаления через 14 дней.
 - Требование: [Что происходит, п. 1](../issues/172-waits-закрывает-сделанное.md#что-происходит), [Готово, когда, п. 1](../issues/172-waits-закрывает-сделанное.md#готово-когда)
-- Риски и пробелы test-ов: закрываются только пункты источника `pr-inbox`; пункт `ci` о том же PR (subject другой) не трогается. Шесть случаев «нельзя проверить» — в `test/unit/assistant-attention-sources.test.ts`.
+- Риски и пробелы test-ов: закрываются только пункты источника `pr-inbox`; пункт `ci` о том же PR (subject другой) не трогается. Шесть случаев «нельзя проверить» и повторное открытие — в `test/unit/assistant-attention-sources.test.ts`; снятые ключи `seen` значат, что PR, пропавший и найденный снова в тот же день, склеивается в прежний пункт (`events` растёт).
 
 ## 4. Строка Harness пересчитывается после установки и на focus
 
@@ -66,7 +67,7 @@ export function followHarnessRow(
 - Почему здесь: Ticket велит подписаться на `onHarnessInstalled` (`src/main/ipc/harness.ts:50-56`) и зарегистрировать re-check по образцу `github-access` (`src/main/ipc/first-run.ts:286-292`). Отдельный файл — чтобы проводку проверить без Electron; `first-run.ts` только зовёт его.
 - Без него: пункт «Replace Harness» висит до следующего полного прогона Health check.
 - Требование: [Что строить, п. 2](../issues/172-waits-закрывает-сделанное.md#что-строить), [Готово, когда, п. 2](../issues/172-waits-закрывает-сделанное.md#готово-когда)
-- Риски и пробелы test-ов: `HealthReports.recheckNow` пересчитывает только строку, которая уже есть в отчёте (иначе первая проверка ставила вторую строку рядом — e2e `first-run.spec.ts:381`, CI раунд 1), и ждёт идущий re-check той же строки, чтобы не потерять пересчёт после установки; гонка с focus в test-е не воспроизведена. Сам popover версии и Electron не запускались (бриф).
+- Риски и пробелы test-ов: `HealthReports.recheckNow` пересчитывает только строку, которая уже есть в отчёте (иначе первая проверка ставила вторую строку рядом — e2e `first-run.spec.ts:381`, CI раунд 1), и ждёт идущий re-check той же строки, чтобы не потерять пересчёт после установки (test с медленным re-check на focus, ревью раунд 1); Сам popover версии и Electron не запускались (бриф).
 
 ## 5. Первое сообщение автоматического wake-а несёт то, что worfy проверить не может
 
@@ -149,7 +150,7 @@ daily limit и правило 80 % не тронуты. Новых вызово�
 
 1. Почему пункт PR не закрывается, когда PR просто пропал из строк групп snapshot-а?
    - Ответ: PR, чьи details не прочитались, уходит из cache и из строк, хотя открыт; решение идёт по `search.found` — ключам самого поиска.
-   - Строки: `src/main/assistant/core/sources.ts:184-189`, `src/main/github/inbox.ts:812-815`
+   - Строки: `src/main/assistant/core/sources.ts:184-190`, `src/main/github/inbox.ts:812-815`
 2. Что помешает model закрыть пункт, который worfy проверяет сам, например пункт Health check?
    - Ответ: `item_close` отказывает всему, чей источник не в `ASSISTANT_RECHECKED_SOURCES` (slack, jira, autopilot).
    - Строки: `src/main/mcp/app-server.ts:676-687`

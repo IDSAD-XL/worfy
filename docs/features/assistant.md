@@ -191,7 +191,8 @@ reads it makes anyway, with no timer and no call of its own:
 
 - a PR merged or closed: after a read of the PR inbox that went well and whose search was whole (each of its two
   searches found fewer than 100 PRs), the item of a PR the search no longer found closes. A failed read, a search that
-  filled its page, or a PR that only left the cache of details closes nothing;
+  filled its page, or a PR that only left the cache of details closes nothing; a PR a later search finds again opens
+  its item again;
 - the Harness replaced or updated: the Health check row "Harness plugin" is checked again after each Install, Update or
   Replace, and on the focus of a window when it is not `ok` and was checked over 5 minutes ago (a Replace made in a
   terminal). It reads only the installer's local state; once `ok`, its item closes.
