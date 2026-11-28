@@ -71,7 +71,7 @@ export function judgeRun(trace: RunTrace): RunVerdict {
   «не смог запустить», и Health не покраснел бы.
 - Требование: [Готово, когда, п. 2](../issues/08-contract-set-без-модели.md#готово-когда)
 - Риски и пробелы test-ов: каждая ветка — unit test `test/unit/harness-contract-judge.test.ts`; на настоящем binary —
-  несуществующий binary, сломанный `hooks.json`, блокирующий UserPromptSubmit и Stop, который держит каждый ход.
+  несуществующий binary, сломанный `hooks.json`, блокирующий UserPromptSubmit и Stop, который держит ход и потом висит.
   Блокирующий hook узнаётся по `exit_code` 2 или JSON-ответу; другие формы блока Claude Code не сняты.
 
 ## 4. Stop при красном gate: gate — stub
@@ -139,7 +139,7 @@ Code: `test/contract/harness-guarantees.test.ts:47-54` · key lines: 49, 50, 52,
 - Четыре мутации копии Harness (временный test, не в PR) краснят каждая свой case: 4, 5, 6, 2.
 - `pnpm lint` — exit 0, `pnpm typecheck` — exit 0, `pnpm test` — exit 0; gate fast — exit 0.
 - Review round 1: четыре новых test-а были красными на 32785ef5e (блокирующий UserPromptSubmit, Stop, который держит
-  каждый ход, `check`, который бросает исключение, символ на границе chunk-ов); `test/unit/harness-contract-judge.test.ts` — exit 0.
+  ход и потом висит, `check`, который бросает исключение, символ на границе chunk-ов); `test/unit/harness-contract-judge.test.ts` — exit 0.
 
 ## Проверить себя
 

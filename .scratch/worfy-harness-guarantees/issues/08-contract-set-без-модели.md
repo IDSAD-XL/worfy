@@ -141,9 +141,11 @@ Review round 1 (PR #2345, REJECTED на 32785ef5e). Каждое исправл�
 - **[med] Исключение в `check` роняло весь набор.** `check` теперь в try/catch: `failed` с «the check threw: …», набор
   отвечает за каждый case. Test «a check that throws»: на 32785ef5e — SyntaxError из `runContractSet`.
 - **[med] Предел времени всегда давал `not-run`.** Stop, который держит каждый ход, на case-е `subagent-agent-id` давал
-  «did not finish … 20 turns». С блокирующим hook-ом это теперь `failed` с его именем. Test «a Stop hook that holds every
-  turn» (предел runner-а `ms(5_000)`; на case-е `plugin-loaded` Claude Code сам заканчивает ход, поэтому case 6): на
-  32785ef5e `not-run`.
+  «did not finish … 20 turns». С блокирующим hook-ом это теперь `failed` с его именем. Stop, который всегда выходит с
+  кодом 2, на 2.1.322 сам заканчивает ход через 9–15 с, и test на нём зависел бы от времени. Поэтому test «a Stop hook
+  that holds the turn and then hangs» держит ход один раз, а потом висит, пока жив Claude Code: hook пишет пробел раз в
+  200 мс и выходит, когда его stdout рвётся (не позже 60 с). Предел runner-а `ms(5_000)`. На 32785ef5e (проверено во
+  временном detached worktree) — `not-run: … did not finish in 15000 ms … 2 turns`.
 - **[low] Тело запроса stand-in читал по кускам.** Символ на границе двух chunk-ов становился U+FFFD. Теперь байты
   собираются и декодируются один раз; так же stdout и stderr Claude Code в runner-е. Test «reads a character split between
   two chunks»: на 32785ef5e `MARKER ��� split`.

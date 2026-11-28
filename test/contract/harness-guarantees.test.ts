@@ -10,7 +10,7 @@ import { request } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
-import { CONTRACT_CASES, PLUGIN_LOADED, SUBAGENT_AGENT_ID } from '../../src/main/harness/contract/cases'
+import { CONTRACT_CASES, PLUGIN_LOADED } from '../../src/main/harness/contract/cases'
 import { startScriptedStandIn } from '../../src/main/harness/contract/messages-api-stand-in'
 import { runContractCase, runContractSet, type CaseOutcome, type ContractCase, type ContractSetOptions } from '../../src/main/harness/contract/runner'
 import { bundledClaudeBinary } from '../../src/main/vendors/claude/options'
@@ -67,13 +67,33 @@ describe('the runner tells a broken Harness from a run that never started', () =
     expect(outcome.status === 'failed' && outcome.reason).toMatch(/UserPromptSubmit/)
   })
 
-  // Review round 1: a Stop hook that holds every turn keeps Claude Code asking the stand-in until the
-  // runner's limit, and the runner called that "not run". The limit is short here: the run is expected to reach it.
-  it('a Stop hook that holds every turn: the run reaches the limit and the case is red, naming the hook', async () => {
-    const pluginDir = harnessCopy('stop-always-held', 'hooks/stop.mjs', 'process.stderr.write("held by the contract test\\n")\nprocess.exitCode = 2\n')
-    const outcome = await runContractCase(SUBAGENT_AGENT_ID, { ...options(pluginDir), runLimitMs: ms(5_000) })
+  // Review round 1: a Stop hook that held the turns kept Claude Code going until the runner's limit, and the
+  // runner called that "not run". A Stop that always exits 2 ends on its own after a while on 2.1.322, so the
+  // copy here holds once and then hangs: the run reaches the limit for sure, with a blocking Stop in its output.
+  // The hanging hook writes a space every 200 ms and exits when its stdout breaks — when the runner has killed
+  // Claude Code — so it outlives the run by a moment at most, and 60 s at the very most.
+  it('a Stop hook that holds the turn and then hangs: the run reaches the limit and the case is red, naming the hook', async () => {
+    const pluginDir = harnessCopy(
+      'stop-held-then-hangs',
+      'hooks/stop.mjs',
+      [
+        'import { existsSync, writeFileSync } from "node:fs"',
+        'import { join } from "node:path"',
+        'const once = join(process.env.HARNESS_HOME, "stop-held-once")',
+        'if (!existsSync(once)) {',
+        '  writeFileSync(once, "")',
+        '  process.stderr.write("held by the contract test\\n")',
+        '  process.exit(2)',
+        '}',
+        'process.stdout.on("error", () => process.exit(0))',
+        'setInterval(() => process.stdout.write(" "), 200)',
+        'setTimeout(() => process.exit(0), 60_000)',
+        '',
+      ].join('\n'),
+    )
+    const outcome = await runContractCase(PLUGIN_LOADED, { ...options(pluginDir), runLimitMs: ms(5_000) })
     expectStatus(outcome, 'failed')
-    expect(outcome.status === 'failed' && outcome.reason).toMatch(/Stop/)
+    expect(outcome.status === 'failed' && outcome.reason).toMatch(/did not finish .*hooks of the plugin blocked: Stop \(exit code 2\): held by the contract test/)
   })
 
   // Review round 1: a check that throws (a manifest that is not JSON) rejected the whole set.
