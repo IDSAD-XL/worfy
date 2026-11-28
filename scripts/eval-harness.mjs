@@ -78,6 +78,13 @@
 // `eval:harness <tag>: no aggregate-result.json`. A report with more cases than the call chose, or with
 // a case it did not choose, ends its line with `, cases mismatch: report <n>, chosen <m>` and makes
 // the exit code at least 1; otherwise the exit code does not depend on these lines.
+// The record of the run (epic worfy-harness-eval, ticket 03): a full run — no --case, --tag or --changed —
+// that got at least one report writes <time>-<commit>.json and .md into evals-history/ next to the
+// Harness under test (the root of this repository without HARNESS_DIR), by scripts/eval-history.mjs:
+// the commit of the Harness at the start, the Claude Code version, the models, k of n with the Wilson
+// interval per case, the cost, `partial` when a call was skipped, wrote no report or a partial one, and
+// the cases whose k of n fell against the latest earlier record of the same models. A run that the
+// options narrowed writes none and says so. The record does not change the exit code.
 // The pinned models, the environment of the runs and the copies of the plugin and of git come from
 // scripts/eval-run-env.mjs, which `pnpm eval:outcome` shares.
 import { spawnSync } from 'node:child_process'
@@ -88,6 +95,7 @@ import process from 'node:process'
 import { setImmediate } from 'node:timers'
 import { fileURLToPath } from 'node:url'
 import { casesFor, coverageProblems, fixtureUsers, readCoverage } from './eval-harness-coverage.mjs'
+import { HISTORY_FOLDER, historyRecord, writeHistory } from './eval-history.mjs'
 import { billingFor, checkVersion, claudeBinary, cleanEnv, gitFolder, gitForRuns, JUDGE_MODEL, pluginCopy, REGULAR_MODEL, runClaude, takeBilling } from './eval-run-env.mjs'
 import { removeTree } from './remove-tree.mjs'
 
@@ -95,8 +103,9 @@ const REPO = join(dirname(fileURLToPath(import.meta.url)), '..')
 const SOURCE = process.env.HARNESS_DIR ? resolve(process.env.HARNESS_DIR) : join(REPO, 'harness')
 const EVALS = join(SOURCE, 'evals')
 // The cost ceiling of one run of this script, in USD, across all of its calls: each call gets
-// --max-cost-usd with what the calls before it left.
-const BUDGET_USD = 30
+// --max-cost-usd with what the calls before it left. 100 USD is the owner's limit for a run without
+// asking (2026-11-04); the last guard is the credits themselves, with auto-reload off.
+const BUDGET_USD = 100
 const COMMON = [
   '--scaffold',
   '--trust-plugin',
@@ -248,6 +257,16 @@ function spentIn(outputDir, granted) {
   }
 }
 
+/** The aggregate-result.json a call wrote into `outputDir`, parsed; null when it is missing or not a JSON object. */
+function reportOf(outputDir) {
+  try {
+    const report = JSON.parse(readFileSync(join(outputDir, 'aggregate-result.json'), 'utf8'))
+    return typeof report === 'object' && report !== null ? report : null
+  } catch {
+    return null
+  }
+}
+
 /**
  * The line of one call for the PR description, from the aggregate-result.json the call wrote, and
  * whether the report's cases differ from those the call chose: more of them (its `cases`, else
@@ -255,13 +274,8 @@ function spentIn(outputDir, granted) {
  * missing from its `cases`.
  */
 function summary({ tag, outputDir, cases }) {
-  let report = null
-  try {
-    report = JSON.parse(readFileSync(join(outputDir, 'aggregate-result.json'), 'utf8'))
-  } catch {
-    // No file, or not JSON: the same line below.
-  }
-  if (typeof report !== 'object' || report === null) return { line: `eval:harness ${tag}: no aggregate-result.json`, mismatch: false }
+  const report = reportOf(outputDir)
+  if (report === null) return { line: `eval:harness ${tag}: no aggregate-result.json`, mismatch: false }
   const aggregates = typeof report.aggregates === 'object' && report.aggregates !== null ? report.aggregates : {}
   const number = (value) => (typeof value === 'number' ? Number(value.toFixed(2)) : 'unknown')
   const ran = Array.isArray(report.cases) ? report.cases : null
@@ -371,6 +385,8 @@ for (const tag of ['main', 'gui', 'alone']) {
   else if (cases.length === all.length) calls.push({ tag, name: tag, args: [], cases })
   else for (const name of cases) calls.push({ tag, name: `${tag}-${name}`, args: ['--case', name], cases: [name] })
 }
+// Only a run of every case but those of `alone` leaves a record in evals-history/.
+const full = chosen === null && !hasOption(passThrough, '--case') && !hasOption(passThrough, '--tag')
 for (const name of ['--case', '--tag']) dropOption(passThrough, name)
 if (chosen && calls.length === 0) {
   process.stdout.write('eval:harness: no call is left of the cases the change chose, claude is not called\n')
@@ -397,7 +413,8 @@ const callArgs = (call, harness, outputDir, left) => [
 ]
 
 const claude = claudeBinary(REPO, fail)
-const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+const started = new Date()
+const stamp = started.toISOString().replace(/[:.]/g, '-')
 // The key of a credits run goes only into the environment of each claude call, below.
 const billing = billingFor(billingName, childEnv, fail)
 process.stdout.write(`eval:harness: ${billing.line}\n`)
@@ -411,6 +428,15 @@ if (dryRun) {
   process.exit(0)
 }
 const version = checkVersion(claude, childEnv, fail)
+// The commit of the Harness under test at the start, and whether its folder has uncommitted changes:
+// a run takes an hour, and a commit made meanwhile is not the one it measured.
+const HISTORY_ROOT = dirname(SOURCE)
+const gitOut = (args) => {
+  const run = spawnSync('git', args, { cwd: HISTORY_ROOT, encoding: 'utf8', env: childEnv })
+  return run.status === 0 ? run.stdout.trim() : null
+}
+const commit = full ? gitOut(['rev-parse', 'HEAD']) : null
+const harnessDirty = full ? (gitOut(['status', '--porcelain', '--', SOURCE]) ?? '') !== '' : false
 process.stdout.write(`eval:harness: claude ${version} (${claude}), model ${REGULAR_MODEL}, judge ${JUDGE_MODEL}\n`)
 
 // Ctrl-C, SIGTERM and a closed terminal (SIGHUP) reach claude too; this process outlives it to
@@ -476,5 +502,34 @@ for (const call of outputs) {
   process.stdout.write(`${line}\n`)
   // The report ran cases this call did not choose: its numbers say nothing of the chosen ones.
   if (mismatch) worst = Math.max(worst, 1)
+}
+
+if (!full) {
+  process.stdout.write(`eval:harness: no run record: --case, --tag or --changed chose the cases, only a full run writes one into ${HISTORY_FOLDER}/\n`)
+} else {
+  // Every planned call, a skipped one with no report: the record of such a run is partial.
+  const ran = calls.map((call) => {
+    const done = outputs.find((output) => output.name === call.name)
+    return { tag: call.tag, cases: call.cases, report: done ? reportOf(done.outputDir) : null }
+  })
+  if (ran.every((call) => call.report === null)) {
+    process.stdout.write('eval:harness: no run record: no call wrote an aggregate-result.json\n')
+  } else {
+    const threshold = Number(COMMON[COMMON.indexOf('--threshold') + 1])
+    const record = historyRecord({
+      startedAt: started.toISOString(),
+      commit,
+      harnessDirty,
+      claudeVersion: version,
+      fallbackModels: { agent: REGULAR_MODEL, judge: JUDGE_MODEL },
+      threshold,
+      calls: ran,
+    })
+    const written = writeHistory(join(HISTORY_ROOT, HISTORY_FOLDER), record)
+    process.stdout.write(`eval:harness: run record — ${written.json}\neval:harness: run summary — ${written.markdown}\n`)
+    for (const { name, before, now } of written.record.comparison.fell) {
+      process.stdout.write(`eval:harness: ${name} fell from ${before.k} of ${before.n} to ${now.k} of ${now.n} since ${written.record.comparison.with}\n`)
+    }
+  }
 }
 process.exit(worst)

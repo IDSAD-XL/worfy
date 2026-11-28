@@ -86,7 +86,28 @@ const casesRun = () => {
     })
     .sort()
 }
-if (process.env.STUB_AGGREGATE) {
+if (process.env.STUB_REPORT) {
+  // A report of every case this call ran, as claude writes one: the runs of each case from `runs`
+  // (passed or not), three passed runs for a case it does not name; each run costs 0.1 USD and its
+  // judge 0.01 USD, a passed run scores 1 and another 0.5.
+  const { runs = {}, partial = false, suite } = JSON.parse(process.env.STUB_REPORT)
+  const cases = casesRun().map((name) => {
+    const arm = (runs[name] ?? [true, true, true]).map((passed) => ({ score: passed ? 1 : 0.5, passed, costUsd: 0.1, judgeCostUsd: 0.01, error: null }))
+    const score = arm.length > 0 ? arm.reduce((total, run) => total + run.score, 0) / arm.length : 0
+    return { name, arms: { with: arm }, aggregates: { score, passRate: arm.filter((run) => run.passed).length / Math.max(1, arm.length) } }
+  })
+  const report = {
+    claudeVersion: '2.1.289',
+    costUsd: cases.reduce((total, one) => total + one.arms.with.length * 0.1, 0),
+    partial,
+    ...(suite ? { suite } : {}),
+    cases,
+    aggregates: { casesTotal: cases.length, casesPassed: cases.filter((one) => one.aggregates.score >= 0.8).length, overallScore: 1 },
+  }
+  const outputDir = options[options.indexOf('--output-dir') + 1]
+  mkdirSync(outputDir, { recursive: true })
+  writeFileSync(join(outputDir, 'aggregate-result.json'), JSON.stringify(report))
+} else if (process.env.STUB_AGGREGATE) {
   const outputDir = options[options.indexOf('--output-dir') + 1]
   mkdirSync(outputDir, { recursive: true })
   // A report that names neither its cases nor their number gets the cases this call ran, as claude's does.

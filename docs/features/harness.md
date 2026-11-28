@@ -491,6 +491,10 @@ the manifest and keeps out of `harness/` what is not the Harness. Also `test/con
 The evals make paid model calls, and CI and the Gate do not run them. `harness/evals/` holds twenty-seven `claude plugin
 eval` cases that check by behaviour that Claude follows the rules (`pnpm eval:harness`), and `harness/evals-outcome/` holds
 the tasks of `pnpm eval:outcome`. `test/contract/harness-evals.test.ts` checks for free that every case is complete.
+One run of `pnpm eval:harness` spends at most 100 USD, or less with `--max-cost-usd`. A full run — without `--case`,
+`--tag` and `--changed` — leaves a record and a short summary in `evals-history/` at the root of the repository: the
+commit, the Claude Code version, the models, and for each case k passed runs of n with the 95 % Wilson interval and the
+cost. The summary names the cases whose k of n fell since the latest earlier record of the same models.
 The case `compaction-state` carries the tag `alone` and runs only by `pnpm eval:harness -- --case compaction-state`
 or when `--changed` chooses it:
 its call alone gets `CLAUDE_CODE_AUTO_COMPACT_WINDOW=100000` and `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=50`, the variables
