@@ -1,7 +1,8 @@
 # 171 — Время у сообщений во вкладке Chat панели Assistant
 
 Type: polish
-Status: claimed 2026-11-28T03:27Z
+Status: done 2026-11-28T06:42Z
+PR: #2357
 Branch: worfy-polish/171
 Blocked by: None — can start immediately
 Source: просьба владельца 2026-11-28 со screenshot-ом панели Assistant (вкладки Waits / Summary / Journal / Chat): во
@@ -76,11 +77,15 @@ Source: просьба владельца 2026-11-28 со screenshot-ом пан
 - [ ] Во вкладке Chat у каждого сообщения пользователя и Assistant-а — время, у сообщения другого дня — с датой, полное
       время в tooltip-е; у ожидающего ответа времени нет. Формат тот же, что в chat Session (общий модуль).
   - evidence: test-run pass · `pnpm test test/unit/assistant-panel.test.tsx test/unit/session-view.test.tsx test/unit/product-transcript.test.tsx` exit 0 · mac - · dae605523
+  - evidence: review pass · PR #2357 · - - · 3f18da78345a4cca4dfcefe9b0b7e9ec19a1b63d
 - [ ] Unit test-ы в `test/unit/assistant-panel.test.tsx` красные до правки; test-ы Transcript зелёные без правок.
   - evidence: test-run pass · `pnpm test test/unit/assistant-panel.test.tsx` exit 1 before the change (4 failed), exit 0 after; transcript tests unchanged, exit 0 · mac - · dae605523
+  - evidence: review pass · PR #2357 · - - · 3f18da78345a4cca4dfcefe9b0b7e9ec19a1b63d
 - [ ] `docs/features/assistant.md` и `docs/features/ru/assistant.md` говорят о времени сообщений.
   - evidence: commit pass · worfy-polish/171: show the time of each message in the Assistant's Chat · - - · dae605523
+  - evidence: review pass · PR #2357 · - - · 3f18da78345a4cca4dfcefe9b0b7e9ec19a1b63d
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/46112038732/job/140894417290 · ci - · 3f18da78345a4cca4dfcefe9b0b7e9ec19a1b63d
 - [ ] (вручную) Сделай: в Stable worfy открой панель Assistant → Chat, напиши Assistant-у и дождись ответа → Должно
       быть: под обоими сообщениями — время в 24 h, под ответом — время ответа; у вчерашних сообщений — дата; наведение
       на время показывает полное время.
