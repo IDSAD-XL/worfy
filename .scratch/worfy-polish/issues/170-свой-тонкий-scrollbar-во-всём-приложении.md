@@ -151,12 +151,17 @@ Source: просьба владельца 2026-11-28 со screenshot-ом пан
 
 - [ ] Общий стиль scrollbar-а лежит в `src/renderer/theme/scrollbars.css`, подключён в `main.tsx`; tokens
       `--scrollbar-thumb` и `--scrollbar-thumb-hover` есть в light и в dark, они же — в таблице F-SPEC.
+  - evidence: commit pass · worfy-polish/170: the app's own thin scrollbar everywhere · - - · f353029649ccf66d7a7aeca7d938e32f232cbc52
 - [ ] Thumb виден при наведении на контейнер и во время прокрутки (общий hook, один на окно); в покое не виден.
 - [ ] Unit test на CSS (импорт есть, `scrollbar-color` нет, `scrollbar-width` только `none`) и unit test на hook
       красные до правки и зелёные после; `test/e2e/theme.spec.ts` знает новые tokens.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/scrollbars-css.test.ts test/unit/scrolling-mark.test.tsx test/unit/contrast.test.ts` exit 0; the two new files exit 1 before the change · mac - · f353029649ccf66d7a7aeca7d938e32f232cbc52
 - [ ] У Terminal цвета thumb-а берутся из тех же tokens.
+  - evidence: commit pass · worfy-polish/170: the app's own thin scrollbar everywhere · - - · f353029649ccf66d7a7aeca7d938e32f232cbc52
 - [ ] В «Итог» — нужен ли Ticket на настоящий overlay (шаг 6), по впечатлению исполнителя.
+  - evidence: commit pass · worfy-polish/170: the app's own thin scrollbar everywhere · - - · f353029649ccf66d7a7aeca7d938e32f232cbc52
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: gate pass · `gate fast` exit 0 (lint, typecheck, test) · mac - · f353029649ccf66d7a7aeca7d938e32f232cbc52
 - [ ] (вручную) Сделай: в Stable worfy на Mac открой панель Assistant → Chat с длинной перепиской, chat Session,
       Settings, Pull requests и diff в Changes. Проверь при Show scroll bars = «Always» (как с мышью) и при
       «Automatically» с trackpad-ом, в light и в dark; прокрути колесом и клавишами, наведи курсор → Должно быть:
