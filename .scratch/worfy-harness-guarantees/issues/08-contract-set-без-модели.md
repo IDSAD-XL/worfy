@@ -100,7 +100,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 08; «Решение», 4; «Ре�
   --include-hook-events --permission-mode bypassPermissions --plugin-dir <Harness>`, окружение `claudeEnv` плюс
   `HARNESS_HOME` во временной папке прогона. Ответ — `passed`, `failed` (прогон был, Harness не сделал своё; причина
   называет, чего нет) или `not-run` (binary не стартовал, stand-in не слушает, нет `system/init`, Claude Code не спросил
-  stand-in, нет `result` или он с ошибкой API, прогон не уложился в предел и остановлен по своему pid). Case — данные
+  stand-in, нет `result` или он с ошибкой API, прогон не уложился в предел и остановлен вместе со всем деревом своих процессов). Case — данные
   (`ContractCase`): новый case — ещё одна строка `CONTRACT_CASES`, runner не правится.
 - **Шесть case-ов** — `src/main/harness/contract/cases.ts`; шапка файла называет набор бесплатной половиной Ticket-а 15
   worfy-harness-eval.
@@ -170,7 +170,7 @@ Review round 2 (PR #2345, REJECTED на ea5f8fc97), после rebase на origi
   `taskkill /T /F` (`killTool`). Test «a hook that hangs at the time limit ends with the run»: Stop-hook копии пишет свой
   pid и висит; после прогона процесса нет. С kill-ом группы этот test был красным (hook жив).
 
-Известные пределы (не исправлены, по решению review round 2):
+Известные пределы (не исправлены; первые два назвал review round 2, третий — review round 3):
 - Блокирующий hook решает `failed` раньше `check` case-а: если прогон case-а 5 (Stop держит ход при красном gate)
   упрётся в предел уже после удержания, case красный, хотя `check` прошёл бы.
 - SessionStart и UserPromptSubmit идут до `system/init`: такой hook, который висит, даёт `not-run` («printed no
