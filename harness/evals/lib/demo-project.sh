@@ -266,6 +266,10 @@ fi
 
 if [ "$finish" = local-green ]; then
     git init -q --bare .git/demo-origin.git
+    # A local push runs receive-pack without GIT_CONFIG_COUNT, so maintenance.auto=false above does not reach
+    # it, and it starts a detached `git maintenance run --auto` that may still change objects/ while a test
+    # copies the fixture (CI run 46107883950). The bare repository's own config turns it off.
+    git -C .git/demo-origin.git config receive.autogc false
     git remote add origin "$work/.git/demo-origin.git"
     git push -q origin main
     git fetch -q origin

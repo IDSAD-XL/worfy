@@ -200,6 +200,8 @@ fs.copyFileSync(path.join(__dirname, "state.cjs"), path.join(ghDir, "state.cjs")
 const github = path.join(".git", "demo-github")
 const bare = path.join(github, pull.owner, `${pull.name}.git`)
 git(["init", "-q", "--bare", bare])
+// No detached maintenance after a push: receive-pack does not get GIT_CONFIG_COUNT (lib/demo-project.sh).
+git(["--git-dir", bare, "config", "receive.autogc", "false"])
 git(["push", "-q", bare, "main:refs/heads/main", `${pull.view.headRefOid}:refs/heads/${pull.view.headRefName}`])
 git(["--git-dir", bare, "config", "receive.updateServerInfo", "true"])
 fs.mkdirSync(path.join(bare, "info"), { recursive: true })

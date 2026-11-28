@@ -66,6 +66,8 @@ git commit -q -m "demo: ticket 01 asks for percent"
 # the preflight answers BLOCKED, and the implementer of the first paid run stopped at a local finish there
 # and never reached the story (2026-11-16, three runs of 3, the log and the story copy missing).
 git init -q --bare .git/demo-origin.git
+# No detached maintenance after the push below: receive-pack does not get GIT_CONFIG_COUNT (lib/demo-project.sh).
+git -C .git/demo-origin.git config receive.autogc false
 git remote add origin "$(pwd -P)/.git/demo-origin.git"
 git push -q origin main
 git fetch -q origin

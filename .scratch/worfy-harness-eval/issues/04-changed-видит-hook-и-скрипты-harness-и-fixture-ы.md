@@ -98,6 +98,15 @@ test краснеет.
 - Локально `pnpm lint` и `pnpm typecheck` — exit 0, `pnpm test` — exit 1: один test из 21802,
   `bin/tests/land.test.sh`, убит по пределу 360 s под нагрузкой машины (его файлы PR не меняет, test не
   перезапускался); проверка — `ci-ok` на head PR.
+- Красный `linux-tests (1/4)` на первом head (`critic-verdict`, ENOENT в `cpSync` на `.git/demo-origin.git/objects`):
+  гонка с отсоединённым `git maintenance run --auto`. Локальный push запускает `receive-pack` без `GIT_CONFIG_COUNT`
+  (в `GIT_TRACE` видно `unset GIT_CONFIG_COUNT`), так что `maintenance.auto=false` из окружения fixture-а до него не
+  доходит, и после push стартует `git maintenance run --auto --quiet --detach`. С `receive.autogc false` в config
+  самого bare-репозитория этот процесс не стартует (проверено `GIT_TRACE` на игрушечном репозитории и на
+  `demo-project.sh local-green`). Само падение воспроизвести не удалось. Исправление: `receive.autogc false` во всех
+  трёх bare-репозиториях fixture-ов (`lib/demo-project.sh`, `implementer-story/scaffold.sh`,
+  `pr-fix-checks/fixture/pr-fix.cjs`). `gc.auto` и `receive.autogc` в `GIT_CONFIG_COUNT` не добавлены: до
+  `receive-pack` окружение не доходит, а commit и fetch уже закрыты `maintenance.auto=false`.
 - Feature pages `docs/features/harness.md` и `docs/features/skills-agents-and-hooks.md`: `--changed` больше не
   пропускает `compaction-state`. В `harness/README.md`, кроме раздела карты, в «When to run the evals» добавлены
   `harness/hooks/`, `harness/bin/`, `harness/lib/`.
