@@ -82,10 +82,14 @@ Source: [spec.md](../spec.md), «Ticket-ы», 10; «Набросок функц�
 
 - [ ] worfy задаёт `WORFY_GUARD_LOG` Session-ам Claude и Codex; отказы guard-а попадают в Journal Run-а видом
       `guard-deny`.
+  - evidence: test-run pass · `pnpm test test/unit/guard-deny.test.ts test/unit/autopilot-run.test.ts test/unit/autopilot-journal.test.ts test/contract/autopilot-journal.test.ts test/unit/agent-options.test.ts test/contract/codex-session.test.ts` exit 0 · mac - · 4889d51aeac190ca59a10005c1772fd65786d3d6
 - [ ] Run history показывает блок Guard (время, агент, правило, команда) и строку в конце Run-а.
+  - evidence: test-run pass · `pnpm test test/unit/flight-recorder-detail.test.tsx test/unit/flight-recorder-view.test.tsx test/unit/flight-recorder-journal.test.ts test/contract/flight-recorder-service.test.ts` exit 0 · mac - · 4889d51aeac190ca59a10005c1772fd65786d3d6
 - [ ] Вид PR, который дописывает путь проверки в trail, показывает Allow verification change; щелчок пишет commit status
       `owner` на head, без щелчка записи нет.
+  - evidence: test-run pass · `pnpm test test/unit/owner-mark.test.ts test/unit/pr-inbox-verification.test.tsx test/unit/pr-inbox-view.test.tsx test/contract/pr-inbox.test.ts` exit 0 · mac - · 4889d51aeac190ca59a10005c1772fd65786d3d6
 - [ ] `land` ждёт отметки `owner` у PR, который расширяет trail на путь проверки (shell test).
+  - evidence: test-run pass · `bash harness/bin/tests/land-verification.test.sh` exit 0 · mac - · 4889d51aeac190ca59a10005c1772fd65786d3d6
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR, включая Windows verdict.
 
 ## Итог
