@@ -79,7 +79,7 @@ describe('shipTicketState', () => {
     const unparsed = { ...t(15, 'open'), blockedParsed: false, blockedRaw: 'after the audit' }
     expect(shipTicketState({ ticket: unparsed, tickets: TICKETS, template: 'x', branch: null })).toEqual({ enabled: false, reason: '“Blocked by: after the audit” is not a list of tickets' })
     const noLine = { ...t(15, 'open'), blockedParsed: false, blockedRaw: null }
-    expect(shipTicketState({ ticket: noLine, tickets: TICKETS, template: 'x', branch: null })).toEqual({ enabled: false, reason: 'no “Blocked by:” line' })
+    expect(shipTicketState({ ticket: noLine, tickets: TICKETS, template: 'x', branch: null })).toEqual({ enabled: false, reason: 'empty or missing “Blocked by:” line' })
   })
 
   it('with an empty or blank template, points to Project settings', () => {

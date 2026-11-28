@@ -108,8 +108,16 @@ export function readyWaveNumber(tickets: readonly WaveTicket[], epic: string): n
 /** The lowest Wave number of the Epic's plan among `nums`; null when none has one. */
 function planWaveNumber(tickets: readonly WaveTicket[], epic: string, nums: readonly number[]): number | null {
   if (nums.length === 0) return null
+  // A done Ticket without a "Blocked by" line was taken without one: in the plan it has no blockers,
+  // or it and every Ticket after it would lose their number (worfy-polish ticket 169).
   const plan = waveNumbers(
-    tickets.filter((ticket) => ticket.epic === epic).map((ticket) => ({ ...ticket, state: 'open' as const })),
+    tickets
+      .filter((ticket) => ticket.epic === epic)
+      .map((ticket) => ({
+        ...ticket,
+        state: 'open' as const,
+        ...(ticket.state === 'done' && ticket.blockedRaw === null && !ticket.blockedParsed ? { blockedParsed: true, blockedNums: [] } : {}),
+      })),
     epic,
   )
   const numbers = nums.map((num) => plan.get(num)).filter((wave): wave is number => wave !== undefined)

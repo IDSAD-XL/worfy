@@ -21,7 +21,7 @@ enough for the whole name. A collapsed frame is exactly 56 tall. A frame with no
 | --- | --- |
 | Done | Finished Tickets in a folded stack with "N done" and their numbers; first when there are any |
 | Level 1 … Level n | Tickets not done, by their depth in `Blocked by` among the Tickets not done |
-| Needs attention | A `Blocked by` that does not parse or is not there at all, a missing blocker, or a cycle |
+| Needs attention | A `Blocked by` that does not parse, is empty or is not there at all, a missing blocker, or a cycle |
 
 Level 1 has the chip "Ready wave · N" when N Tickets are ready, and a ready Ticket has a Ready chip. A Ticket is 240
 wide and at least 138 tall, as tall as its content. Columns are 24 apart and rows 12. Double click on a Ticket opens

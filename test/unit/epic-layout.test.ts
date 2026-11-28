@@ -367,7 +367,7 @@ describe('layoutEpic by ELK', () => {
     const layout = await laidOut(tickets)
     expect(columnsOf(layout)).toEqual(['Level 1: 1', 'Needs attention: 2'])
     expect(placed(layout, 2).attention).toEqual({ kind: 'unparsed', raw: null })
-    expect(blockersString(blockersLine(tickets[1]!, placed(layout, 2).attention, []))).toBe('no “Blocked by:” line')
+    expect(blockersString(blockersLine(tickets[1]!, placed(layout, 2).attention, []))).toBe('empty or missing “Blocked by:” line')
   })
 
   it('does not count a cycle whose other members are done', async () => {

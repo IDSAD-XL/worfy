@@ -61,7 +61,7 @@ fails, "The Ticket file could not be read" shows with the reason, and the text r
 |---|---|
 | `Done` | Done Tickets, folded into one stack with their numbers until "Expand" opens it |
 | `Level 1`, `Level 2`, … | The rest, by dependency. Level 1 has no blocker that is not done, apart from blockers in `Needs attention` |
-| `Needs attention` | Tickets whose blocking cannot be read: a "Blocked by" that is not a list or no "Blocked by" line at all, a blocker outside the Epic, a cycle. The card's line names the reason |
+| `Needs attention` | Tickets whose blocking cannot be read: a "Blocked by" that is not a list, is empty or is not there at all, a blocker outside the Epic, a cycle. The card's line names the reason |
 
 An arrow goes from a blocker to the Ticket it blocks. It is dashed while the blocker is not done, and pale until it lies on
 the lit chain of a hovered or selected Node. The arrow of a done blocker is solid and is drawn only while lit. An arrow is
@@ -93,8 +93,8 @@ with the prepared items of its Ticket, and the owner passes or fails it there.
 **The ready Wave** is computed for each Epic and stored nowhere. A Ticket is in it when:
 
 - It is `open`.
-- It has a "Blocked by" line, the line reads, and it has no blocker outside the Epic. A cycle whose other members are
-  all done counts as no cycle.
+- It has a "Blocked by" line that is not empty, the line reads, and it has no blocker outside the Epic. A cycle whose
+  other members are all done counts as no cycle.
 - Every blocker is done in the checkout. A blocker done only in an unmerged worktree branch is not done yet.
 - No file of its trail section overlaps a held file. Tickets in work and Tickets done only in a branch hold their files,
   and so does each Ticket already taken into this Wave, in number order. An entry that ends in `/` holds its whole folder.

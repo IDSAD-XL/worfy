@@ -12,8 +12,9 @@ export type Level =
   /** 0 without blockers, otherwise 1 + the highest level among the blockers. */
   | { kind: 'level'; level: number }
   /**
-   * "Blocked by" could not be read as a list of Ticket numbers; `raw` null — the Ticket has no
-   * "Blocked by" line at all, which the Harness does not read as "no blockers" either.
+   * "Blocked by" could not be read as a list of Ticket numbers; `raw` null — the Ticket's "Blocked by"
+   * line is empty or missing (the Harness gives both as null), which the Harness does not read as
+   * "no blockers" either.
    */
   | { kind: 'unparsed'; raw: string | null }
   /** "Blocked by" names numbers that are not Tickets of this Epic. */
@@ -23,8 +24,8 @@ export type Level =
   /** The Ticket's own blockers are fine, but these direct blockers have no level. */
   | { kind: 'after-problem'; blockers: number[] }
 
-/** What a person reads for an `unparsed` Level: the value that is not a list, or the missing line. */
-export const unparsedText = (raw: string | null): string => (raw === null ? 'no “Blocked by:” line' : `“Blocked by: ${raw}” is not a list of tickets`)
+/** What a person reads for an `unparsed` Level: the value that is not a list, or the empty or missing line. */
+export const unparsedText = (raw: string | null): string => (raw === null ? 'empty or missing “Blocked by:” line' : `“Blocked by: ${raw}” is not a list of tickets`)
 
 /** Why an open Ticket is not in the ready Wave. */
 export type WaitReason =
