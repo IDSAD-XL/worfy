@@ -81,6 +81,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 01; «Решения владел�
 - [ ] «Итог» называет, куда ушёл расход `claude plugin eval` с ключом: в кредиты или в лимит подписки.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 75b01732e6887fad8efc6c9fa1ab04fa40a7259c
+  - evidence: gate pass · `gate fast` exit 0 · mac - · 71628f267
 
 ## Итог
 
