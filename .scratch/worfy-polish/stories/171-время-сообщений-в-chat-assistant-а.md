@@ -134,3 +134,55 @@ exit 0. `pnpm test test/unit/assistant-panel.test.tsx test/unit/session-view.tes
 2. Что увидел бы пользователь, если бы у `pending` время показывалось?
    - Ответ: под тремя точками — время вопроса, которое сменилось бы временем ответа, когда тот придёт.
    - Строки: `src/renderer/assistant/AssistantPanel.tsx:395-396`
+
+## 8. Что нашёл review и что осталось
+
+> VERIFIED
+>
+> Оба замечания первого раунда исправлены, новых дефектов rework не внёс.
+>
+> **Замечания первого раунда:**
+> - **[med] Широкий ответ вылезал за край Chat — исправлено.** Строка `src/renderer/assistant/assistant.css:757`: у `.w-asst-bubble` теперь `box-sizing: border-box`. Повторил замер первого раунда в headless Chromium: CSS из main против CSS из PR, ширина `.w-asst-body` 300, 360 и 420 px, широкий `pre` и широкая таблица. В PR scrollWidth равен clientWidth везде (302/302, 362/362, 422/422). Правый край bubble не выходит за край панели (293.5 при 299). В первом раунде было 315/302.
+> - **[low] Класс `RowTime` по умолчанию без test-а — исправлено.** Добавлена проверка в `test/unit/session-view.test.tsx:1471`.
+>
+> **Вид bubble после `border-box`:**
+> - Короткие сообщения выглядят как на main: ширина 34.5 px и та же позиция при всех трёх ширинах.
+> - Длинный текст переносится немного раньше. Предел 88% теперь считается вместе с padding и border, поэтому bubble ýже на 6–22 px. Например, при 300 px сообщение пользователя 260.5 px против 282.5 на main. Это ожидаемое следствие исправления, а не дефект.
+>
+> **Новые test-ы ловят то, что должны (mutant-ы, откат из копий):**
+> - Убрал `box-sizing` из `assistant.css`: test-ы `assistant-panel` упали, exit 1, один test красный.
+> - Заменил класс по умолчанию в `src/renderer/session/RowTime.tsx:6`: test-ы `session-view` упали, exit 1, один test красный.
+>
+> **Ticket и Code story:** записи о втором раунде совпадают с кодом. `story-check --head 3f18da783` проходит. `git range-diff` показывает, что три коммита первого раунда перенесены без изменений (rebase), сверх них три новых.
+>
+> **Что запускал:**
+> - `pnpm install --frozen-lockfile` — exit 0.
+> - `pnpm test` трёх файлов (`assistant-panel`, `session-view`, `product-transcript`) с временным HOME — exit 0, 150 test-ов из 150.
+> - `story-check` — exit 0.
+> - Скрипт замера ширины — exit 0.
+>
+> **Не проверил:** вид в настоящем Electron и скриншоты: бриф запрещает e2e и Electron. Замер сделан на упрощённой разметке с `assistant.css` и `markdown.css`.
+>
+> Worktree `rev-2357-r2` и временные файлы удалены, процессов от моих запусков не осталось.
+>
+> Больше ничего не нашёл.
+>
+> Review depth: medium — ticket
+
+Code: `src/renderer/assistant/assistant.css:757-757` · key lines: 757
+
+```css
+  box-sizing: border-box;
+```
+
+Code: `test/unit/session-view.test.tsx:1471-1471` · key lines: 1471
+
+```tsx
+    expect(time.className).toBe('w-tr__time')
+```
+
+Code: `src/renderer/session/RowTime.tsx:6-6` · key lines: 6
+
+```tsx
+export function RowTime({ at, when, className = 'w-tr__time' }: { at: number; when: RowWhen; className?: string }) {
+```
