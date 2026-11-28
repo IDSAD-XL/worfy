@@ -124,7 +124,7 @@ export class HarnessClaudeCheck {
     return rows.filter((row): row is Check => row !== null)
   }
 
-  /** The row of one copy: from the cache, or after a run of the set; `again` — run it anew. Null: no such Claude Code. */
+  /** The row of one copy: from the cache, or after a run of the set; `again` — run it anew. Null: no such Claude Code, or no Harness copy. */
   async row(copy: ClaudeCopy, { again = false }: { again?: boolean } = {}): Promise<Check | null> {
     const [claude, worfy] = await Promise.all([this.deps.claude(copy), copy === 'terminal' ? this.deps.claude('worfy') : Promise.resolve(null)])
     if (claude.kind === 'missing') return null
@@ -133,7 +133,9 @@ export class HarnessClaudeCheck {
     const extra: Check['actions'] = links ? [{ id: 'open-link', label: 'Changelog', url: CLAUDE_CODE_CHANGELOG_URL }] : []
     if (claude.kind === 'unusable') return this.notRun(copy, label, claude.reason, extra)
     const { dir, version } = this.deps.harness()
-    if (version === undefined) return this.notRun(copy, label, 'this build has no Harness copy', extra)
+    // No Harness copy of this build (a dev build before its first build, a unit test): nothing to check, no row. A
+    // packaged build without one fails the row "Harness plugin" already.
+    if (version === undefined) return null
     let entry: Entry
     try {
       entry = await this.entry(claude, { dir, version }, copy, again)

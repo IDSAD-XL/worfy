@@ -187,10 +187,9 @@ describe('Health: Harness on Claude Code — the row', () => {
     expect(runSet).not.toHaveBeenCalled()
   })
 
-  it('without the Harness copy of this build nothing runs and the row says why', async () => {
+  it('without the Harness copy of this build (a dev build before its first build) nothing runs and there is no row', async () => {
     harnessVersion = undefined
-    const row = await check().row('worfy')
-    expect(row).toMatchObject({ status: 'unknown', detail: '2.1.322 (worfy) · the checks could not run: this build has no Harness copy' })
+    expect(await check().rows()).toEqual([])
     expect(runSet).not.toHaveBeenCalled()
   })
 
