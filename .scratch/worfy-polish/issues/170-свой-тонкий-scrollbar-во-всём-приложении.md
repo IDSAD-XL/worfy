@@ -2,6 +2,7 @@
 
 Type: polish
 Status: claimed 2026-11-28T04:03Z
+PR: #2360
 Branch: worfy-polish/170
 Blocked by: None — can start immediately
 Source: просьба владельца 2026-11-28 со screenshot-ом панели Assistant (вкладки Waits / Summary / Journal / Chat): во
