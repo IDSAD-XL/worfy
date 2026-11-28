@@ -32,12 +32,15 @@
 //     stories or a red story-check — the PR waits red, the reason naming the path or the first problem; the profile
 //     or story-check unable to answer — it waits. A PR without a ticket is not checked;
 //   - its verification paths are in the trail of its ticket. The paths the PR changes from its fork point (as for
-//     docs_only) that are verification paths — the defaults of lib/verification-paths.cjs and the profile's
-//     verification.paths (bin/profile --json), never a list of the state file — must each be named by the trail of the
-//     PR's ticket: the ticket of the PR's branch by tickets.branch (`<epic>/<NN>`), its file by tickets.path, the section
-//     tickets.trail_section, read at the tip of the base branch (`git show refs/remotes/<remote>/<branch>:<path>`, the
-//     guard hook reads it the same way, lib/ticket-trail.cjs), not at the fork point: a branch cut before the orchestrator
-//     extended its trail needs no rebase, and the PR's own edit of its trail allows nothing. A path outside the trail —
+//     docs_only) that touch a verification path — one of the defaults of lib/verification-paths.cjs and the profile's
+//     verification.paths (bin/profile --json), never a list of the state file; a folder above one (`.claude` above
+//     `.claude/**`); any symbolic link, which may point anywhere (touchesVerificationPath) — must each be named by the
+//     trail of the PR's ticket: the ticket of the PR's branch by tickets.branch (`<epic>/<NN>`), its file by
+//     tickets.path, the paths of its section tickets.trail_section but those of a read-only item (bin/TICKETS.md, "Trail"),
+//     read at the tip of the base branch (`git show refs/remotes/<remote>/<branch>:<path>`, lib/ticket-trail.cjs, which a
+//     guard hook is to read the trail by as well), not at the fork point: a branch cut before the orchestrator extended
+//     its trail needs no rebase, and the PR's own edit of its trail allows nothing. No single file of the ticket there,
+//     or no trail section in it — the PR waits, the reason saying which. A path outside the trail —
 //     the PR waits with `verification paths outside the trail of <epic> <NN>: <paths>`; a PR whose branch names no
 //     ticket and that changes a verification path waits with `verification paths, and the PR has no ticket (<why>):
 //     <paths> — the owner decides`. A PR that adds a verification path to the trail of any ticket (a ticket file under the
@@ -126,12 +129,12 @@
 // Pipeline (_resolved.pipeline), the tickets root tickets.root, and as the CI workflow the workflow of the run that holds
 // the latest ci_check check run on the head. It fetches the base branch, then reads what a pass reads — not a draft, the
 // CI check and no CI run in progress, the `review` mark (never carried: there is no verified head), the Check marks, the
-// Code story, the verification paths, the main branch not red (docs_only: only the tickets root is documents) — and a
-// conflict. It does not read red_elsewhere (the project's rules, not the profile's) and writes nothing: no log, no
+// Code story of the branch's ticket, the verification paths, the main branch not red (docs_only: only the tickets root is
+// documents) — and a conflict or a mergeable GitHub has not computed (UNKNOWN: not ready). It does not read red_elsewhere (the project's rules, not the profile's) and writes nothing: no log, no
 // marker of the main branch, nothing merged. One line `#N ready[ — verification paths: …]`, `#N waits: <reason>` or
 // `#N unverified: <reason>`; exit 0 — ready, 1 — it waits, 2 — land cannot say (no profile, workflow.ci not "pr", no
-// workflow.ci_check, gh or git gave no answer, wrong arguments). The guard hook asks it before an agent's `gh pr merge`
-// (worfy-harness-guarantees 05).
+// workflow.ci_check, gh or git gave no answer, wrong arguments). It is meant for a guard hook to ask before an agent's
+// `gh pr merge`.
 //
 // The state file is the input and the record; every finished step is written to it at once, so a run
 // broken off (the session ended, a kill) goes on from there when it is run again on the same file: a PR
@@ -140,7 +143,9 @@
 //   branch        the main branch; remote — optional, "origin"
 //   ci            profile workflow.ci: "pr" (anything else — exit 1)
 //   ci_check      the name of the check run that is the merge condition: the profile's workflow.ci_check — a state
-//                 file naming another is refused (exit 1); with no workflow.ci_check in the profile this name stands
+//                 file naming another is refused (exit 1); with no workflow.ci_check in the profile this name stands,
+//                 and the output gets the line `the CI check <name> is the state file's: the profile names no
+//                 workflow.ci_check`
 //   ci_workflow   the workflow (file name) of the CI runs on a PR head
 //   docs_check    null, or a shell command run in the documents worktree before its commit (profile
 //                 docs.handoff.check)
@@ -211,7 +216,7 @@ const privacy = require("../lib/privacy.cjs")
 const { codeLines: codeFence } = require("../lib/code-fence.cjs")
 // The verification paths (the one list: defaults and the profile's verification.paths) and the trail of a ticket, read the
 // way the guard hook reads it.
-const { verificationPaths, isVerificationPath } = require("../lib/verification-paths.cjs")
+const { verificationPaths, isVerificationPath, touchesVerificationPath } = require("../lib/verification-paths.cjs")
 const { ticketOfBranch, trailPaths, namedByTrail, readTrail } = require("../lib/ticket-trail.cjs")
 
 const SHA = /^[0-9a-f]{40}$/
@@ -836,6 +841,18 @@ const field = (o, ...keys) => keys.reduce((v, k) => (v && typeof v === "object" 
 function changedPaths(st, base, head) {
     return git(["-c", "core.quotePath=false", "diff", "--name-only", "--no-renames", "-z", base, head], st.repo).split("\0").filter(Boolean)
 }
+// The same paths with whether the change is a symbolic link (mode 120000 before or after it): `git diff --raw -z` gives
+// ":<old mode> <new mode> <old blob> <new blob> <status>" and the path, each ended by a NUL.
+function changedEntries(st, base, head) {
+    const parts = git(["-c", "core.quotePath=false", "diff", "--raw", "--no-renames", "-z", base, head], st.repo).split("\0")
+    const out = []
+    for (let i = 0; i + 1 < parts.length; i += 2) {
+        const modes = /^:(\d{6}) (\d{6}) /.exec(parts[i])
+        if (!modes || !parts[i + 1]) continue
+        out.push({ path: parts[i + 1], symlink: modes[1] === "120000" || modes[2] === "120000" })
+    }
+    return out
+}
 // The verification paths a PR adds to the trail of any ticket: for each ticket file it changes inside the tickets root,
 // the trail entries at head that its fork point does not have and that are verification paths.
 // shortcut: an added entry counts when it is itself a verification path ("x/ci.yml", "x/**" under a glob of the list); a
@@ -870,10 +887,12 @@ function verified(st, pr, head, view) {
     if (!haveCommit(st, head, pr.number)) throw unread(`the head ${short(head)} is not in the checkout: its verification paths cannot be read`)
     const ref = `refs/remotes/${st.remote || "origin"}/${st.branch}`
     const base = git(["merge-base", head, ref], st.repo)
-    const paths = changedPaths(st, base, head)
+    const entries = changedEntries(st, base, head)
+    const paths = entries.map((e) => e.path)
     // an absolute root: a relative one would resolve from the working directory (a realpath on macOS)
     const root = path.resolve(st.repo)
-    const touched = paths.filter((p) => isVerificationPath(p, list, { root }))
+    // a verification path, a folder above one (a link .claude in place of the folder of .claude/**), or any symbolic link
+    const touched = entries.filter((e) => touchesVerificationPath(e.path, list, { root, symlink: e.symlink })).map((e) => e.path)
     const notes = []
     if (touched.length) {
         const tickets = field(profile, "tickets") || {}
@@ -1438,8 +1457,13 @@ function ciCheckAgrees(file, st) {
     if (typeof named === "string" && named.trim() !== "") {
         if (named !== st.ci_check)
             fail(`${file}: "ci_check" is ${JSON.stringify(st.ci_check)}, but the profile's workflow.ci_check is ${JSON.stringify(named)}: land merges on the check the profile names`)
-    } else log(`the profile names no workflow.ci_check: the state file's ${st.ci_check} is the merge condition`)
+    } else {
+        ciCheckNote = `the CI check ${st.ci_check} is the state file's: the profile names no workflow.ci_check`
+        log(ciCheckNote)
+    }
 }
+// The output line of a state file's CI check the profile does not name (ciCheckAgrees), or null.
+let ciCheckNote = null
 
 // The tickets root of a profile inside the repository, relative to it, or null: Silent mode, a root outside the repository
 // or none (the state-file block of skill epic-wave makes the same choice).
@@ -1454,7 +1478,7 @@ function profileTicketsRoot(profile, repo) {
 
 // land --check <N> [-C <dir>]: the merge condition of one PR, by the profile of <dir> (the working directory by default),
 // with no state file, writing nothing. Exit 0 — ready, 1 — it waits, the reason on one line; 2 — land cannot say: no
-// profile, gh or git gave no answer, the arguments are wrong. The guard hook asks it before an agent's `gh pr merge`.
+// profile, gh or git gave no answer, the arguments are wrong. It is meant for a guard hook to ask before an agent's `gh pr merge`.
 async function checkOne(argv) {
     let n = null
     let dir = process.cwd()
@@ -1508,6 +1532,8 @@ async function checkOne(argv) {
         st.ci_workflow = ciWorkflowOf(st, head)
         const note = ready(st, pr, head, false, v)
         if (v.mergeable === "CONFLICTING" || v.mergeStateStatus === "DIRTY") return say(1, `waits: conflict: rebase (mergeable ${v.mergeable}, mergeStateStatus ${v.mergeStateStatus})`)
+        // GitHub has not computed it yet: a merge now may still meet a conflict, so not ready (a later --check may be)
+        if (v.mergeable === "UNKNOWN") return say(1, "waits: mergeable UNKNOWN: GitHub has not computed it yet, ask again")
         return say(0, `ready${note ? ` — ${note}` : ""}`)
     } catch (e) {
         if (!(e instanceof Wait)) throw e
@@ -1576,6 +1602,8 @@ async function main() {
     lines.push(...outside.lines)
     // while the main branch is red: one line with the culprit and the deadline of the fix forward
     if (mainRed) lines.push(mainRed)
+    // a CI check the profile does not name: the orchestrator and the Wave report see it, not only the log
+    if (ciCheckNote) lines.push(ciCheckNote)
     const all = [...st.prs.map((p) => p.result), ...st.docs.map((d) => d.result).filter((r) => r && r.status !== "empty")]
     if (outside.kind) all.push({ status: "waits", kind: outside.kind })
     const verdict = all.every((r) => r.status === "merged") ? "green" : all.some((r) => r.kind === "red") ? "red" : "unverified"

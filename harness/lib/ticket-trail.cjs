@@ -1,7 +1,7 @@
 // The trail of a ticket: the section of the ticket file, under the heading tickets.trail_section of the profile
 // (`## Where in code`), that names the files the ticket may edit. One reader for every check that asks whether a
-// verification path (lib/verification-paths.cjs) is in a ticket's trail: bin/land reads it for the PR of a ticket, the
-// guard hook for the edit of a subagent. Both read the ticket at the tip of the base branch, never at the PR's fork point
+// verification path (lib/verification-paths.cjs) is in a ticket's trail: bin/land reads it for the PR of a ticket, and a
+// guard hook is to read it for the edit of a subagent. Both read the ticket at the tip of the base branch, never at the PR's fork point
 // or in the working tree: a PR cannot write its own permission, and a trail the orchestrator extended on the base
 // branch after the branch was cut already counts.
 //
@@ -36,6 +36,8 @@ const path = require("node:path")
 const { spawnSync } = require("node:child_process")
 const { normalizeGlob, isVerificationPath } = require("./verification-paths.cjs")
 const { codeLines } = require("./code-fence.cjs")
+// The heading rule of a section, the one the worfy app and the done section of a ticket are read by.
+const { sectionHeadings } = require("./evidence.cjs")
 
 const literal = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 
@@ -59,28 +61,47 @@ function ticketPattern(pathTemplate, epic, nn) {
 // A line suffix of a path in a trail: `:12`, `:12-20`, `:12,30-31`.
 const LINES = /:\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*$/
 
-/** The paths the trail section of `text` names, or null when there is no section under `heading`. */
+// A read-only item of a trail (bin/TICKETS.md, "Trail"): a list item whose text starts with "Read only" or "Read-only" (or
+// the same words of another language, lib/input-words.json trailReadOnly), maybe bold, then anything up to a colon. Its
+// paths are files the ticket reads, not files it may edit: they and its continuation lines (more indented) do not count.
+const READ_ONLY_WORDS = ["Read only", "Read-only", ...(require("./input-words.json").trailReadOnly || [])]
+const literalWord = (w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/[ -]/g, "[ -]")
+const READ_ONLY = new RegExp(`^([ \\t]*)(?:[-*+]|\\d+[.)])[ \\t]+(?:\\*\\*|__)?(?:${READ_ONLY_WORDS.map(literalWord).join("|")})(?![\\p{L}\\p{N}])[^:\\n]*:`, "iu")
+const HEADING = /^#{1,6}[ \t]/
+const indentOf = (line) => /^[ \t]*/.exec(line)[0].length
+
+/**
+ * The paths the trail section of `text` names, or null when there is no section under `heading`. The section is found by
+ * the rule the worfy app reads sections by (lib/evidence.cjs sectionHeadings): the heading at its own level, spacing
+ * aside, up to the next heading of that level or above; a heading given without "#" is a "##" one.
+ */
 function trailPaths(text, heading) {
     if (typeof text !== "string" || typeof heading !== "string" || heading.trim() === "") return null
-    const want = heading.trim()
-    const level = (/^#+/.exec(want) || [""])[0].length
+    const inSection = sectionHeadings([heading.trim()])
     const isCode = codeLines()
     let inside = false
     let found = false
+    let readOnly = null // the indentation of the read-only item whose lines are skipped; null outside one
     const out = []
-    for (const raw of text.split("\n")) {
+    for (const raw of text.replace(/^\uFEFF/, "").split("\n")) {
         const line = raw.replace(/\r$/, "")
         if (isCode(line)) continue
-        const h = /^(#{1,6})[ \t]/.exec(line)
-        if (h) {
-            if (inside && (level === 0 || h[1].length <= level)) break
-            if (line.trim() === want) {
-                inside = true
-                found = true
-                continue
-            }
+        if (HEADING.test(line)) {
+            inside = inSection(line)
+            found = found || inside
+            readOnly = null
+            continue
         }
         if (!inside) continue
+        if (readOnly !== null) {
+            if (line.trim() === "" || indentOf(line) > readOnly) continue
+            readOnly = null
+        }
+        const ro = READ_ONLY.exec(line)
+        if (ro) {
+            readOnly = ro[1].length
+            continue
+        }
         for (const m of line.matchAll(/`([^`]+)`/g)) {
             const span = m[1].trim().replace(/\\/g, "/").replace(LINES, "")
             if (span === "" || /\s/.test(span) || !/[/.]/.test(span) || span.startsWith(":")) continue
@@ -146,8 +167,13 @@ function readTrail({ repo, ref, branch, tickets, git = "git", folder = null }) {
     if (hits.length > 1) return { ticket: none, trail: null, reason: `${hits.length} files in ${where}: ${hits.join(", ")}` }
     const file = hits[0]
     let text
-    if (folder) text = fs.readFileSync(path.join(folder, file), "utf8")
-    else {
+    if (folder) {
+        try {
+            text = fs.readFileSync(path.join(folder, file), "utf8")
+        } catch (e) {
+            return { ticket: { ...ticket, path: file }, trail: null, reason: `${file} of the tickets folder could not be read: ${e.code || e.message}`, unread: true }
+        }
+    } else {
         const show = spawnSync(git, ["show", `${ref}:${file}`], { cwd: repo, encoding: "utf8", windowsHide: true, maxBuffer: 64 << 20 })
         if (show.error || show.status !== 0) return { ticket: { ...ticket, path: file }, trail: null, reason: `git show ${ref}:${file} could not be read`, unread: true }
         text = show.stdout

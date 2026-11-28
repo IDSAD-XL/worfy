@@ -58,8 +58,11 @@ if (cmd === "pr view") {
     const views = +read(`views-${n}`, "0") + 1
     fs.writeFileSync(f(`views-${n}`), String(views))
     const head = views > 1 && has(`moved-${n}`) ? read(`moved-${n}`).trim() : headOf(n)
-    // isDraft and headRefName from pr-<N>.json: not a draft, the branch e/0<N> (the ticket e 0<N>) without them
-    out({ number: +n, state: p.state, headRefOid: head, mergeable, mergeStateStatus: p.mergeStateStatus, mergeCommit: p.mergeCommit || null, isDraft: !!p.isDraft, headRefName: p.headRefName || `e/0${n}` })
+    // isDraft and headRefName from pr-<N>.json: not a draft, the branch e/0<N> (the ticket e 0<N>) without them;
+    // draft-after-<N>: every view after the first shows a draft. Only the fields --json names are printed, as gh does.
+    const all = { number: +n, state: p.state, headRefOid: head, mergeable, mergeStateStatus: p.mergeStateStatus, mergeCommit: p.mergeCommit || null, isDraft: !!p.isDraft || (views > 1 && has(`draft-after-${n}`)), headRefName: p.headRefName || `e/0${n}` }
+    const asked = a.includes("--json") ? a[a.indexOf("--json") + 1].split(",") : Object.keys(all)
+    out(Object.fromEntries(asked.filter((k) => k in all).map((k) => [k, all[k]])))
 } else if (cmd === "run list" && a.includes("--event")) {
     // the push runs of main: main-runs — their JSON list ([] without it); main-runs-fail — gh fails
     if (has("main-runs-fail")) { process.stderr.write("HTTP 502: Bad Gateway\n"); process.exit(1) }
@@ -197,7 +200,7 @@ EOF
 # the profile of the world — workflow.ci_check ci-ok, worktree.base origin/main, the tickets of .scratch/<epic>/issues/NN-*.md
 # on the branches <epic>/<NN> with the trail "## Where in the code", the default verification paths and tools/check-*,
 # no Check in the Pipeline, _resolved.checkout <dir> — with each top-level object of $GHD/profile.json merged over its
-# own. Exits with $GHD/profile-rc (0 without it); logs its arguments.
+# own; with $GHD/profile-garbage it prints no JSON. Exits with $GHD/profile-rc (0 without it); logs its arguments.
 cat >"$STUBS/profile.mjs" <<'EOF'
 import fs from "node:fs"
 import path from "node:path"
@@ -219,7 +222,8 @@ else if (a.includes("--json")) {
     }
     const over = JSON.parse(read("profile.json", "{}"))
     for (const [k, v] of Object.entries(over)) p[k] = v && typeof v === "object" && !Array.isArray(v) && p[k] && typeof p[k] === "object" ? { ...p[k], ...v } : v
-    process.stdout.write(JSON.stringify(p) + "\n")
+    // profile-garbage: --json prints something that is no JSON
+    process.stdout.write(fs.existsSync(path.join(D, "profile-garbage")) ? "profile: not JSON\n" : JSON.stringify(p) + "\n")
 } else process.stdout.write(read("code-stories", "off") + "\n")
 process.exit(rc)
 EOF

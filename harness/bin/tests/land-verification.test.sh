@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tests of harness/bin/land on what a PR may change and when it may merge at all (worfy-harness-guarantees 04): a draft
+# Tests of harness/bin/land on what a PR may change and when it may merge at all: a draft
 # waits; a PR that changes a verification path (lib/verification-paths.cjs and the profile's verification.paths) merges
 # only when the trail of its ticket — the ticket of its branch by tickets.branch, read at the tip of the base branch,
 # never at the PR's fork point — names that path; a PR with no ticket waits for the owner; a PR that adds a verification
@@ -12,7 +12,12 @@
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/land-world.sh"
-export CLAUDE_GATE_CONFIG="$TN/no-gate-config.json" CLAUDE_GATE_STATE="$TN/gate-state"
+# The gate registry and state folder of the marker of a red main branch (main-red-<key>.json), as in land.test.sh: one
+# entry, key land-test, matches every world under $T.
+printf '{"repos":[{"key":"land-test","match":%s}]}\n' "$(node -p 'JSON.stringify(require("fs").realpathSync.native(process.argv[1]))' "$TN")" >"$T/gate-config.json"
+mkdir -p "$T/gate-state"
+export CLAUDE_GATE_CONFIG="$TN/gate-config.json" CLAUDE_GATE_STATE="$TN/gate-state"
+MR="$T/gate-state/main-red-land-test.json"
 
 # pr_file <N> <path> <text>: the head of PR N gets <path> with <text> (a new commit on it).
 pr_file() {
@@ -32,6 +37,22 @@ ticket_text() {
     printf '# 01: a ticket\n\nStatus: claimed\n\n## Where in the code\n\n'
     for p in "$@"; do printf -- '- `%s` — line `:12`, the function `ready()`\n' "$p"; done
     printf '\n## Tests\n\n- `AGENTS.md`\n'
+}
+# pr_link <N> <path> <target>: the head of PR N gets <path> as a symbolic link to <target>, written as git stores one
+# (mode 120000, the target as its blob), so it is a link on every system, Git Bash on Windows included.
+pr_link() {
+    git -C "$W/seed" fetch -q origin "refs/pull/$1/head" && git -C "$W/seed" checkout -q --detach FETCH_HEAD
+    local blob; blob="$(printf '%s' "$3" | git -C "$W/seed" hash-object -w --stdin)"
+    git -C "$W/seed" update-index --add --cacheinfo "120000,$blob,$2" && git -C "$W/seed" commit -q -m "pr $1: link $2" \
+        && git -C "$W/seed" push -q -f origin "HEAD:refs/pull/$1/head"
+    git -C "$W/seed" reset -q --hard && git -C "$W/seed" checkout -q -f main
+}
+# pr_gitlink <N> <path>: the head of PR N gets <path> as a submodule entry (mode 160000), whose files git puts under <path>/.
+pr_gitlink() {
+    git -C "$W/seed" fetch -q origin "refs/pull/$1/head" && git -C "$W/seed" checkout -q --detach FETCH_HEAD
+    git -C "$W/seed" update-index --add --cacheinfo "160000,$(git -C "$W/seed" rev-parse HEAD),$2" && git -C "$W/seed" commit -q -m "pr $1: submodule $2" \
+        && git -C "$W/seed" push -q -f origin "HEAD:refs/pull/$1/head"
+    git -C "$W/seed" reset -q --hard && git -C "$W/seed" checkout -q -f main
 }
 TICKET=.scratch/e/issues/01-a-ticket.md
 VP=CLAUDE.md
@@ -152,7 +173,130 @@ echo "[{\"databaseId\":$run_id,\"status\":\"completed\",\"conclusion\":\"success
 "$LAND" --check 1 -C "$(tn "$W/repo")" >"$W/out" 2>"$W/err"; rc=$?
 [ "$rc" = 1 ] && grep -qx "#1 waits: verification paths outside the trail of e 01: $VP" "$W/out" \
     && ok "check: a verification path outside the trail -> exit 1, the path named" || bad "check outside: exit $rc: $(cat "$W/out" "$W/err")"
-! ls "$TN/gate-state" >/dev/null 2>&1 && ok "check: writes no marker of the main branch" || bad "check: wrote $(ls "$TN/gate-state")"
+
+# --- review round 1 -----------------------------------------------------------------------------------------------
+# a symbolic link .claude -> docs/x (with docs/x/settings.json) changes what .claude/** holds: it is a verification path
+new_world link 1
+main_file "$TICKET" "$(ticket_text f1.txt)"
+pr_file 1 docs/x/settings.json '{"hooks":{}}'
+pr_link 1 .claude docs/x
+state 1
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -qx "#1 waits: verification paths outside the trail of e 01: .claude" "$W/out" \
+    && ok "symlink: the PR adds a link .claude -> docs/x -> waits, .claude named" || bad "symlink .claude: exit $rc: $(cat "$W/out")"
+# any symbolic link counts: no glob can tell what it reaches
+new_world link-any 1
+main_file "$TICKET" "$(ticket_text f1.txt)"
+pr_link 1 docs/link ../.github/workflows
+state 1
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -qx "#1 waits: verification paths outside the trail of e 01: docs/link" "$W/out" \
+    && ok "symlink: any link the PR adds waits unless the trail names it" || bad "symlink any: exit $rc: $(cat "$W/out")"
+# the trail names the link: it merges
+main_file "$TICKET" "$(ticket_text f1.txt docs/link)"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 0 ] && [ "$(merged_of 1)" = 1 ] && grep -q "^#1 merged [0-9a-f]\{40\} — verification paths: docs/link (trail of e 01)$" "$W/out" \
+    && ok "symlink: a link the trail names merges, its line names it" || bad "symlink named: exit $rc: $(cat "$W/out")"
+
+# a change at a parent folder of a verification glob: a submodule at tools/ puts its tools/check-* there
+new_world parent 1
+main_file "$TICKET" "$(ticket_text f1.txt)"
+pr_gitlink 1 tools
+state 1
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -qx "#1 waits: verification paths outside the trail of e 01: tools" "$W/out" \
+    && ok "parent folder: a submodule at tools (above tools/check-*) -> waits, tools named" || bad "parent folder: exit $rc: $(cat "$W/out")"
+
+# the ticket file missing at the tip of main, or there twice: the PR waits
+new_world noticketfile 1
+pr_file 1 "$VP" "the rules"
+state 1
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -qxF "#1 waits: verification paths outside the trail of e 01 (.scratch/e/issues/01-*.md is not in refs/remotes/origin/main): $VP" "$W/out" \
+    && ok "ticket file: not at the tip of main -> waits, the reason says so" || bad "no ticket file: exit $rc: $(cat "$W/out")"
+main_file "$TICKET" "$(ticket_text f1.txt "$VP")"
+main_file .scratch/e/issues/01-a-copy.md "$(ticket_text f1.txt "$VP")"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -qF "#1 waits: verification paths outside the trail of e 01 (2 files in refs/remotes/origin/main: " "$W/out" \
+    && ok "ticket file: two files of 01 at the tip of main -> waits" || bad "two ticket files: exit $rc: $(cat "$W/out")"
+
+# a read-only item of the trail allows nothing
+new_world readonly 1
+main_file "$TICKET" "$(printf '# 01: a ticket\n\nStatus: claimed\n\n## Where in the code\n\n- `f1.txt`\n- Read only: `%s`\n' "$VP")"
+pr_file 1 "$VP" "the rules"
+state 1
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -qx "#1 waits: verification paths outside the trail of e 01: $VP" "$W/out" \
+    && ok "read only: the trail lists $VP as read only -> waits" || bad "read only: exit $rc: $(cat "$W/out")"
+
+# a PR that turns into a draft between the first reading and the one under the main-branch lock
+new_world draft-late 1
+state 1
+touch "$GHD/draft-after-1"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -qx '#1 waits: draft' "$W/out" \
+    && ok "draft: a draft by the reading under the lock -> waits, not merged" || bad "draft late: exit $rc: $(cat "$W/out")"
+
+# a draft whose CI still runs: the reason is the draft, not the CI it would wait for anyway
+new_world draft-ci 1
+state 1
+echo '{"isDraft":true}' >"$GHD/pr-1.json"
+echo '[{"id":2,"name":"ci-ok","status":"in_progress","conclusion":null,"started_at":"2026-10-28T10:00:00Z"}]' >"$GHD/checks-$(head_of 1)"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -qx '#1 waits: draft' "$W/out" \
+    && ok "draft: a draft with ci-ok in progress -> '#1 waits: draft'" || bad "draft ci: exit $rc: $(cat "$W/out")"
+
+# no workflow.ci_check in the profile: the state file's name stands, and the output says so
+new_world nocicheck 1
+state 1
+echo '{"workflow":{"ci":"pr","ci_check":null}}' >"$GHD/profile.json"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 0 ] && [ "$(merged_of 1)" = 1 ] && grep -qx "the CI check ci-ok is the state file's: the profile names no workflow.ci_check" "$W/out" \
+    && ok "ci_check: none in the profile -> the state file's ci-ok, one output line says so" || bad "no ci_check: exit $rc: $(cat "$W/out")"
+
+# the profile unreadable (exit 1): a PR without a ticket waits on it, never merges
+new_world profile-broken 1
+state 1
+edit 'delete s.prs[0].epic;delete s.prs[0].ticket'
+echo 1 >"$GHD/profile-rc"
+"$LAND" "$S" >"$W/out" 2>&1; rc=$?
+[ "$rc" = 3 ] && [ "$(merges)" = 0 ] && grep -q '^#1 waits: the profile could not be read: bin/profile exit 1' "$W/out" \
+    && ok "profile: bin/profile exit 1 -> the PR waits, not read as no profile" || bad "profile broken: exit $rc: $(cat "$W/out")"
+
+# land --check: the profile unreadable or no JSON -> exit 2; the Code story of the branch's ticket; mergeable; a closed PR
+new_world check2 1
+echo '[{"id":1,"name":"ci-ok","status":"completed","conclusion":"success","started_at":"2026-10-28T10:00:00Z","details_url":"https://github.com/o/r/actions/runs/4242/job/1"}]' >"$GHD/checks-$(head_of 1)"
+echo '[{"databaseId":4242,"status":"completed","conclusion":"success","workflowName":"CI"}]' >"$GHD/runs-$(head_of 1)"
+echo 1 >"$GHD/profile-rc"
+"$LAND" --check 1 -C "$(tn "$W/repo")" >"$W/out" 2>"$W/err"; rc=$?
+[ "$rc" = 2 ] && grep -q '^#1 unverified: the profile could not be read: bin/profile exit 1' "$W/out" && ok "check: bin/profile exit 1 -> exit 2" || bad "check profile 1: exit $rc: $(cat "$W/out" "$W/err")"
+rm -f "$GHD/profile-rc" && touch "$GHD/profile-garbage"
+"$LAND" --check 1 -C "$(tn "$W/repo")" >"$W/out" 2>"$W/err"; rc=$?
+[ "$rc" = 2 ] && grep -q '^#1 unverified: the profile could not be read: bin/profile exit 0' "$W/out" && ok "check: bin/profile prints no JSON -> exit 2" || bad "check profile garbage: exit $rc: $(cat "$W/out" "$W/err")"
+rm -f "$GHD/profile-garbage" && echo on >"$GHD/code-stories"
+"$LAND" --check 1 -C "$(tn "$W/repo")" >"$W/out" 2>"$W/err"; rc=$?
+[ "$rc" = 1 ] && grep -q '^#1 waits: no Code story of ticket e 01: ' "$W/out" \
+    && ok "check: code_stories.pr on, the branch's ticket e 01 has no story -> exit 1 (the ticket reaches the story check)" || bad "check story: exit $rc: $(cat "$W/out" "$W/err")"
+echo off >"$GHD/code-stories" && echo UNKNOWN >"$GHD/mergeable-1"
+"$LAND" --check 1 -C "$(tn "$W/repo")" >"$W/out" 2>"$W/err"; rc=$?
+[ "$rc" = 1 ] && grep -q '^#1 waits: mergeable UNKNOWN' "$W/out" && ok "check: mergeable UNKNOWN -> exit 1, not ready" || bad "check unknown: exit $rc: $(cat "$W/out" "$W/err")"
+echo CONFLICTING >"$GHD/mergeable-1"
+"$LAND" --check 1 -C "$(tn "$W/repo")" >"$W/out" 2>"$W/err"; rc=$?
+[ "$rc" = 1 ] && grep -q '^#1 waits: conflict: rebase' "$W/out" && ok "check: a conflict -> exit 1" || bad "check conflict: exit $rc: $(cat "$W/out" "$W/err")"
+rm -f "$GHD/mergeable-1" && echo '{"state":"CLOSED"}' >"$GHD/pr-1.json"
+"$LAND" --check 1 -C "$(tn "$W/repo")" >"$W/out" 2>"$W/err"; rc=$?
+[ "$rc" = 1 ] && [ "$(cat "$W/out")" = "#1 waits: the PR is CLOSED" ] && ok "check: a closed PR -> exit 1" || bad "check closed: exit $rc: $(cat "$W/out" "$W/err")"
+rm -f "$GHD/pr-1.json"
+# a red main branch: land --check writes no marker; a run of land on the same world does (so the check can fail)
+C2="$(printf '2%.0s' $(seq 1 40))"
+printf '[{"databaseId":2,"headSha":"%s","status":"completed","conclusion":"failure","attempt":1,"createdAt":"2026-11-09T10:00:00Z","updatedAt":"2026-11-09T10:30:00Z","url":"https://github.com/o/r/actions/runs/2"}]\n' "$C2" >"$GHD/main-runs"
+rm -f "$MR"
+"$LAND" --check 1 -C "$(tn "$W/repo")" >"$W/out" 2>"$W/err"; rc=$?
+[ "$rc" = 1 ] && grep -q '^#1 waits: main red since 22222222' "$W/out" && [ ! -e "$MR" ] \
+    && ok "check: main red -> exit 1, and no marker of the main branch written" || bad "check red main: exit $rc marker=$([ -e "$MR" ] && echo yes): $(cat "$W/out" "$W/err")"
+state 1
+"$LAND" "$S" >"$W/out" 2>&1
+[ -e "$MR" ] && ok "check: the same red main makes a run of land write the marker" || bad "marker control: no $MR after land: $(cat "$W/out")"
 
 # the real HOME is untouched
 [ "$(real_home_snapshot "$HOME" "$T")" = "$home_before" ] && ok "the real HOME is untouched" || bad "the real HOME changed"

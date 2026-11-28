@@ -21,6 +21,12 @@
 //                                         root "../x" and an absolute path are outside
 //   isVerificationPath(file, paths, { platform, root })
 //                                         whether the file matches one of the globs `paths`
+//   isVerificationParent(file, paths, { platform, root })
+//                                         whether the file is a folder above one of the globs (`.claude` above
+//                                         `.claude/**`)
+//   touchesVerificationPath(file, paths, { platform, root, symlink })
+//                                         whether a change of the file changes a verification path: it is one, a
+//                                         folder above one, or the change is a symbolic link
 //
 // A glob is matched against the whole path from the root of the repository: `*` and `?` never cross a
 // "/", `**` as a whole segment is any number of segments (none too), `{a,b}` is one of its parts. Any
@@ -202,4 +208,46 @@ function isVerificationPath(file, paths, options = {}) {
     })
 }
 
-module.exports = { DEFAULT_VERIFICATION_PATHS, verificationPaths, verificationProblems, normalizeGlob, normalizePath, isVerificationPath }
+/**
+ * Whether `file` is a folder above one of the globs `paths`: its segments match the first segments of a glob that has more
+ * of them (a `**` segment matches any rest). `.claude` is above `.claude/**`, `.github` above `.github/workflows/**`. A change
+ * of such a path — a symbolic link put in its place, the folder removed or moved as a whole — changes the files under it,
+ * though the path itself matches no glob.
+ */
+function isVerificationParent(file, paths, options = {}) {
+    const p = normalizePath(file, options)
+    if (p === null || !Array.isArray(paths)) return false
+    const flags = ignoresCase(options.platform || process.platform) ? "i" : ""
+    const segments = p.split("/")
+    return paths.some((glob) => {
+        const g = normalizeGlob(glob)
+        if (g === null) return false
+        const parts = g.split("/")
+        for (let i = 0; i < segments.length; i++) {
+            if (parts[i] === "**") return true
+            if (i >= parts.length - 1) return false
+            if (!new RegExp(`^${source(parts[i])}$`, flags).test(segments[i])) return false
+        }
+        return true
+    })
+}
+
+/**
+ * Whether a change of `file` changes a verification path: the file is one, or a folder above one (isVerificationParent),
+ * or the change is a symbolic link (options.symlink) — a link may point anywhere, so no glob can tell what it reaches.
+ */
+function touchesVerificationPath(file, paths, options = {}) {
+    if (options.symlink) return normalizePath(file, options) !== null
+    return isVerificationPath(file, paths, options) || isVerificationParent(file, paths, options)
+}
+
+module.exports = {
+    DEFAULT_VERIFICATION_PATHS,
+    verificationPaths,
+    verificationProblems,
+    normalizeGlob,
+    normalizePath,
+    isVerificationPath,
+    isVerificationParent,
+    touchesVerificationPath,
+}

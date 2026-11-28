@@ -1230,7 +1230,7 @@ is `F workflow.merge_gate`:
 
 - absent or `null` — the Harness requires no gate full before the merge (the project's `rules.md` may).
   With `F workflow.ci` `pr` the merge condition of a PR with code is CI on its head: the project's final
-  CI check (its `rules.md` names it, for example `ci-ok`) completed with `success` and no run of the CI
+  CI check (`F workflow.ci_check`; with none, the one its `rules.md` names, for example `ci-ok`) completed with `success` and no run of the CI
   workflow still queued or running on that head, plus the `review` mark `success` on the same head and
   the Check marks of "Checks before merge". The orchestrator merges these PRs only through `bin/land`
   ("Merge with land" below);
@@ -1302,8 +1302,11 @@ of `land`. For each PR, in the order of the state file, `land`:
   PR merges on the final check alone, under the same lock. A documents PR closed without a merge is
   replaced by a new one for the same tickets.
 
-The state file — one per set of PRs; a new set gets a new file. `<CI check>` and `<CI workflow>` are
-the final check and the workflow file the project's rules name. Each PR is
+The state file — one per set of PRs; a new set gets a new file. `<CI check>` is `F workflow.ci_check`, the
+final check: `land` refuses a state file that names another one. With no `workflow.ci_check` in the profile the block
+puts the placeholder there: write the final check the project's rules name, and `land` prints the line `the CI check
+<name> is the state file's: the profile names no workflow.ci_check` (carry it into the Wave report). `<CI workflow>` is
+the workflow file the project's rules name. Each PR is
 `<N>:<epic>:<NN>:<head>:<checks>[:main-fix]`: `<head>` — the head SHA the review verified; `main-fix` —
 the PR fixes the red main branch or reverts its culprit and merges while the branch is red; `<checks>` — the
 names of the Pipeline's `check` Stages (`F _resolved.pipeline`, `kind` `check`) this PR needs by the
@@ -1325,7 +1328,7 @@ outside the repository, or Silent mode, means no documents PR:
 ```bash
 F() { "${CLAUDE_PLUGIN_ROOT}/bin/profile" -C <repo> --field "$@" 2>/dev/null; }
 S=<state file>                                 # e.g. <orchestrator scratchpad>/land-<epic>-1.json
-node - "$S" <repo> <main branch> "$(F workflow.ci)" <CI check> <CI workflow> "$(F docs.handoff.check)" "$(F tickets.root)" "$(F _resolved.mode)" "<documents-only command>" ["--red-elsewhere=<label>|<command>"] <N>:<epic>:<NN>:<head>:<checks>[:main-fix]… <<'NODE'
+node - "$S" <repo> <main branch> "$(F workflow.ci)" "$(F workflow.ci_check || echo '<CI check>')" <CI workflow> "$(F docs.handoff.check)" "$(F tickets.root)" "$(F _resolved.mode)" "<documents-only command>" ["--red-elsewhere=<label>|<command>"] <N>:<epic>:<NN>:<head>:<checks>[:main-fix]… <<'NODE'
 const fs = require("fs"), path = require("path"), os = require("os")
 const [file, repo, branch, ci, check, workflow, docs, root, mode, docsOnly, ...args] = process.argv.slice(2)
 const named = args.filter((a) => a.startsWith("--red-elsewhere=")), prs = args.filter((a) => !a.startsWith("--red-elsewhere="))
@@ -1478,7 +1481,8 @@ and one that added a verification path to a trail with `added to the trail of <t
 `LAND=green` (`EXIT=0`: everything merged), `LAND=red` (`EXIT=2`: a red final check, a failed review
 or Check, a red documents check) or `LAND=unverified` (`EXIT=3`: something waits for CI, a mark or a
 rebase). `EXIT=1` — the state file is wrong, the message says how; a `ci_check` other than
-`F workflow.ci_check` is such a state file. The full log is `<state file>`
+`F workflow.ci_check` is such a state file. With no `workflow.ci_check` in the profile the state file's check
+stands, and one output line says so. The full log is `<state file>`
 without `.json`, plus `.log`. A `waits` PR: red CI — a rework round or the project's quarantine rule;
 no `review` — section 3; `conflict: rebase` (or `BEHIND: … rebase` under protection that requires an
 up-to-date branch) — the implementer rebases; a Check mark missing —
