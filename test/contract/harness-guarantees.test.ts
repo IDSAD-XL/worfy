@@ -5,7 +5,7 @@
 // The cases and the runner live in src/main/harness/contract/, so worfy runs the same set (Health,
 // ticket 09); this file runs each case on its own and checks that the runner tells a broken
 // Harness (a red case) from a run that never started.
-import { cpSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { request } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -94,6 +94,32 @@ describe('the runner tells a broken Harness from a run that never started', () =
     const outcome = await runContractCase(PLUGIN_LOADED, { ...options(pluginDir), runLimitMs: ms(5_000) })
     expectStatus(outcome, 'failed')
     expect(outcome.status === 'failed' && outcome.reason).toMatch(/did not finish .*hooks of the plugin blocked: Stop \(exit code 2\): held by the contract test/)
+  })
+
+  // Review round 2: at the limit the runner killed Claude Code alone, and a hook that hung outlived the run.
+  // The Stop hook of this copy writes its pid and hangs, writing nothing, so no broken pipe ends it (its limit in
+  // hooks.json is 900 s); it ends itself after 60 s at the very most. A hook that hangs while turns did reach the
+  // stand-in is not counted as holding them: the run is "not run" at the limit (a known limit, written in the ticket's summary).
+  it('a hook that hangs at the time limit ends with the run: the runner stops the whole process group or tree', async () => {
+    const pidFile = join(scratch, 'hung-hook.pid')
+    const pluginDir = harnessCopy(
+      'stop-hook-hangs',
+      'hooks/stop.mjs',
+      [`import { writeFileSync } from "node:fs"`, `writeFileSync(${JSON.stringify(pidFile)}, String(process.pid))`, 'setInterval(() => undefined, 1000)', 'setTimeout(() => process.exit(0), 60_000)', ''].join('\n'),
+    )
+    const outcome = await runContractCase(PLUGIN_LOADED, { ...options(pluginDir), runLimitMs: ms(3_000) })
+    expectStatus(outcome, 'not-run')
+    expect(outcome.status === 'not-run' && outcome.reason).toMatch(/did not finish in/)
+    const pid = Number(readFileSync(pidFile, 'utf8'))
+    const alive = (): boolean => {
+      try {
+        process.kill(pid, 0)
+        return true
+      } catch {
+        return false
+      }
+    }
+    await expect.poll(alive).toBe(false)
   })
 
   // Review round 1: a check that throws (a manifest that is not JSON) rejected the whole set.

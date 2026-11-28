@@ -36,9 +36,30 @@ describe('judgeRun', () => {
     expect(verdict.status === 'not-run' && verdict.reason).toMatch(/stopped at the limit of 1000 ms/)
   })
 
-  it('init and no turn at all, exit code 0: failed', () => {
+  // Review round 2 of PR #2345: no turn is the Harness's fault only when a hook of the plugin held it up.
+  it('init and no turn, no hook blocked or hung, exit code 0: not run', () => {
     const verdict = judgeRun(trace({ requests: 0 }))
-    expect(verdict.status === 'failed' && verdict.reason).toMatch(/asked the stand-in no turn \(exit code 0\)/)
+    expect(verdict.status === 'not-run' && verdict.reason).toMatch(/asked the stand-in no turn \(exit code 0\)/)
+  })
+
+  it('init, no turn and the time limit, no hook blocked or hung: not run (a slow machine)', () => {
+    const verdict = judgeRun(trace({ requests: 0, lines: [INIT], timedOut: true, exitCode: null }))
+    expect(verdict.status === 'not-run' && verdict.reason).toMatch(/did not finish in 1000 ms/)
+  })
+
+  it('init, no turn and an API error, no hook blocked or hung: not run (the API cannot be reached)', () => {
+    const verdict = judgeRun(trace({ requests: 0, lines: [INIT, API_ERROR] }))
+    expect(verdict.status === 'not-run' && verdict.reason).toMatch(/an error of the API or of Claude Code/)
+  })
+
+  it('init, no turn and a hook of the plugin that started and never answered: failed, naming the hook', () => {
+    const started: StreamLine = { type: 'system', subtype: 'hook_started', hook_id: 'h1', hook_name: 'UserPromptSubmit', hook_event: 'UserPromptSubmit' }
+    const answered: StreamLine[] = [
+      { type: 'system', subtype: 'hook_started', hook_id: 'h0', hook_name: 'SessionStart', hook_event: 'SessionStart' },
+      { ...hook('SessionStart', 0), hook_id: 'h0' },
+    ]
+    const verdict = judgeRun(trace({ requests: 0, lines: [INIT, ...answered, started], timedOut: true, exitCode: null }))
+    expect(verdict).toEqual({ status: 'failed', reason: expect.stringMatching(/hooks of the plugin that never answered: UserPromptSubmit/) as unknown as string })
   })
 
   it('init and no turn, a UserPromptSubmit hook blocked: failed, naming the hook', () => {

@@ -20,6 +20,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { killTool } from '../../first-run/tools'
 import { removeTree } from '../../storage/remove'
 import { claudeEnv, startScriptedStandIn, type RecordedRequest, type RecordedToolResult, type ScriptedChain, type ScriptedStandIn } from './messages-api-stand-in'
 
@@ -114,6 +115,29 @@ interface Spawned {
   timedOut: boolean
 }
 
+/** The pids under `root` in the process tree (POSIX `ps`), read once before any kill: a killed parent's children move to pid 1. */
+function descendants(root: number | undefined): number[] {
+  if (root === undefined) return []
+  const ps = spawnSync('ps', ['-A', '-o', 'pid=,ppid='], { encoding: 'utf8' })
+  if (ps.status !== 0) return []
+  const children = new Map<number, number[]>()
+  for (const line of ps.stdout.split('\n')) {
+    const [pid, ppid] = line.trim().split(/\s+/).map(Number)
+    if (pid === undefined || ppid === undefined || Number.isNaN(pid) || Number.isNaN(ppid)) continue
+    children.set(ppid, [...(children.get(ppid) ?? []), pid])
+  }
+  const found: number[] = []
+  const queue = [root]
+  for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
+    for (const pid of children.get(next) ?? []) {
+      if (found.includes(pid)) continue
+      found.push(pid)
+      queue.push(pid)
+    }
+  }
+  return found
+}
+
 function runBinary(binary: string, args: string[], cwd: string, env: Record<string, string>, limitMs: number): Promise<Spawned> {
   return new Promise((resolve) => {
     // Bytes, decoded once at the end: a character split between two chunks stays whole.
@@ -122,9 +146,20 @@ function runBinary(binary: string, args: string[], cwd: string, env: Record<stri
     let timedOut = false
     let error: NodeJS.ErrnoException | undefined
     const child = spawn(binary, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
-    // Stopped by its own pid: the runner kills only the process it started.
+    // A stop at the limit ends Claude Code with the processes it started: a hook that hangs would outlive
+    // its run otherwise. Claude Code 2.1.322 starts each hook in a process group of its own, so a kill of
+    // Claude Code's group misses them: the tree is walked from the pid of the process the runner started
+    // (on Windows taskkill /T does that, killTool).
     const timer = setTimeout(() => {
       timedOut = true
+      if (process.platform === 'win32') return killTool(child, process.platform, process.env)
+      for (const pid of descendants(child.pid)) {
+        try {
+          process.kill(pid, 'SIGKILL')
+        } catch {
+          // Ended already.
+        }
+      }
       child.kill('SIGKILL')
     }, limitMs)
     child.stdout.on('data', (chunk: Buffer) => out.push(chunk))
@@ -169,12 +204,20 @@ function blockingHooks(lines: StreamLine[]): string[] {
     .map((line) => `${String(line.hook_event)} (exit code ${String(line.exit_code)}): ${tail(String(line.stderr || line.stdout || ''), 200).trim()}`)
 }
 
+/** The hooks that started (hook_started) and never answered (no hook_response with their hook_id). */
+function hungHooks(lines: StreamLine[]): string[] {
+  const answered = new Set(lines.filter((line) => line.type === 'system' && line.subtype === 'hook_response').map((line) => line.hook_id))
+  return lines.filter((line) => line.type === 'system' && line.subtype === 'hook_started' && !answered.has(line.hook_id)).map((line) => String(line.hook_event))
+}
+
 /**
- * Whether a run got as far as a case can judge, and if not, whose fault it is. Only Claude Code is
- * to blame (not-run) while it never came up with the plugin — no start, no system/init — or when,
- * with no hook of the plugin blocking, the run ended without its result: an API error, no result
- * line, the time limit. Once system/init came, a run that asked the stand-in nothing, or a stop
- * of any kind while a hook of the plugin blocked, is the Harness's: failed, naming the hook.
+ * Whether a run got as far as a case can judge, and if not, whose fault it is. Only Claude Code or
+ * its environment is to blame (not-run) while it never came up with the plugin — no start, no
+ * system/init — or when, with no hook of the plugin holding it up, the run ended without its
+ * result: no turn reached the stand-in, an API error (the API cannot be reached), no result line,
+ * the time limit (a slow machine). A run a hook of the plugin held up is the Harness's: failed,
+ * naming the hook — with no turn, a hook that blocked or started and never answered; with turns, a
+ * stop of any kind while a hook blocked.
  */
 export function judgeRun(trace: RunTrace): RunVerdict {
   if (trace.startError !== undefined) return { status: 'not-run', reason: `could not start the binary: ${trace.startError}` }
@@ -184,7 +227,6 @@ export function judgeRun(trace: RunTrace): RunVerdict {
     return { status: 'not-run', reason: `Claude Code printed no system/init (${trace.timedOut ? `stopped at the limit of ${trace.limitMs} ms` : `exit code ${String(trace.exitCode)}`}); ${stderr}` }
   const blocked = blockingHooks(trace.lines)
   const holding = blocked.length === 0 ? '' : `; hooks of the plugin blocked: ${[...new Set(blocked)].join('; ')}`
-  if (trace.requests === 0) return { status: 'failed', reason: `Claude Code started with the plugin but asked the stand-in no turn (exit code ${String(trace.exitCode)})${holding}; ${stderr}` }
   const result = trace.lines.find((line) => line.type === 'result')
   const ended = trace.timedOut
     ? `Claude Code did not finish in ${trace.limitMs} ms and was stopped; ${trace.requests} turns asked the stand-in`
@@ -193,6 +235,13 @@ export function judgeRun(trace: RunTrace): RunVerdict {
       : result.is_error === true
         ? `the turn ended with an error of the API or of Claude Code: ${tail(JSON.stringify(result), 400)}`
         : undefined
+  if (trace.requests === 0) {
+    const hung = hungHooks(trace.lines)
+    const none = `Claude Code started with the plugin but asked the stand-in no turn (exit code ${String(trace.exitCode)})`
+    if (blocked.length > 0 || hung.length > 0)
+      return { status: 'failed', reason: `${none}${holding}${hung.length === 0 ? '' : `; hooks of the plugin that never answered: ${[...new Set(hung)].join(', ')}`}; ${stderr}` }
+    return { status: 'not-run', reason: `${ended === undefined ? none : `${none}; ${ended}`}; ${stderr}` }
+  }
   if (ended === undefined) return { status: 'ran', init }
   return blocked.length > 0 ? { status: 'failed', reason: `${ended}${holding}` } : { status: 'not-run', reason: `${ended}; ${stderr}` }
 }
