@@ -11,7 +11,7 @@ Claude Code в терминале обновляется сам, а Health то�
 
 ## 2. Один запуск на пару версий, итог в кэше
 
-Code: `src/main/first-run/harness-claude.ts:150-170` · key lines: 151, 154, 156, 161
+Code: `src/main/first-run/harness-claude.ts:152-172` · key lines: 153, 156, 158, 163
 
 ```ts
   private async entry(claude: Extract<ClaudeFound, { kind: 'found' }>, harness: { dir: string; version: string }, copy: ClaudeCopy, again: boolean): Promise<Entry> {
@@ -48,7 +48,7 @@ Code: `src/main/first-run/harness-claude.ts:150-170` · key lines: 151, 154, 156
 
 ## 3. Каждый case — с PATH login shell и сбором plugin_warnings
 
-Code: `src/main/first-run/harness-claude.ts:251-270` · key lines: 255, 262, 264
+Code: `src/main/first-run/harness-claude.ts:253-272` · key lines: 257, 264, 266
 
 ```ts
 export function contractSetRun(loginEnv: () => Promise<Env>, run: typeof runContractSet = runContractSet, runLimitMs = HEALTH_RUN_LIMIT_MS): HarnessClaudeDeps['runSet'] {
@@ -85,7 +85,7 @@ export function contractSetRun(loginEnv: () => Promise<Env>, run: typeof runCont
 
 ## 4. «Guard не отказал» и «не смог запустить» — разные строки
 
-Code: `src/main/first-run/harness-claude.ts:213-223` · key lines: 215, 218, 222
+Code: `src/main/first-run/harness-claude.ts:215-225` · key lines: 217, 220, 224
 
 ```ts
   if (failed.length === 1) {
@@ -154,10 +154,10 @@ if (harnessClaude !== null) {
 1. Почему строка, где case не запустился, не красная и не даёт toast?
    Ответ: `not-run` значит, что о Harness ничего не известно (binary не стартовал, stand-in отстал), и красный был бы
    ложным «guard не отказал».
-   Строки: `src/main/first-run/harness-claude.ts:220-223`
+   Строки: `src/main/first-run/harness-claude.ts:222-225`
 2. Зачем Health подменяет PATH в каждом case-е, если runner сам строит окружение?
    Ответ: `claudeEnv` берёт PATH процесса worfy; у приложения из Finder он без `node`, и hooks Harness не стартовали бы.
-   Строки: `src/main/first-run/harness-claude.ts:255-262`
+   Строки: `src/main/first-run/harness-claude.ts:257-264`
 3. Что делает Run again, если запуск той же пары уже идёт?
    Ответ: ждёт идущий запуск, второй не начинает: ключ пары уже в `running`.
-   Строки: `src/main/first-run/harness-claude.ts:151-153`
+   Строки: `src/main/first-run/harness-claude.ts:153-155`
