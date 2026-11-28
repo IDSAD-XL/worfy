@@ -2,6 +2,7 @@
 
 Type: task
 Status: claimed 2026-11-28T02:37Z
+PR: #2345
 Branch: worfy-harness-guarantees/08
 Blocked by: 01
 Source: [spec.md](../spec.md), «Ticket-ы», 08; «Решение», 4; «Решения по реализации» («Contract set без модели»);
