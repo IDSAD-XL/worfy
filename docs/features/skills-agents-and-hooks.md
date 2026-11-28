@@ -392,8 +392,8 @@ against) and `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=50`: Claude Code compacts at 50 % 
 room for output, 40,000 tokens, which the history's count is over and the context after the compaction is under. A
 case may set only `EVAL_*` variables, so
 `scripts/eval-harness.mjs` sets these two in the call of this case and removes them from every other call. The case
-carries the tag `alone`: it runs only by `pnpm eval:harness -- --case compaction-state`, and a general run or
-`--changed` leaves it out with a line that says how to run it. The variant without the hook is
+carries the tag `alone`: it runs only by `pnpm eval:harness -- --case compaction-state` or when `--changed` chooses it,
+in a call of its own, and a general run leaves it out with a line that says how to run it. The variant without the hook is
 `HARNESS_DIR="$(node harness/evals/compaction-state/baseline.mjs)" pnpm eval:harness -- --case compaction-state`; its
 results go to `evals/results/` of that copy, which is left for you to remove. Without exactly one compaction the
 grader `compacted` fails the case on its own.

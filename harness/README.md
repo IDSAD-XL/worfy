@@ -205,12 +205,37 @@ both, a path of the map that is not on disk, a case without its folder and a cas
 entry (`scripts/eval-harness-coverage.mjs`, `coverageProblems`). A new rule file goes into the map in
 the same PR: under a case, or into `uncovered` with the reason.
 
+The map has a second kind of file: the files the cases run. These are the hook scripts and the
+modules they load (every file of `hooks/` but the two rule files above), the scripts of `bin/` and
+every file under `lib/`; the tests (`hooks/tests/`, `bin/tests/`) are not among them. Each such file
+is in the map exactly once: under `scripts`, with what leads to its cases, or in `uncovered` with the
+reason. What leads to cases is a list of case names, `"*"` for every case, or paths of the map whose
+cases the file takes: a rule file under a case, or another entry of `scripts`. A library names the
+scripts that load it (`"lib/evidence.cjs": ["bin/evidence-check", "bin/land", "bin/ticket", …]`), a
+script names the cases whose skills tell the agent to run it and the scripts that start it. A hook
+that every session runs names the cases whose graded work goes through it: `hooks/guard.mjs` names
+the cases that commit, rewrite history or filter the output of a check, not all of them;
+`hooks/eval-env.cjs` and `bin/profile`, which every run goes through, name `"*"`. The test fails on
+a file the cases run in neither list, in both or twice, an entry that names nothing, a name that is
+neither a case nor a path of the map, and a path that leads to a file of `uncovered`. A new hook
+script, script or library goes into the map in the same PR.
+
+The shared fixtures are not in the map: they are found from the `scaffold.sh` of each case. A
+`scaffold.sh` line (not a comment) that names a file in another folder of `evals/`
+(`"$here/../pr-reply-fixture/pull.sh"`) makes the case a user of that file's folder
+(`evals/pr-reply-fixture/`), and a fixture in a case folder that other cases take
+(`../pr-fix-checks/fixture/pr-fix.cjs`) works the same way for its subfolder. A folder of `evals/`
+that is neither a case nor `lib/` and that no `scaffold.sh` takes is a problem of the map.
+
 `pnpm eval:harness -- --changed <base>` runs only the cases of what changed since `<base>`: the
 commits of the branch since its merge-base with `<base>` and the uncommitted files `git status`
-shows, as the gate finds changed files. A changed rule file chooses its cases, a file in
-`evals/<case>/` chooses that case, a file in `evals/lib/` chooses every case; a changed rule file
-from `uncovered` is printed as `no case: <file> — <reason>`. The script prints which file chose which
-cases. No case chosen — exit 0 and no call. `--changed` does not go with `--case`, `--tag` or
+shows, as the gate finds changed files. A changed rule file chooses its cases, a changed file of
+`scripts` the cases its entry leads to, a file in `evals/<case>/` chooses that case and the cases
+that take its folder as a fixture, a file of a shared fixture the cases that take it, a file in
+`evals/lib/` chooses every case; a changed file from `uncovered` is printed as
+`no case: <file> — <reason>`. The script prints which file chose which cases. When the change
+chooses `compaction-state`, it runs in a call of its own with its two variables, as
+`--case compaction-state` does. No case chosen — exit 0 and no call. `--changed` does not go with `--case`, `--tag` or
 `HARNESS_DIR`, and refuses a map with a problem: exit 1, no call. `claude plugin eval --case` takes a
 single name glob, so when the change chooses some of a tag's cases, each of them is a call of its own;
 all cases of a tag are still one call.
@@ -237,7 +262,8 @@ run, and as an unknown option it would reach a paid call.
 ### When to run the evals
 
 - A PR that changes rule files (`harness/skills/`, `harness/agents/`, `harness/hooks/rules/`,
-  `harness/hooks/hooks.json`, `harness/hooks/inject-rules.mjs`) or `harness/evals/`: before the merge,
+  `harness/hooks/hooks.json`, `harness/hooks/inject-rules.mjs`), a file the cases run under
+  `scripts` of the map (`harness/hooks/`, `harness/bin/`, `harness/lib/`) or `harness/evals/`: before the merge,
   on the branch after its rebase, first `pnpm eval:harness -- --changed origin/main --dry-run` with
   the same arguments as the paid run: in its output every call has exactly one `--case` (or is the
   whole tag) and no `--`, and the budget line names the limit you expect. Then the paid

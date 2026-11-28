@@ -534,16 +534,34 @@ describe('pnpm eval:harness: the case of the tag alone (claude replaced by a stu
     expect(counted).toBeGreaterThan(threshold)
   })
 
-  it('--changed that chooses only it calls no claude, exit 0, and says how to run it', () => {
+  // worfy-harness-eval 04: a change to its files runs it, as `--case compaction-state` does.
+  it.each([
+    ['a rule file of it', join('hooks', 'rules', 'compaction.md'), 'harness/hooks/rules/compaction.md'],
+    ['the hook script it checks', join('hooks', 'after-compact.mjs'), 'harness/hooks/after-compact.mjs'],
+    ['a file of its folder', join('evals', 'compaction-state', 'probes.md'), 'harness/evals/compaction-state/probes.md'],
+  ])('--changed that chooses only it, by %s, runs it alone with its two variables over those of the shell', (_, file, path) => {
     const { repo } = changedRepo()
-    appendFileSync(join(repo, 'harness', 'hooks', 'rules', 'compaction.md'), '\nOne more rule.\n')
-    const { run, calls, versionCalls } = evalIn(repo, ['--changed', 'HEAD'])
+    appendFileSync(join(repo, 'harness', file), '\n// one more line\n')
+    const { run, calls } = evalIn(repo, ['--changed', 'HEAD'], SHELL)
+    expect(run.status, run.stderr).toBe(0)
+    expect(run.stdout).toContain(`${path} -> compaction-state`)
+    expect(lines(run.stdout)).not.toContain(SKIPPED)
+    expect(calls).toHaveLength(1)
+    const call = calls[0]
+    expect(listAfter(call?.args ?? [], '--tag')).toEqual(['alone'])
+    expect(listAfter(call?.args ?? [], '--case')).toEqual(['compaction-state'])
+    expect([call?.compactWindow, call?.compactPct]).toEqual(['100000', '50'])
+  })
+
+  it('--changed that chooses it and a main case gives each its own call, the variables only to its own', () => {
+    const { repo } = changedRepo()
+    appendFileSync(join(repo, 'harness', 'hooks', 'after-compact.mjs'), '\n// one more line\n')
+    appendFileSync(join(repo, 'harness', 'hooks', 'stage-lines.mjs'), '\n// one more line\n')
+    const { run, calls } = evalIn(repo, ['--changed', 'HEAD', '--dry-run'], SHELL)
     expect(run.status, run.stderr).toBe(0)
     expect(calls).toEqual([])
-    expect(versionCalls).toBe(0)
-    expect(run.stdout).toContain('harness/hooks/rules/compaction.md -> compaction-state')
-    expect(lines(run.stdout)).toContain(SKIPPED)
-    expect(run.stdout).toMatch(/no call is left of the cases the change chose, claude is not called/)
+    expect(run.stdout).toMatch(/eval:harness: main-status-block — claude plugin eval .* --tag main --case status-block /)
+    expect(run.stdout).toMatch(/eval:harness: alone-compaction-state — CLAUDE_CODE_AUTO_COMPACT_WINDOW=100000 CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=50 claude plugin eval .* --tag alone --case compaction-state /)
   })
 })
 
@@ -634,6 +652,7 @@ describe.skipIf(process.platform !== 'win32')('pnpm eval:harness on Windows: the
 const COVERAGE_MODULE = join(REPO, 'scripts', 'eval-harness-coverage.mjs')
 interface Coverage {
   cases: Record<string, string[]>
+  scripts: Record<string, string[]>
   uncovered: Record<string, string>
 }
 interface Selection {
@@ -643,9 +662,11 @@ interface Selection {
 }
 interface CoverageModule {
   ruleFiles: (harnessDir: string) => string[]
+  scriptFiles: (harnessDir: string) => string[]
+  fixtureUsers: (harnessDir: string) => Record<string, string[]>
   readCoverage: (harnessDir: string) => Coverage
   coverageProblems: (harnessDir: string) => string[]
-  casesFor: (changedPaths: string[], coverage: Coverage, caseNames: string[]) => Selection
+  casesFor: (changedPaths: string[], coverage: Coverage, caseNames: string[], fixtures?: Record<string, string[]>) => Selection
 }
 const coverageModule = async (): Promise<CoverageModule> => (await import(COVERAGE_MODULE)) as CoverageModule
 const CASE_NAMES = CASES.map(([name]) => name)
@@ -721,7 +742,7 @@ describe('harness/evals/lib/coverage.json: which case checks which rule file', (
   it('coverageProblems names a map whose cases are not an object', async () => {
     const { coverageProblems } = await coverageModule()
     const dir = harnessCopyWith((copy) => editCoverage(copy, (coverage) => ((coverage as unknown as Record<string, unknown>).cases = [])))
-    expect(coverageProblems(dir)).toEqual(['evals/lib/coverage.json must hold the objects "cases" and "uncovered"'])
+    expect(coverageProblems(dir)).toEqual(['evals/lib/coverage.json must hold the objects "cases", "scripts" and "uncovered"'])
   })
 
   it('coverageProblems names a map that cannot be read', async () => {
@@ -750,7 +771,6 @@ describe('harness/evals/lib/coverage.json: which case checks which rule file', (
     expect(qmd.uncovered).toEqual([{ path: 'harness/skills/qmd/SKILL.md', reason: coverage.uncovered['skills/qmd/SKILL.md'] }])
     expect(qmd.uncovered[0]?.reason).toMatch(/\S/)
     expect(pick('src/main/index.ts')).toEqual({ cases: [], files: [], uncovered: [] })
-    expect(pick('harness/bin/profile')).toEqual({ cases: [], files: [], uncovered: [] })
     expect(pick('harness/evals/results/2026-01-01T00-00-00-000Z-main/aggregate-result.json').cases).toEqual([])
     // Several paths: each case once, and what each path chose.
     const many = casesFor(['harness/agents/implementer.md', 'README.md', 'harness/hooks/hooks.json', 'harness/hooks/rules/orchestrator.md'], coverage, CASE_NAMES)
@@ -760,6 +780,94 @@ describe('harness/evals/lib/coverage.json: which case checks which rule file', (
       { path: 'harness/hooks/hooks.json', cases: ['compaction-state', 'status-block'] },
       { path: 'harness/hooks/rules/orchestrator.md', cases: ['status-block'] },
     ])
+  })
+
+  // The second kind of file of the map (worfy-harness-eval 04): the files the cases run — the hook
+  // scripts, the scripts of bin/ and the libraries of lib/ — under `scripts`, and the shared fixtures,
+  // found by the scaffold.sh of each case.
+  it('casesFor picks the cases of a changed hook script, script, library and shared fixture', async () => {
+    const { casesFor, fixtureUsers, readCoverage } = await coverageModule()
+    const coverage = readCoverage(HARNESS)
+    const fixtures = fixtureUsers(HARNESS)
+    const pick = (path: string): string[] => casesFor([path], coverage, CASE_NAMES, fixtures).cases
+    expect(pick('harness/hooks/guard.mjs')).toEqual([
+      'implementer-report', 'implementer-story', 'pr-fix-checks', 'pr-fix-comments', 'pr-fix-conflicts', 'pr-fix-conflicts-silent', 'ship-ticket-local-green',
+      'ship-ticket-pr-green-ci',
+    ])
+    const ticket = [
+      'compaction-state', 'epic-wave-old-form', 'epic-wave-tickets', 'implementer-report', 'implementer-story', 'no-os-screen-capture', 'product-ideas',
+      'reviewer-intended-breakage', 'reviewer-simplification', 'reviewer-verdict', 'ship-ticket-local-green', 'ship-ticket-pr-green-ci', 'status-block',
+    ]
+    expect(pick('harness/bin/ticket')).toEqual(ticket)
+    // A library leads to the cases of the scripts that load it: bin/ticket, bin/evidence-check, bin/land, hooks/after-compact.mjs.
+    expect(pick('harness/lib/evidence.cjs')).toEqual([...ticket, 'human-review-setup-full', 'human-review-setup-refresh-declined'].sort())
+    // Every run reads its state folder and its git through hooks/eval-env.cjs, and bin/profile runs at the start of every session.
+    expect(pick('harness/hooks/eval-env.cjs')).toEqual([...CASE_NAMES].sort())
+    expect(pick('harness/bin/profile')).toEqual([...CASE_NAMES].sort())
+    const pullRequest = ['agent-review-guards', 'pr-fix-checks', 'pr-fix-comments', 'pr-fix-conflicts', 'pr-fix-conflicts-silent', 'pr-reply-guards', 'pr-reply-three-threads']
+    expect(pick('harness/evals/pr-reply-fixture/gh.mjs')).toEqual(pullRequest)
+    expect(pick('harness/evals/human-review-setup-fixture/history.cjs')).toEqual(['human-review-setup-full', 'human-review-setup-refresh-declined', 'human-review-setup-short-history'])
+    // A fixture in a case folder that other cases take: its own case and theirs; another file of that case folder chooses the case only.
+    expect(pick('harness/evals/pr-fix-checks/fixture/pr-fix.cjs')).toEqual(['pr-fix-checks', 'pr-fix-comments', 'pr-fix-conflicts', 'pr-fix-conflicts-silent'])
+    expect(pick('harness/evals/pr-fix-checks/graders/x.md')).toEqual(['pr-fix-checks'])
+    // A file the cases run without a case is printed with its reason.
+    const calls = casesFor(['harness/hooks/calls.mjs'], coverage, CASE_NAMES, fixtures)
+    expect(calls.cases).toEqual([])
+    expect(calls.uncovered).toEqual([{ path: 'harness/hooks/calls.mjs', reason: coverage.uncovered['hooks/calls.mjs'] }])
+    // A file of the tests of the Harness is no file the cases run.
+    expect(casesFor(['harness/hooks/tests/guard.test.sh', 'harness/bin/tests/ticket.test.sh'], coverage, CASE_NAMES, fixtures)).toEqual({ cases: [], files: [], uncovered: [] })
+  })
+
+  it('maps every hook script, script and library of harness/ exactly once, to cases or to a reason', async () => {
+    const { readCoverage, scriptFiles } = await coverageModule()
+    const coverage = readCoverage(HARNESS)
+    const files = scriptFiles(HARNESS)
+    expect(files).toEqual(expect.arrayContaining(['hooks/guard.mjs', 'hooks/stop.mjs', 'hooks/gate.mjs', 'bin/ticket', 'bin/profile', 'lib/evidence.cjs', 'lib/gate-failures/report.mjs']))
+    // The two files that inject the rules are rule files; the tests and the injected rules are neither.
+    expect(files.filter((file) => /^hooks\/(hooks\.json|inject-rules\.mjs|rules\/.*|tests\/.*)$|^bin\/tests\//.test(file))).toEqual([])
+    for (const file of files) expect(Object.hasOwn(coverage.scripts, file) !== Object.hasOwn(coverage.uncovered, file), file).toBe(true)
+  })
+
+  const scriptBreaks: [name: string, edit: (dir: string) => void, problem: string][] = [
+    ['a new hook script with neither cases nor a reason', (dir) => writeFileIn(join(dir, 'hooks', 'new-hook.mjs'), '// new\n'), 'not mapped: hooks/new-hook.mjs'],
+    ['a new script of bin/', (dir) => writeFileIn(join(dir, 'bin', 'new-tool'), '#!/usr/bin/env node\n'), 'not mapped: bin/new-tool'],
+    ['a new library in a folder of lib/', (dir) => writeFileIn(join(dir, 'lib', 'gate-failures', 'new.mjs'), '// new\n'), 'not mapped: lib/gate-failures/new.mjs'],
+    [
+      'a script both under scripts and in uncovered',
+      (dir) => editCoverage(dir, (coverage) => (coverage.uncovered['hooks/guard.mjs'] = 'some reason')),
+      'mapped more than once: hooks/guard.mjs',
+    ],
+    [
+      'a script given twice under scripts',
+      (dir) => {
+        const file = join(dir, 'evals', 'lib', 'coverage.json')
+        writeFileSync(file, readFileSync(file, 'utf8').replace('"scripts": {', '"scripts": {\n    "hooks/guard.mjs": ["status-block"],'))
+      },
+      'mapped more than once: hooks/guard.mjs',
+    ],
+    ['a script removed from disk', (dir) => unlinkSync(join(dir, 'hooks', 'stage-lines.mjs')), 'missing on disk: hooks/stage-lines.mjs'],
+    ['a path under scripts that is a rule file', (dir) => editCoverage(dir, (coverage) => (coverage.scripts['skills/qmd/SKILL.md'] = ['status-block'])), 'not a script: skills/qmd/SKILL.md'],
+    ['a script with no case', (dir) => editCoverage(dir, (coverage) => (coverage.scripts['hooks/stage-lines.mjs'] = [])), 'script names no case: hooks/stage-lines.mjs'],
+    [
+      'a script whose entry is not a list',
+      (dir) => editCoverage(dir, (coverage) => ((coverage.scripts as Record<string, unknown>)['hooks/stage-lines.mjs'] = 'status-block')),
+      'script names no case: hooks/stage-lines.mjs',
+    ],
+    [
+      'a script that names an unknown case',
+      (dir) => editCoverage(dir, (coverage) => (coverage.scripts['hooks/stage-lines.mjs'] = ['no-such-case'])),
+      'neither a case nor a mapped file: no-such-case (hooks/stage-lines.mjs)',
+    ],
+    [
+      'a script that leads to a file of uncovered',
+      (dir) => editCoverage(dir, (coverage) => (coverage.scripts['hooks/stage-lines.mjs'] = ['hooks/calls.mjs'])),
+      'leads to a file of uncovered: hooks/calls.mjs (hooks/stage-lines.mjs)',
+    ],
+    ['a shared fixture no scaffold.sh takes', (dir) => writeFileIn(join(dir, 'evals', 'new-fixture', 'gh.mjs'), '// new\n'), 'shared fixture no case takes: evals/new-fixture/'],
+  ]
+  it.each(scriptBreaks)('coverageProblems names %s', async (_, edit, problem) => {
+    const { coverageProblems } = await coverageModule()
+    expect(coverageProblems(harnessCopyWith(edit))).toContain(problem)
   })
 })
 
@@ -1027,8 +1135,9 @@ describe('pnpm eval:harness -- --changed <base> (claude replaced by a stub, a te
     appendFileSync(join(repo, 'harness', 'evals', 'lib', 'demo-project.sh'), '\n# a comment\n')
     const { run, calls } = evalIn(repo, ['--changed', 'HEAD'])
     expect(run.status, run.stderr).toBe(0)
-    expect(calls.map((call) => listAfter(call.args, '--tag'))).toEqual([['main'], ['gui']])
-    for (const call of calls) expect(call.args).not.toContain('--case')
+    // The case of the tag alone, chosen too, runs in a call of its own (worfy-harness-eval 04).
+    expect(calls.map((call) => listAfter(call.args, '--tag'))).toEqual([['main'], ['gui'], ['alone']])
+    expect(caseArgs(calls)).toEqual([[], [], ['compaction-state']])
   })
 
   it('calls no claude and exits 0 when no rule file changed', () => {
