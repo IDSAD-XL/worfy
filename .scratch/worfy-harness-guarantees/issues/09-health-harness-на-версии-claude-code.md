@@ -74,3 +74,51 @@ merge нужен Windows verdict.
 - [ ] `engines["claude-code"]` в `plugin.json` стоит, только если spike 01 подтвердил ошибку при невыполненном
       `engines`; иначе «Итог» называет причину.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR, включая Windows verdict.
+
+## Итог
+
+Сделано 2026-11-28 на `@anthropic-ai/claude-agent-sdk` 0.3.322 (Claude Code 2.1.322), macOS arm64. Модели, ключа и входа
+нет; настоящий Codex не запускался; платного eval-а нет (Q6 (а)).
+
+- **Две строки Health** «Harness on Claude Code» — check-и `harness-claude` (копия worfy, binary SDK или
+  `WORFY_CLAUDE`) и `harness-claude-terminal` (`claude` с PATH login shell, на Windows — из окружения Session). Код —
+  `src/main/first-run/harness-claude.ts`: набор Ticket-а 08 (`CONTRACT_CASES` через `runContractSet`, runner и case-ы
+  не тронуты) с копией Harness этой сборки (`bundledHarnessDir()`, версия — `bundledHarnessVersion()`).
+- **Один раз на пару** версии Claude Code и версии Harness; итог — `<данные worfy>/harness-claude.json` (последние 12
+  пар). Новая версия терминала или Harness — новый запуск; обе копии на одной версии делят один запуск. Run again —
+  новый канал `firstRun.harnessClaude`, без диалога подтверждения: он меняет только кэш worfy.
+- **Тексты строки.** Всё прошло — `2.1.322 (worfy) · 6 of 6 checks · Nov 14, 10:02`. Case провалился (`failed`
+  runner-а: Harness не сделал своё) — красная строка `<версия> (<копия>) · <case>: <причина>`, Run again, Copy details
+  (ответ каждого case-а) и toast «The Harness failed a check on Claude Code …» с Open Health
+  (`src/renderer/shell/harness-claude-toasts.ts`). Case не запустился (`not-run`) — строка «Couldn't check: … the
+  checks could not run: …», статус `unknown`, без toast-а: о Harness она ничего не говорит.
+- **Changelog (Q7 (б)).** Строка терминала на версии новее копии worfy даёт кнопку Changelog
+  (https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md); `open-link` с полем `url` открывается через
+  `shell.openExternal`.
+- **plugin_warnings.** Предупреждения `plugin_warnings` из `system/init` (Claude Code 2.1.332 так сообщает
+  невыполненный `engines["claude-code"]`, `type: "engine-range-exempt"`) Health теперь показывает: строка с ними —
+  Warning, текст первого в подсказке, все — в Copy details. На 2.1.322 поля нет; test идёт на записанной форме, на
+  настоящем 2.1.332 не проверено.
+- **`engines["claude-code"]` не поставлен.** Spike 01 (пункт 5 его «Итог»): на 2.1.322 невыполненный `engines` Claude
+  Code молча пропускает и грузит plugin, `plugin_errors` пуст; по наблюдению polish 175 на 2.1.332 plugin тоже грузится,
+  только с `plugin_warnings`. Ошибки нет ни там, ни там — условие Ticket-а не выполнено. Test «has no version» не тронут.
+- **PATH login shell.** Каждый case получает PATH (и `CLAUDE_CODE_GIT_BASH_PATH`, если он есть) login shell через
+  `prepare`: `claudeEnv` берёт PATH процесса worfy, а у копии из Finder он без `node`, и hooks Harness не стартовали бы.
+- **Windows.** `claude.exe` (нативная установка) запускается; `claude.cmd` npm runner без cmd.exe не стартует — строка
+  терминала тогда «could not run» с версией. Кэш — в `dataRoot()` (`%APPDATA%\worfy` на Windows). Локально Windows не
+  проверен: verdict — job Windows в CI.
+- **Сначала падающий test.** `test/unit/harness-claude-health.test.ts` написан до кода и был красным (`Cannot find module
+  '../../src/main/first-run/harness-claude'`). Test кнопок в `test/unit/settings-health.test.tsx` красный на старом
+  `FirstRunChecks.tsx` (проверено подменой файла: 1 failed). Отдельно, временным test-ом (не в PR), набор через
+  `contractSetRun` прошёл на binary SDK 2.1.322 с `harness/`: строка `ok`.
+- **E2e** — `test/e2e/health-harness-claude.spec.ts` на fake runner-е (`WORFY_HARNESS_CONTRACT`, агент
+  `WORFY_AGENT=fake`): строки, toast, кэш, Run again. Локально не запускался (локальный e2e запрещён), его гонит CI на
+  macOS; на Windows spec пропускается — stand-in `claude` там `.cmd`.
+
+Отличия от текста Ticket-а:
+- Строки рисует `src/renderer/shell/FirstRunChecks.tsx` (общий для First run и Health), а не `HealthSection.tsx`:
+  Run again, Copy details и Changelog — там. Ещё вне «Где в коде»: `src/shared/ipc/first-run.ts` (id, действия, канал),
+  `src/shared/health/severity.ts` (уровень строк — non-critical), `src/main/ipc/first-run.ts` (связка),
+  `src/renderer/main.tsx` (toast), `docs/features/onboarding.md` (строка таблицы Health).
+- Строки идут вместе с сетевыми строками Health (`registerNetworkRows`): новая пара занимает секунды, и старт их не ждёт.
+- Под `WORFY_AGENT=fake` без `WORFY_HARNESS_CONTRACT` строк нет: e2e других функций считают строки Health.

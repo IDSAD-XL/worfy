@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -15,6 +15,7 @@ import {
   type HarnessClaudeDeps,
   type SetRun,
 } from '../../src/main/first-run/harness-claude'
+import { removeTestTree } from '../remove'
 
 // worfy-harness-guarantees ticket 09: the Health rows "Harness on Claude Code" — the contract set of ticket 08 on
 // worfy's copy of Claude Code and on the terminal's, once per pair of a Claude Code version and a Harness version,
@@ -54,7 +55,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  rmSync(data, { recursive: true, force: true })
+  removeTestTree(data)
 })
 
 describe('Health: Harness on Claude Code — once per pair of versions', () => {
