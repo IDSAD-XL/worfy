@@ -1,5 +1,8 @@
 # worfy-memory: память Claude под присмотром — правила, guard в Autopilot, раздел Claude memory
 
+Moved to .scratch/worfy-memory/spec.md on 2026-11-28 ([spec](../../../../.scratch/worfy-memory/spec.md), 7
+Ticket-ов в `.scratch/worfy-memory/issues/`). Этот файл больше не правится.
+
 Advisor draft
 
 Status: принят владельцем 2026-11-28, ответ на Q15: «принимаю». Критик разобрал черновик

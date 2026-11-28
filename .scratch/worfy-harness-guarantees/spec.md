@@ -606,6 +606,10 @@ Wave в работе Orchestrator считает заново по Blocked by и
 - **Память Claude Code открыта.** Запись в `~/.claude/projects/*/memory/` разрешена; агент может оставить там текст,
   который прочтёт следующая Session, как rule проекта у Antigravity
   ([досье](../../docs/research/2026-11-13-competitors/google-antigravity.md):542). Описано, не закрыто.
+  2026-11-28: исключение для памяти Claude Code действует только в Session с человеком. В Session без человека
+  (Autopilot) запись в папку памяти закрывает Epic `worfy-memory`, Ticket 02 — guard в PreToolUse hook Session, который
+  на каждом вызове проверяет, есть ли человек. Guard Ticket-а 06 этого Epic-а исключение для памяти сохраняет (решение
+  владельца 2026-11-28, тема `claude-projects-parity`, Q14).
 - **Отметка владельца на GitHub.** Статус `owner` (Q3 (а)) — вторая запись main-процесса на GitHub. Тот же
   токен может записать его и скриптом, который guard не читает: это тоже сила самого агента.
 - **Windows.** `%APPDATA%`, Git Bash, регистр путей; разбор путей guard-а на win32 (`guard.mjs:727-729`). Платформенные
