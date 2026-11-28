@@ -122,6 +122,15 @@ test('the Mind map of a Product Session, with a node card open, has no serious a
     await window.keyboard.press('Enter')
     const map = window.locator('.w-shell__view[data-view="session"]').getByTestId('session-view').getByTestId('product-session-map')
     await expect(map.getByTestId('product-session-map-empty')).toBeVisible()
+    // The advisor's mind_map_add (agent script product-mind-map) names the topic: the map shows the topic of the
+    // Session's own calls (worfy-polish ticket 173). The fake agent writes no file: the test does.
+    const view = window.locator('.w-shell__view[data-view="session"]').getByTestId('session-view')
+    const field = view.getByRole('textbox', { name: /^Message / })
+    await expect(field).toBeEnabled()
+    await field.fill('What could we sell?')
+    await field.press('Enter')
+    await expect(view.getByTestId('transcript-text').last()).toContainText('One idea on the map')
+    await expect(view.getByTestId('session-state')).toHaveText('idle')
     writeFileSync(mapFile, `${JSON.stringify({ version: 1, nodes }, null, 2)}\n`)
     // The topic and its nodes.
     await expect(map.getByTestId('mind-node')).toHaveCount(nodes.length + 1)

@@ -159,7 +159,9 @@ Main не трогали: первое чтение темы watcher-ом по-�
 
 До правки панели 10 test-ов красные (exit 1). После: test-ы модуля (`product-session-panel`, `product-use-mind-map`,
 `node-chips`, `session-view`, `mind-map-hand`) — exit 0; `pnpm typecheck` — exit 0; `pnpm lint`, `pnpm test` и gate
-fast — в отчёте с кодами выхода. e2e и Electron локально не запускали.
+fast — exit 0. e2e и Electron локально не запускали. Первый прогон CI показал четыре e2e, которые открывали новую
+Product Session без сообщения и писали файлы темы руками (`test/e2e/a11y.spec.ts`, `test/e2e/product-session.spec.ts`):
+в них теперь сначала ход fake-агента с `mind_map_add` темы `roadmap`.
 
 ## Проверить себя
 

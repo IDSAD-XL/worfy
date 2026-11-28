@@ -161,4 +161,10 @@ Root cause у обоих bug-ов один: тема, чей Mind map рисуе
   `events`, а не `product.changed`: старый способ больше не переключает карту; проверки этих test-ов не менялись.
   Чистые test-ы `sessionTopicCall` — в `test/unit/node-chips.test.tsx`.
 - Абзац «Which topic shows» в `docs/features/product-session.md` и `docs/features/ru/product-session.md` переписан.
+- E2e на CI (windows-e2e 1/4, первый head PR) упал: `test/e2e/a11y.spec.ts:99` и ещё три test-а
+  `test/e2e/product-session.spec.ts` (вторая половина test-а про перетаскивание узла после перезапуска, длинные тексты,
+  Graph) открывали новую Product Session без единого сообщения и писали файлы темы руками, полагаясь на старое
+  поведение «карта идёт за изменённой темой». Теперь в них сначала ход fake-агента `product-mind-map` (его
+  `mind_map_add` называет тему `roadmap`), потом запись файла; проверки test-ов не менялись. Эти файлы вне
+  «Где в коде», правка вынужденная. Локально e2e не запускались (бриф), решает CI.
 - Ручной пункт (Mac-хост и ПК-гость через Link) не проверялся: нужен владелец на обеих машинах.
