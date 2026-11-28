@@ -374,7 +374,10 @@ describe('the call that takes in a server added while the query runs (worfy-mcp-
   })
 
   it('the manifest of the pinned SDK has it with this signature', () => {
-    expect(manifest.queryMethods['reloadPlugins'], RECAPTURE).toBe('reloadPlugins(options?: {holdOnCacheImpact?: boolean; addPlugins?: SdkPluginConfig[];}): Promise<SDKControlReloadPluginsResponse>;')
+    // SDK 0.3.332 added refuseIfBusy (reject instead of reloading while a turn runs); worfy does not pass it.
+    expect(manifest.queryMethods['reloadPlugins'], RECAPTURE).toBe(
+      'reloadPlugins(options?: {holdOnCacheImpact?: boolean; addPlugins?: SdkPluginConfig[]; refuseIfBusy?: boolean;}): Promise<SDKControlReloadPluginsResponse>;',
+    )
   })
 
   it('the recorded answer of the spike has its servers where worfy reads them, each a row', () => {

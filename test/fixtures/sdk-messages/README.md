@@ -7,6 +7,15 @@ JSON на строку, в том порядке, в каком их отдал 
 бинарник из пакета SDK), Electron 44.10.2, macOS arm64, вход по подписке. Первое снятие — 2026-10-05,
 SDK 0.3.289, Claude Code 2.1.289; что из него новое снятие не повторило, сказано у файлов ниже.
 
+2026-11-28 (worfy-polish 175, SDK 0.3.332, Claude Code 2.1.332) заново сняты только файлы без модели и без
+входа, под обычным Node 24 (не Electron): `no-login.jsonl` (`node scripts/spikes/sdk-probe.ts no-login --env
+HOME=<пустая папка> --fixtures <папка>`), `init-plugin-errors.jsonl` (`node scripts/spikes/harness-hooks/probe.ts
+init-errors --fixtures <папка>`), `plugin-mcp-name-*.jsonl` и `plugin-mcp-live-*.jsonl` с `../mcp-live/*.json`
+(`node scripts/spikes/harness-plugin/probe.ts mcp-name mcp-live --fixtures <папка>`). Остальные файлы — ещё с
+2.1.322: им нужна настоящая модель и вход по подписке (`plugin-integrations-*` — без модели, но с окном Electron);
+список и команды — «Итог» тикета worfy-polish 175. Пока они не сняты, проверка «every captured system/init comes
+from the Claude Code of the manifest» в `test/contract/sdk-compat.test.ts` красная.
+
 `manifest.json` — с чем сняты эти сообщения: версия SDK (`sdk`), Claude Code внутри него
 (`claudeCode`) и методы `Query` из `sdk.d.ts` (`queryMethods`). Contract test
 `test/contract/sdk-compat.test.ts` сверяет его с `package.json`, с установленным пакетом SDK и с

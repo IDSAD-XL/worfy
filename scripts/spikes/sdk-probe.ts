@@ -6,6 +6,7 @@
 //   pnpm exec electron scripts/spikes/sdk-probe.ts [scenario ...] [--out <dir>] [--fixtures <dir>] [--switch-model <model>]
 //     [--env KEY=VALUE ...]
 //   pnpm exec electron scripts/spikes/sdk-probe.ts --rescrub <dir>
+//   node scripts/spikes/sdk-probe.ts no-login --fixtures <dir>   # the one scenario with no model call, plain Node 24
 //
 // Scenarios (all by default): init, controls, stop-hook, no-login, permissions, bypass, background-tasks.
 // --switch-model is the model `controls` switches to with setModel() mid-session (default: sonnet).
@@ -33,8 +34,13 @@ import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { query } from '@anthropic-ai/claude-agent-sdk'
 import type { CanUseTool, Options, PermissionUpdate, Query, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
-import { app } from 'electron'
 import { personalLast, scrubPersonal } from './personal-scrub.mjs'
+
+// Electron when the probe runs inside it (`pnpm exec electron …`, the Node of worfy's main process);
+// plain Node 24 runs it too (`node scripts/spikes/sdk-probe.ts no-login`, `--rescrub`): the SDK starts
+// its own Claude Code binary either way, and no scenario opens a window.
+const electronApp = process.versions.electron ? (await import('electron')).app : undefined
+const exit = (code: number): void => (electronApp ? electronApp.exit(code) : process.exit(code))
 
 type Scenario = 'init' | 'controls' | 'stop-hook' | 'no-login' | 'permissions' | 'bypass' | 'background-tasks'
 const ALL: Scenario[] = ['init', 'controls', 'stop-hook', 'no-login', 'permissions', 'bypass', 'background-tasks']
@@ -796,8 +802,8 @@ function rescrub(dir: string): void {
 }
 
 async function main(): Promise<void> {
-  await app.whenReady()
-  app.dock?.hide()
+  await electronApp?.whenReady()
+  electronApp?.dock?.hide()
   if (rescrubFlag) return rescrub(resolve(rescrubFlag))
   mkdirSync(outDir, { recursive: true })
   const sdkPkg = JSON.parse(readFileSync(join(cwd, 'node_modules', '@anthropic-ai', 'claude-agent-sdk', 'package.json'), 'utf8')) as {
@@ -828,9 +834,9 @@ async function main(): Promise<void> {
 }
 
 main().then(
-  () => app.exit(0),
+  () => exit(0),
   (err: unknown) => {
     process.stderr.write(`[sdk-probe] failed: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`)
-    app.exit(1)
+    exit(1)
   },
 )
