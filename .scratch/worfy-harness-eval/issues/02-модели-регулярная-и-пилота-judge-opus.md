@@ -51,9 +51,12 @@ Source: [spec.md](../spec.md), «Ticket-ы», 02; «Решения владел�
 ## Готово, когда
 
 - [ ] Две константы модели агента и judge `claude-opus-5-5`; все импорты переведены; contract test-ы это проверяют.
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/harness-evals-run.test.ts test/contract/harness-evals-outcome.test.ts test/contract/harness-evals.test.ts` exit 0 · mac - · 9598b9dd0
 - [ ] `pnpm eval:harness -- --dry-run` печатает `--model claude-sonnet-5-5` и `--judge-model claude-opus-5-5`; вывод
       в «Итог».
+  - evidence: test-run pass · `CLAUDE_BIN=test/fixtures/eval-stub/claude.cjs pnpm eval:harness -- --dry-run` exit 0 · mac - · 9598b9dd0
 - [ ] `harness/README.md` называет место констант и новые модели.
+  - evidence: commit pass · worfy-harness-eval/02: README names the constants' file without a new repository script path · - - · 2e102aaa1ca24934f62842401867b16d827b215b
 - [ ] PR называет Ticket 05 своим полным прогоном.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
 
@@ -73,7 +76,9 @@ Source: [spec.md](../spec.md), «Ticket-ы», 02; «Решения владел�
   --no-publish --model claude-sonnet-5-5 --judge-model claude-opus-5-5 --max-cost-usd 30 …` и такая же у `gui`.
 - `harness/README.md`: абзац о цене называет модели агента и judge и место констант; старая цена 15 USD помечена как
   цена на `claude-sonnet-5` с judge `claude-haiku-4-5`. Правило полного прогона называет `REGULAR_MODEL` и
-  `JUDGE_MODEL` в `scripts/eval-run-env.mjs`. Вне списка файлов: `scripts/eval-outcome/README.md` называл judge
+  `JUDGE_MODEL` в `eval-run-env.mjs` («the run environment `scripts/eval-harness.mjs` imports»): полного пути
+  `scripts/eval-run-env.mjs` в README нет, потому что `harness/bin/tests/plugin-neutral.test.sh` (ADR-0074, plugin
+  без путей скриптов репозитория worfy) красный на новом пути скрипта; первая версия с полным путём его и покраснила. Вне списка файлов: `scripts/eval-outcome/README.md` называл judge
   `claude-haiku-4-5`, исправлено на `claude-opus-5-5`.
 - Платного прогона в этом Ticket-е нет (решение владельца 2026-11-28): полный прогон на новых моделях — точка отсчёта,
   Ticket 05; PR называет его своим полным прогоном.
