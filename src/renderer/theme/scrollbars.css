@@ -1,0 +1,44 @@
+/*
+ * The app's own scrollbar (worfy-polish ticket 170, F-SPEC "Tokens"): the same on macOS, with a trackpad or
+ * a mouse, and on Windows, instead of the one the system draws. Thin and round, with no track and no arrow
+ * buttons; the thumb shows only while the pointer is over its container or the container scrolls
+ * (data-scrolling, set by theme/scrolling-mark.ts), and is hidden at rest.
+ * Chromium skips these rules on an element that sets scrollbar-width or scrollbar-color, so neither is
+ * used anywhere in the renderer except scrollbar-width: none, which hides a scrollbar on purpose
+ * (test/unit/scrollbars-css.test.ts).
+ */
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+  background: transparent;
+}
+
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/* The transparent border keeps the visible bar at about 5 px inside the 8 px of the scrollbar. */
+*::-webkit-scrollbar-thumb {
+  border: 1.5px solid transparent;
+  border-radius: 999px;
+  background-color: transparent;
+  background-clip: padding-box;
+}
+
+*:hover::-webkit-scrollbar-thumb,
+[data-scrolling]::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb);
+}
+
+*::-webkit-scrollbar-thumb:hover,
+*::-webkit-scrollbar-thumb:active {
+  background-color: var(--scrollbar-thumb-hover);
+}

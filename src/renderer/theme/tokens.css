@@ -68,6 +68,9 @@
   --selected: #e1ecfb;
   --border: #e2e2e6;
   --border-strong: #cfcfd4;
+  /* The thumb of the app's scrollbar (scrollbars.css) and of a Terminal's (TerminalNode.tsx), and under the pointer. */
+  --scrollbar-thumb: #b8b8be;
+  --scrollbar-thumb-hover: #8e8e93;
   --text: #1d1d1f;
   --text-secondary: #48484a;
   --text-muted: #636366;
@@ -200,6 +203,8 @@
     --selected: #2a2825;
     --border: #2e2b28;
     --border-strong: #3b3834;
+    --scrollbar-thumb: #4a4640;
+    --scrollbar-thumb-hover: #6e685f;
     --text: #ece8e1;
     --text-secondary: #c2bcb2;
     --text-muted: #9c968d;
