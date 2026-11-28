@@ -1,0 +1,142 @@
+# 172 — Waits сам закрывает то, что пользователь уже сделал
+
+Type: polish
+Status: open
+Blocked by: None — can start immediately
+Source: просьба владельца 2026-11-28 со screenshot-ом панели Assistant: на вкладке «Waits 6» висят, например, «Resolve
+conflicts in PR #8406», «7 draft replies wait for your Send», «Replace Harness» и Linked machine, которая не отвечает.
+Слова владельца: «по открытым предложениям Waits нужна регулярная перепроверка: если юзер сделал то, что просилось,
+закрывать это предложение, чтобы они не копились и не висели вечно, пока юзер сам не уберёт».
+
+Кто: агент. Глубина review — `medium`. Не платформенный PR.
+
+## Что происходит
+
+Во вкладке Waits (`Waits`, `src/renderer/assistant/AssistantPanel.tsx:134`) три вида строк:
+
+- пункты attention core (attention core — модуль main, который копит пункты из событий);
+- предложения Assistant-а (proposals), которые модель создаёт через `proposal_create`
+  (`src/shared/assistant/app-tools.ts:75`);
+- карточки Linked machine.
+
+Пункт attention core уже умеет закрываться сам. Состояние `closed` — «the cause went away»
+(`src/shared/assistant/attention.ts:31-32`). Переход делает `AttentionCore.resolve`
+(`src/main/assistant/core/attention-core.ts:229-233`). Его зовёт источник, когда снова прочитал предмет и увидел, что
+причина ушла:
+
+- Session: ответ, prompt, закрытие Session (`src/main/assistant/core/sources.ts:102`, `:117`);
+- Ticket больше не ждёт или исчез (`:143`, `:158`);
+- PR перешёл в группу, которая не ждёт пользователя (`:172`);
+- строка Health check снова `ok` (`:260`);
+- окно Limits снова allowed (`:277`);
+- CI основной ветки снова зелёный (`src/main/assistant/duties/main-ci.ts:35`).
+
+Карточка Linked machine перечитывается каждые 60 s и на каждое изменение соединения
+(`src/main/assistant/window/app.ts:153-163`), так что она уже исправляется сама.
+
+Предложение, привязанное к пункту, уходит из окна вместе с пунктом (`src/main/assistant/window/view.ts:410`).
+Предложение без пункта (`item: null`, `src/shared/assistant/proposals.ts:36`) уходит только по Dismiss или Start
+пользователя (`view.ts:634`, `:718`) или по `proposal_remove` модели.
+
+Пункт без событий удаляется через 14 дней (`ATTENTION_KEEP_DAYS`, `attention-core.ts:27`, `:151-154`). До этого он висит.
+
+Где пункты не закрываются, хотя дело сделано:
+
+1. **PR смержен или закрыт.** Поиск PR inbox берёт только `is:pr is:open` (`src/main/github/inbox.ts:100`). Смерженный
+   или закрытый PR пропадает из snapshot-а. `takePrInbox` (`sources.ts:166-179`) проходит только по строкам snapshot-а,
+   поэтому пункт PR — а с ним предложение вроде «Resolve conflicts in PR #8406» — висит до 14 дней. Test-а на этот
+   случай нет (`test/unit/assistant-attention-sources.test.ts:134` проверяет только переход в другую группу).
+2. **Harness заменён или обновлён.** Строку Health check `harness` («replace it only if this build is the newer one»,
+   `src/main/first-run/checks.ts:810-819`) пересчитывают только старт (`src/main/ipc/first-run.ts:349-352`),
+   «Check again» и открытие Settings → Health (`:364-367`). Re-check на focus окна (`health.focus`, не чаще раза в
+   5 мин — `RECHECK_ON_FOCUS_MS`, `src/main/first-run/health-reports.ts:43`, `:175-184`) зарегистрирован только у
+   `github-access` (`first-run.ts:290`). После Install, Update или Replace из popover-а версии main узнаёт об этом
+   через `onHarnessInstalled` (`src/main/ipc/harness.ts:53`). Слушает его только `index.ts:449`, Health check — нет.
+   Поэтому пункт «Replace Harness» висит до следующего полного прогона.
+3. **Предложения без пункта.** «7 draft replies wait for your Send» — скорее всего такое предложение. Черновики pr-reply
+   на диске есть (`<Profile>/state/pr-inbox/drafts/<owner>-<name>-<N>.json`, state `draft`, `sent` или `discarded`,
+   `src/shared/ipc/pr-inbox.ts:229`, `:237`; читает их `PrReplySender.drafts`,
+   `src/main/github/pr-reply-send.ts:202`). Но у предложения без пункта нет ссылки на PR, и проверить его нечем.
+4. **Slack и Jira** (`src/main/assistant/sources/connector-check.ts:116`) и **Autopilot** (`sources.ts:235`): пункты
+   только создаются. Проверить, что дело сделано, можно лишь новым вызовом connector-а или model-и.
+
+Journal (`src/main/assistant/actions/journal.ts`) — журнал действий: `outcome` у строки только `done`, `refused` или
+`escalated` (`src/shared/assistant/actions.ts:85`). Строку «закрылось само» он не пишет и не для неё сделан. След
+закрытия уже есть: пункт в `closed` остаётся в файле пунктов (`assistant-items.json`,
+`src/main/assistant/core/store.ts:52-55`) до удаления через 14 дней.
+
+## Что строить
+
+Новый таймер и новые вызовы GitHub не нужны: перепроверка садится на чтения, которые worfy уже делает.
+
+1. **PR, которого больше нет среди открытых.** После каждого удачного поиска PR inbox Project-а — раз в 5 мин,
+   при открытии вида Pull requests чаще, с тем же rate limit floor (`inbox.ts:22-26`) — открытый пункт `pr-inbox`
+   этого Project-а закрывается (`resolve`), если его PR нет в результате поиска. Условия:
+   - чтение удачное (`error === null`, `readAt` не null, reader включён);
+   - результат полный: каждый из двух `search` вернул меньше `INBOX_SEARCH_LIMIT` (100, `inbox.ts:57`) PR-ов;
+   - решение — по номерам из результата поиска, а не по строкам групп. PR, чьи details не прочитались, уходит из
+     cache (`inbox.ts:18-19`), хотя открыт.
+   Если хоть одно условие не выполнено, пункт остаётся. Reader отдаёт эти факты (например, `searchComplete` и номера
+   найденных PR-ов) в snapshot или в `onChange`. Новых запросов к GitHub нет.
+2. **Harness.**
+   - Health check подписывается на `onHarnessInstalled` и пересчитывает строку `harness`. Строка `ok` закрывает пункт
+     уже существующим путём (`sources.ts:260`).
+   - Для `harness` регистрируется re-check (`health.registerRecheck`, `health-reports.ts:95`). Тогда строка не `ok`
+     перепроверяется на focus окна, не чаще раза в 5 мин, — так ловится Replace, сделанный в терминале.
+   - Re-check читает только локальное состояние (`appInstaller().status()`). Последний ответ GitHub о том, какая
+     сборка новее (`behind`), берётся из прошлой проверки, без нового вызова.
+3. **То, что проверить нечем, остаётся:** предложения без пункта, Slack, Jira, Autopilot. Ни одна перепроверка их не
+   закрывает. Дату у них видно уже сейчас (`shortTime`, `AssistantPanel.tsx:93`). Но для старше 6 дней `shortTime`
+   показывает только день недели (`src/renderer/assistant/format.ts:6-11`), и возраст неясен. Для таких — дата
+   (`Nov 20`).
+4. **След.** Закрытие — через существующее состояние `closed`: Journal не трогать. В `docs/features/assistant.md`
+   (абзац **Items**, строки 182-188) и в `docs/features/ru/assistant.md` к списку «An item closes when…» добавить
+   смерженный или закрытый PR и заменённый Harness. Отдельно сказать, что предложения без пункта, Slack, Jira и
+   Autopilot закрывает только пользователь.
+
+## Где в коде
+
+- `src/main/github/inbox.ts:57`, `:75`, `:98-101` — поиск и его предел; snapshot — `src/shared/ipc/pr-inbox.ts:167-189`.
+- `src/main/assistant/core/sources.ts:160-179` — `prInboxAttention`, `takePrInbox`.
+- `src/main/assistant/core/install.ts:80-81` — подписки attention core на PR inbox и Health check.
+- `src/main/ipc/harness.ts:50-56`, `:70-78` — `onHarnessInstalled`; `src/main/ipc/first-run.ts:286-292` — образец
+  `registerRecheck`; `src/main/first-run/health-reports.ts:95`, `:175-184`.
+- `src/main/first-run/checks.ts:810-819` — строка `harness`.
+- `src/renderer/assistant/format.ts:6-11` — `shortTime`.
+- `docs/features/assistant.md:182-188`, `docs/features/ru/assistant.md`.
+
+## Test-ы
+
+Unit test-ы, по три случая на каждый вид: условие держится, условие ушло, проверить нельзя. Все красные до правки
+там, где закрытия ещё нет.
+
+- `test/unit/assistant-attention-sources.test.ts`, PR:
+  - PR по-прежнему в группе, которая ждёт пользователя → пункт открыт;
+  - PR нет в полном удачном поиске → пункт `closed`;
+  - поиск с ошибкой, неполный (100 PR-ов), reader выключен, `readAt` null, PR ушёл только из cache details → пункт
+    открыт.
+- `test/unit/pr-inbox.test.ts`: reader отдаёт полноту поиска и найденные номера; ровно 100 PR-ов → не полный.
+- `test/unit/health-reports.test.ts` (или новый test рядом), Harness:
+  - после `onHarnessInstalled` со статусом, совпавшим со сборкой, строка `harness` — `ok`, пункт закрыт;
+  - статус по-прежнему outdated → пункт открыт;
+  - статус не прочитался → строка не `ok`, пункт открыт;
+  - re-check на focus зовётся не чаще раза в 5 мин.
+- `test/unit/assistant-attention-sources.test.ts`: Slack, Jira, Autopilot и предложение без пункта перепроверка не
+  закрывает.
+- Unit test на `shortTime`: старше 6 дней — дата.
+- E2e не нужен.
+
+## Готово, когда
+
+- [ ] Пункт PR, которого нет в полном удачном поиске PR inbox, закрывается после очередного чтения; при ошибке,
+      неполном поиске или PR, ушедшем только из cache, пункт остаётся. Новых вызовов GitHub нет.
+- [ ] Пункт строки Health check `harness` закрывается после Install, Update или Replace и после Replace в терминале
+      (re-check на focus); при непрочитанном статусе остаётся.
+- [ ] Предложения без пункта, Slack, Jira и Autopilot перепроверка не закрывает; их дата старше 6 дней видна как дата.
+- [ ] Unit test-ы на каждый вид («держится», «ушло», «нельзя проверить») красные до правки там, где закрытия не было.
+- [ ] `docs/features/assistant.md` и `docs/features/ru/assistant.md` говорят, что закрывается само, а что — нет.
+- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+- [ ] (вручную) Сделай: в Stable worfy дождись пункта Waits о своём PR, смержи или закрой PR на GitHub и подожди до
+      5 мин (или открой вид Pull requests) → Должно быть: пункт и его предложение ушли из Waits. Затем при пункте
+      «Replace Harness» нажми Replace в popover-е версии → Должно быть: пункт ушёл.
+  - needs: mac stable
