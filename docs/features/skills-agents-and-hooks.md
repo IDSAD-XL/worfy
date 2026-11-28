@@ -254,7 +254,7 @@ Claude Code runs these commands on its events. The limit is in seconds.
 | `SubagentStart` | `inject-rules.mjs common` | 10 | The common rules, the language of reports and the user's rules |
 | `PreCompact` | `inject-rules.mjs compaction` | 10 | The instructions for the compaction summary, as plain text, in a main Session and in a Subagent; nothing on Codex |
 | `UserPromptSubmit` | `stage-lines.mjs` | 10 | In a Project that keeps Tickets, the `epic-status` lines of the Epics in play, for the Stage line of the status block: the Epic of the current branch (its line names the branch), then Epics with a claimed Ticket, then Epics of local Ticket branches, newest first, whose Ticket is not done; three lines at most. With none of these, the Epics that are not closed, those whose next Ticket is blocked last. Nothing in a Product Session or for a Subagent. When `bin/profile` or `epic-status` fails or takes over 2.5 s, nothing and one line on stderr; the slow one is killed |
-| `PreToolUse` on `Bash\|apply_patch` | `guard.mjs` | 30 | The Bash guard. `apply_patch` is Codex's file edit, which Claude Code does not have: on Codex the guard refuses it to `worfy-reviewer` and `worfy-scout` |
+| `PreToolUse` on `Bash\|apply_patch\|Edit\|Write\|MultiEdit\|NotebookEdit` | `guard.mjs` | 30 | The guard. `apply_patch` is Codex's file edit, which Claude Code does not have: on Codex the guard refuses it to `worfy-reviewer` and `worfy-scout`. The file tools meet only the check of verification paths. Every file-tool call now starts node (about 30 ms); a Subagent's call also runs `git rev-parse` and `bin/profile` (about 110 ms in all) |
 | `PostToolUse`, `PostToolUseFailure` | `calls.mjs` | 5 | The call log, written only: the agent sees nothing and its call is not held. It keeps the last 20 calls of each agent (tool, a hash of the input, the outcome) in `<gate state>/calls/<owner>.jsonl`, where the owner is the Session, or the Session and the `agent_id` of a Subagent. When an agent repeats the same failed call, edits a file back and forth or repeats a pair of calls, it appends `would-hint` on the 3rd repeat and `would-deny` on the 4th to `calls/loops.jsonl` with the start of the command; CI waits (`gh pr checks`, `gh run watch`, `gh run view`) do not count. `bin/loop-log [--since <YYYY-MM-DD>]` prints the `would-deny` cases with their Vendor and `cases: N (revisit at 3)`. Logs older than 7 days are removed; `loops.jsonl` keeps its last 2000 lines. On Codex `PostToolUse` runs it too (a shell call's outcome there is its output, with no exit code, and does not count as a failure, so a repeated shell call there gives no case; `apply_patch` carries an exit code and counts); `PostToolUseFailure` is Claude Code's |
 | `TaskCompleted`, `TeammateIdle` | `gate.sh fast` | 900 | The [Gate](gate-and-github.md) |
 | `Stop` | `stop.mjs` | 900 | Holds the turn while the Gate is red, see the [Gate](gate-and-github.md). Under Claude Code it runs no checks and the limit is only a ceiling; on Codex it runs the Gate first, except in the main checkout of the Project |
@@ -341,6 +341,34 @@ a command such as `grep` or `echo` is data, and a heredoc body is not read as a 
 answer refuses too: each try gets 10 s, and a command gets two tries in all, so the hook ends within its limit. If the
 check cannot read the Profile, the command goes on.
 
+**Verification paths.** A Subagent writes a verification path (a file that judges work, such as a CI workflow, a
+Quarantine file or a Harness hook: `profile --field verification.paths`) only when the trail of its Ticket names it. The
+guard reads the file from `Edit`, `Write`, `MultiEdit` and `NotebookEdit`, from the headers of a Codex `apply_patch`, and
+from the write targets of a shell command (`>`, `>>`, `tee`, `cp`, `mv`, `rm`, `touch`, `sed -i` and a few more). The
+Ticket is the one the branch of the file's work tree names, and the trail is read on the tip of the base branch, the rule
+`land` merges by ([Gate](gate-and-github.md)). A path outside the trail, a branch that names no Ticket and a Ticket that is
+not on the base branch yet are refused, with the next step: the need goes into the report, and the Orchestrator adds the
+path to the trail. The main Session is not refused. A Subagent is told by `agent_id`: on Claude Code the main thread of a
+Session started with `--agent` has `agent_type` too. With the Tickets outside the repository (Silent mode) the trail is
+read from the Ticket file in the Workflow folder, and a Subagent's edit of a trail section there is refused. The same check
+refuses a Subagent's `ticket mark`, and `profile-set` of `verification.*`, `workflow.ci_check`, `workflow.pipeline` or
+`workflow.merge` from any agent Session: the owner changes those fields. The check is lexical: a script that writes a file
+itself passes, and `land` checks the PR's diff at merge.
+
+A work tree on a detached HEAD with no rebase in progress is a review tree: a Subagent there edits no verification path,
+and the refusal tells it to mutate a copy outside the repository. During a rebase the branch being rebased decides, as on
+that branch. A folder copy or move counts as a write of the whole folder only where a folder lands as or over a folder
+above a verification path (`cp -RT tmpl .github`, `mv tmpl/workflows .github/`); a file moved into `.github/` is that one
+file. A glob source (`cp -r tmpl/* .github/`) and a `cp` source ending in `/` are not expanded: `land` catches them at
+merge. Two kinds of Project are not checked yet: a Project of several repositories, whose
+trail entries start with the repository's name, and a Profile without a `tickets.branch` template, where no branch names a
+Ticket. `land` still checks their PRs. A read that fails or runs out of the guard's 8 s budget (`bin/profile`, git, the
+trail) lets the call through, and so does a failure inside the check: `land` checks the PR at merge.
+
+**The refusal log.** With `WORFY_GUARD_LOG` set, each refusal appends one line of JSON to that file: the time, the rule
+id, the agent, the Ticket, the tool, the command cut to 200 characters, the Session and the folder. The format is in the
+header of `guard.mjs`. Without the variable the guard writes nothing.
+
 #### On Windows
 
 The hooks start `profile` as `node <script>`, not by its first line. A rule text shows the plugin root as `C:/…`, and
@@ -381,7 +409,8 @@ the home folder shown as `~` is `USERPROFILE`. The Gate's launcher is on the [Ga
 - `harness/hooks/worktree-create.sh` is a draft, and `harness/hooks/hooks.json` does not run it.
 
 Main tests, all shell tests: `harness/hooks/tests/rules-hooks.test.sh`, `harness/hooks/tests/session-hooks.test.sh`,
-`harness/hooks/tests/gh-token-env.test.sh`, `harness/hooks/tests/guard-silent.test.sh` and
+`harness/hooks/tests/gh-token-env.test.sh`, `harness/hooks/tests/guard-silent.test.sh`,
+`harness/hooks/tests/guard-verification.test.sh` and
 `harness/bin/tests/harness-home.test.sh`. The eval `harness/evals/status-block/` checks by behaviour that a main Session
 follows the rules. The eval `harness/evals/compaction-state/` asks an implementer six questions after a compaction —
 its goal, Ticket, done items, files, decisions and next step — with `compaction.md` and `after-compact.mjs` and, in a

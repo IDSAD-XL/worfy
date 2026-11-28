@@ -1,7 +1,47 @@
 #!/usr/bin/env node
 // PreToolUse: refuses commands that destroy uncommitted work, pipes that swallow the exit code of
 // checks, and — in a Silent project or with `attribution: off` — commit messages, branch names and PR
-// texts that carry traces of the workflow (section 3, bin/silent-check).
+// texts that carry traces of the workflow (section 3, bin/silent-check). Section 4 refuses a subagent's
+// write of a verification path that the trail of its ticket on the base branch does not name, a
+// subagent's `ticket mark`, and `profile-set` of the fields the merge condition depends on.
+//
+// The matcher of hooks.json is Bash, apply_patch (Codex) and the file tools of Claude Code (Edit, Write,
+// MultiEdit, NotebookEdit). A file tool meets section 4 only; a shell command meets every section.
+//
+// Section 4, a verification path (lib/verification-paths.cjs: its defaults and the profile's
+// verification.paths). The file a call writes: tool_input.file_path of Edit, Write and MultiEdit,
+// notebook_path of NotebookEdit, the `*** Add File:`, `*** Update File:`, `*** Delete File:` and
+// `*** Move to:` headers of an apply_patch, and the write targets of a shell command (shellTargets).
+// It is taken through symbolic links of its nearest existing folder and compared from the root of the
+// work tree it is in (git rev-parse there), so a worktree under .claude/worktrees/ of a main checkout
+// is its own repository. A subagent (agent_id on Claude Code; agent_type or agent_id on Codex) writes
+// it only when the trail of its ticket names it: the ticket of the tree's branch by tickets.branch,
+// the trail read by lib/ticket-trail.cjs at the tip of worktree.base, or in the tickets folder when the
+// tickets live outside the repository — the rule bin/land merges by; as there, a symbolic link a command
+// makes (`ln -s`) counts wherever it is, and so does a folder above a verification path a command may
+// write or remove whole (`rm -r .github`; a folder source that `cp -R`, `mv` or `rsync` lands by its literal
+// name as or over one: `cp -RT tmpl .github`, `mv tmpl/workflows .github/`; a file moved into a folder is that one
+// file; glob sources and cp sources ending in "/" are not expanded, land catches them). Refused: a path
+// outside the trail, a branch that names no ticket, a ticket with no trail at the base branch (a ticket only
+// on its branch), and any verification path in a tree on a detached HEAD with no rebase in progress (a
+// review tree: mutate a copy outside the repository; during a rebase the branch being rebased decides). The main Session is not refused; a folder no profile covers, a project of several
+// repositories and a profile without a tickets.branch template are not checked (checksPaths). With the
+// tickets outside the repository (Silent mode) a subagent's edit that changes the trail section of a
+// ticket there is refused too. A read that fails or runs out of the section's 8 s budget (bin/profile,
+// git, the trail read), and a failure inside the section, let the call through, as the spec has it
+// (its risks: a failure of the guard opens the way): bin/land checks the PR's diff at merge.
+//
+// The refusal log. With WORFY_GUARD_LOG set (a later ticket of the Harness guarantees epic, Journal and
+// Run history, has worfy set it for the Sessions it starts), every refusal appends one line of JSON to
+// that file; without it — a terminal, say — the guard writes nothing:
+//   {"time":"<ISO 8601>","rule":"<id>","agent":"<agent_type>"|null,"agent_id":"<id>"|null,
+//    "ticket":"<epic>/<NN>"|null,"tool":"<tool_name>","command":"<the command, or `<tool> <path>`, one
+//    line, at most 200 characters>","session":"<session_id>"|null,"cwd":"<directory>"}
+// agent_id null — the main Session (agent is agent_type, which the main thread of a Session started with
+// --agent carries too, so it does not tell a subagent); ticket — the ticket section 4 read for the
+// decision, else null. The rule ids: read-only-agent, interactive-shell, uncommitted-work, pipe-exit-code,
+// workflow-traces, verification-path, verification-path-no-ticket, verification-path-detached,
+// ticket-trail-edit, ticket-mark-subagent, profile-set-merge-fields.
 //
 // The decision is returned in the permissionDecision field. We always exit with zero: an error in
 // the hook itself must neither break the session nor silently let a call through unnoticed.
@@ -29,6 +69,7 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { spawnSync } from "node:child_process"
+import { createRequire } from "node:module"
 import { fileURLToPath } from "node:url"
 import { codexAgent, isCodexInput, isHarnessAgent, READ_ONLY_AGENTS } from "./codex-input.mjs"
 import { git as GIT } from "./eval-env.cjs"
@@ -37,15 +78,30 @@ import { gateConfigFile } from "./gate-paths.mjs"
 // bin/ of this Harness: the folder above hooks/, found from this script's real file.
 const BIN = path.join(path.dirname(path.dirname(fs.realpathSync(fileURLToPath(import.meta.url)))), "bin")
 const SILENT_CHECK = process.env.CLAUDE_SILENT_CHECK_BIN || path.join(BIN, "silent-check")
-// bin/profile: which project's workspace a directory is (a gh api write sent from there).
+// bin/profile: which project's workspace a directory is (a gh api write sent from there), and the profile section 4
+// reads its verification paths and tickets from.
 const PROFILE = process.env.CLAUDE_PROFILE_BIN || path.join(BIN, "profile")
+// The list of verification paths and the reader of a ticket's trail: the same modules bin/land decides by.
+const require = createRequire(import.meta.url)
+const { verificationPaths, isVerificationParent, normalizePath, touchesVerificationPath } = require("../lib/verification-paths.cjs")
+const { trailPaths, namedByTrail, readTrail } = require("../lib/ticket-trail.cjs")
 
 let raw = ""
 process.stdin.setEncoding("utf8")
 for await (const chunk of process.stdin) raw += chunk
 
 const ok = () => process.exit(0)
-const deny = (reason) => {
+// The ticket a refusal is about, once section 4 has read it from the branch: `<epic>/<NN>`.
+let refusedTicket = null
+// The one way to refuse: the reason (what and why, then the next step, in English) goes back to the agent, and with
+// WORFY_GUARD_LOG set one JSON line is appended to that file (the format is in the header). A log that cannot be
+// written changes nothing: the refusal holds.
+const deny = (reason, rule) => {
+    const log = process.env.WORFY_GUARD_LOG
+    if (log)
+        try {
+            fs.appendFileSync(log, JSON.stringify(denial(rule)) + "\n")
+        } catch {}
     process.stdout.write(
         JSON.stringify({
             hookSpecificOutput: {
@@ -66,17 +122,24 @@ try {
 }
 const codex = isCodexInput(payload)
 const agent = codex ? codexAgent(payload) : ""
-if (codex && payload?.tool_name === "apply_patch") {
-    if (READ_ONLY_AGENTS.has(agent))
-        deny(
-            `${agent} edits no file: on Codex its apply_patch is refused, as Claude Code gives a reviewer and a scout no Edit or Write tool. ` +
-                "Name the change in your report instead of making it; shell commands that only read and check stay allowed."
-        )
-    ok()
-}
-if (payload?.tool_name !== "Bash") ok()
-const cmd = String(payload?.tool_input?.command ?? "")
-if (!cmd.trim()) ok()
+const tool = payload?.tool_name
+// A subagent: Claude Code gives `agent_id` inside a subagent only (`agent_type` is also on the main thread of a
+// Session started with --agent, as a recorded run of the pinned Claude Code showed), Codex gives both inside a subagent only.
+const agentId = typeof payload?.agent_id === "string" ? payload.agent_id : ""
+const agentName = typeof payload?.agent_type === "string" ? payload.agent_type : ""
+const subagent = agentId !== "" || (codex && agent !== "")
+if (codex && tool === "apply_patch" && READ_ONLY_AGENTS.has(agent))
+    deny(
+        `${agent} edits no file: on Codex its apply_patch is refused, as Claude Code gives a reviewer and a scout no Edit or Write tool. ` +
+            "Name the change in your report instead of making it; shell commands that only read and check stay allowed.",
+        "read-only-agent"
+    )
+// The file tools only meet section 4; a shell command meets every section.
+const FILE_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit", "apply_patch"])
+const bash = tool === "Bash"
+if (!bash && !FILE_TOOLS.has(tool)) ok()
+const cmd = bash ? String(payload?.tool_input?.command ?? "") : ""
+if (bash && !cmd.trim()) ok()
 
 // --- normalization ------------------------------------------------------------
 
@@ -154,7 +217,8 @@ if (codex && isHarnessAgent(agent)) {
     if (opened)
         deny(
             `On Codex an agent of the Harness opens no interactive \`${opened}\`: what it would type into it later (write_stdin) passes no guard. ` +
-                "Run each command as a shell command of its own, or give the program its script: `bash -c '…'`, `node script.mjs`, `python3 -c '…'`."
+                "Run each command as a shell command of its own, or give the program its script: `bash -c '…'`, `node script.mjs`, `python3 -c '…'`.",
+            "interactive-shell"
         )
 }
 
@@ -206,7 +270,7 @@ const inspect = (form) => {
 const forms = textual ? [normalizeGit(unquoted)] : [normalizeGit(noHeredoc), normalizeGit(unquoted)]
 for (const form of forms) {
     const why = inspect(form)
-    if (why) deny(why + HOWTO)
+    if (why) deny(why + HOWTO, "uncommitted-work")
 }
 
 // --- 2. A pipe that eats the exit code ----------------------------------------
@@ -227,7 +291,8 @@ if (firstPipe !== -1 && !textual) {
             "The pipe eats the exit code: what is visible is the code of the last command in the pipeline, not of the check.\n" +
                 "This is exactly how lint was declared clean while it was red: `pnpm lint | grep` returned grep's code.\n" +
                 "The right way: `set -o pipefail; <command> | tail -n 20` — the filter stays, the exit code survives.\n" +
-                "Or save the output to a file, print `echo $?` and look at the tail separately."
+                "Or save the output to a file, print `echo $?` and look at the tail separately.",
+            "pipe-exit-code"
         )
     }
 }
@@ -259,15 +324,10 @@ const SILENT_TRY_MS = (() => {
     return Number.isInteger(v) && v > 0 ? Math.min(v, DEFAULT) : DEFAULT
 })()
 const silentCheck = () => {
-    const base = typeof payload?.cwd === "string" && payload.cwd ? payload.cwd : process.cwd()
-    // Heredoc bodies are the text of `-F -`, `--body-file -` and `-m "$(cat <<'EOF' … EOF)"`. The rest of the
-    // line after `<<EOF` stays a command.
-    const bodies = []
-    const HEREDOC = /<<-?[ \t]*(['"]?)(\w+)\1([^\n]*)\n([\s\S]*?)^[ \t]*\2[ \t]*$/gm
-    const flat = cmd.replace(HEREDOC, (_m, _q, _tag, rest, body) => {
-        bodies.push(body)
-        return " " + rest
-    })
+    const refuse = (reason) => deny(reason, "workflow-traces")
+    const base = cwdOf()
+    // Heredoc bodies are the text of `-F -`, `--body-file -` and `-m "$(cat <<'EOF' … EOF)"`.
+    const { flat, bodies } = flattenHeredocs(cmd)
     const checks = [] // {dir, what, command, texts: [], diff: []}
     let dir = base
     // The paths the commands before the current one name (their words and redirection targets, resolved against the
@@ -296,7 +356,7 @@ const silentCheck = () => {
     for (const c of checks) {
         const notRun = `\`${c.command}\` was not run: `
         if (!fs.existsSync(SILENT_CHECK))
-            deny(
+            refuse(
                 notRun +
                     `the check for workflow traces could not start: ${SILENT_CHECK} does not exist, ` +
                     `so nothing tells whether ${lowerFirst(c.what)} carries traces. The Harness installation is incomplete; ` +
@@ -326,7 +386,7 @@ const silentCheck = () => {
         }
         const errText = (r?.stderr || "").trim().split("\n").slice(0, 5).join("\n")
         if (!r || r.error?.code === "ETIMEDOUT")
-            deny(
+            refuse(
                 notRun +
                     "the check for workflow traces (bin/silent-check) did not finish in " +
                     (tries.length ? tries.map((t) => `${Math.round(t / 100) / 10} s`).join(" and then ") : "the time left") +
@@ -335,7 +395,7 @@ const silentCheck = () => {
                     `look at its load, and run the check by hand on the same text to see how long it takes: ${byHand}.`
             )
         if (r.error && !unreadStdin(r.error, r.status, r.signal))
-            deny(
+            refuse(
                 notRun +
                     `the check for workflow traces (bin/silent-check) failed (${r.error.code || "error"}: ${r.error.message}), ` +
                     `so nothing tells whether ${lowerFirst(c.what)} carries traces. Run the same command again; ` +
@@ -345,7 +405,7 @@ const silentCheck = () => {
         // where silent-check had nothing to check (a Full project with attribution on, a folder outside a project).
         const stale = c.stale || []
         if (r.status === 0 && stale.length && /^silent-check: clean\b/m.test(r.stdout || ""))
-            deny(
+            refuse(
                 notRun +
                     stale
                         .map(
@@ -360,7 +420,7 @@ const silentCheck = () => {
         if (r.status === 0) continue
         if (r.status === 2 && /^silent-check: profile not read\b/m.test(r.stderr || "")) continue
         if (r.status === 2 && unread.length && /^silent-check: cannot read /m.test(r.stderr || ""))
-            deny(
+            refuse(
                 notRun +
                     `a file it sends could not be read (${errText.replace(/^silent-check: /, "")}), ` +
                     `so nothing tells whether ${lowerFirst(c.what)} carries traces. Nothing was published. ` +
@@ -379,7 +439,7 @@ const silentCheck = () => {
                         .trim()
             )
         if (r.status === 1 && r.stdout.trim())
-            deny(
+            refuse(
                 `${c.what} carries traces of the workflow, and this project keeps them out of its repository and PRs ` +
                     "(Silent mode: no epic names, ticket or ADR numbers, Workflow folder paths, `.scratch`, `HANDOFF`; " +
                     "attribution off: no Claude attribution lines). Found:\n" +
@@ -395,7 +455,7 @@ const silentCheck = () => {
                           "and off is the default of Silent mode."
                         : "")
             )
-        deny(
+        refuse(
             notRun +
                 `the check for workflow traces (bin/silent-check) failed (${r.signal ? `signal ${r.signal}` : `exit ${r.status}`}), ` +
                 `so nothing tells whether ${lowerFirst(c.what)} carries traces.` +
@@ -420,22 +480,38 @@ const capLines = (text, max) => {
     return lines.length > max ? [...lines.slice(0, max), `… ${lines.length - max} more lines`].join("\n") : text
 }
 
+// The command with each heredoc body taken out: `flat` keeps the rest of the line after `<<EOF` as a command,
+// `bodies` holds the bodies, data and not calls.
+function flattenHeredocs(src) {
+    const bodies = []
+    const HEREDOC = /<<-?[ \t]*(['"]?)(\w+)\1([^\n]*)\n([\s\S]*?)^[ \t]*\2[ \t]*$/gm
+    const flat = src.replace(HEREDOC, (_m, _q, _tag, rest, body) => {
+        bodies.push(body)
+        return " " + rest
+    })
+    return { flat, bodies }
+}
+
 // A shell lexer good enough for the commands above: words with quotes removed, commands split on ; & | && ||
 // newlines and parentheses, `$( … )` and backticks kept as raw text inside a word, redirections left out of the
-// words. Each command also carries `redirects`, the targets of its redirections, and `at`, the offset in `src`
+// words. Each command also carries `redirects`, the targets of its redirections, `writes`, those of them that write
+// a file (`>`, `>>`, `&>`, `<>`; not `<`, `<<<`, nor a descriptor copy such as `2>&1`), and `at`, the offset in `src`
 // where it starts.
 function lex(src) {
     const cmds = []
     let words = []
     let redirects = []
+    let writes = []
     let at = null
     let cur = null
     let dropNext = false
+    let dropOp = ""
     const pushWord = () => {
         if (cur !== null) {
             if (dropNext) {
                 dropNext = false
                 redirects.push(cur)
+                if (dropOp.includes(">") && !(dropOp.endsWith("&") && /^(\d+|-)$/.test(cur))) writes.push(cur)
             } else words.push(cur)
             cur = null
         }
@@ -443,9 +519,10 @@ function lex(src) {
     const endCmd = () => {
         pushWord()
         dropNext = false
-        if (words.length || redirects.length) cmds.push(Object.assign(words, { redirects, at: at ?? src.length }))
+        if (words.length || redirects.length) cmds.push(Object.assign(words, { redirects, writes, at: at ?? src.length }))
         words = []
         redirects = []
+        writes = []
         at = null
     }
     const add = (t) => {
@@ -526,8 +603,12 @@ function lex(src) {
             if (cur !== null && /^\d+$/.test(cur)) cur = null // the fd of 2>
             pushWord()
             at ??= i
+            const from = i
             while (i < src.length && "<>&".includes(src[i])) i++
+            // `>|` writes even under noclobber: the bar is part of the operator, not a pipe
+            if (src[i] === "|" && src[i - 1] === ">") i++
             dropNext = true
+            dropOp = src.slice(from, i)
         } else if (";&|\n()".includes(c)) {
             endCmd()
             i++
@@ -884,6 +965,527 @@ function fileText(f, dir, unread) {
     }
 }
 
-silentCheck()
+// The directory the call runs in: the input's cwd, else the hook's own.
+function cwdOf() {
+    return typeof payload?.cwd === "string" && payload.cwd ? payload.cwd : process.cwd()
+}
+
+// The line deny() appends to WORFY_GUARD_LOG (the format is in the header). It reads the input only: a refusal may
+// come before any other part of this script has run.
+function denial(rule) {
+    const input = payload?.tool_input || {}
+    let what
+    if (tool === "Bash") what = String(input.command ?? "")
+    else if (tool === "apply_patch") what = `apply_patch ${patchOps(String(input.command ?? "")).map((o) => o.file).join(" ")}`
+    else what = `${tool} ${input.file_path ?? input.notebook_path ?? ""}`
+    what = what.replace(/\s+/g, " ").trim()
+    return {
+        time: new Date().toISOString(),
+        rule: rule || "unnamed",
+        agent: agentName || null,
+        agent_id: agentId || null,
+        ticket: refusedTicket,
+        tool: typeof tool === "string" ? tool : null,
+        command: what.length > 200 ? `${what.slice(0, 199)}…` : what,
+        session: typeof payload?.session_id === "string" ? payload.session_id : null,
+        cwd: cwdOf(),
+    }
+}
+
+// --- 4. Verification paths, ticket mark, profile-set -------------------------------------------------------------
+// A subagent writes a verification path only when the trail of its ticket on the base branch names it; the main
+// Session is not refused (the Orchestrator writes the Quarantine itself, and its PRs pass bin/land like any other).
+// The decision is bin/land's rule (verified): the list of lib/verification-paths.cjs and the profile's
+// verification.paths, the ticket of the branch by tickets.branch, its trail by lib/ticket-trail.cjs at the tip of
+// worktree.base (refs/remotes/<remote>/<branch>), or in the tickets folder when the tickets live outside the repository
+// (Silent mode, a tickets root outside it). Here the branch is the one of the tree the file is in, and the guard never
+// fetches: the preflight of each Wave does.
+const PATH_STEP = "Write the need into your report; the Orchestrator adds the path to the trail"
+// The fields of the profile the merge condition depends on: only the owner changes them (the Edit profile form, or a
+// terminal), never an agent's session.
+const MERGE_FIELDS = ["workflow.ci_check", "workflow.pipeline", "workflow.merge"]
+const guardedField = (f) => f === "verification" || f.startsWith("verification.") || f === "workflow" || MERGE_FIELDS.includes(f)
+// The time all the reads of this section share — bin/profile, git rev-parse, git symbolic-ref and the git calls of the
+// trail read — well inside the hook's limit with section 3's two tries after it (8 + 2 × 10 s of 30 s). A read that fails
+// or runs out of it counts as not answered: the call is let through, as when the hook itself fails (the spec's
+// risks: a failure of the guard opens the way; bin/land checks the PR's diff at merge). A test may shorten it, never lengthen it.
+const SECTION4_MS = (() => {
+    const DEFAULT = 8000
+    const v = Number(process.env.CLAUDE_GUARD_READ_MS)
+    return Number.isInteger(v) && v > 0 ? Math.min(v, DEFAULT) : DEFAULT
+})()
+const section4Until = Date.now() + SECTION4_MS
+const section4Left = () => Math.max(1, section4Until - Date.now())
+const firstLine = (s) => String(s || "").trim().split("\n")[0]
+const baseName = (w) => String(w).replace(/.*[\\/]/, "").replace(/\.(exe|cmd)$/i, "")
+
+// The file operations of a Codex patch: {kind: add|update|delete|move, file, lines} — lines, the body under the header.
+function patchOps(text) {
+    const ops = []
+    for (const line of text.replace(/\r/g, "").split("\n")) {
+        const m = /^\*\*\* (Add File|Update File|Delete File|Move to): (.+)$/.exec(line)
+        if (m) ops.push({ kind: { "Add File": "add", "Update File": "update", "Delete File": "delete", "Move to": "move" }[m[1]], file: m[2].trim(), lines: [] })
+        else if (ops.length && !/^\*\*\* (Begin|End) Patch$/.test(line)) ops[ops.length - 1].lines.push(line)
+    }
+    return ops
+}
+
+// The text of a file after the hunks of an Update of a Codex patch, or null when a hunk does not fit: its old lines
+// (context and "-") are looked for from the end of the previous hunk, after the line its "@@ <context>" names.
+function applyHunks(text, lines) {
+    const out = text.replace(/\r/g, "").split("\n")
+    const hunks = [{ at: "", body: [] }]
+    for (const line of lines) {
+        if (line.startsWith("@@")) hunks.push({ at: line.slice(2).trim(), body: [] })
+        else if (line !== "*** End of File") hunks[hunks.length - 1].body.push(line)
+    }
+    let cursor = 0
+    for (const h of hunks) {
+        const old = []
+        const neu = []
+        for (const l of h.body) {
+            if (l.startsWith("+")) neu.push(l.slice(1))
+            else if (l.startsWith("-")) old.push(l.slice(1))
+            else {
+                old.push(l.slice(1))
+                neu.push(l.slice(1))
+            }
+        }
+        if (!h.body.length) continue
+        if (h.at) {
+            const k = out.findIndex((l, i) => i >= cursor && l.trim() === h.at)
+            if (k !== -1) cursor = k + 1
+        }
+        let i = -1
+        if (!old.length) i = out.length
+        else
+            for (let k = cursor; k + old.length <= out.length && i === -1; k++)
+                if (old.every((l, j) => out[k + j].trimEnd() === l.trimEnd())) i = k
+        if (i === -1) return null
+        out.splice(i, old.length, ...neu)
+        cursor = i + neu.length
+    }
+    return out.join("\n")
+}
+
+// The words of a command that are not options, skipping the values of the options `valued` names; after `--` every
+// word is one.
+function operands(args, valued = []) {
+    const out = []
+    for (let k = 0; k < args.length; k++) {
+        const a = args[k]
+        if (a === "--") {
+            out.push(...args.slice(k + 1).filter(Boolean))
+            break
+        }
+        if (valued.includes(a)) k++
+        else if (a && !a.startsWith("-")) out.push(a)
+    }
+    return out
+}
+
+// The files a shell command writes or removes, as {abs, folder, symlink}: the targets of its write redirections, and the
+// operands of the common commands that write files (tee, cp, mv, install, ln, rsync, rm, rmdir, unlink, touch, truncate,
+// dd of=, sed -i, perl -i); a folder copy (cp -r, -R, -a), mv and rsync write a whole folder where a folder source lands
+// by its literal name (in a destination that ends in "/" or is a folder now, under the source's own name; -T and rsync
+// "src/" onto the destination itself), and rm and the source of mv remove one. A path is read the way its shell reads
+// it (`~`, `$HOME`, `$PWD`, variables the command sets, `cd` or `pushd` before it; Git Bash paths on Windows); a word
+// the guard cannot expand ($(…), an unknown variable) is skipped.
+// shortcut: lexical, as every rule here: a script that writes a file itself (`node -e "…writeFileSync…"`), git
+// checkout or git apply are not read; nor is a glob source (`cp -r tmpl/* .github/`, `mv tmpl/* .github/`) expanded,
+// or a cp source ending in "/" (`cp -R tmpl/ .github`, which on macOS copies the folder's contents) taken as landing
+// on the destination itself; bin/land checks the PR's diff at merge. Redo: count a glob source, or a cp source ending
+// in "/", as landing on the destination itself.
+function shellTargets(src) {
+    const out = []
+    const { flat } = flattenHeredocs(src)
+    let dir = cwdOf()
+    // folder — the command may write or remove a whole folder there, so a folder above a verification path counts too
+    const add = (word, folder = false, symlink = false) => {
+        const p = expandPath(word.replace(/^\$(?:PWD\b|\{PWD\})/, () => dir.replace(/\\/g, "/")))
+        if (!p || /[$`]/.test(p) || /^\/dev\//.test(p)) return
+        out.push({ abs: path.resolve(dir, p), folder, symlink })
+    }
+    // what a word names now, at the time of the call: a folder or a file (false when it does not exist or cannot be told)
+    const statOf = (word) => {
+        const p = expandPath(word.replace(/^\$(?:PWD\b|\{PWD\})/, () => dir.replace(/\\/g, "/")))
+        if (!p || /[$`*?]/.test(p)) return null
+        try {
+            return fs.statSync(path.resolve(dir, p))
+        } catch {
+            return null
+        }
+    }
+    const isFolder = (word) => statOf(word)?.isDirectory() === true
+    const isFile = (word) => statOf(word)?.isFile() === true
+    for (const words of lex(flat)) {
+        if (words.every((x) => /^[A-Za-z_][A-Za-z0-9_]*=/.test(x))) words.forEach(setShellVar)
+        else if (words[0] === "export") words.slice(1).forEach(setShellVar)
+        for (const t of words.writes) add(t)
+        let w = [...words]
+        while (w.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(w[0]) || /^(sudo|env|command|nohup|time|exec|nice)$/.test(w[0]))) w = w.slice(1)
+        if (!w.length) continue
+        const prog = baseName(w[0])
+        const args = w.slice(1)
+        if (prog === "cd" || prog === "pushd") {
+            const to = operands(args)[0] ?? "~"
+            if (to !== "-" && !/^[+-]\d+$/.test(to)) dir = path.resolve(dir, expandPath(to))
+            continue
+        }
+        const TARGET = ["-t", "--target-directory", "-S", "--suffix"]
+        if (prog === "tee") operands(args).forEach((f) => add(f))
+        else if (prog === "cp" || prog === "mv" || prog === "install" || prog === "ln" || prog === "rsync") {
+            const RSYNC = ["-e", "--rsh", "--exclude", "--include", "-f", "--filter", "--exclude-from", "--include-from", "--files-from", "--chmod", "--rsync-path", "--log-file", "-T", "--temp-dir", "--backup-dir", "--compare-dest", "--copy-dest", "--link-dest"]
+            const valued = prog === "install" ? [...TARGET, "-m", "--mode", "-o", "--owner", "-g", "--group"] : prog === "rsync" ? RSYNC : TARGET
+            const ops = operands(args, valued)
+            const ti = args.findIndex((a) => a === "-t" || a === "--target-directory")
+            const td = args.find((a) => a.startsWith("--target-directory="))
+            const into = ti !== -1 ? args[ti + 1] : td ? td.slice(td.indexOf("=") + 1) : null
+            const sources = into ? ops : ops.slice(0, -1)
+            const dest = into ?? ops[ops.length - 1]
+            if (dest === undefined) continue
+            // a symbolic link counts wherever it is: it may point anywhere (touchesVerificationPath)
+            const symlink = prog === "ln" && args.some((a) => /^-[a-zA-Z]*s/.test(a) || a === "--symbolic")
+            if (prog === "ln" && !into && ops.length === 1) {
+                add(path.basename(dest), false, symlink)
+                continue
+            }
+            // a folder copy (cp -r, -R, -a), a move and rsync may write a whole folder where a source lands
+            const recursive = prog === "mv" || prog === "rsync" || (prog === "cp" && args.some((a) => /^-[a-zA-Z]*[rRa]/.test(a) || a === "--recursive" || a === "--archive"))
+            // -T (--no-target-directory) makes the destination the name itself; rsync's -T is its temporary folder
+            const noTarget = prog !== "rsync" && args.some((a) => /^-[a-zA-Z]*T/.test(a) || a === "--no-target-directory")
+            // a destination that ends in "/" or is a folder now: each source lands in it under its own name
+            const intoFolder = !noTarget && (into !== null || /[\\/]$/.test(dest) || isFolder(dest))
+            const base = dest.replace(/[\\/]+$/, "")
+            for (const s of sources.length ? sources : [""]) {
+                // rsync's "src/" copies the folder's contents: they land in the destination itself
+                const contents = prog === "rsync" && /[\\/]$/.test(s)
+                const name = path.basename(s.replace(/[\\/]+$/, ""))
+                const lands = intoFolder && !contents && name ? `${base}/${name}` : dest
+                // a source that is a file writes one file; a folder, or one that does not exist yet, may write a whole folder
+                add(lands, recursive && !isFile(s), symlink)
+            }
+            if (prog === "mv") sources.forEach((s) => add(s, true))
+        } else if (prog === "rm" || prog === "rmdir" || prog === "unlink") operands(args).forEach((f) => add(f, true))
+        else if (prog === "touch") operands(args, ["-t", "-d", "-r", "--date", "--reference"]).forEach((f) => add(f))
+        else if (prog === "truncate") operands(args, ["-s", "--size", "-r", "--reference"]).forEach((f) => add(f))
+        else if (prog === "dd") args.filter((a) => a.startsWith("of=")).forEach((a) => add(a.slice(3)))
+        else if (prog === "sed" && args.some((a) => /^-[a-zA-Z]*i/.test(a) || a.startsWith("--in-place"))) {
+            const given = args.some((a) => /^(-e|-f|--expression|--file)(=|$)/.test(a))
+            const files = operands(args, ["-e", "-f", "--expression", "--file", "-l"])
+            ;(given ? files : files.slice(1)).forEach((f) => add(f))
+        } else if (prog === "perl" && args.some((a) => /^-[a-zA-Z]*i/.test(a))) {
+            const given = args.some((a) => /^-[a-zA-Z]*[eE]$/.test(a))
+            const files = operands(args, args.filter((a) => /^-[a-zA-Z]*[eE]$/.test(a)))
+            ;(given ? files : files.slice(1)).forEach((f) => add(f))
+        }
+    }
+    // section 3 reads the variables of the command again, in its own order
+    for (const k of Object.keys(shellVars)) delete shellVars[k]
+    return out
+}
+
+// The program a command runs and its arguments, through `node <script>`: {prog, args}.
+function programOf(words) {
+    let w = [...words]
+    while (w.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(w[0]) || /^(sudo|env|command|nohup|time|exec|nice)$/.test(w[0]))) w = w.slice(1)
+    if (!w.length) return null
+    let prog = baseName(w[0])
+    let args = w.slice(1)
+    if (prog === "node" || prog === "nodejs") {
+        const k = args.findIndex((a) => !a.startsWith("-"))
+        if (k === -1) return null
+        prog = baseName(args[k])
+        args = args.slice(k + 1)
+    }
+    return { prog, args }
+}
+
+// `ticket mark` from a subagent (a commit status review, check/* or deploy: only the main Session marks), and
+// `profile-set` of a field the merge condition depends on from any agent session.
+function marksAndFields() {
+    for (const words of lex(flattenHeredocs(cmd).flat)) {
+        const p = programOf(words)
+        if (!p) continue
+        if (p.prog === "ticket" && subagent) {
+            const positional = operands(p.args, ["--root", "--repo", "--sha", "--waits"])
+            if (positional[0] === "mark" && !p.args.includes("--contexts"))
+                deny(
+                    "`ticket mark` writes the marks the merge condition reads (review, check/*, deploy), and only the main Session writes them. " +
+                        "Put the verdict into your report; the Orchestrator marks the head.",
+                    "ticket-mark-subagent"
+                )
+        }
+        if (p.prog === "profile-set" && p.args.some((a) => a === "--set" || a === "--reset" || a.startsWith("--set="))) {
+            const fields = []
+            p.args.forEach((a, k) => {
+                if (a === "--field" && p.args[k + 1] !== undefined) fields.push(p.args[k + 1])
+                else if (a.startsWith("--field=")) fields.push(a.slice(8))
+            })
+            const named = fields.length ? fields.filter(guardedField) : ["workflow.pipeline"]
+            if (named.length)
+                deny(
+                    `profile-set would change ${named.join(", ")}, a field the merge condition depends on (verification.*, ${MERGE_FIELDS.join(", ")}): ` +
+                        "only the owner changes it, in the Edit profile form of worfy or in a terminal. Name the change and the reason in your report.",
+                    "profile-set-merge-fields"
+                )
+        }
+    }
+}
+
+// The profile of the project a folder is in (bin/profile -C <folder> --json), read once per folder: null — no project
+// (exit 3) or no bin/profile; {profile: null, unread} — it could not be read.
+const profileAt = new Map()
+function projectProfile(dir) {
+    if (profileAt.has(dir)) return profileAt.get(dir)
+    let at = dir
+    while (!fs.existsSync(at) && path.dirname(at) !== at) at = path.dirname(at)
+    let read = null
+    if (fs.existsSync(PROFILE)) {
+        const r = spawnSync(process.execPath, [PROFILE, "-C", at, "--json"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: section4Left(), windowsHide: true })
+        if (r.status === 3) read = null
+        else if (r.error || r.status !== 0) read = { profile: null, unread: r.error ? `${r.error.code || r.error.message}` : `exit ${r.status}: ${firstLine(r.stderr)}` }
+        else
+            try {
+                read = { profile: JSON.parse(r.stdout) }
+            } catch {
+                read = { profile: null, unread: "it printed no JSON" }
+            }
+    }
+    profileAt.set(dir, read)
+    return read
+}
+
+// A path with its nearest existing folder resolved through symbolic links (a file spelled through a link to the
+// worktree is the worktree's file), and that folder: {real, dir}. The native realpath, as for the root of the work tree:
+// on Windows it also gives the long name of a short one (RUNNER~1), so both sides of the comparison are spelled alike.
+function realTarget(abs) {
+    let at = abs
+    const rest = []
+    while (!fs.existsSync(at) && path.dirname(at) !== at) {
+        rest.unshift(path.basename(at))
+        at = path.dirname(at)
+    }
+    let real = at
+    try {
+        real = fs.realpathSync.native(at)
+    } catch {}
+    let dir = real
+    try {
+        if (!fs.statSync(real).isDirectory()) dir = path.dirname(real)
+    } catch {}
+    return { real: rest.length ? path.join(real, ...rest) : real, dir }
+}
+
+// The work tree a folder is in and the branch checked out there: {top, branch}, or null outside git (or no answer).
+const treeOfDir = new Map()
+function treeOf(dir) {
+    if (treeOfDir.has(dir)) return treeOfDir.get(dir)
+    const r = spawnSync(GIT, ["-C", dir, "rev-parse", "--show-toplevel", "--abbrev-ref", "HEAD"], { encoding: "utf8", timeout: section4Left(), windowsHide: true })
+    const lines = r.status === 0 ? r.stdout.trim().split("\n") : []
+    let tree = null
+    if (lines.length === 2) {
+        tree = { top: lines[0].trim(), branch: lines[1].trim() }
+        try {
+            tree.top = fs.realpathSync.native(tree.top)
+        } catch {}
+        // HEAD is detached during a rebase too: the branch being rebased is the branch (git keeps its name in
+        // rebase-merge/head-name, or rebase-apply/head-name for the apply backend); a detached HEAD with neither is a
+        // review tree
+        if (tree.branch === "HEAD") tree.branch = rebasedBranch(dir) || "HEAD"
+    }
+    treeOfDir.set(dir, tree)
+    return tree
+}
+
+// The branch a rebase in progress in the work tree of `dir` is rebasing, or null.
+function rebasedBranch(dir) {
+    const r = spawnSync(GIT, ["-C", dir, "rev-parse", "--git-path", "rebase-merge/head-name", "--git-path", "rebase-apply/head-name"], {
+        encoding: "utf8",
+        timeout: section4Left(),
+        windowsHide: true,
+    })
+    if (r.status !== 0) return null
+    for (const file of r.stdout.split("\n").map((l) => l.trim()).filter(Boolean)) {
+        let name = ""
+        try {
+            name = fs.readFileSync(path.resolve(dir, file), "utf8").trim()
+        } catch {}
+        if (name.startsWith("refs/heads/")) return name.slice("refs/heads/".length)
+    }
+    return null
+}
+
+// Where the tickets of the project are read: {folder} — a tickets folder outside the repository (Silent mode: under the
+// Workflow folder; a tickets root outside the repository), else {folder: null} and git at the base branch. The same
+// place bin/land (profileTicketsRoot, ticketsFolder) and bin/ticket root take.
+function ticketsPlace(profile, top) {
+    const field = profile?.tickets?.root
+    let r = typeof field === "string" && field.trim() ? field.trim() : ".scratch"
+    if (r === "~" || r.startsWith("~/")) r = path.join(os.homedir(), r.slice(1))
+    const resolved = profile?._resolved || {}
+    if (resolved.mode === "silent") return { folder: path.resolve(typeof resolved.workflow_folder === "string" ? resolved.workflow_folder : top, r) }
+    if (path.isAbsolute(r) && normalizePath(r, { root: top }) === null) return { folder: path.resolve(r) }
+    return { folder: null }
+}
+
+// The base branch the trail is read at: {name, ref} by worktree.base (origin/main → refs/remotes/origin/main), else the
+// branch origin/HEAD points to; null when neither tells (git symbolic-ref failed or ran out of the budget).
+function baseOf(profile, top) {
+    let base = profile?.worktree?.base
+    if (typeof base !== "string" || !base.trim()) {
+        const h = spawnSync(GIT, ["-C", top, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"], { encoding: "utf8", timeout: section4Left(), windowsHide: true })
+        base = h.status === 0 ? h.stdout.trim() : ""
+    }
+    base = base.trim()
+    if (!base) return null
+    return { name: base, ref: base.includes("/") ? `refs/remotes/${base}` : base }
+}
+
+// The ticket and trail of the tree `top` on `branch`, read once per tree (lib/ticket-trail.cjs readTrail).
+const trailOfTree = new Map()
+function trailOf(profile, tree) {
+    if (trailOfTree.has(tree.top)) return trailOfTree.get(tree.top)
+    const { folder } = ticketsPlace(profile, tree.top)
+    const base = folder ? null : baseOf(profile, tree.top)
+    let t
+    // no base branch to read the trail at: the guard cannot tell, and land (which refuses such a profile) decides
+    if (!folder && !base) t = { ticket: null, trail: null, reason: "the base branch cannot be told", unread: true }
+    else {
+        t = readTrail({ repo: tree.top, ref: base?.ref, branch: tree.branch, tickets: profile?.tickets || {}, git: GIT, folder, timeout: section4Left() })
+        t.where = folder ? "the tickets folder" : base.name
+    }
+    trailOfTree.set(tree.top, t)
+    return t
+}
+
+// The files this call writes: {abs, folder?, after?, edit?} — after: the text a ticket file would have (undefined
+// when the call does not tell it, null when the file goes away).
+function callTargets() {
+    const input = payload?.tool_input || {}
+    const cwd = cwdOf()
+    if (bash) return shellTargets(cmd)
+    if (tool === "apply_patch") {
+        const out = []
+        const ops = patchOps(String(input.command ?? ""))
+        ops.forEach((o, k) => {
+            const abs = path.resolve(cwd, expandPath(o.file))
+            if (o.kind === "add") out.push({ abs, after: o.lines.filter((l) => l.startsWith("+")).map((l) => l.slice(1)).join("\n") })
+            else if (o.kind === "delete") out.push({ abs, folder: true, after: null })
+            else if (o.kind === "update") {
+                const moved = ops[k + 1]?.kind === "move"
+                const body = moved ? ops[k + 1].lines : o.lines
+                out.push({ abs, folder: moved, edit: (text) => (moved ? null : applyHunks(text, body)) })
+            } else out.push({ abs, edit: () => undefined }) // the new place of a moved file
+        })
+        return out
+    }
+    const file = tool === "NotebookEdit" ? input.notebook_path : input.file_path
+    if (typeof file !== "string" || !file) return []
+    const abs = path.resolve(cwd, file)
+    const replace = (text, e) => {
+        if (typeof e?.old_string !== "string" || typeof e?.new_string !== "string" || !text.includes(e.old_string)) return text
+        return e.replace_all ? text.split(e.old_string).join(e.new_string) : text.replace(e.old_string, () => e.new_string)
+    }
+    if (tool === "Write") return [{ abs, after: String(input.content ?? "") }]
+    if (tool === "Edit") return [{ abs, edit: (text) => replace(text, input) }]
+    if (tool === "MultiEdit") return [{ abs, edit: (text) => (Array.isArray(input.edits) ? input.edits.reduce(replace, text) : text) }]
+    return [{ abs }]
+}
+
+// Silent mode (the tickets outside the repository): the trail is read from a file the subagent can reach, so its edit of
+// any ticket's trail section is refused. The trail is compared as lib/ticket-trail.cjs reads it; an edit elsewhere in the
+// ticket passes. A write whose text the guard cannot tell (a shell command, a patch whose hunks do not fit) is refused when
+// the ticket has a trail section.
+function trailEdit(t, folder, heading) {
+    const rel = normalizePath(t.real, { root: folder })
+    if (rel === null || !/\.md$/i.test(rel) || typeof heading !== "string") return
+    let text = null
+    try {
+        text = fs.readFileSync(t.real, "utf8")
+    } catch {}
+    const before = text === null ? null : trailPaths(text, heading)
+    let after
+    if ("after" in t) after = t.after
+    else if (t.edit && text !== null) after = t.edit(text)
+    const afterTrail = after === undefined ? undefined : after === null ? null : trailPaths(after, heading)
+    if (afterTrail === undefined ? before === null : JSON.stringify(before) === JSON.stringify(afterTrail)) return
+    deny(
+        `This edit ${afterTrail === undefined ? "may change" : "changes"} the trail section of ${rel} (${JSON.stringify(heading)}) in the tickets folder: ` +
+            "outside the repository the guard and land read the trail from that file, so a subagent does not edit it. " +
+            "Write the need into your report; the Orchestrator edits the trail." +
+            (afterTrail === undefined ? " Edit the other sections of the ticket with an edit whose old and new text the guard can read (a file edit, not a shell command)." : ""),
+        "ticket-trail-edit"
+    )
+}
+
+// Whether the guard checks verification paths for a project: a ticket branch template (tickets.branch with <epic> and
+// <NN>) and one repository.
+// shortcut: a project of several repositories is not checked — its trail entries start with the repository's name and
+// the guard compares paths from the root of one tree (lib/ticket-trail.cjs, the shortcut on several repositories: redo
+// when a project with several repositories gets a verification path check); nor is a profile without a ticket branch
+// template, where no branch can name a ticket. bin/land still checks their PRs at merge.
+function checksPaths(profile) {
+    const template = profile?.tickets?.branch
+    const repos = profile?._resolved?.repos
+    return typeof template === "string" && template.includes("<epic>") && template.includes("<NN>") && !(Array.isArray(repos) && repos.length > 1)
+}
+
+function verificationSection() {
+    if (bash) marksAndFields()
+    if (!subagent) return
+    const targets = callTargets()
+    for (const t of targets) {
+        Object.assign(t, realTarget(t.abs))
+        const tree = treeOf(t.dir)
+        // the profile of the tree the file is in; a file outside the project's trees (a ticket in the Workflow folder)
+        // is read by the profile of the folder the call runs in
+        const read = tree ? projectProfile(tree.top) : null
+        const own = read?.profile ? read : projectProfile(cwdOf())
+        if (own?.profile && checksPaths(own.profile)) {
+            const { folder } = ticketsPlace(own.profile, tree?.top || cwdOf())
+            if (folder) trailEdit(t, realTarget(folder).real, own.profile.tickets?.trail_section)
+        }
+        // a folder no profile covers: the section is silent, as section 3 is; a profile that could not be read (a
+        // failure or the end of the budget) lets the call through, and land checks the PR at merge
+        if (!tree || !read?.profile || !checksPaths(read.profile)) continue
+        const profile = read.profile
+        const list = verificationPaths(profile)
+        // an absolute root: a relative one would resolve from the working directory (a realpath on macOS)
+        const opts = { root: tree.top }
+        // the rule of bin/land: a verification path, or any symbolic link; and the folder above one a command may write or remove whole
+        if (!(touchesVerificationPath(t.real, list, { ...opts, symlink: t.symlink === true }) || (t.folder && isVerificationParent(t.real, list, opts)))) continue
+        const rel = normalizePath(t.real, opts) + (t.symlink ? " (a symbolic link, which may point anywhere)" : "")
+        // a detached HEAD is a review tree (worktree.reviewer): no ticket, and a reviewer adds nothing to a trail
+        if (tree.branch === "HEAD")
+            deny(
+                `${rel} is a verification path, and this work tree is on a detached HEAD: a subagent edits no verification path in a review tree. ` +
+                    "Mutate a copy outside the repository (copy the folder into a temporary directory and run the test against the copy), " +
+                    "or name the change in your report.",
+                "verification-path-detached"
+            )
+        const trail = trailOf(profile, tree)
+        // git did not answer (a failure, the end of the budget): the guard cannot tell, land decides at merge
+        if (trail.unread) continue
+        if (trail.ticket) refusedTicket = `${trail.ticket.epic}/${trail.ticket.nn}`
+        if (!trail.ticket)
+            deny(
+                `${rel} is a verification path, and the branch ${tree.branch} names no ticket (${trail.reason}): a subagent without a ticket edits no verification path. ` +
+                    `${PATH_STEP} of a ticket, and the edit is made on that ticket's branch.`,
+                "verification-path-no-ticket"
+            )
+        const name = `${trail.ticket.epic} ${trail.ticket.nn}`
+        if (!trail.trail) deny(`${rel} is a verification path, and the trail of ${name} cannot be read at ${trail.where} (${trail.reason}). ${PATH_STEP}.`, "verification-path")
+        if (!namedByTrail(t.real, trail.trail, opts)) deny(`${rel} is a verification path, and the trail of ${name} does not name it. ${PATH_STEP}.`, "verification-path")
+    }
+}
+
+// A failure inside section 4 lets the call through (the spec's risks: a failure of the guard opens the way; land checks
+// the diff at merge), and section 3 still runs: process.exit inside deny() ends the hook before this catch.
+try {
+    verificationSection()
+} catch {}
+
+if (bash) silentCheck()
 
 ok()

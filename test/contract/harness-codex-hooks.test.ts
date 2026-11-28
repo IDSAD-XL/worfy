@@ -534,6 +534,30 @@ describe('read-only reviewer and scout, the guards with the matchers of Codex', 
     }
   }, RUN_MS)
 
+  it('denies apply_patch of worfy-implementer into a verification path its trail on origin/main does not name, and lets a named one and the main agent pass', async () => {
+    const { dir, main, work } = project()
+    // A registered profile with tickets; ticket ep 07 on origin/main names one workflow in its trail.
+    const config = JSON.parse(readFileSync(join(dir, 'config.json'), 'utf8')) as { repos: Record<string, unknown>[] }
+    writeFileSync(join(dir, 'config.json'), JSON.stringify({ repos: config.repos.map((repo) => ({ ...repo, profile: 'p' })) }))
+    mkdirSync(join(dir, 'harness-home', 'projects', 'p'), { recursive: true })
+    const tickets = { root: '.scratch/', path: '.scratch/<epic>/issues/NN-*.md', branch: '<epic>/<NN>', trail_section: '## Where in code' }
+    const worktree = { root: dir, base: 'origin/main', implementer: 'x', reviewer: 'x' }
+    writeFileSync(join(dir, 'harness-home', 'projects', 'p', 'profile.json'), JSON.stringify({ schema: 2, name: 'p', mode: 'full', tickets, worktree }))
+    mkdirSync(join(main, '.scratch', 'ep', 'issues'), { recursive: true })
+    writeFileSync(join(main, '.scratch', 'ep', 'issues', '07-x.md'), '# 07\n\n## Where in code\n\n- `.github/workflows/named.yml`\n')
+    const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, ...args], { stdio: 'ignore' })
+    git(main, 'add', '-A')
+    git(main, '-c', 'user.email=t@example.com', '-c', 'user.name=t', 'commit', '-q', '-m', 'ticket')
+    git(main, 'update-ref', 'refs/remotes/origin/main', 'HEAD')
+    git(work, 'checkout', '-q', '-b', 'ep/07')
+    const update = (file: string) => ({ command: `*** Begin Patch\n*** Update File: ${file}\n@@\n-on: push\n+on: pull_request\n*** End Patch` })
+    const denied = await toolOf(work, 'apply_patch', update('.github/workflows/ci.yml'), 'worfy-implementer')
+    expect(denied.block).toMatch(/^\.github\/workflows\/ci\.yml is a verification path, and the trail of ep 07 does not name it\. Write the need into your report; the Orchestrator adds the path to the trail/)
+    expect(denied.runs.map((run) => run.status)).toEqual(['blocked'])
+    expect((await toolOf(work, 'apply_patch', update('.github/workflows/named.yml'), 'worfy-implementer')).block).toBeUndefined()
+    expect((await toolOf(work, 'apply_patch', update('.github/workflows/ci.yml'))).block).toBeUndefined()
+  }, RUN_MS)
+
   it('denies the recorded apply_patch of a Subagent once its agent_type is worfy-reviewer, and lets it pass as the recorded "default"', async () => {
     const { work } = project()
     const line = recorded('PreToolUse').find((input) => input.tool_name === 'apply_patch' && input.agent_type !== undefined) as Record<string, unknown>

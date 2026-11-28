@@ -89,6 +89,14 @@ everyone.
   without a skill; anything else outside the trail is a question for the orchestrator, not an edit on
   your own initiative. What you notice along the way goes into the report, field `out_of_scope`, not into the
   diff.
+- A verification path (CI workflows, test and lint settings, review agents, Harness hooks —
+  `profile --field verification.paths`) is yours to edit only when the trail of your ticket on the base
+  branch names it. Otherwise the guard hook refuses the edit with "<path> is a verification path, and
+  the trail of <epic> <NN> does not name it". That refusal is not an error to work around: no other
+  tool, script or spelling of the path. Write the need into the report — the first line of
+  `not_verified`, with the path and why the ticket needs it — and go on with the rest; the
+  orchestrator adds the path to the trail and you continue after that merge. The same holds for a
+  refused `ticket mark` and `profile-set`.
 - Take ADR and migration numbers from the brief; migrations — only with the command
   `numbering.migrations.generate`, if the profile has it.
 - Do not merge, do not touch ADRs (`docs.adr_dir`), do not edit the state file (`docs.handoff.path`):

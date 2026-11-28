@@ -1,7 +1,8 @@
 # 03: guard: путь проверки — только по trail-у
 
 Type: task
-Status: open
+Status: claimed 2026-11-28T13:58Z
+PR: #2386
 Blocked by: 01, 02, 04
 Source: [spec.md](../spec.md), «Ticket-ы», 03; «Решение», 1; «Набросок функции» (шаги 2–4, схема решения guard-а);
 «Решения по реализации» («guard: путь проверки — только по trail-у», «Один helper отказа»); «Решения по test-ам»,
@@ -92,11 +93,102 @@ Seams (guard), «Сначала падающий test», 03, «Mutation testing�
 - [ ] Subagent на Claude Code (Edit, Write, MultiEdit, NotebookEdit, Bash) и на Codex (`apply_patch`, Bash) не правит путь
       проверки вне trail-а своего Ticket-а на base branch в любом permission mode; отказ называет путь и следующий шаг
       (shell test-ы и contract test Codex, красный на старом коде).
+  - evidence: test-run pass · `bash harness/hooks/tests/guard-verification.test.sh` exit 0; `pnpm test -- test/contract/harness-codex-hooks.test.ts` exit 0 · mac - · a6ed5f8b87967019ffe7062a1cdd5ed0d19a2e8e
+  - evidence: test-run pass · `bash harness/hooks/tests/guard-verification.test.sh` exit 0 (107 checks, review round 1 cases); `bash harness/bin/tests/land-verification.test.sh` exit 0 · mac - · 319495189b4b19be393dccb59084588a4df5e973
+  - evidence: test-run pass · `bash harness/hooks/tests/guard-verification.test.sh` exit 0 (124 checks: folder destinations, a rebase in progress, an exception inside the section) · mac - · 2fc01baf04b511fe782a60290495e0c0709bd172
 - [ ] Путь, который trail называет, проходит; главная Session проходит; Subagent без Ticket-а отказан.
+  - evidence: test-run pass · `bash harness/hooks/tests/guard-verification.test.sh` exit 0 · mac - · a6ed5f8b87967019ffe7062a1cdd5ed0d19a2e8e
+  - evidence: test-run pass · `bash harness/hooks/tests/guard-verification.test.sh` exit 0 (a rebase in progress: a trail-named path passes) · mac - · 2fc01baf04b511fe782a60290495e0c0709bd172
 - [ ] Silent mode: trail читается из Workflow folder, правка раздела trail-а Subagent-ом отказана.
+  - evidence: test-run pass · `bash harness/hooks/tests/guard-verification.test.sh` exit 0 (silent cases) · mac - · a6ed5f8b87967019ffe7062a1cdd5ed0d19a2e8e
 - [ ] `ticket mark` из Subagent-а и `profile-set` полей `verification.*`, `workflow.ci_check`, `workflow.pipeline`,
       `workflow.merge` любой Session агента отказаны.
+  - evidence: test-run pass · `bash harness/hooks/tests/guard-verification.test.sh` exit 0 (ticket mark and profile-set cases) · mac - · a6ed5f8b87967019ffe7062a1cdd5ed0d19a2e8e
+  - evidence: test-run pass · `bash harness/hooks/tests/guard-verification.test.sh` exit 0 (profile-set --field workflow and --field verification.paths cases) · mac - · 319495189b4b19be393dccb59084588a4df5e973
 - [ ] `deny()` пишет строку JSON в `WORFY_GUARD_LOG`, когда переменная задана; формат записан в шапке `guard.mjs`.
+  - evidence: test-run pass · `bash harness/hooks/tests/guard-verification.test.sh` exit 0 (refusal log cases) · mac - · a6ed5f8b87967019ffe7062a1cdd5ed0d19a2e8e
 - [ ] Тексты implementer-а и skill `epic-wave` называют шаг после отказа.
+  - evidence: commit pass · worfy-harness-guarantees/03: the guard refuses a subagent edit of a verification path outside its trail · - - · a6ed5f8b87967019ffe7062a1cdd5ed0d19a2e8e
 - [ ] Mutation testing reviewer-а: снятие каждого нового правила deny краснит хотя бы один test.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR, включая Windows verdict.
+
+## Итог
+
+- Сначала падающий test: `harness/hooks/tests/guard-verification.test.sh` (commit `1823d98bb`) на старом guard-е —
+  57 из 85 case-ов красные, первый — «Edit of a verification path outside the trail»: Edit от `worfy:implementer` в
+  `.github/workflows/…` проходил (`if (payload?.tool_name !== "Bash") ok()`). Contract test Codex тоже красный на старом
+  коде: `apply_patch` от `worfy-implementer` проходил.
+- Matcher PreToolUse — `Bash|apply_patch|Edit|Write|MultiEdit|NotebookEdit` (`harness/hooks/hooks.json`); файловые
+  tool-ы доходят только до нового раздела 4 `guard.mjs`, Bash — до всех разделов.
+- Раздел 4 берёт путь записи из `file_path` (Edit, Write, MultiEdit), `notebook_path` (NotebookEdit), заголовков
+  `apply_patch` и целей записи shell-команды: перенаправления `>`, `>>`, `&>` (лексер `lex` теперь отдельно помнит их в
+  `writes`), `tee`, `cp`, `mv`, `install`, `ln`, `rm`, `rmdir`, `unlink`, `touch`, `truncate`, `dd of=`, `sed -i`,
+  `perl -i`; `cd`, `~`, `$HOME` и переменные команды — через `expandPath`. Путь идёт через realpath ближайшей
+  существующей папки (native на обеих сторонах — короткие имена Windows), корень — `git rev-parse --show-toplevel` той
+  папки: worktree в `.claude/worktrees/` — свой репозиторий, а не `.claude/**` главного checkout-а.
+- Решение — правило `land`: список `verificationPaths` профиля, `readTrail` ветки дерева файла на вершине
+  `worktree.base` (`refs/remotes/origin/main`) или в папке Ticket-ов, `namedByTrail`; символическая ссылка (`ln -s`)
+  считается путём проверки где угодно, как в `land`, удаление папки над путём проверки (`rm -rf .github`) — тоже.
+  Отказ: «<путь> is a verification path, and the trail of <epic> <NN> does not name it. Write the need into your
+  report; the Orchestrator adds the path to the trail».
+- Subagent — по `agent_id` (spike 01: `agent_type` есть и у главного потока Session с `--agent`); на Codex — `agent_type`
+  или `agent_id`. Главная Session не отказывается. Отказ: ветка без Ticket-а, Ticket только на ветке («cannot be read at
+  origin/main»). Папка без профиля (exit 3) — раздел молчит, как раздел 3.
+- Сбой открывает проход (spec, «Риски»: «Сбой guard открывает проход», страховка — `land`): профиль, который не
+  читается, `git rev-parse` / `symbolic-ref`, которые упали, неизвестная базовая ветка, trail, который не прочитан, и
+  исключение внутри раздела 4 пропускают вызов, раздел 3 при этом работает. Все чтения раздела — в общем бюджете 8 s
+  (`CLAUDE_GUARD_READ_MS` в test-е только сокращает его); `readTrail` получил параметр `timeout` для обоих вызовов
+  git — правка `harness/lib/ticket-trail.cjs` вне trail-а.
+- Review round 1: trail читается на `origin/main`, а не на HEAD ветки — test кладёт строку внутрь `## Where in code`,
+  коммитит её на ветке и ждёт отказа; worktree на detached HEAD (дерево reviewer-а) — отказ со своим id
+  `verification-path-detached` и текстом «mutate a copy outside the repository»; `harness/agents/reviewer.md` велит
+  мутировать путь проверки в копии вне репозитория. Известный предел: профиль без шаблона `tickets.branch` (`<epic>`,
+  `<NN>`) и профиль с несколькими репозиториями — раздел путей проверок молчит (условие переделки — то же, что в
+  `ticket-trail.cjs`: проекту с несколькими репозиториями понадобится проверка путей), это сказано в шапке `guard.mjs` и на feature page.
+- Запись папкой: проверка «папка над путём проверки» теперь и для цели `cp -r/-R/-a`, `mv` (оба конца), `rsync`;
+  `>|`, `$PWD/…`, `${PWD}/…` и `pushd` читаются; `2>&1` записью не считается; heredoc, где в тексте есть `ticket mark`,
+  проходит. `profile-set --field workflow` и форма `--field verification.paths` (через пробел) отказаны.
+- Review round 2: файл, перенесённый или скопированный в папку (`mv notes.md tools/`, `mv CODEOWNERS .github/`), — это
+  один файл `<папка>/<имя>`, а не запись всей папки. Цель, которая кончается на `/` или уже есть как папка, получает каждый
+  источник под его именем; запись всей папки — только там, где папка-источник ложится как папка над путём проверки или
+  поверх неё (`cp -RT tmpl .github`, `mv tmpl/workflows .github/`, `rsync -a tmpl/ .github/`, `cp -R tmpl tools`, когда
+  `tools` нет). Источник, которого ещё нет, считается папкой. Rebase, остановленный на конфликте: HEAD detached, но ветку
+  дают `rebase-merge/head-name` и `rebase-apply/head-name` — решает trail этой ветки, а не отказ дерева reviewer-а.
+  Исключение внутри раздела (replace_all, результат которого длиннее предельной строки node) пропускает вызов — test.
+- Долг: базовая ветка и корень Ticket-ов разрешаются в `guard.mjs` своим кодом, как в `land`, а не общим helper-ом —
+  оставлено по решению review, следующая правка обоих мест должна их свести.
+- Долг, принятый spec-ом («Сбой guard открывает проход», страховка — `land`): Subagent может сам сделать trail
+  непрочитанным (`git update-ref -d refs/remotes/origin/main`) — тогда вызов проходит; сломанный `gitdir` в файле `.git`
+  worktree тоже даёт проход (дерево не найдено). Оба случая ловит `land` при merge.
+- Долг review round 3: источник-glob (`cp -r tmpl/* .github/`, `mv tmpl/* .github/`) и, на macOS, источник `cp`,
+  который кончается на `/` (`cp -R tmpl/ .github`), кладут папку поверх папки над путём проверки и проходят: guard не
+  раскрывает glob и берёт источник по его имени. Это лексический обход, который spec принимает, — ловит `land`.
+  Исправление: считать источник-glob и источник `cp` с `/` в конце записью в саму цель. Ещё нет test-а на чтение ветки
+  из `rebase-apply/head-name` (проверен только `rebase-merge`).
+- Silent mode (и папка Ticket-ов вне репозитория): trail — из файла Ticket-а в папке; правка Subagent-ом, которая меняет
+  пути trail-а (как их читает `trailPaths`), отказана; правка других разделов проходит; shell-запись в такой Ticket и
+  patch, чьи hunk-и не сходятся, отказаны («may change»).
+- Тот же раздел: `ticket mark` из Subagent-а отказан (`--contexts` проходит); `profile-set --set|--reset` полей
+  `verification`, `verification.*`, `workflow`, `workflow.ci_check`, `workflow.pipeline`, `workflow.merge` (и запись
+  Pipeline без `--field`) отказан любой Session агента; `--read` и `--check` проходят.
+- Один `deny(reason, rule)`: у каждого правила свой id (`verification-path`, `verification-path-no-ticket`,
+  `verification-path-detached`, `ticket-trail-edit`, `ticket-mark-subagent`, `profile-set-merge-fields` и старые
+  `read-only-agent`, `interactive-shell`, `uncommitted-work`, `pipe-exit-code`, `workflow-traces`). С `WORFY_GUARD_LOG`
+  — строка JSON `{time, rule, agent, agent_id, ticket, tool, command (≤200), session, cwd}`; формат — в шапке
+  `guard.mjs`. Файл, который не пишется, отказ не отменяет.
+- Тексты: `harness/agents/implementer.md` (отказ — не ошибка, нужда — первой строкой `not_verified`), skill `epic-wave`,
+  раздел 2 «Dispatch» (documents PR с путём в trail, затем `SendMessage` тому же implementer-у; rebase не нужен).
+  Feature docs: `docs/features/skills-agents-and-hooks.md`, `harness.md`, `gate-and-github.md` (английские).
+- Вне trail-а, по необходимости: `harness/hooks/tests/rules-hooks.test.sh` (в trail-е «только читать») закрепляет
+  matcher hooks.json — строка обновлена; `harness/evals/lib/coverage.json` — `hooks/guard.mjs` назван загрузчиком
+  `lib/ticket-trail.cjs` и `lib/verification-paths.cjs` (иначе `harness-evals-run.test.ts` красный).
+- Mutation testing (своя проверка до reviewer-а): копия Harness, где `deny()` пропускает одно правило, — для каждого из
+  шести новых id test краснеет (verification-path — 40 case-ов, no-ticket — 2, profile — 1, ticket-trail-edit — 4,
+  ticket-mark-subagent — 2, profile-set-merge-fields — 7). Round 2: test-ы коммита d0d31f82e были красными до правки
+  (14–15 FAIL); мутанты «trail на HEAD», «detached-отказ выключен», «шаблон/мульти-репо не проверяются», «rsync, `>|`,
+  `$PWD`, pushd не читаются», «непрочитанный trail или профиль → отказ», «readTrail без timeout», «2>&1 — запись»
+  краснят test. Round 3: мутанты «исключение раздела → отказ», «rebase не читается», «цель-папка не распознана»,
+  «файл-источник считается папкой», «rsync `src/` не читается», «`-T` не читается», «источник `mv` не проверяется»
+  краснят test (на коммите 129ab4b18 test-ы round 2 давали 13 FAIL).
+- Не проверено здесь: Windows и Git Bash — только CI (case-ы с `\`, регистром и `/c/…` в том же shell test-е); живой
+  Codex не запускался (fixture-входы).
