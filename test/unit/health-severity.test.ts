@@ -29,6 +29,9 @@ describe('the level table (spec: the levels table)', () => {
     ['worfy-update', 'non-critical'],
     ['legacy-harness', 'non-critical'],
     ['harness-dependencies', 'non-critical'],
+    // Harness on Claude Code (worfy-harness-guarantees ticket 09): worfy's copy and the terminal's.
+    ['harness-claude', 'non-critical'],
+    ['harness-claude-terminal', 'non-critical'],
     ['qmd', 'non-critical'],
     ['qmd-models', 'non-critical'],
     ['qmd-collections', 'non-critical'],

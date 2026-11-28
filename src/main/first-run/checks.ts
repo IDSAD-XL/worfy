@@ -220,9 +220,10 @@ const action = (id: FirstRunAction, label: string): Check['actions'][number] => 
 /**
  * The rows these checks run. The rows of worfy-auth-check come from their own Tickets: GitHub access
  * of a Project (05), the Codex sign-in (08), and those only a feature's message makes
- * (src/main/first-run/health-reports.ts).
+ * (src/main/first-run/health-reports.ts). "Harness on Claude Code" (worfy-harness-guarantees ticket 09) comes
+ * after these checks, from src/main/first-run/harness-claude.ts.
  */
-type MachineCheckId = Exclude<CheckId, 'github-access' | 'codex-login' | 'browser-profile' | 'linked-machine' | 'integration'>
+type MachineCheckId = Exclude<CheckId, 'github-access' | 'codex-login' | 'browser-profile' | 'linked-machine' | 'integration' | 'harness-claude' | 'harness-claude-terminal'>
 
 /** The checks in the order the screen shows them, with their group and title; `windows` — on Windows only. */
 const CHECKS: readonly { id: MachineCheckId; group: CheckGroup; title: string; windows?: true }[] = [

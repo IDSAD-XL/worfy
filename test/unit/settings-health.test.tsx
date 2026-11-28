@@ -456,6 +456,70 @@ describe('Settings → Health: actions', () => {
     expect(within(health).getByRole('alert').textContent).toContain('there is no build log yet')
   })
 
+  // worfy-harness-guarantees ticket 09: the rows "Harness on Claude Code". "Run again" asks firstRun.harnessClaude for
+  // its own row, with no dialog of firstRun.run; "Copy details" copies the whole answer; "Changelog" opens its link.
+  it('a red row "Harness on Claude Code": Run again asks firstRun.harnessClaude for that row, Copy details copies its details, Changelog opens the changelog', async () => {
+    const changelog = 'https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md'
+    const red = (): FirstRunReport => {
+      const value = report()
+      value.checks.push(
+        check('harness-claude', 'Harness', 'Harness on Claude Code', { detail: '2.1.322 (worfy) · 6 of 6 checks · Nov 14, 10:02', actions: [{ id: 'harness-claude-run', label: 'Run again' }] }),
+        check('harness-claude-terminal', 'Harness', 'Harness on Claude Code', {
+          status: 'fail',
+          detail: '2.1.330 (terminal) · guard-reset-hard: the guard did not refuse: the edit was wiped',
+          details: 'guard-reset-hard: failed — the guard did not refuse: the edit was wiped',
+          actions: [
+            { id: 'harness-claude-run', label: 'Run again' },
+            { id: 'copy-details', label: 'Copy details' },
+            { id: 'open-link', label: 'Changelog', url: changelog },
+          ],
+        }),
+      )
+      return value
+    }
+    handlers['firstRun.checks'] = () => ({ ok: true, value: red() })
+    const again = later()
+    handlers['firstRun.harnessClaude'] = () => again.answer
+    handlers['shell.openExternal'] = (input) => ({ ok: true, value: input })
+    const written: string[] = []
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: (text: string) => (written.push(text), Promise.resolve()) }, configurable: true })
+    resetToasts()
+    try {
+      renderApp()
+      const health = await openHealth()
+      const terminal = rowOf(health, 'harness-claude-terminal')
+      expect(readRow(terminal)).toMatchObject({ status: 'fail', detail: '2.1.330 (terminal) · guard-reset-hard: the guard did not refuse: the edit was wiped' })
+
+      await act(async () => {
+        fireEvent.click(within(terminal).getByRole('button', { name: 'Copy details' }))
+      })
+      expect(written).toEqual(['guard-reset-hard: failed — the guard did not refuse: the edit was wiped'])
+      expect(toasts.getState().toasts).toMatchObject([{ kind: 'success', text: 'Copied the details of Harness on Claude Code' }])
+
+      fireEvent.click(within(terminal).getByRole('button', { name: 'Changelog' }))
+      await flush()
+      expect(callsOf('shell.openExternal')).toEqual([{ url: changelog }])
+
+      fireEvent.click(within(terminal).getByRole('button', { name: 'Run again' }))
+      await flush()
+      expect(callsOf('firstRun.harnessClaude')).toEqual([{ id: 'harness-claude-terminal' }])
+      expect(callsOf('firstRun.run')).toEqual([])
+      expect(terminal.textContent).toContain('Running the Harness checks on Claude Code…')
+      const green = red()
+      green.checks[green.checks.length - 1] = check('harness-claude-terminal', 'Harness', 'Harness on Claude Code', { detail: '2.1.330 (terminal) · 6 of 6 checks · Nov 28, 10:05', actions: [{ id: 'harness-claude-run', label: 'Run again' }] })
+      await again.give({ ok: true, value: green })
+      expect(readRow(rowOf(health, 'harness-claude-terminal'))).toMatchObject({ status: 'ok', detail: '2.1.330 (terminal) · 6 of 6 checks · Nov 28, 10:05' })
+
+      handlers['firstRun.harnessClaude'] = () => ({ ok: true, value: green })
+      fireEvent.click(within(rowOf(health, 'harness-claude')).getByRole('button', { name: 'Run again' }))
+      await flush()
+      expect(callsOf('firstRun.harnessClaude')).toEqual([{ id: 'harness-claude-terminal' }, { id: 'harness-claude' }])
+    } finally {
+      delete (navigator as { clipboard?: unknown }).clipboard
+      resetToasts()
+    }
+  })
+
   // worfy-integrations ticket 09: a row per Integration of a Project whose sign-in the service refused; Sign in of an
   // OAuth one opens its sign-in window through integrations.signIn — not an action of firstRun.run — and checks again.
   it('two Integrations of one Project are two rows; Sign in of one asks integrations.signIn for it, then the checks again', async () => {

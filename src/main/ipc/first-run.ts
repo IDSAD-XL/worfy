@@ -25,11 +25,20 @@
 // stand-in in tests) with worfy's own environment, else gh with the login shell's — with the account of
 // the Project's Profile. "Use <login>" writes that account through `bin/profile-set` (FirstRunActions),
 // then the network rows are checked again.
+//
+// Harness on Claude Code (worfy-harness-guarantees ticket 09): the contract set of the Harness on worfy's copy of
+// Claude Code and on the terminal's (src/main/first-run/harness-claude.ts). Its rows are live rows of Health: a new
+// pair of versions takes up to half a minute per case, so each network check only starts the check and answers
+// without it; the rows show "running the checks…", then the answer, each change sent as `firstRun.reportChanged`.
+// "Run again" (`firstRun.harnessClaude`) runs one copy anew; on quit the runs under way end with their processes and
+// temporary folders. Under WORFY_AGENT=fake the set is fakeSetRun of
+// WORFY_HARNESS_CONTRACT, and without that variable there are no such rows: the e2e runs of other features count
+// the rows of Health.
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { app, BrowserWindow, dialog } from 'electron'
-import { firstRunChecks, firstRunClose, firstRunHealth, firstRunReportChanged, firstRunRun, firstRunStartup, type Check, type CheckId, type FirstRunReport } from '../../shared/ipc/first-run'
+import { firstRunChecks, firstRunClose, firstRunHarnessClaude, firstRunHealth, firstRunReportChanged, firstRunRun, firstRunStartup, type Check, type CheckId, type FirstRunReport } from '../../shared/ipc/first-run'
 import { DEFAULT_SETTINGS } from '../../shared/agent/settings'
 import { agentEnv } from '../agent/env'
 import { toEveryWindow } from '../broadcast'
@@ -52,13 +61,14 @@ import {
   type ProjectProfile,
 } from '../first-run/checks'
 import { followHarnessRow } from '../first-run/harness-row'
+import { contractSetRun, copyOfRow, fakeSetRun, HARNESS_CLAUDE_CACHE, HarnessClaudeCheck, showInHealth, terminalClaude, type ClaudeFound } from '../first-run/harness-claude'
 import { healthReports } from '../first-run/health-reports'
 import { appVendorRows } from '../first-run/vendor-checks'
 import { remoteRepos } from '../github/inbox'
 import { ghRunner } from '../github/prs'
 import { noteFirstRunReport } from '../getting-started/progress'
 import { gettingStartedState } from '../getting-started/state'
-import { bundledHarnessVersion } from '../harness/bundled'
+import { bundledHarnessDir, bundledHarnessVersion } from '../harness/bundled'
 import { harnessScriptEnv, recaptureForCheckAgain } from '../harness/script-env'
 import { harnessHomes, locateHarness, scriptEnv } from '../harness/locate'
 import { bridgeFile } from '../harness/status-line'
@@ -68,6 +78,7 @@ import { projectLayouts } from '../workflow/folder'
 import { HARNESS_SCRIPT_TIMEOUT_MS, profileRunner, readGithubAccount, runHarnessScript, type ProfileRun } from '../workflow/profile'
 import { appBuildNumber } from '../build-number'
 import { bundledClaudeCodeVersion } from '../vendors/claude/account'
+import { bundledClaudeBinary } from '../vendors/claude/options'
 import { queryFactoryFromEnv } from '../vendors/claude/query'
 import { appInstaller, onHarnessInstalled } from './harness'
 import { appUpdate } from './update'
@@ -296,6 +307,34 @@ health.registerNetworkRows(async () => githubAccessRows(await githubProjects(), 
 // The Harness row after each install and on the focus (worfy-polish 172): its «Replace Harness» item closes once it is
 // done, by the installer's local state alone.
 followHarnessRow(health, { harness: () => appInstaller().status(), update: updateDep }, onHarnessInstalled)
+/**
+ * worfy's copy of Claude Code: WORFY_CLAUDE (a stand-in in tests) or the SDK's binary, as the Harness installer runs
+ * it (src/main/ipc/harness.ts); its version is the one the SDK names.
+ */
+function worfyClaude(): ClaudeFound {
+  const binary = process.env.WORFY_CLAUDE || bundledClaudeBinary({ packaged: app.isPackaged, resourcesPath: process.resourcesPath, platform: process.platform, arch: process.arch })
+  const version = bundledClaudeCodeVersion()
+  if (binary === undefined) return { kind: 'unusable', reason: 'the Claude Code binary of this build was not found', ...(version === null ? {} : { version }) }
+  return version === null ? { kind: 'unusable', reason: 'the version of the Claude Code of this build could not be read' } : { kind: 'found', binary, version }
+}
+
+const harnessClaudeSpec = process.env.WORFY_HARNESS_CONTRACT
+const harnessClaude: HarnessClaudeCheck | null =
+  process.env.WORFY_AGENT === 'fake' && harnessClaudeSpec === undefined
+    ? null
+    : new HarnessClaudeCheck({
+        cacheFile: join(dataRoot(), HARNESS_CLAUDE_CACHE),
+        harness: () => {
+          const dir = bundledHarnessDir()
+          return { dir, version: bundledHarnessVersion(dir) }
+        },
+        claude: async (copy) => (copy === 'worfy' ? worfyClaude() : terminalClaude(await loginEnv())),
+        runSet: process.env.WORFY_AGENT === 'fake' ? fakeSetRun(harnessClaudeSpec ?? '') : contractSetRun(loginEnv),
+      })
+if (harnessClaude !== null) {
+  showInHealth(harnessClaude, health)
+  app.on('will-quit', () => harnessClaude.stop())
+}
 health.registerRecheck('github-access', async (project) => {
   if (project === undefined) return null
   try {
@@ -377,6 +416,11 @@ export default [
     return remember(health.current() ?? merged)
   }),
   defineHandler(firstRunHealth, () => health.current()),
+  // "Run again" of a row "Harness on Claude Code": that row's copy runs the set anew, whatever the cache holds.
+  defineHandler(firstRunHarnessClaude, async ({ id }) => {
+    if (harnessClaude !== null) await harnessClaude.row(copyOfRow(id), { again: true })
+    return remember(health.current() ?? (await localReport()).merged)
+  }),
   defineHandler(firstRunRun, async ({ action, projectName, projectId, login }, { event }) => {
     asking = BrowserWindow.fromWebContents(event.sender)
     try {

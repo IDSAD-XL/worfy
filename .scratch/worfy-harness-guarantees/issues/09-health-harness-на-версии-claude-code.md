@@ -1,7 +1,9 @@
 # 09: Health: Harness на версии Claude Code
 
 Type: task
-Status: open
+Status: claimed 2026-11-28T17:26Z
+PR: #2390
+Branch: worfy-harness-guarantees/09
 Blocked by: 08
 Source: [spec.md](../spec.md), «Ticket-ы», 09; «Решение», 4; «Набросок функции» (шаг 7, экран Settings → Health);
 «Решения по реализации» («Health: Harness на версии Claude Code»); «Решения по test-ам», Seams (e2e — строка Health и
@@ -67,9 +69,80 @@ merge нужен Windows verdict.
 
 - [ ] Settings → Health показывает строку «Harness on Claude Code» для копии worfy и для Claude Code терминала; набор
       идёт один раз на пару версий, итог в кэше, Run again повторяет.
+  - evidence: test-run pass · `pnpm test test/unit/harness-claude-health.test.ts test/unit/harness-claude-toasts.test.tsx test/unit/settings-health.test.tsx` exit 0 · mac - · 1a30deccb03e0bf11e6c78c2700e9228c7f415d5
 - [ ] Провал — toast и красная строка с именем case-а и Copy details; «не смог запустить» отличается от «guard не
       отказал».
+  - evidence: test-run pass · `pnpm test test/unit/harness-claude-health.test.ts test/unit/harness-claude-toasts.test.tsx test/unit/settings-health.test.tsx` exit 0 · mac - · 1a30deccb03e0bf11e6c78c2700e9228c7f415d5
 - [ ] Строка с новой версией Claude Code терминала даёт ссылку на changelog (Q7 (б)); платного eval-а нет (Q6 (а)).
+  - evidence: test-run pass · `pnpm test test/unit/harness-claude-health.test.ts test/unit/harness-claude-toasts.test.tsx test/unit/settings-health.test.tsx` exit 0 · mac - · 1a30deccb03e0bf11e6c78c2700e9228c7f415d5
 - [ ] `engines["claude-code"]` в `plugin.json` стоит, только если spike 01 подтвердил ошибку при невыполненном
       `engines`; иначе «Итог» называет причину.
+  - evidence: commit pass · worfy-harness-guarantees/09: Health runs the Harness contract set on worfy's and the terminal's Claude Code · - - · 1a30deccb03e0bf11e6c78c2700e9228c7f415d5
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR, включая Windows verdict.
+
+## Итог
+
+Сделано 2026-11-28 на `@anthropic-ai/claude-agent-sdk` 0.3.322 (Claude Code 2.1.322), macOS arm64. Модели, ключа и входа
+нет; настоящий Codex не запускался; платного eval-а нет (Q6 (а)).
+
+- **Две строки Health** «Harness on Claude Code» — check-и `harness-claude` (копия worfy, binary SDK или
+  `WORFY_CLAUDE`) и `harness-claude-terminal` (`claude` с PATH login shell, на Windows — из окружения Session). Код —
+  `src/main/first-run/harness-claude.ts`: набор Ticket-а 08 (`CONTRACT_CASES` через `runContractSet`, runner и case-ы
+  не тронуты) с копией Harness этой сборки (`bundledHarnessDir()`, версия — `bundledHarnessVersion()`).
+- **Один раз на пару** версии Claude Code и версии Harness; итог — `<данные worfy>/harness-claude.json` (последние 12
+  пар). Новая версия терминала или Harness — новый запуск; обе копии на одной версии делят один запуск. Run again —
+  новый канал `firstRun.harnessClaude`, без диалога подтверждения: он меняет только кэш worfy.
+- **Тексты строки.** Всё прошло — `2.1.322 (worfy) · 6 of 6 checks · Nov 14, 10:02`. Case провалился (`failed`
+  runner-а: Harness не сделал своё) — красная строка `<версия> (<копия>) · <case>: <причина>`, Run again, Copy details
+  (ответ каждого case-а) и toast «The Harness failed a check on Claude Code …» с Open Health
+  (`src/renderer/shell/harness-claude-toasts.ts`). Case не запустился (`not-run`) — строка «Couldn't check: … the
+  checks could not run: …», статус `unknown`, без toast-а: о Harness она ничего не говорит.
+- **Changelog (Q7 (б)).** Строка терминала на версии новее копии worfy даёт кнопку Changelog
+  (https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md); `open-link` с полем `url` открывается через
+  `shell.openExternal`.
+- **plugin_warnings.** Предупреждения `plugin_warnings` из `system/init` (Claude Code 2.1.332 так сообщает
+  невыполненный `engines["claude-code"]`, `type: "engine-range-exempt"`) Health теперь показывает: строка с ними —
+  Warning, текст первого в подсказке, все — в Copy details. На 2.1.322 поля нет; test идёт на записанной форме, на
+  настоящем 2.1.332 не проверено.
+- **`engines["claude-code"]` не поставлен.** Spike 01 (пункт 5 его «Итог»): на 2.1.322 невыполненный `engines` Claude
+  Code молча пропускает и грузит plugin, `plugin_errors` пуст; по наблюдению polish 175 на 2.1.332 plugin тоже грузится,
+  только с `plugin_warnings`. Ошибки нет ни там, ни там — условие Ticket-а не выполнено. Test «has no version» не тронут.
+- **PATH login shell.** Каждый case получает PATH (и `CLAUDE_CODE_GIT_BASH_PATH`, если он есть) login shell через
+  `prepare`: `claudeEnv` берёт PATH процесса worfy, а у копии из Finder он без `node`, и hooks Harness не стартовали бы.
+- **Windows.** `claude.exe` (нативная установка) запускается; `claude.cmd` npm runner без cmd.exe не стартует — строка
+  терминала тогда «could not run» с версией. Кэш — в `dataRoot()` (`%APPDATA%\worfy` на Windows). Локально Windows не
+  проверен: verdict — job Windows в CI.
+- **Сначала падающий test.** `test/unit/harness-claude-health.test.ts` написан до кода и был красным (`Cannot find module
+  '../../src/main/first-run/harness-claude'`). Test кнопок в `test/unit/settings-health.test.tsx` красный на старом
+  `FirstRunChecks.tsx` (проверено подменой файла: 1 failed). Отдельно, временным test-ом (не в PR), набор через
+  `contractSetRun` прошёл на binary SDK 2.1.322 с `harness/`: строка `ok`.
+- **E2e** — `test/e2e/health-harness-claude.spec.ts` на fake runner-е (`WORFY_HARNESS_CONTRACT`, агент
+  `WORFY_AGENT=fake`): строки, toast, кэш, Run again. Локально не запускался (локальный e2e запрещён), его гонит CI на
+  macOS; на Windows spec пропускается — stand-in `claude` там `.cmd`.
+
+Отличия от текста Ticket-а:
+- Строки рисует `src/renderer/shell/FirstRunChecks.tsx` (общий для First run и Health), а не `HealthSection.tsx`:
+  Run again, Copy details и Changelog — там. Ещё вне «Где в коде»: `src/shared/ipc/first-run.ts` (id, действия, канал),
+  `src/shared/health/severity.ts` (уровень строк — non-critical), `src/main/ipc/first-run.ts` (связка),
+  `src/renderer/main.tsx` (toast), `docs/features/onboarding.md` (строка таблицы Health).
+- Строки — live rows Health (`registerLiveRows` в `src/main/first-run/health-reports.ts`, вне «Где в коде»; связка —
+  `showInHealth`): новая пара занимает секунды, и ни старт, ни «Check again» их не ждут.
+- Под `WORFY_AGENT=fake` без `WORFY_HARNESS_CONTRACT` строк нет: e2e других функций считают строки Health.
+
+Review, раунд 1 (PR #2390, REJECTED: две находки med, две low):
+- **Выход worfy (med).** `HarnessClaudeCheck.stop()` на `will-quit` (`src/main/ipc/first-run.ts`) отменяет `signal`
+  набора: runner (`src/main/harness/contract/runner.ts`) убивает дерево процессов идущего `claude -p` тем же `stop()`,
+  что и таймер (POSIX — потомки SIGKILL, Windows — `taskkill /T`), сразу удаляет его временную папку `contract-*` и
+  больше case-ов не запускает; они `not-run` с причиной «the run was stopped: worfy is quitting». Test —
+  `test/unit/contract-runner-stop.test.ts` (shell script вместо `claude`: script и его ребёнок мертвы, папки нет сразу
+  после `abort()`); на Windows пропускается, там ветка `killTool` та же, что у таймера.
+- **Сетевые строки не ждут набор (med).** Строки набора — live rows: сетевой источник только запускает `refresh()` и
+  сразу отвечает `[]`, так что «Check again», «Use <login>» и строки GitHub access ответа набора не ждут. Новая пара
+  показывает «<версия> (<копия>) · running the checks…», готовый ответ уходит через `firstRun.reportChanged`. Run again
+  ждёт свою копию. Более старый `refresh`, закончившийся позже нового, строку не перезаписывает. Test-ы — в
+  `test/unit/harness-claude-health.test.ts` и `test/contract/health-reports.test.ts`.
+- **`not-run` не кэшируется (low).** Ответ, где хоть один case `not-run`, в файл не пишется: следующий старт прогонит
+  пару снова; в этом запуске worfy он показывается из памяти и набор заново не идёт.
+- **Ошибка записи кэша (low).** Запись — в своём `try/catch`: строка показывает ответ, в log — одна строка
+  предупреждения, следующий старт прогонит пару снова.
+- Каждый test новой логики проверен мутантом (копия файла в памяти, восстановление из неё): 14 мутантов, все красные.
