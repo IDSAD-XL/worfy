@@ -88,6 +88,7 @@ Source: [spec.md](../spec.md), «Ticket-ы», 10; «Набросок функц�
 - [ ] Вид PR, который дописывает путь проверки в trail, показывает Allow verification change; щелчок пишет commit status
       `owner` на head, без щелчка записи нет.
   - evidence: test-run pass · `pnpm test test/unit/owner-mark.test.ts test/unit/pr-inbox-verification.test.tsx test/unit/pr-inbox-view.test.tsx test/contract/pr-inbox.test.ts` exit 0 · mac - · 4889d51aeac190ca59a10005c1772fd65786d3d6
+  - evidence: test-run pass · `pnpm test test/unit/owner-mark.test.ts test/unit/pr-inbox-verification.test.tsx test/unit/pr-inbox-view.test.tsx test/contract/pr-inbox.test.ts` exit 0 · mac - · ed296dd16c0421930f73eaf657abb474563e7ffc
 - [ ] `land` ждёт отметки `owner` у PR, который расширяет trail на путь проверки (shell test).
   - evidence: test-run pass · `bash harness/bin/tests/land-verification.test.sh` exit 0 · mac - · 4889d51aeac190ca59a10005c1772fd65786d3d6
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR, включая Windows verdict.
