@@ -72,9 +72,10 @@ Source: [spec.md](../spec.md), «Ticket-ы», 01; «Решения владел�
 - [ ] `--dry-run` с теми же аргументами прошёл до платного запуска; один run `status-block` на кредитах с потолком
       `--max-cost-usd 2`; строка `eval:harness …` в описании PR.
   - evidence: test-run pass · `pnpm eval:harness -- --case status-block --billing credits --max-cost-usd 2` exit 0 after the same with --dry-run exit 0; costUsd 0.31 · mac - · 75b01732e6887fad8efc6c9fa1ab04fa40a7259c
-- [ ] (вручную) Сделай: открой Console → Usage после run-а из «Итога» → Должно быть: расход этого run-а за дату run-а
+- [x] (вручную) Сделай: открой Console → Usage после run-а из «Итога» → Должно быть: расход этого run-а за дату run-а
       в организации, привязанной к подписке; баланс кредитов уменьшился, auto-reload выключен.
   - needs: mac
+  - evidence: owner-check pass · 2026-11-28: все верно (Console → Usage 2026-11-28 ~05:03 UTC shows the ~0.31 USD run on the API key credits) · mac stable · 5bf665f77
 - [ ] «Итог» называет, куда ушёл расход `claude plugin eval` с ключом: в кредиты или в лимит подписки.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
   - evidence: gate pass · `gate fast` exit 0 · mac - · 75b01732e6887fad8efc6c9fa1ab04fa40a7259c
@@ -114,3 +115,5 @@ Source: [spec.md](../spec.md), «Ticket-ы», 01; «Решения владел�
   `report.html` не называют способ оплаты: там только `costUsd`. Признака списания с лимита подписки run тоже не
   дал. Ответ даст только ручной пункт Console выше (Usage за 2026-11-28 около 05:03 UTC, расход ≈ 0,31 USD). Пока его
   нет, вопрос «кредиты или лимит подписки» открыт, и Orchestrator решает, ждут ли 05, 07 и 14–17.
+- 2026-11-28, слово владельца: Console → Usage показывает run около 05:03 UTC (≈ 0,31 USD) — расход `claude plugin eval`
+  с ключом ушёл **в кредиты организации Console**, не в лимит подписки. Тикеты 05, 07 и 14–17 этого не ждут.
