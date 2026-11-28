@@ -22,7 +22,7 @@
 // other character is itself; there is no negation, a glob only ever adds files.
 // Paths are compared with "\" read as "/" on every platform — a path that reaches a hook from Windows
 // may carry either — and without letter case on Windows and macOS, whose file systems ignore it by
-// default: `.GitHub/Workflows/ci.yml` there is the same file as `.github/workflows/ci.yml`.
+// default: `.GitHub/Workflows/` there is the same folder as `.github/workflows/`.
 //
 // CommonJS, like pipeline.cjs: the scripts of bin/ and hooks/ are CommonJS and `require` it.
 "use strict"
