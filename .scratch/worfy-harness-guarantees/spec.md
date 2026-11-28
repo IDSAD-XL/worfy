@@ -1,7 +1,13 @@
 # worfy-harness-guarantees: гарантии Harness нельзя обойти — агент не правит проверки, которые его судят, не сливает PR мимо условия merge, guard-ы держатся в любом режиме и на новой версии Claude Code
 
-Status: черновик 2026-11-13 из исследования конкурентов, владельцем не принят
-Critic: [docs/product/critic/worfy-harness-guarantees-2026-11-14.md](../../docs/product/critic/worfy-harness-guarantees-2026-11-14.md) — Reorder.
+Status: принят владельцем 2026-11-28 (черновик 2026-11-13 из исследования конкурентов). Ответы на «Вопросы владельцу»
+Q1–Q7 и порядок critic-а 2026-11-28 внесены; Ticket 11 снят по Q7 (б).
+Critic: [docs/product/critic/worfy-harness-guarantees-2026-11-28.md](../../docs/product/critic/worfy-harness-guarantees-2026-11-28.md) — Reorder;
+возражения 1 (отметка `owner` уходит из 04 в 10), 2 (guard и `land` читают trail на вершине base branch) и 3 (case-ы
+guard и Stop в 08 — бесплатная половина worfy-harness-eval 15) и альтернатива (порядок Wave-ов) приняты 2026-11-28.
+Critic: [docs/product/critic/worfy-harness-guarantees-2026-11-14.md](../../docs/product/critic/worfy-harness-guarantees-2026-11-14.md) — Reorder;
+его возражения 1 и 2 повторены в разборе 2026-11-28 и решены там, возражение 3 (matcher PreToolUse и
+worfy-stuck-agents) снято: тот Epic сделал call log hook-ом PostToolUse.
 Source: исследование конкурентов 2026-11-13 ([папка досье](../../docs/research/2026-11-13-competitors/)), четыре
 проверенные идеи: review-quality-3 «Ticket или PR не может ослабить проверки, которые его судят», review-quality-8
 «Hook не пускает merge и опасные действия с GitHub мимо условия merge», safety-3 «Guard-ы в любом permission mode: hard
@@ -27,8 +33,11 @@ Auto-approval, Approval policy, Vendor, Machine, Settings, Full mode, Silent mod
 [worfy-pipeline](../worfy-pipeline/spec.md) — Stage-и и отметки агентов на SHA (ADR-0067);
 [worfy-multi-vendor](../worfy-multi-vendor/spec.md) — Codex, вход его hook-ов и часть `harnessHooks` driver-а
 (ADR-0094).
-Ticket-ы: Epic `worfy-harness-guarantees`, 13 Ticket-ов, нумерация с `01`. Файлов Ticket-ов пока нет: их пишут после
-того, как владелец примет spec.
+Связан с: [worfy-harness-eval](../../docs/product/harness-eval/drafts/worfy-harness-eval.md) (принят 2026-11-24) — его
+Ticket 15 (`:352`, платные case-ы hook-ов guard, stop и gate) берёт только то, что бесплатный contract set Ticket-а 08
+проверить не может: что агент делает после отказа.
+Ticket-ы: Epic `worfy-harness-guarantees`, 12 Ticket-ов — `01`–`10`, `12`, `13` (11 снят по Q7 (б)), файлы —
+[issues/](issues/).
 
 ## Проблема
 
@@ -40,7 +49,7 @@ Ticket-ы: Epic `worfy-harness-guarantees`, 13 Ticket-ов, нумерация �
 - Implementer правит только файлы trail-а своего Ticket-а — раздела `## Где в коде`
   (`harness/agents/implementer.md:87-90`). Это текст. guard проверяет только Bash:
   `if (payload?.tool_name !== "Bash") ok()` (`harness/hooks/guard.mjs:73`), а `apply_patch` на Codex отказывает только
-  reviewer-у и scout-у (`guard.mjs:65-72`). Matcher hook-а — `Bash|apply_patch` (`harness/hooks/hooks.json:157`):
+  reviewer-у и scout-у (`guard.mjs:65-72`). Matcher hook-а — `Bash|apply_patch` (`harness/hooks/hooks.json:187`):
   Edit и Write не проверяет никто.
 - CI идёт на `pull_request` (`.github/workflows/ci.yml:91-99`), поэтому workflow и scope-скрипты CI
   (`scripts/ci-scope.mjs`, `scripts/ci-ok.mjs`, `scripts/affected-tests.mjs` и его таблица,
@@ -137,8 +146,8 @@ permission mode, и в `land`, который проверяет diff детер
 1. **Пути проверок.** Путь проверки (verification path) — файл, который судит работу: workflow CI, scope-скрипт,
    Quarantine, настройка test-ов и lint, агент review, hook Harness. Список — defaults Harness и поле Profile-а; Profile
    только добавляет. Subagent правит путь проверки, только если trail его Ticket-а на base branch этот путь называет,
-   иначе guard отказывает с причиной. `land` проверяет то же по diff-у PR от merge-base: PR, который правит путь
-   проверки вне trail-а, ждёт. Строка `land` и отчёт Wave называют пути проверок каждого PR.
+   иначе guard отказывает с причиной. `land` проверяет то же по diff-у PR от merge-base, а trail читает, как guard,
+   на вершине base branch: PR, который правит путь проверки вне trail-а, ждёт. Строка `land` и отчёт Wave называют пути проверок каждого PR.
 2. **Merge только через `land`.** guard пропускает `gh pr merge` агента, только когда `land --check <N>` говорит, что
    условие выполнено. `--admin`, `--auto`, merge через REST или GraphQL, включение auto-merge и push в main branch он
    отказывает всегда. Commit status `review`, `check/*` и `deploy` пишет только `bin/ticket mark` главной Session:
@@ -168,7 +177,8 @@ permission mode, и в `land`, который проверяет diff детер
    идёт дальше.
 3. Orchestrator дописывает путь в trail documents PR-ом. Такой PR расширяет trail на путь проверки и по Q3 (а) ждёт
    отметки владельца: кнопка Allow verification change в виде PR.
-4. После merge implementer правит файл, guard пропускает. Строка `land` и отчёт Wave называют путь.
+4. После merge implementer правит файл, guard пропускает. `land` читает trail на вершине base branch, как guard, и
+   ветке implementer-а rebase не нужен. Строка `land` и отчёт Wave называют путь.
 5. В ручной Session Orchestrator пишет `gh pr merge 1851 --admin` — guard отказывает всегда. На `gh pr merge 1851` guard
    зовёт `land --check 1851`, тот отвечает «waits — draft», и guard отказывает с этой причиной.
 6. После Run Run history показывает блок Guard: два отказа — кто, какое правило, какая команда.
@@ -205,7 +215,7 @@ Guard · 2 refused
   10:31  Orchestrator   merge outside land                    gh pr merge 1851 --admin
 ```
 
-Вид PR при Q3 (а) или (б):
+Вид PR по Q3 (а):
 
 ```text
 #1852  Docs: trail of worfy-x 07                       CI ✓   Review ✓
@@ -330,7 +340,7 @@ flowchart TD
     владелец (`~/.claude/worfy-harness/projects/worfy/rules-history.md:31-32`): Ticket даёт ему одну команду
     `profile-set`.
 - **guard: путь проверки — только по trail-у.**
-  - Matcher в `hooks.json:157` — `Bash|apply_patch|Edit|Write|MultiEdit|NotebookEdit`.
+  - Matcher в `hooks.json:187` — `Bash|apply_patch|Edit|Write|MultiEdit|NotebookEdit`.
   - Путь записи: у Edit, Write и MultiEdit — `tool_input.file_path`, у NotebookEdit — `notebook_path`, у `apply_patch` —
     заголовки `*** Add File:`, `*** Update File:`, `*** Delete File:` и `*** Move to:`. У Bash — цели записи, которые уже
     находят лексер (`guard.mjs:397`) и разбор путей (`guard.mjs:706-730`: `~`, `$HOME`, переменные команды, Git Bash на
@@ -353,23 +363,28 @@ flowchart TD
   предложение), он дописывает туда строку JSON: время, id правила, агент, Ticket, сокращённая команда. Без переменной —
   например, в терминале — guard ничего не пишет.
 - **`land`: пути проверок, draft, `land --check`.**
-  - `ready()` (`land:507-515`) получает шаг `verified(st, pr, head)`: пути diff-а от merge-base — как у `documentsOnly`
-    (`land:483-495`) — сверяются со списком из `verification-paths.cjs` и Profile-а, никогда из state file.
-  - Ticket PR-а — по ветке и `tickets.branch`, его trail — `git show <merge-base>:<путь>`. Путь проверки вне trail-а —
-    PR ждёт с причиной. PR без Ticket-а с путём проверки ждёт владельца.
+  - `ready()` (`land:755-764`) получает шаг `verified(st, pr, head)`: пути diff-а от merge-base — как у `documentsOnly`
+    (`land:612-624`) — сверяются со списком из `verification-paths.cjs` и Profile-а, никогда из state file.
+  - Ticket PR-а — по ветке и `tickets.branch`, его trail — на вершине base branch, как у guard-а:
+    `git show <worktree.base>:<путь>` (в `land` — `refs/remotes/<remote>/<branch>` state file-а), не на merge-base.
+    Ветка implementer-а старше documents PR-а, который расширил её trail; на merge-base trail ещё старый, и `land`
+    ждал бы rebase и нового run-а CI (critic 2026-11-28, возражение 2). Защита та же: правки самого PR-а на base
+    branch нет. Путь проверки вне trail-а — PR ждёт с причиной. PR без Ticket-а с путём проверки ждёт владельца.
   - PR, который дописывает путь проверки в trail любого Ticket-а (diff в `tickets.root`), сам считается правкой путей
-    проверок и идёт по Q3.
-  - `isDraft` добавляется в `PR_FIELDS` (`land:280`): draft ждёт.
+    проверок и идёт по Q3 (а).
+  - `isDraft` добавляется в `PR_FIELDS` (`land:356`): draft ждёт.
   - Имя check-а CI — из `workflow.ci_check`: state file с другим именем `land` отказывает.
-  - При Q3 (а) или (б) нужная отметка — commit status `owner` на head PR. Её пишет только worfy по кнопке владельца
-    (Ticket 10).
+  - По Q3 (а) PR, который расширяет trail на путь проверки, ждёт commit status `owner` на head PR. Её пишет только
+    worfy по кнопке владельца, и требование в `land` ставит тот же Ticket 10, а не 04: иначе после 04 такие PR ждали
+    бы отметки, которую ещё нечем написать (critic 2026-11-28, возражение 1). До 10 `land` называет такой PR в своей
+    строке и не ждёт.
   - Новый режим `land --check <N>`: условие одного PR без state file, по Profile-у. Exit 0 — готов, 1 — ждёт (причина
     одной строкой), 2 — не может сказать.
   - Строка `land` и отчёт Wave (skill `epic-wave`, раздел 4) называют пути проверок PR.
 - **guard: merge и история main branch.** Разбор `gh` уже есть — `ghCommand` (`guard.mjs:571`), `GH_API_WRITES`
   (`:588-596`), `ghApi` (`:605-681`), — но сегодня он работает только ради следов Silent mode. Новый раздел действует в
   каждом Project-е с Profile-ем и в любом режиме.
-  - `gh pr merge <N>`: guard зовёт `land --check <N>` с бюджетом внутри лимита hook-а 30 s (`hooks.json:162`). Exit 0 —
+  - `gh pr merge <N>`: guard зовёт `land --check <N>` с бюджетом внутри лимита hook-а 30 s (`hooks.json:192`). Exit 0 —
     пропуск, иначе отказ с причиной `land`. Нет ответа вовремя — отказ «run land», а не пропуск: для merge guard при сбое
     закрыт.
   - Всегда отказ: `--admin`, `--auto`, `gh api` PUT `…/pulls/<N>/merge`, GraphQL `mergePullRequest` и
@@ -421,6 +436,10 @@ flowchart TD
     незакоммиченной правке отказан; (5) Stop hook держит ход при красном gate (gate — stub); (6) hook Subagent-а видит
     `agent_type`, если spike покажет, что stand-in ведёт ход Subagent-а. Ticket 06 добавляет case-ы своих областей и
     правила Ticket-а 03, Ticket 05 — case merge.
+  - Case-ы (4) и (5) и case-ы отказов, которые добавляют 05 и 06, — бесплатная половина Ticket-а 15 worfy-harness-eval
+    (`docs/product/harness-eval/drafts/worfy-harness-eval.md:352`): на вопрос «отказал ли guard, держит ли Stop ход»
+    отвечает этот набор, а платный case 15 берёт только то, для чего нужна модель, — что агент делает после отказа
+    (critic 2026-11-28, возражение 3).
   - `test/contract/harness-guarantees.test.ts` запускает набор в `pnpm test` на binary SDK: PR, который поднимает SDK
     (`package.json:29`), краснеет, если Harness сломался. Это дополняет compatibility suite worfy-reliability 05.
 - **Health: Harness на версии Claude Code.**
@@ -435,14 +454,15 @@ flowchart TD
     нижняя версия, на которой набор прошёл. Ставится, только если spike покажет, что невыполненный `engines` Claude Code
     называет ошибкой, а не молча пропускает plugin. Test без version в manifest-е (`harness-plugin.test.ts:51-53`)
     остаётся.
-  - Платный `pnpm eval:harness` с `CLAUDE_BIN` (`scripts/eval-harness.mjs:51-52`) — только по Q6.
+  - Строка Health с новой версией Claude Code терминала даёт ссылку на changelog Claude Code (Q7 (б)).
+  - Платный `pnpm eval:harness` с `CLAUDE_BIN` (`scripts/eval-harness.mjs:58`) — не запускается: Q6 (а).
 - **Отказы guard в Journal и Run history.**
   - worfy задаёт `WORFY_GUARD_LOG` в окружении Session-ов, которые запускает, — Claude (`options.ts`) и Codex, — и
     переносит строки в Journal Run-а новым видом `guard-deny` (`src/shared/autopilot/journal.ts:423`, как
     `auto-approval` на `:582`).
   - Run history (`src/renderer/flight-recorder/RunHistoryView.tsx`, `DetailPanel.tsx`) показывает блок Guard и строку в
     конце Run-а.
-  - Кнопка Allow verification change при Q3 (а) или (б) живёт в виде PR (`docs/features/pr-inbox.md:84`), commit status
+  - Кнопка Allow verification change по Q3 (а) живёт в виде PR (`docs/features/pr-inbox.md:84`), commit status
     `owner` пишет main-процесс. Это вторая запись main на GitHub после ответа на review
     (`docs/adr/0105-pr-reply-only-on-the-users-click.md:51-52`), поэтому код записи — один модуль.
 
@@ -453,7 +473,7 @@ flowchart TD
     и `guard-silent.test.sh`; новые файлы — по одному на раздел (пути проверок, merge, области). Вход Codex —
     `test/contract/harness-codex-hooks.test.ts`.
   - `land` — `harness/bin/tests/land.test.sh` с gh stand-in (`harness/bin/tests/gh-stand-in.sh`): draft, путь проверки
-    вне trail-а, trail на merge-base, PR, который расширяет trail, `land --check`.
+    вне trail-а, trail на вершине base branch (ветка старше расширения trail-а — PR не ждёт), PR, который расширяет trail, `land --check`.
   - Список путей — unit test-ы `verification-paths.cjs`: glob-ы, `\` и регистр на Windows, Profile только добавляет.
   - Один список hard deny в двух языках — contract test `test/contract/guard-policy-parity.test.ts` (имя —
     предложение).
@@ -501,52 +521,62 @@ flowchart TD
     печатает итоговый список; форма Edit profile показывает его; команда владельцу для списка worfy. Агент, review
     medium.
 03. **guard: путь проверки — только по trail-у** — matcher `hooks.json`; пути Edit, Write, MultiEdit, NotebookEdit,
-    `apply_patch` и целей Bash; Subagent по `agent_type`; trail на `worktree.base` через `git show`; Silent mode; отказ
-    `profile-set` полей условий и `ticket mark` из Subagent-а; строка отказа в `WORFY_GUARD_LOG`; тексты implementer-а и
-    skill `epic-wave` о шаге после отказа. Агент, review high, платформенный. Blocked by: 01, 02.
-04. **`land`: пути проверок, draft, `land --check`** — шаг `ready()` по diff-у и trail-у на merge-base; PR, который
-    расширяет trail; PR без Ticket-а; `isDraft`; `workflow.ci_check` вместо имени из state file; отметка `owner` по Q3;
-    режим `land --check <N>`; строка `land` и отчёт Wave. Агент, review high, платформенный. Blocked by: 02.
+    `apply_patch` и целей Bash; Subagent по `agent_type`; trail на вершине base branch (`worktree.base`) через
+    `git show` — тем же helper-ом, что `land` в 04; Silent mode; отказ `profile-set` полей условий и `ticket mark` из
+    Subagent-а; строка отказа в `WORFY_GUARD_LOG`; тексты implementer-а и skill `epic-wave` о шаге после отказа.
+    Агент, review high, платформенный. Blocked by: 01, 02, 04.
+04. **`land`: пути проверок, draft, `land --check`** — шаг `ready()` по diff-у от merge-base и trail-у на вершине base
+    branch (helper чтения trail-а — в `harness/lib/`, его берёт и guard в 03); PR, который расширяет trail, — только
+    называется в строке `land` (требование отметки `owner` — Ticket 10); PR без Ticket-а; `isDraft`;
+    `workflow.ci_check` вместо имени из state file; режим `land --check <N>`; строка `land` и отчёт Wave. Агент, review
+    high, платформенный. Blocked by: 02.
 05. **guard: merge только через `land`** — `gh pr merge` через `land --check` с отказом без ответа; всегда отказ
     `--admin`, `--auto`, merge через REST и GraphQL, auto-merge, push в main branch и её удаление, force push без lease;
     отказ статусов `review`, `check/*`, `deploy`, `owner`; `workflow.merge: null`; case contract set-а. Агент, review
     max, платформенный. Blocked by: 04, 06.
 06. **guard: защищённые области в любом режиме** — области и команды hard deny по `roots.ts` и `policy.ts`; исключения
     (память, файлы Session по spike-у, Card-ы); `.git/hooks/` и `.git/config`; путь данных worfy из окружения; ручные
-    Session-ы по Q2; contract test равенства с `roots.ts` и таблица команд с `shell.ts`; case-ы contract set-а для 03 и
-    06. Агент, review high, платформенный. Blocked by: 01, 03, 08.
+    Session-ы по Q2 (в): в Session-ах без человека — отказ, в ручных — `ask`, если spike 01 подтвердил, что `ask`
+    работает в `bypassPermissions`, иначе отказ везде (а); contract test равенства с `roots.ts` и таблица команд с
+    `shell.ts`; case-ы contract set-а для 03 и 06. Агент, review high, платформенный. Blocked by: 01, 03, 08.
 07. **Проверка Harness при старте на Claude Code** — `events.ts` читает `plugins` и `plugin_errors`; notice в Session;
     часть `harnessHooks` Claude (`src/main/vendors/claude/harness-hooks.ts`) с запросом без модели; `unattendedRefusal`
     отказывает Autopilot. Агент, review medium. Blocked by: 01.
 08. **Contract set без модели** — stand-in переезжает в `src/main/harness/contract/`; runner и шесть case-ов;
-    `test/contract/harness-guarantees.test.ts` в `pnpm test` на binary SDK, на macOS и Windows. Агент, review medium,
-    платформенный. Blocked by: 01.
+    `test/contract/harness-guarantees.test.ts` в `pnpm test` на binary SDK, на macOS и Windows. Case-ы guard-а и Stop
+    hook-а — бесплатная половина Ticket-а 15 worfy-harness-eval: платный case 15 берёт только то, что этот набор
+    проверить не может. Агент, review medium, платформенный. Blocked by: 01.
 09. **Health: Harness на версии Claude Code** — check `harness-claude`; версии копии worfy и терминала; набор один раз
     на пару версий, кэш в данных worfy, Run again, toast; `engines` в `plugin.json` по ответу spike-а; ссылка на
-    changelog при Q7 (б); платный eval только при Q6 (б). Агент, review medium, платформенный. Blocked by: 08.
+    changelog Claude Code в строке Health (Q7 (б)); платного eval-а нет (Q6 (а)). Агент, review medium,
+    платформенный. Blocked by: 08.
 10. **Отказы guard в Journal и Run history; кнопка владельца** — `WORFY_GUARD_LOG` в окружении Session-ов Claude и
     Codex; Journal kind `guard-deny`; блок Guard в Run history и строка в конце Run-а; кнопка Allow verification change
-    в виде PR и commit status `owner` при Q3 (а) или (б). Агент, review high. Blocked by: 03.
-11. **Заметка о новой версии Claude Code** — только при Q7 (а): при новой паре версий worfy пишет в Workflow folder
-    версии, итог contract set-а и ссылку на changelog; Orchestrator читает заметку в preflight Wave. При (б) и (в)
-    Ticket снимается. Агент, review low. Blocked by: 09.
+    в виде PR и commit status `owner` (Q3 (а)); в `land` — требование отметки `owner` у PR, который расширяет trail на
+    путь проверки (перенесено из 04). Агент, review high. Blocked by: 04.
+11. Снят: Q7 (б) — ссылка на changelog живёт в строке Health Ticket-а 09.
 12. **Документация** — Feature pages `harness.md`, `gate-and-github.md`, `auto-approval.md`, `autopilot.md` и их копии в
     `docs/features/ru/`; термин Verification path в `CONTEXT.md`; новый ADR о гарантиях в hook-е и в `land`; Amendments
-    ADR-0067, ADR-0083, ADR-0094, ADR-0098; contract set в `harness/README.md`. Агент, review low. Blocked by: 03–11.
+    ADR-0067, ADR-0083, ADR-0094, ADR-0098; contract set в `harness/README.md`. Агент, review low. Blocked by: 03, 04,
+    05, 06, 07, 08, 09, 10.
 13. **Приёмка владельца** — шаги на Machine: отказ implementer-у вне trail-а, ожидание draft и пути вне trail-а в
     `land`, отказ `--admin`, отказ записи в `~/.claude` в `bypassPermissions`, notice при сломанном Harness, строка
-    Health после смены версии. (вручную) Владелец. Blocked by: 12.
+    Health после смены версии. (вручную) Владелец. Blocked by: 01–10, 12.
 
 ## Волны
+
+Порядок — альтернатива critic-а 2026-11-28, принятая владельцем: сначала детерминированная часть (`land`, проверка
+при старте, contract set), потом лексическая (разделы guard-а, которые скрипт агента может обойти).
 
 | Wave | Ticket-ы | Почему так |
 |---|---|---|
 | 1 | 01, 02 | spike только читает и пишет факты в свой Ticket; список путей — `harness/lib/`, `harness/profiles/`: общих файлов нет, ответы обоих нужны дальше |
-| 2 | 03, 04, 07, 08 | guard (`harness/hooks/guard.mjs`, `hooks.json`), `land` (`harness/bin/land`), проверка при старте (`src/shared/vendors/claude/events.ts`, `src/main/vendors/claude/`, `src/main/agent/orchestrator.ts`), contract set (`src/main/harness/contract/`, `test/contract/`): общих файлов нет |
-| 3 | 06, 09, 10 | второй раздел guard — после 03 в том же файле, его case-ы — в наборе 08; Health (`src/main/first-run/checks.ts`, `src/renderer/settings/`) запускает набор 08, не трогая список case-ов; Journal и Run history (`src/shared/autopilot/journal.ts`, `src/renderer/flight-recorder/`) читают строки отказов из 03 |
-| 4 | 05, 11 | merge-правило зовёт `land --check` из 04 и правит `guard.mjs` после 06; заметка о версии — после Health 09 |
-| 5 | 12 | документация по сделанному |
-| 6 | 13 | приёмка |
+| 2 | 04, 07, 08 | `land` (`harness/bin/land`) без требования `owner` и с trail-ом на вершине base branch; проверка при старте (`src/shared/vendors/claude/events.ts`, `src/main/vendors/claude/`, `src/main/agent/orchestrator.ts`); contract set (`src/main/harness/contract/`, `test/contract/`): общих файлов нет |
+| 3 | 03, 09, 10 | первый раздел guard (`guard.mjs`, `hooks.json`) берёт helper trail-а из 04; Health (`src/main/first-run/checks.ts`, `src/renderer/settings/`) запускает набор 08, не трогая список case-ов; кнопка владельца и отметка `owner` в `land` после 04, Journal и Run history (`src/shared/autopilot/journal.ts`, `src/renderer/flight-recorder/`) читают строку отказа по формату spec-а (её пишет 03) |
+| 4 | 06 | второй раздел guard — после 03 в том же файле, его case-ы — в наборе 08 |
+| 5 | 05 | merge-правило зовёт `land --check` из 04 и правит `guard.mjs` после 06 |
+| 6 | 12 | документация по сделанному |
+| 7 | 13 | приёмка |
 
 Wave в работе Orchestrator считает заново по Blocked by и общим файлам (skill `epic-wave`); таблица — план.
 Платформенный Ticket — скрипт Harness, hook или путь ОС: PR ждёт Windows verdict до merge (ADR-0056).
@@ -571,16 +601,19 @@ Wave в работе Orchestrator считает заново по Blocked by и
 - **Память Claude Code открыта.** Запись в `~/.claude/projects/*/memory/` разрешена; агент может оставить там текст,
   который прочтёт следующая Session, как rule проекта у Antigravity
   ([досье](../../docs/research/2026-11-13-competitors/google-antigravity.md):542). Описано, не закрыто.
-- **Отметка владельца на GitHub.** Статус `owner` (Q3 (а) или (б)) — вторая запись main-процесса на GitHub. Тот же
+- **Отметка владельца на GitHub.** Статус `owner` (Q3 (а)) — вторая запись main-процесса на GitHub. Тот же
   токен может записать его и скриптом, который guard не читает: это тоже сила самого агента.
 - **Windows.** `%APPDATA%`, Git Bash, регистр путей; разбор путей guard-а на win32 (`guard.mjs:727-729`). Платформенные
   Ticket-ы ждут Windows verdict.
 - **Epic правит свои же пути проверок.** Ticket-ы 03–06 правят `guard.mjs`, `hooks.json` и `land` — пути проверок
-  worfy. Их trail-ы называют эти файлы; при Q3 (б) каждый PR Epic-а ждёт отметки владельца.
+  worfy. Их trail-ы называют эти файлы; по Q3 (а) отметки владельца ждёт только PR, который дописывает путь проверки в trail.
 - **Stand-in отстаёт от API.** Новый Claude Code может ждать поле, которого stand-in не шлёт, и case упадёт не из-за
   Harness. Runner отличает «не смог запустить» от «guard не отказал» и пишет это в строке Health.
 
 ## Вопросы владельцу
+
+Решение владельца 2026-11-28: Q1 (а), Q2 (в), Q3 (а), Q4 (а), Q5 (а), Q6 (а), Q7 (б) — по рекомендациям; Ticket 11
+снят. Строка «Решение владельца» под каждым вопросом называет, что из ответа следует для Ticket-ов.
 
 1. **Q1. Рамка Epic-а и правило соразмерности защиты.** Угроза, для которой нужны права самого агента, описывается, а
    не закрывается (`docs/adr/0105-pr-reply-only-on-the-users-click.md:55-57`). Все четыре пути — права самого агента.
@@ -589,23 +622,30 @@ Wave в работе Orchestrator считает заново по Blocked by и
    Обход мимо лексического guard-а (скрипт, который сам пишет файл) остаётся описанным.
    (б) Только описать (ADR и Feature page) и закрыть дешёвое: draft в `land` и `--admin` в guard. Ticket-ы 03 и 06–10
    снимаются.
+   Решение владельца 2026-11-28: (а). Epic идёт целиком; обход мимо лексического guard-а описан в «Рисках».
 2. **Q2. Защищённые области в ручных Session-ах.**
    (а) Отказ везде, где загружен Harness: и в ручных Session-ах, и в терминале. Файлы в `~/.claude` правит только
    владелец сам.
    (б) Отказ только в Session-ах без человека (Autopilot); ручные — как сегодня.
    (в) В Session-ах без человека — отказ, в ручных — `ask`: Claude Code спрашивает человека даже в
    `bypassPermissions`. Рекомендация, если spike 01 подтвердит, что `ask` в этом режиме работает; иначе (а).
+   Решение владельца 2026-11-28: (в). В Session-ах без человека — отказ; в ручных — `ask`, если spike 01
+   подтвердит, что `ask` работает в `bypassPermissions`; иначе (а) — отказ везде. Ticket 06.
 3. **Q3. Кто одобряет PR, который меняет пути проверок.** За последние 300 commit-ов таких было 24.
    (а) Хватает trail-а на base branch; отметки владельца ждёт только PR, который дописывает путь проверки в trail.
    Рекомендация: разрешение даёт trail, написанный до работы, и владелец смотрит только расширение trail-а, а не каждый
    из двух десятков PR в неделю.
    (б) Каждый PR с путём проверки ждёт отметки владельца.
    (в) Без шага владельца: trail на base branch, вопрос reviewer-а «что изменение убрало» и строка в отчёте Wave.
+   Решение владельца 2026-11-28: (а). Отметки `owner` ждёт только PR, который дописывает путь проверки в trail;
+   кнопку и требование в `land` делает Ticket 10 (возражение 1 critic-а 2026-11-28).
 4. **Q4. Записи Quarantine.**
    (а) Путь проверки: запись — только в Ticket-е, чей trail называет файл Quarantine, или в PR Orchestrator-а через
    `land`. Рекомендация: пределы `test/quarantine.ts:1-24` остаются, а путь «замолчать свой красный test своим же PR»
    закрывается.
    (б) Исключение: Quarantine — не путь проверки; её держат пределы файла и reviewer.
+   Решение владельца 2026-11-28: (а). `test/quarantine/**` — в списке путей проверок worfy (команда владельцу в
+   Ticket-е 02).
 5. **Q5. Сторона GitHub.**
    (а) Только guard и `land`; branch protection как сейчас: обязателен только `ci-ok`, администратор может сделать push
    в аварии (`docs/adr/0083-ci-ok-on-every-pr-is-the-merge-condition.md:79-81`). Рекомендация: агенты работают токеном
@@ -613,26 +653,29 @@ Wave в работе Orchestrator считает заново по Blocked by и
    записать.
    (б) Ещё `enforce_admins` и статус `review` обязательным check-ом GitHub: merge мимо условия падает и на GitHub, даже
    из скрипта, который guard не читает. Аварийный путь владельца — выключить защиту руками.
+   Решение владельца 2026-11-28: (а). Branch protection не меняется.
 6. **Q6. Платный eval на новой версии Claude Code терминала.**
    (а) Нет: только бесплатный contract set; полный eval — как сейчас, при смене SDK, модели или Stable copy
    (`harness/README.md:247-251`). Рекомендация.
    (б) Да: на каждой новой версии один запуск `pnpm eval:harness` с этим binary и потолком цены, который назовёт
    владелец.
+   Решение владельца 2026-11-28: (а). Платного eval-а на версии Claude Code терминала нет; Ticket 09 его не строит.
 7. **Q7. Changelog Claude Code при новой версии.**
    (а) worfy пишет в Workflow folder заметку о новой версии: версии, итог contract set-а, ссылку на changelog;
    Orchestrator читает её в preflight Wave (Ticket 11).
    (б) Только ссылка на changelog в строке Health (Ticket 09); Ticket 11 снимается. Рекомендация.
    (в) Ничего; Ticket 11 снимается.
+   Решение владельца 2026-11-28: (б). Ссылка на changelog — в строке Health (Ticket 09); Ticket 11 снят.
 
 ## Готово, когда
 
 - [ ] Subagent на Claude Code и на Codex не правит путь проверки вне trail-а своего Ticket-а на base branch, в любом
       permission mode; отказ называет путь и следующий шаг.
-- [ ] `land` не сливает draft и PR с путём проверки вне trail-а на merge-base; PR, который расширяет trail, идёт по Q3;
-      строка `land` и отчёт Wave называют пути; `land --check <N>` отвечает за один PR.
+- [ ] `land` не сливает draft и PR с путём проверки вне trail-а на вершине base branch; PR, который расширяет trail,
+      ждёт отметки `owner` (Q3 (а)); строка `land` и отчёт Wave называют пути; `land --check <N>` отвечает за один PR.
 - [ ] `gh pr merge` агента проходит, только когда `land --check` говорит «готов»; `--admin`, `--auto`, merge через API,
       push в main branch и запись статусов `review`, `check/*`, `deploy`, `owner` отказаны.
-- [ ] Запись в защищённые области отказана в `bypassPermissions` и в Codex Full access, в Session-ах по Q2; память Claude
+- [ ] Запись в защищённые области отказана в `bypassPermissions` и в Codex Full access, в Session-ах по Q2 (в); память Claude
       Code и чтение правил открыты; список равен `roots.ts` по contract test-у.
 - [ ] Session, где Harness не загрузился, показывает notice; Autopilot на Claude Code без Harness не стартует.
 - [ ] Contract set без модели идёт в `pnpm test` на binary SDK и в Health на Claude Code терминала, один раз на пару

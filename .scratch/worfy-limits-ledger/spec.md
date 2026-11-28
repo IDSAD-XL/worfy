@@ -2,7 +2,11 @@
 
 Status: черновик 2026-11-13 из исследования конкурентов, владельцем не принят
 Critic: [docs/product/critic/worfy-limits-ledger-2026-11-14.md](../../docs/product/critic/worfy-limits-ledger-2026-11-14.md) — Split.
-Critic: не запускался.
+Critic: [docs/product/critic/worfy-limits-ledger-2026-11-28.md](../../docs/product/critic/worfy-limits-ledger-2026-11-28.md) — Split.
+Решение владельца 2026-11-28: Split по разбору critic-а 2026-11-28 — Epic 1, учёт токенов: Ticket-ы 01, 03–11, Ticket 02
+калибрует долю недели по текущему 7-дневному окну (не по Wave-ам Autopilot), замена Cost на долю недели — в Ticket-е 10;
+Epic 2 позже — правило Autopilot Ticket-а 12, когда вкладка Cache losses покажет случай. Очерёдность —
+после worfy-harness-guarantees; spec переписать перед приёмкой.
 Source: исследование конкурентов 2026-11-13 ([папка](../../docs/research/2026-11-13-competitors/)), идеи
 `reliability-cost-3` (куда ушли Limits: по Session, роли, Ticket-у и модели) и `reliability-cost-6` (потери prompt
 cache: причина, цена перечитывания разговора, новый разговор). Досье:

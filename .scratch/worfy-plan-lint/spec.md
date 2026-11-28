@@ -1,8 +1,11 @@
 # План Epic-а проверен до работы: `epic-lint` по Ticket-ам и разбор черновика spec-а на неоднозначности и покрытие
 
-Status: черновик 2026-11-13 из исследования конкурентов, владельцем не принят
+Status: отложен владельцем 2026-11-28 (черновик 2026-11-13 из исследования конкурентов). Вернуться, когда дефект формы
+Ticket-а снова встретится в новом Ticket-е (часть 1, `epic-lint`); часть 2 (разбор черновика spec-а) — после
+worfy-product-session, как шаг советника. Поломку `waves.ts` (строка без `Blocked by:` читается как «блокеров нет») чинит
+отдельный Ticket worfy-polish 169.
 Critic: [docs/product/critic/worfy-plan-lint-2026-11-14.md](../../docs/product/critic/worfy-plan-lint-2026-11-14.md) — Split.
-Critic: ещё не запускался; критик идёт до приёмки (`harness/hooks/rules/orchestrator.md:116-118`)
+Critic: [docs/product/critic/worfy-plan-lint-2026-11-28.md](../../docs/product/critic/worfy-plan-lint-2026-11-28.md) — Defer; возражения 1–3 приняты 2026-11-28.
 Source: [исследование конкурентов 2026-11-13](../../docs/research/2026-11-13-competitors/) — идеи planning-1 (`epic-lint` без модели) и planning-2 (разбор черновика на неоднозначности и покрытие); досье [Kiro](../../docs/research/2026-11-13-competitors/kiro.md), [Gas Town](../../docs/research/2026-11-13-competitors/gas-town.md), [Division Swarm](../../docs/research/2026-11-13-competitors/division-swarm.md), [Claude Code agent teams](../../docs/research/2026-11-13-competitors/claude-code-agent-teams.md), [OpenAI Symphony](../../docs/research/2026-11-13-competitors/openai-symphony.md); прежняя оценка той же идеи — [оценка идей PR #1580, идея 2](../../docs/research/2026-11-07-оценка-идей-pr-1580.md)
 Ticket-ы: Epic `worfy-plan-lint`, 10 Ticket-ов, нумерация с `01`. Шапка — `Type:` / `Status:` / `Blocked by:` / `Source:`
 Опирается на: `worfy-skills` (закрыт, 5/5), `worfy-evidence` (закрыт, 13/13), `worfy-product-session` (21/32), `worfy-multi-repo-ticket` (7/8, открыта только приёмка 08)

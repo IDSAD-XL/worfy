@@ -354,6 +354,11 @@ skill-ов и agent-ов (13 KB) добавляют к каждой Session ок
 | 17 | Case-ы: grill-with-docs, continuous-audit, prototype, writing-for-agents, max-review | — |
 | 18 | Правило частоты и правило провала в README Harness | — |
 
+Решение владельца 2026-11-28 ([critic worfy-harness-guarantees](../../critic/worfy-harness-guarantees-2026-11-28.md),
+возражение 3): «отказал ли guard, держит ли Stop ход» проверяет бесплатный contract set Ticket-а 08
+worfy-harness-guarantees (`.scratch/worfy-harness-guarantees/issues/08-contract-set-без-модели.md`). Платный Ticket 15
+берёт только то, что этот набор проверить не может: что агент делает после отказа.
+
 ## Волны
 
 - **Волна 1 — этот месяц.** Кредиты, около 105 USD: 01, 02, 03, 04, затем 05; параллельно 06 (бесплатно) и 07 (до
