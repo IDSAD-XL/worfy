@@ -50,9 +50,13 @@ Source: [spec.md](../spec.md), «Ticket-ы», 06; «Решения владел�
 ## Готово, когда
 
 - [ ] `harness-check` по 35 skill-ам для Claude Code и Codex — таблица в «Итог».
+  - evidence: commit pass · worfy-harness-eval/06: one-off SkillEvaluator static check of the 35 Harness skills · - - · 8671e440572e36066da9b25b2a036d802aa12fe7
 - [ ] Tier 1 по plugin-у и по skill-ам — находки High и Critical в «Итог» или причина `INCOMPLETE`.
+  - evidence: commit pass · worfy-harness-eval/06: one-off SkillEvaluator static check of the 35 Harness skills · - - · 8671e440572e36066da9b25b2a036d802aa12fe7
 - [ ] Версии и commit main в «Итог»; временное окружение удалено.
+  - evidence: commit pass · worfy-harness-eval/06: one-off SkillEvaluator static check of the 35 Harness skills · - - · 8671e440572e36066da9b25b2a036d802aa12fe7
 - [ ] `pnpm lint` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: test-run pass · `pnpm lint` exit 0 · mac - · 8671e440572e36066da9b25b2a036d802aa12fe7
 
 ## Итог
 
