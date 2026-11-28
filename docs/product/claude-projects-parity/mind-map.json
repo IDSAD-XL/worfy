@@ -1,0 +1,439 @@
+{
+  "version": 1,
+  "nodes": [
+    {
+      "id": "n01b02869",
+      "kind": "idea",
+      "text": "P0 Project Conversation: один постоянный разговор на Project — отвечает сам, передаёт просьбу в идущую Session, начинает новую работу или Product Session; мелкий fix без Epic-а (PR #2270)",
+      "from": null,
+      "advice": false,
+      "message": "d72500c8-225b-4d5b-ad58-99d1e814061d"
+    },
+    {
+      "id": "n4202ca74",
+      "kind": "idea",
+      "text": "P0 Canvas и Library: режим без Canvas на пробу, обзор работы Project-а, Subagent-ы скрыты по умолчанию, каталог Card-ов, файлов, отчётов и evidence с версиями (PR #2270)",
+      "from": null,
+      "advice": false,
+      "message": "b4e0834d-f18d-4755-a116-0627d08eeaf6"
+    },
+    {
+      "id": "nc33ee47c",
+      "kind": "idea",
+      "text": "P0 Native Memory (Claude first): встроенная auto memory Claude Code; сначала discovery spike, потом UI — смотреть, искать, править, удалять, включать и выключать память (PR #2270)",
+      "from": null,
+      "advice": false,
+      "message": "47fbd56f-2fcd-4b7b-bf7f-cb4593e83ba5"
+    },
+    {
+      "id": "n99736f1a",
+      "kind": "idea",
+      "text": "P0 Scheduled Tasks: задачи пользователя по расписанию и по событию поверх Assistant-а и Autopilot — модель, tools, бюджет, история, пропуски, повторы (PR #2270)",
+      "from": null,
+      "advice": false,
+      "message": "67cd9420-e794-4d63-a41e-44f36764610b"
+    },
+    {
+      "id": "nc6c4928a",
+      "kind": "idea",
+      "text": "P1 Session convenience parity: /btw, /fork, snooze, resolve/reopen, архив с поиском, пауза Project-а, модель по роли, расход по Session/Project/Ticket — сначала аудит (PR #2270)",
+      "from": null,
+      "advice": false,
+      "message": "a2750ff9-b93b-4a3b-8854-e7c9b1f138e4"
+    },
+    {
+      "id": "nf5fa5693",
+      "kind": "idea",
+      "text": "P1 Smart onboarding: worfy читает репозиторий и предлагает Profile, интеграции, память Project-а и первые задачи с Start / Start all; без терминов workflow для первой простой задачи (PR #2270)",
+      "from": null,
+      "advice": false,
+      "message": "4008cd64-51c1-4d63-aab2-41a718c86213"
+    },
+    {
+      "id": "nfa220f4c",
+      "kind": "idea",
+      "text": "P1 Headless и mobile companion: Execution Host поверх Local, Linked Machine, VPS и позже облака; телефон для внимания, статуса, PR, approvals и Acceptance, без Canvas (PR #2270)",
+      "from": null,
+      "advice": false,
+      "message": "b427005e-496a-4ce7-a58f-2514a60d6432"
+    },
+    {
+      "id": "na737f09c",
+      "kind": "idea",
+      "text": "P1/P2 память дальше: области (пользователь, Project, репозиторий, роль агента), синхронизация между машинами, отбор записей, Harness Eval по повторяющимся поправкам; постоянный аудит changelog-ов конкурентов (PR #2270)",
+      "from": null,
+      "advice": false,
+      "message": "9880aed9-43cc-4768-acdd-965da1efd186"
+    },
+    {
+      "id": "ne9ce0091",
+      "kind": "idea",
+      "text": "Ставить worfy рядом с Claude Projects на то, чего Projects не умеет по своему устройству: Harness с hook-ами (облачные thread-ы их не запускают), Codex, Evidence и Acceptance, Wave-ы с зависимостями. У Projects брать только дешёвые приёмы взаимодействия",
+      "from": null,
+      "advice": true,
+      "message": "40508aaa-7baf-40a8-b61f-8612eecdca70"
+    },
+    {
+      "id": "n1b979b23",
+      "kind": "decision",
+      "text": "Оставить в этой теме три направления: разговор Project-а, Canvas и Library, память. Остальные пять отдать туда, где они уже живут: расписание — Assistant, onboarding — worfy-onboarding к этапу E4, работа без Mac и телефон — принятые направления 1 и 2, Harness Eval — план worfy-harness-eval, удобства Session — пачка polish",
+      "from": null,
+      "status": "accepted",
+      "reason": "все да",
+      "advice": true,
+      "message": "a85476f2-306b-4fd9-9693-4a46eaf4d958"
+    },
+    {
+      "id": "n21ce01b2",
+      "kind": "question",
+      "text": "Для кого паритет? PR пишет о людях, которые переходят с обычного Claude. Roadmap — о product owner и двух пользователях, а этап E4 «Для других людей» начинается только с первым внешним пользователем (docs/roadmap.md:388-389, :454). Меняется ли аудитория?",
+      "from": null,
+      "message": "900e5018-731e-4150-b28f-790e64531da3"
+    },
+    {
+      "id": "n81251f4e",
+      "kind": "question",
+      "text": "Что владелец до сих пор делает в Claude desktop, а не в worfy, и почему? Session-ы Claude desktop работали в worktree-ах репозитория worfy с 2026-11-10 по 2026-11-26 (19 ключей .claude/worktrees)",
+      "from": null,
+      "message": "d116ffa5-4711-496d-8375-dd5fdc455d46"
+    },
+    {
+      "id": "n39db0907",
+      "kind": "objection",
+      "text": "PR делит так: Assistant — только над Project-ами, разговор — внутри Project-а. С тем, что есть, это не совпадает: Assistant уже будит Orchestrator и продолжает Session-ы внутри Project-а",
+      "from": "n01b02869",
+      "source": "docs/features/assistant.md:225",
+      "advice": true,
+      "message": "02e42a00-b911-44c0-b813-4a9dd891d1c8"
+    },
+    {
+      "id": "n02d87d40",
+      "kind": "decision",
+      "text": "Это не новый координатор. У Project-а ровно один Orchestrator, а follow-up по PR уже уходит в Session, связанную с Ticket-ом, по правилам и без модели. Нового всего три вещи: свободный текст, @Session и разговор, который переживает смену Session Orchestrator-а",
+      "from": "n01b02869",
+      "status": "accepted",
+      "reason": "все да",
+      "source": "CONTEXT.md:474; docs/features/projects.md:375-381; docs/product/claude-projects-parity/research-что-уже-есть-разговор-library-удобства.md",
+      "advice": true,
+      "message": "bd4bed96-d843-4a60-8940-b3332f415cc4"
+    },
+    {
+      "id": "n14ef460a",
+      "kind": "decision",
+      "text": "Разговор Project-а — это сам Orchestrator, а не новая сущность. В глоссарии «conversation» и «главный чат» — запрещённые синонимы Session и Orchestrator (CONTEXT.md:271, :279). Сначала прототип одним HTML-файлом, потом spec",
+      "from": "n01b02869",
+      "status": "accepted",
+      "reason": "все да",
+      "advice": true,
+      "message": "6c14f9c6-b39d-40b8-b801-ae2aadb62d02"
+    },
+    {
+      "id": "n49a45624",
+      "kind": "objection",
+      "text": "Наблюдение тестеров, на котором стоит направление, в репозитории не записано. О тестерах восемь записей, все про ошибки и настройку. Ни одна не говорит о Canvas, Layout, Subagent-ах, Epic frames или Card-ах",
+      "from": "n4202ca74",
+      "source": "docs/product/claude-projects-parity/research-что-уже-есть-разговор-library-удобства.md",
+      "advice": true,
+      "message": "0e229c09-f5f9-465f-8df7-16d3ce8e36fa"
+    },
+    {
+      "id": "n9758f664",
+      "kind": "objection",
+      "text": "PR хочет измерять время поиска работы, число шагов и открытия Canvas. Это упирается в roadmap: аналитика продукта там записана «не в направлении»",
+      "from": "n4202ca74",
+      "source": "docs/roadmap.md:438",
+      "advice": true,
+      "message": "a2eb72d5-e9ec-4303-a44f-2fe99e7ac589"
+    },
+    {
+      "id": "n2332c4e5",
+      "kind": "idea",
+      "text": "Дешёвый опыт до Canvasless mode: настройка стартового вида (сейчас окно всегда открывается на Canvas, src/renderer/session/navigation.ts:44) и Subagent Node-ы, скрытые по умолчанию. Двух пользователей спросить словами",
+      "from": "n4202ca74",
+      "advice": true,
+      "message": "90deaeeb-0ecc-4d86-8725-a3ef8d618422"
+    },
+    {
+      "id": "n88f0c426",
+      "kind": "question",
+      "text": "Кто тестеры, сколько их, на какой работе и что именно они сказали о Canvas и Card-ах?",
+      "from": "n4202ca74",
+      "message": "2a86b7d3-be38-4266-b421-261c7e3e59db"
+    },
+    {
+      "id": "n10fa8c8a",
+      "kind": "decision",
+      "text": "Блокирующий spike «включена ли память» не нужен. Auto memory уже включена во всех Session: preset claude_code, settingSources user, project и local (точные строки — src/main/vendors/claude/options.ts:793-794). В папке 177 файлов, индекс занимает 107 строк из 200",
+      "from": "nc33ee47c",
+      "status": "accepted",
+      "reason": "да",
+      "source": "src/main/vendors/claude/options.ts:792-793; docs/product/claude-projects-parity/research-память-claude-в-worfy-сейчас.md",
+      "advice": true,
+      "message": "6151f957-9e57-48e1-898f-088e6b939450"
+    },
+    {
+      "id": "n6d931027",
+      "kind": "decision",
+      "text": "Риск отравления памяти — не P2, он есть уже сейчас. Индекс приходит в каждую Session и каждый Subagent с силой CLAUDE.md, под шапкой «These instructions OVERRIDE any default behavior». Запись .md в папку памяти runtime пускает без вопроса и мимо canUseTool worfy, в том числе в Autopilot",
+      "from": "nc33ee47c",
+      "status": "accepted",
+      "reason": "да",
+      "source": "docs/product/claude-projects-parity/research-память-claude-в-worfy-сейчас.md (пункты о шапке индекса и о записи без вопроса); 20 из 20 последних transcript-ов Subagent-ов основного checkout несут индекс",
+      "advice": true,
+      "message": "b1019069-7e7b-40a2-93d7-fcf55892143c"
+    },
+    {
+      "id": "n59de3b03",
+      "kind": "objection",
+      "text": "Индикатор «recalled» по событию SDK сейчас не появится. Выбор памяти на каждый turn закрыт серверным флагом: в 8 513 transcript-ах нет ни одного такого события",
+      "from": "nc33ee47c",
+      "source": "docs/product/claude-projects-parity/research-память-claude-в-worfy-сейчас.md (раздел о серверных флагах)",
+      "advice": true,
+      "message": "5ad274d5-45e7-4c1e-b32a-ee5891c6fd89"
+    },
+    {
+      "id": "n192c0558",
+      "kind": "objection",
+      "text": "Синхронизация памяти между Linked Machines идёт против roadmap. Там записано: личную память пользователя worfy не ставит и не переносит",
+      "from": "nc33ee47c",
+      "source": "docs/roadmap.md:461-462",
+      "advice": true,
+      "message": "f2c0bfd0-5a7d-4b20-a610-580de04bacf1"
+    },
+    {
+      "id": "n041a38de",
+      "kind": "decision",
+      "text": "P0 памяти — три части. Вид Memory в worfy: список, поиск, правка и удаление, где лежит файл и какая Session его записала (поле originSessionId), по образцу Settings → Assistant → Memory. Правила Harness: что писать в память, а что нет — сейчас таких правил нет. Guard на запись памяти из Session без человека",
+      "from": "nc33ee47c",
+      "status": "accepted",
+      "reason": "да",
+      "advice": true,
+      "message": "a590914e-2dd0-4d23-a66b-17d9093f67cb"
+    },
+    {
+      "id": "n2e942e54",
+      "kind": "decision",
+      "text": "Механика расписания уже собрана в Assistant-е: CheckScheduler, BUILTIN_DUTIES, WakePlanner, work hours с часовым поясом, догон после сна, backoff, не больше 20 пробуждений в день, journal, пауза. Нет только задач, которые пишет сам пользователь",
+      "from": "n99736f1a",
+      "status": "accepted",
+      "reason": "все да",
+      "source": "src/main/assistant/schedule/scheduler.ts:156; src/shared/assistant/duties.ts:136; docs/features/assistant.md:337-401",
+      "advice": true,
+      "message": "bcfb4d3b-8b18-41b9-abaa-d713e6857b86"
+    },
+    {
+      "id": "n32c4f76e",
+      "kind": "question",
+      "text": "Может ли задача, которую пользователь сам поставил по расписанию, запускать Session без щелчка? Сейчас Session с текстом Assistant-а стартует только по щелчку (.scratch/worfy-assistant/spec.md:396-397)",
+      "from": "n99736f1a",
+      "message": "832c7c37-1e65-4198-8c40-f7f6aab9675b"
+    },
+    {
+      "id": "n6f3375d7",
+      "kind": "decision",
+      "text": "Удобства Session — не Epic, а пачка polish: fork (SDK умеет, worfy его не вызывает), /btw (проверить на SDK 0.3.322), пауза Project-а, форма моделей по ролям. Расход по Session и Ticket-у уже есть в черновике worfy-limits-ledger",
+      "from": "nc6c4928a",
+      "status": "accepted",
+      "reason": "все да",
+      "advice": true,
+      "message": "c90d0e46-968e-4c37-b2e2-3f0b706f701f"
+    },
+    {
+      "id": "nbffc8d50",
+      "kind": "decision",
+      "text": "Перезапуск координатора без остановки исполнителей противоречит ADR-0031: закрытая Session кончает свои Subagent-ы",
+      "from": "nc6c4928a",
+      "status": "accepted",
+      "reason": "все да",
+      "source": "docs/adr/0031-closed-session-ends-its-subagents.md",
+      "advice": true,
+      "message": "882d1962-18ec-4441-933c-27f0ea5a248d"
+    },
+    {
+      "id": "n9436ac9f",
+      "kind": "decision",
+      "text": "Почти всё уже есть. Шаг Draft в Add project читает репозиторий без записи. connect-project находит lock-файлы, CI, CLAUDE.md и AGENTS.md. Epic-и worfy-onboarding (14/14) и worfy-guide (21/21) закрыты. Нового — сводка находок и первые задачи с Start, а это аудитория этапа E4",
+      "from": "nf5fa5693",
+      "status": "accepted",
+      "reason": "все да",
+      "source": "docs/features/projects.md:94-95; harness/skills/connect-project/SKILL.md:43-50",
+      "advice": true,
+      "message": "3144f4e3-b2a5-4796-82a9-3a46c5bbddf7"
+    },
+    {
+      "id": "nac7da284",
+      "kind": "decision",
+      "text": "Это уже принятые владельцем направления 1 и 2 от 2026-11-14, им нужен свой spec. При этом roadmap до сих пор держит «управление с телефона» вне направления, а ADR-0054 и ADR-0070 никто не пересматривал",
+      "from": "nfa220f4c",
+      "status": "accepted",
+      "reason": "все да",
+      "source": "docs/research/2026-11-13-competitors/README.md:1182-1216; docs/roadmap.md:471",
+      "advice": true,
+      "message": "bb8f49a0-d9c9-4c7f-8852-c21779f639b6"
+    },
+    {
+      "id": "ne18e5c24",
+      "kind": "decision",
+      "text": "Сравнение worfy с Claude Code на одной задаче уже спроектировано. Это Ticket worfy-harness 52 (blocked с 2026-10-21, ждёт владельца) и пилот плана worfy-harness-eval: план принят 2026-11-24, но ещё не нарезан на Ticket-ы. CRM benchmark-а в репозитории нет",
+      "from": "na737f09c",
+      "status": "accepted",
+      "reason": "все да",
+      "source": ".scratch/worfy-harness/issues/52-сравнительный-eval-исходов-worfy-против-claude-code-без-plugin.md; docs/product/harness-eval/drafts/worfy-harness-eval.md:5",
+      "advice": true,
+      "message": "617b38e5-f510-41d5-956f-ed32151e2c7d"
+    },
+    {
+      "id": "n27d3b191",
+      "kind": "decision",
+      "text": "Аудитория не меняется: из PR берём то, что мешает владельцу и двум пользователям. Паритет для новичков ждёт этапа E4 «Для других людей»",
+      "from": "n21ce01b2",
+      "status": "accepted",
+      "reason": "да",
+      "advice": true,
+      "message": "9e592932-f577-47f7-ad8f-0c5185617e04"
+    },
+    {
+      "id": "n8f82dbf8",
+      "kind": "decision",
+      "text": "Ответ владельца: в Claude desktop он тестировал Claude Projects и настоящей работы там не делал",
+      "from": "n81251f4e",
+      "status": "accepted",
+      "reason": "тестировал Claude Projects, фактически не делал ничего",
+      "advice": false,
+      "message": "ec2b68eb-33e5-40fe-9ed8-b5b5e8c5c020"
+    },
+    {
+      "id": "n168d0631",
+      "kind": "decision",
+      "text": "Ответ владельца о Canvas: на Canvas легко потеряться, информация смешана в кучу. Боковая панель Claude Projects (вкладки Threads, Context, Custom view) — более удобный и выверенный UX; владелец приложил три её скриншота",
+      "from": "n88f0c426",
+      "status": "accepted",
+      "reason": "на канвасе легко потеряться, в кучу смешанна информация и по видимому антропик выбрала более удобный и выверенный вариант UX (приложил 3 скриншота, это сайдбар в Claude Projects)",
+      "advice": false,
+      "message": "63927452-1c4c-47fa-a885-e4249801e81b"
+    },
+    {
+      "id": "n92cc3e7f",
+      "kind": "decision",
+      "text": "5а. Расписание — в Assistant. Сейчас ничего не делаем. После приёмки Assistant-а (worfy-assistant, Ticket 20) Product Session продолжает тему proactive-runtime вопросом о задачах пользователя по расписанию. Туда же уходит вопрос, может ли такая задача запускать Session без щелчка",
+      "from": "n1b979b23",
+      "status": "accepted",
+      "reason": "все да",
+      "advice": true,
+      "message": "9c80954f-7ae6-40d5-88b7-5ef890ac21d5"
+    },
+    {
+      "id": "n56304f6b",
+      "kind": "decision",
+      "text": "5б. Onboarding — к этапу E4. Сейчас не строим. Orchestrator добавляет в темы E4 в docs/roadmap.md строку об умном onboarding из PR #2270: сводка находок, предложение интеграций, первые задачи с Start",
+      "from": "n1b979b23",
+      "status": "accepted",
+      "reason": "все да",
+      "advice": true,
+      "message": "9fb495de-5b0d-4fc2-925e-d104003e5dd3"
+    },
+    {
+      "id": "nd65fbb96",
+      "kind": "decision",
+      "text": "5в. Работа без Mac и телефон — это направления 1 и 2 от 2026-11-14. Сейчас Orchestrator убирает устаревшую строку «управление с телефона» из «Сознательно вне E2–E4» (docs/roadmap.md:471). Потом — своя тема Product Session, где явно пересматриваются ADR-0054 и ADR-0070",
+      "from": "n1b979b23",
+      "status": "accepted",
+      "reason": "все да",
+      "advice": true,
+      "message": "c18d4cfa-54f6-4ae3-a13e-ea0025e9925d"
+    },
+    {
+      "id": "nd178a6e6",
+      "kind": "decision",
+      "text": "5г. Harness Eval — план worfy-harness-eval и Ticket worfy-harness 52. Сбор повторяющихся поправок — отложенный Epic worfy-lessons-loop. В этой теме ничего не пишем. Аудит changelog-ов конкурентов — первый пример задачи по расписанию из 5а",
+      "from": "n1b979b23",
+      "status": "accepted",
+      "reason": "все да",
+      "advice": true,
+      "message": "39831e80-8690-499a-8f63-9e04c68c488f"
+    },
+    {
+      "id": "n5cdbffc1",
+      "kind": "decision",
+      "text": "5д. Удобства Session — Ticket-ы в worfy-polish: fork с выбранного сообщения, проверка /btw на SDK 0.3.322, поля моделей по ролям в Edit profile, пауза Project-а (средний размер: её надо провести через три механизма). Не берём: перезапуск координатора без исполнителей, экспорт и sharing, resolve/reopen; расход уходит в worfy-limits-ledger",
+      "from": "n1b979b23",
+      "status": "accepted",
+      "reason": "все да",
+      "advice": true,
+      "message": "deb6929a-824b-4bc1-975f-fb37ae7aebdf"
+    },
+    {
+      "id": "nfd821a5d",
+      "kind": "decision",
+      "text": "Прототип одним HTML-файлом. Окно Project-а открывается на разговоре Orchestrator-а с боковой панелью по образцу Claude Projects, но с сущностями worfy: Session-ы по состоянию (Subagent-ы внутри своей Session), полоса Card-ов и Evidence, Context (инструкции, Memory, файлы), закреплённая Card как Custom view, плюс Epic-и, Ticket-ы и Acceptance. Canvas остаётся видом, но не стартовым",
+      "from": "n4202ca74",
+      "status": "accepted",
+      "reason": "все да",
+      "advice": true,
+      "message": "25e52232-1e51-4c9b-b936-7f6fa1fac284"
+    },
+    {
+      "id": "n07bbdacb",
+      "kind": "decision",
+      "text": "Guard памяти в Session без человека (Autopilot, режим bypassPermissions) — отказ. Агент получает ответ «память пишется только в Session с человеком; положи заметку в отчёт». Запись в папку памяти через Bash ловить по шаблону пути. Если заметок из Autopilot не хватит — перейти к очереди записей на одобрение",
+      "from": "nc33ee47c",
+      "status": "accepted",
+      "reason": "все да",
+      "advice": true,
+      "message": "750c1099-68f4-4dad-a938-ff7d37141c41"
+    },
+    {
+      "id": "nd1178a87",
+      "kind": "decision",
+      "text": "Вид Memory — отдельный компонент. Первое место — Settings, рядом с Settings → Assistant → Memory. Если панель примем, тот же компонент встаёт во вкладку Context, как в Claude Projects. Память не ждёт панели",
+      "from": "nc33ee47c",
+      "status": "accepted",
+      "reason": "все да",
+      "advice": true,
+      "message": "9d372646-1dd3-4ca6-ba70-4b48e2a396e4"
+    },
+    {
+      "id": "nf5286095",
+      "kind": "decision",
+      "text": "Критик, 1: «Session без человека» не фиксирована при запуске. Session Autopilot возвращается человеку в том же процессе (becomeAttended), а guard, собранный при старте, продолжит отказывать в «запомни». Guard должен читать флаг unattended на каждом вызове, как liveCanUseTool",
+      "from": "nc33ee47c",
+      "status": "accepted",
+      "reason": "принимаю",
+      "source": "docs/product/critic/worfy-memory-2026-11-28.md",
+      "advice": false,
+      "message": "1243aee6-dbfd-4596-ac9d-3873d69e119e"
+    },
+    {
+      "id": "nadc9918d",
+      "kind": "decision",
+      "text": "Критик, 2: чтение памяти в черновике расходится с runtime. Предел 25 000 считается в знаках UTF-16, а не в байтах — с кириллицей раздел покажет ложное «переполнено». Путь надо брать через существующую projectDirName (обрезка и hash длинных имён) с базой из CLAUDE_CODE_REMOTE_MEMORY_DIR или CLAUDE_CONFIG_DIR",
+      "from": "nc33ee47c",
+      "status": "accepted",
+      "reason": "принимаю",
+      "source": "docs/product/critic/worfy-memory-2026-11-28.md",
+      "advice": false,
+      "message": "08f97fee-c821-42df-8cac-86795b1d2125"
+    },
+    {
+      "id": "n87f27b6a",
+      "kind": "decision",
+      "text": "Критик, 3: черновик не называет worfy-harness-guarantees/06. Этот guard принят сегодня и нарочно оставляет память Claude открытой («Описано, не закрыто»). Без связи будут два guard-а с разными ответами и два ADR с противоположными словами. Назвать 06 в «Не в этом Epic-е» и дописать в его spec датированную строку: исключение памяти — только для Session с человеком",
+      "from": "nc33ee47c",
+      "status": "accepted",
+      "reason": "принимаю",
+      "source": "docs/product/critic/worfy-memory-2026-11-28.md",
+      "advice": false,
+      "message": "606cc741-66b2-4899-8fb7-cba3143777a9"
+    },
+    {
+      "id": "n8b4856ec",
+      "kind": "decision",
+      "text": "Черновик Epic-а worfy-memory принят с тремя правками критика: guard читает «есть ли человек» на каждом вызове; чтение памяти как у runtime (знаки, а не байты; имена папок с hash; база из env); связь с worfy-harness-guarantees/06. 7 Ticket-ов в 4 Wave-ах, три места для test-ов",
+      "from": "nc33ee47c",
+      "status": "accepted",
+      "reason": "принимаю",
+      "advice": true,
+      "message": "11cc8538-bdbd-4b4c-a69a-5114bdc746ab"
+    }
+  ]
+}

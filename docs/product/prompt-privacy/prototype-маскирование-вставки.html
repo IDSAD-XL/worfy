@@ -1,0 +1,989 @@
+<!doctype html>
+<!-- PROTOTYPE, throwaway: three variants of paste masking in the worfy prompt box, switchable via ?variant=A|B|C and the bottom bar. -->
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Маскирование вставки · прототип</title>
+<style>
+/* worfy tokens, Graphite dark (src/renderer/theme/tokens.css), plus prototype-only category colours */
+:root {
+  color-scheme: dark;
+  --font-ui: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
+  --bg: #121110; --canvas: #0f0e0d; --toolbar: #181715; --toolbar-border: #2e2b28;
+  --surface: #1b1a18; --surface-raised: #22201e; --selected: #2a2825; --border: #2e2b28; --border-strong: #3b3834;
+  --text: #ece8e1; --text-secondary: #c2bcb2; --text-muted: #9c968d;
+  --primary: #c8f25a; --primary-text: #121110; --accent: #c8f25a;
+  --working-text: #5e9bff; --working-bg: #1a2233; --blocked-text: #ffae5c; --blocked-bg: #2e2216; --blocked-ring: #ffae5c;
+  --problem: #ff6b70; --problem-bg: rgba(255, 107, 112, .12); --segment-track: #22201e; --segment-thumb: #3b3834; --desk: #050505;
+  --r-btn: 6px; --r-pop: 10px;
+}
+.k-secrets { --cc: #ff6b70; --cb: rgba(255, 107, 112, .2); }
+.k-contacts { --cc: #5e9bff; --cb: rgba(94, 155, 255, .2); }
+.k-finance { --cc: #e0a020; --cb: rgba(224, 160, 32, .2); }
+.k-people { --cc: #be9fff; --cb: rgba(190, 159, 255, .2); }
+.k-network { --cc: #39a2c6; --cb: rgba(57, 162, 198, .2); }
+.k-ids { --cc: #95b0ba; --cb: rgba(149, 176, 186, .2); }
+.k-words { --cc: #db668d; --cb: rgba(219, 102, 141, .2); }
+.k-manual { --cc: #c8f25a; --cb: rgba(200, 242, 90, .18); }
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; margin: 0; }
+body { display: flex; flex-direction: column; overflow: hidden; background: var(--desk); color: var(--text); font: 13px/17px var(--font-ui); -webkit-font-smoothing: antialiased; }
+button, input, textarea, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: .55; }
+code, .mono { font-family: var(--font-mono); }
+:where(button, input, textarea):focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.proto-banner { flex: none; display: flex; gap: 10px; align-items: baseline; margin: 10px 12px 8px; padding: 7px 12px; border: 1px solid var(--blocked-ring); border-radius: var(--r-btn); background: var(--blocked-bg); font-size: 12px; line-height: 16px; }
+.proto-banner b { color: var(--blocked-text); white-space: nowrap; }
+.win { flex: 1; min-height: 0; display: flex; flex-direction: column; margin: 0 12px 62px; overflow: hidden; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--bg); box-shadow: 0 18px 50px rgba(0,0,0,.5); }
+.w-toolbar { flex: none; height: 44px; display: flex; align-items: center; gap: 12px; padding: 0 12px; background: var(--toolbar); border-bottom: 1px solid var(--toolbar-border); }
+.tl { display: flex; gap: 8px; } .tl i { width: 12px; height: 12px; border-radius: 50%; background: #ff5f57; } .tl i:nth-child(2) { background: #febc2e; } .tl i:nth-child(3) { background: #28c840; }
+.w-title { font-weight: 600; } .w-sub { color: var(--text-muted); font-size: 11px; } .sp { flex: 1; }
+.chip { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 7px; border-radius: 4px; background: var(--surface-raised); color: var(--text-secondary); font-size: 11px; white-space: nowrap; }
+.body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 380px; }
+.sess { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; border-right: 1px solid var(--border); }
+/* chat */
+.chat { flex: 1; min-height: 0; overflow: auto; padding: 12px 18px; display: flex; flex-direction: column; gap: 10px; }
+.chat-h { display: flex; align-items: center; gap: 8px; color: var(--text-muted); font-size: 11px; }
+.chat-empty { margin: auto; max-width: 420px; text-align: center; color: var(--text-muted); }
+.msg { max-width: 92%; padding: 8px 11px; border-radius: 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.msg--me { align-self: flex-end; background: var(--surface-raised); border: 1px solid var(--border); font: 11.5px/16px var(--font-mono); max-height: 260px; overflow: auto; }
+.msg--ai { align-self: flex-start; background: transparent; border-left: 2px solid var(--accent); border-radius: 0; padding: 2px 0 2px 12px; }
+.msg-cap { font-size: 10.5px; color: var(--text-muted); margin-top: -6px; }
+.msg-cap--me { align-self: flex-end; }
+.real { position: relative; text-decoration: underline dotted var(--accent); text-underline-offset: 3px; text-decoration-thickness: 1.5px; cursor: help; }
+.real:hover::after { content: attr(data-tip); position: absolute; left: 0; bottom: calc(100% + 4px); z-index: 20; padding: 3px 7px; border-radius: 5px; background: #f5f5f7; color: #111; font: 11px/14px var(--font-ui); white-space: nowrap; }
+.ph { font-family: var(--font-mono); color: var(--accent); background: rgba(200, 242, 90, .1); border-radius: 3px; }
+.ph.k-secrets, .ph.k-contacts, .ph.k-finance, .ph.k-people, .ph.k-network, .ph.k-ids, .ph.k-words, .ph.k-manual { color: var(--cc); background: var(--cb); }
+/* composer and the prompt box (a textarea over a mirror div that paints chips, highlights and blur) */
+.composer { position: relative; flex: none; padding: 8px 14px 10px; border-top: 1px solid var(--border); background: var(--bg); }
+.pbox { position: relative; height: 34vh; min-height: 150px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface); overflow: hidden; }
+.pbox:focus-within { border-color: #5a554e; }
+.pbox textarea, .pbox .mirror, .pbox .pv { position: absolute; inset: 0; margin: 0; padding: 9px 12px; border: 0; font: 12px/18px var(--font-mono); letter-spacing: 0; tab-size: 8; white-space: pre-wrap; overflow-wrap: break-word; word-break: normal; scrollbar-gutter: stable; }
+.pbox .mirror { overflow: hidden; color: var(--text); pointer-events: none; }
+.pbox textarea { overflow-y: auto; background: transparent; color: transparent; caret-color: var(--text); resize: none; outline: none; }
+.pbox textarea::placeholder { color: var(--text-muted); }
+.pbox textarea::selection { background: rgba(94, 155, 255, .4); color: transparent; }
+.pbox .pv { overflow-y: auto; background: var(--canvas); }
+.m-chip { border-radius: 3px; background: var(--cb); color: transparent; text-shadow: 0 0 6px rgba(236, 232, 225, .95); box-shadow: inset 0 0 0 1px var(--cc); }
+.m-open { box-shadow: inset 0 -1.5px 0 var(--cc); }
+.m-hl { background: var(--cb); box-shadow: inset 0 -2px 0 var(--cc); }
+.m-blur { filter: blur(3.5px); color: var(--cc); }
+.m-pill { border-radius: 4px; background: var(--working-bg); color: var(--working-text); box-shadow: inset 0 0 0 1px rgba(94, 155, 255, .45); }
+.c-under, .a-under { display: flex; align-items: center; gap: 10px; min-height: 24px; margin-top: 6px; font-size: 12px; color: var(--text-secondary); }
+.bar { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.hint { color: var(--text-muted); font-size: 11px; }
+.btn { height: 28px; padding: 0 12px; border: 1px solid var(--border-strong); border-radius: var(--r-btn); background: var(--surface-raised); }
+.btn:hover:not(:disabled) { background: var(--selected); }
+.btn--primary { border-color: transparent; background: var(--primary); color: var(--primary-text); font-weight: 600; }
+.btn--primary:hover:not(:disabled) { background: #d6f77e; }
+.btn--warn { border-color: var(--problem); background: var(--problem-bg); color: var(--problem); }
+.link { border: 0; padding: 0; background: none; color: var(--text-secondary); text-decoration: underline dotted; text-underline-offset: 3px; }
+.link:hover { color: var(--text); }
+.seg { display: inline-flex; gap: 2px; padding: 2px; border-radius: 8px; background: var(--segment-track); }
+.seg button { height: 24px; padding: 0 9px; border: 0; border-radius: var(--r-btn); background: transparent; color: var(--text-secondary); font-size: 12px; white-space: nowrap; }
+.seg button[aria-pressed='true'] { background: var(--segment-thumb); color: var(--text); font-weight: 600; }
+.seg .custom[aria-pressed='true'] { color: var(--blocked-text); }
+.strict-why { font-size: 11.5px; color: var(--problem); }
+/* category list, shared by A's popover, B's sidebar and C's dropdown */
+.cats { display: flex; flex-direction: column; gap: 2px; }
+.cat { display: grid; grid-template-columns: 16px 8px 1fr auto; align-items: center; gap: 7px; padding: 4px 6px; border-radius: 6px; cursor: pointer; }
+.cat:hover { background: var(--hover, rgba(255,255,255,.05)); }
+.cat input { margin: 0; accent-color: var(--accent); }
+.cat .dot { width: 8px; height: 8px; border-radius: 2px; background: var(--cc); }
+.cat .cnt { font-variant-numeric: tabular-nums; color: var(--text-muted); font-size: 12px; }
+.cat-hint { margin: -2px 0 4px 37px; font-size: 11px; line-height: 14px; color: var(--text-muted); }
+.words { width: calc(100% - 37px); margin: 0 0 4px 37px; min-height: 40px; padding: 4px 6px; border: 1px solid var(--border-strong); border-radius: 5px; background: var(--canvas); font: 11.5px/15px var(--font-mono); resize: vertical; }
+/* popover and dropdown */
+.pop { position: fixed; z-index: 3000; width: 300px; padding: 8px; border: 1px solid var(--border-strong); border-radius: var(--r-pop); background: var(--surface-raised); box-shadow: 0 12px 36px rgba(0,0,0,.6); }
+.pop-h { display: flex; align-items: center; gap: 6px; padding: 2px 4px 6px; }
+.pop-v { margin: 0 4px 6px; padding: 5px 7px; border-radius: 5px; background: var(--canvas); font: 11.5px/15px var(--font-mono); overflow-wrap: anywhere; filter: blur(4px); transition: filter .12s; }
+.pop-v:hover { filter: none; }
+.pop-b { display: block; width: 100%; padding: 6px 8px; border: 0; border-radius: 6px; background: transparent; text-align: left; }
+.pop-b:hover:not(:disabled) { background: var(--selected); }
+.pop-f { margin: 6px 4px 2px; padding-top: 6px; border-top: 1px solid var(--border); font-size: 11px; color: var(--text-muted); }
+.pop-t { margin: 8px 4px 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
+/* state panel */
+.state { min-height: 0; overflow: auto; padding: 12px 14px 18px; background: var(--toolbar); display: flex; flex-direction: column; gap: 14px; }
+.st-h { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
+.st-h .sp { flex: 1; } .st-h em { font-style: normal; text-transform: none; letter-spacing: 0; }
+.st-out { max-height: 30vh; overflow: auto; margin: 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--canvas); font: 11px/16px var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.st-out .asis { background: var(--problem-bg); box-shadow: inset 0 -1.5px 0 var(--problem); }
+.st-grid { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+.st-grid td, .st-grid th { padding: 3px 4px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+.st-grid th { font-weight: 500; color: var(--text-muted); font-size: 11px; }
+.st-grid .num { text-align: right; }
+.st-grid .off { color: var(--text-muted); }
+.st-val { font-family: var(--font-mono); font-size: 11px; overflow-wrap: anywhere; filter: blur(4px); transition: filter .12s; }
+.st-grid tr:hover .st-val { filter: none; }
+.st-note { font-size: 11px; line-height: 15px; color: var(--text-muted); }
+.st-new { color: var(--blocked-text); font-size: 10.5px; }
+/* B: the review sheet over the composer */
+.sheet { position: absolute; inset: 10px 10px 10px 10px; z-index: 50; display: flex; flex-direction: column; border: 1px solid var(--border-strong); border-radius: 12px; background: var(--surface); box-shadow: 0 -12px 44px rgba(0,0,0,.6); }
+.sh-top { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.sh-top h3 { margin: 0; font-size: 14px; }
+.sh-mid { flex: 1; min-height: 0; display: grid; grid-template-columns: 230px minmax(0, 1fr) minmax(0, 1fr); }
+.sh-side { min-height: 0; overflow: auto; padding: 10px 8px; border-right: 1px solid var(--border); }
+.sh-pane { min-width: 0; min-height: 0; display: flex; flex-direction: column; padding: 8px 10px; }
+.sh-pane + .sh-pane { border-left: 1px solid var(--border); }
+.sh-pane .pbox { flex: 1; height: auto; }
+.sh-bot { flex: none; display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-top: 1px solid var(--border); }
+/* C: the shield on Send and its dropdown */
+.split { display: inline-flex; }
+.split .shield { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 9px; border: 1px solid var(--border-strong); border-right: 0; border-radius: var(--r-btn) 0 0 var(--r-btn); background: var(--surface-raised); font-variant-numeric: tabular-nums; }
+.split .btn--primary { border-radius: 0 var(--r-btn) var(--r-btn) 0; }
+.shield.ok { color: var(--accent); } .shield.warn { color: var(--blocked-text); } .shield.bad { color: var(--problem); border-color: var(--problem); } .shield.zero { color: var(--text-muted); }
+.drop { position: absolute; right: 14px; bottom: calc(100% - 4px); z-index: 60; width: 360px; max-height: 70vh; overflow: auto; padding: 10px; border: 1px solid var(--border-strong); border-radius: var(--r-pop); background: var(--surface-raised); box-shadow: 0 12px 36px rgba(0,0,0,.6); }
+.slider { width: 100%; margin: 6px 0 0; accent-color: var(--accent); }
+.ticks { display: grid; grid-template-columns: repeat(4, 1fr); font-size: 10.5px; color: var(--text-muted); text-align: center; }
+.ticks span:first-child { text-align: left; } .ticks span:last-child { text-align: right; }
+.ticks .on { color: var(--text); font-weight: 600; }
+.pv-banner { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; padding: 4px 8px; border-radius: 6px; background: var(--working-bg); color: var(--working-text); font-size: 12px; }
+/* the variant switcher and sample buttons (prototype chrome, not part of the design) */
+.vbar { position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 5000; display: flex; align-items: center; gap: 2px; padding: 4px 6px; border-radius: 22px; background: #f5f5f7; color: #111; box-shadow: 0 8px 30px rgba(0,0,0,.6); font-size: 12px; white-space: nowrap; }
+.vbar button { height: 30px; padding: 0 10px; border: 0; border-radius: 15px; background: transparent; color: #111; }
+.vbar button:hover { background: rgba(0,0,0,.08); }
+.vbar .arrow { width: 30px; padding: 0; font-size: 18px; }
+.vlab { min-width: 200px; padding: 0 6px; text-align: center; font-weight: 600; line-height: 14px; }
+.vlab b { color: #7a5d00; margin-right: 5px; } .vlab small { display: block; font-weight: 400; font-size: 10px; color: rgba(0,0,0,.55); }
+.vbar .sep { width: 1px; height: 20px; margin: 0 4px; background: rgba(0,0,0,.15); }
+</style>
+</head>
+<body>
+<script>
+(function () {
+'use strict';
+// ======================================================================
+// Engine: detectors, structure-aware dumps, the placeholder table, the text the model gets, the canned reply.
+// No DOM here, so node can run it for the headless check; the UI part returns early when `document` is absent.
+// Secret-looking samples and the detector regexes are built from pieces, so this file's own text carries none.
+// ======================================================================
+var AT = String.fromCharCode(64), D5 = '-----', LQ = '\u2039', RQ = '\u203a';
+var CATS = [
+  { id: 'secrets', name: 'Секреты', hint: 'API key и token-ы по префиксам (GitHub, OpenAI/Anthropic sk-…, AWS, Slack, Stripe, Google), PEM-ключи, JWT, Bearer, пароли в URL и строках подключения, password= и *_KEY= / *_TOKEN= / *_SECRET=' },
+  { id: 'contacts', name: 'Контакты', hint: 'email, телефоны' },
+  { id: 'finance', name: 'Финансы', hint: 'номера карт (только прошедшие проверку Luhn), IBAN (проверка mod 97)' },
+  { id: 'people', name: 'Люди', hint: 'имена только по колонкам дампа (name, full_name, fio, customer, client…); в свободном тексте имя скрывается, только если оно в своём списке слов; адреса, паспорт и ИНН, даты рождения' },
+  { id: 'network', name: 'Сеть', hint: 'IPv4-адреса, внутренние имена хостов (*.internal, *.corp, *.lan…)' },
+  { id: 'ids', name: 'Идентификаторы', hint: 'UUID и длинные hex-строки. Выключено во всех уровнях: git SHA и id в коде обычно не секрет, будет много ложных срабатываний' },
+  { id: 'words', name: 'Свой список слов', hint: 'клиенты, компании, проекты: скрывать всегда. Через запятую' }
+];
+var LEVELS = [
+  { name: 'Выключено', short: 'Выкл', cats: [] },
+  { name: 'Секреты', short: 'Секреты', cats: ['secrets', 'finance', 'words'] },
+  { name: 'Секреты и контакты', short: '+ контакты', cats: ['secrets', 'finance', 'words', 'contacts', 'network'] },
+  { name: 'Всё личное', short: 'Всё личное', cats: ['secrets', 'finance', 'words', 'contacts', 'network', 'people'] }
+];
+var TYPE_CAT = { API_KEY: 'secrets', TOKEN: 'secrets', PRIVATE_KEY: 'secrets', PASSWORD: 'secrets', SECRET: 'secrets', EMAIL: 'contacts', PHONE: 'contacts',
+  CARD: 'finance', IBAN: 'finance', NAME: 'people', ADDRESS: 'people', DOC: 'people', DOB: 'people', IP: 'network', HOST: 'network', ID: 'ids', HEX: 'ids', WORD: 'words', HIDDEN: 'manual' };
+var TYPE_RU = { API_KEY: 'API key', TOKEN: 'token', PRIVATE_KEY: 'приватный ключ', PASSWORD: 'пароль', SECRET: 'секрет', EMAIL: 'email', PHONE: 'телефон', CARD: 'карта',
+  IBAN: 'IBAN', NAME: 'имя', ADDRESS: 'адрес', DOC: 'документ', DOB: 'дата рождения', IP: 'IP', HOST: 'хост', ID: 'UUID', HEX: 'hex-строка', WORD: 'слово из списка', HIDDEN: 'скрыто вручную' };
+
+function luhn(d) {
+  if (d.length < 13 || d.length > 19 || /^(\d)\1+$/.test(d)) return false;
+  var s = 0;
+  for (var i = 0; i < d.length; i++) { var x = +d[d.length - 1 - i]; if (i % 2) { x *= 2; if (x > 9) x -= 9; } s += x; }
+  return s % 10 === 0;
+}
+function ibanOk(v) {
+  var s = v.replace(/ /g, '');
+  if (s.length < 15 || s.length > 34) return false;
+  s = s.slice(4) + s.slice(0, 4);
+  var r = 0;
+  for (var i = 0; i < s.length; i++) { var c = s.charCodeAt(i), n = c >= 65 ? String(c - 55) : s[i]; for (var j = 0; j < n.length; j++) r = (r * 10 + +n[j]) % 97; }
+  return r === 1;
+}
+function phoneOk(v) { var d = v.replace(/\D/g, ''); return d.length >= 10 && d.length <= 15 && !/^\d{4}-\d\d-\d\d/.test(v); }
+function assignOk(v) { return !/^(?:os\.|process\.|env\.|getenv|\$|<|%|none$|null$|true$|false$|undefined$|\*+$)/i.test(v) && !/[()[\]]/.test(v); }
+
+function R(src, f) { return new RegExp(src, 'gd' + (f || '')); }
+var NB = '(?<![A-Za-z0-9_])', NA = '(?![A-Za-z0-9_])', UP = '[A-ZА-ЯЁ][a-zа-яё]+';
+var FIRST = 'Jane|John|Maria|Wei|Priya|Ahmed|Olga|Lucas|Emma|Kenji|Mary|James|Robert|Michael|David|Sarah|Laura|Anna|Peter|Paul|Daniel|Sophie|' +
+  'Ольга|Мария|Анна|Ирина|Елена|Наталья|Татьяна|Светлана|Иван|Пётр|Петр|Сергей|Андрей|Дмитрий|Михаил|Николай|Павел|Екатерина|Юлия';
+var KEYS = ['g' + 'h[pousr]_[A-Za-z0-9]{30,}', 'git' + 'hub_pat_[A-Za-z0-9_]{30,}', 's' + 'k-(?:ant-|proj-)?[A-Za-z0-9_-]{24,}', '(?:A' + 'KIA|A' + 'SIA)[0-9A-Z]{16}',
+  'xo' + 'x[abposr]-[A-Za-z0-9-]{10,}', '(?:s' + 'k|r' + 'k)_(?:live|test)_[A-Za-z0-9]{16,}', 'AI' + 'za[0-9A-Za-z_-]{35}'];
+// Order is priority: when two finds overlap, the earlier detector wins (after manual hides and dump columns).
+var DET = [
+  { t: 'PRIVATE_KEY', re: R(D5 + 'BEGIN [A-Z0-9 ]*PRIV' + 'ATE KEY' + D5 + '[\\s\\S]*?' + D5 + 'END [A-Z0-9 ]*PRIV' + 'ATE KEY' + D5) },
+  { t: 'API_KEY', re: R(NB + '(?:' + KEYS.join('|') + ')' + NA) },
+  { t: 'TOKEN', re: R(NB + 'ey' + 'J[A-Za-z0-9_-]{8,}\\.ey' + 'J[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}') },
+  { t: 'TOKEN', re: R('Bear' + 'er\\s+([A-Za-z0-9._~+/-]{16,}=*)', 'i'), g: 1 },
+  { t: 'PASSWORD', re: R('[a-z][a-z0-9+.-]*://[^\\s:/' + AT + ']+:([^\\s' + AT + '/]+)' + AT, 'i'), g: 1 },
+  { t: 'PASSWORD', re: R(NB + '(?:password|passwd|pwd)["\']?\\s*[:=]\\s*["\']?([^\\s"\',;&}]{3,})', 'i'), g: 1, ok: assignOk },
+  { t: 'SECRET', re: R('[A-Za-z0-9_]*_(?:KEY|TOKEN|SECRET|PASSWORD)["\']?\\s*[:=]\\s*["\']?([^\\s"\',;&}]{4,})', 'i'), g: 1, ok: assignOk },
+  { t: 'IBAN', re: R('(?<![A-Za-z0-9])[A-Z]{2}[0-9]{2}(?: ?[A-Z0-9]{4}){2,7}(?: ?[A-Z0-9]{1,3})?(?![A-Za-z0-9])'), ok: ibanOk },
+  { t: 'CARD', re: R('(?<![0-9])[0-9](?:[ -]?[0-9]){12,18}(?![0-9])'), ok: function (v) { return luhn(v.replace(/\D/g, '')); } },
+  { t: 'EMAIL', re: R('(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+' + AT + '[A-Za-z0-9-]+(?:\\.[A-Za-z0-9-]+)*\\.[A-Za-z]{2,}(?![A-Za-z0-9-])') },
+  { t: 'IP', re: R('(?<![0-9.])(?:(?:25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])\\.){3}(?:25[0-5]|2[0-4][0-9]|1?[0-9]?[0-9])(?![0-9]|\\.[0-9])'), ok: function (v) { return !/^(?:127\.|0\.0\.0\.0$)/.test(v); } },
+  { t: 'HOST', re: R('(?<![A-Za-z0-9.-])[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*\\.(?:internal|intranet|intra|corp|lan|loc' + 'al)(?![A-Za-z0-9-]|\\.[A-Za-z0-9])', 'i') },
+  { t: 'DOC', re: R('(?:паспорт|passport|ИНН|СНИЛС|SSN|tax id)[^0-9\\n]{0,12}([0-9][0-9 -]{5,16}[0-9])', 'i'), g: 1 },
+  { t: 'DOB', re: R('(?:дата рождения|д\\.р\\.|DOB|date of birth|born|родил(?:ся|ась))[^0-9\\n]{0,6}([0-9]{1,2}[./-][0-9]{1,2}[./-][0-9]{2,4}|[0-9]{4}-[0-9]{2}-[0-9]{2})', 'i'), g: 1 },
+  { t: 'PHONE', re: R('(?<![A-Za-z0-9+_.-])(?:\\+[0-9]{1,3}[ .-]?)?(?:\\([0-9]{2,5}\\)[ .-]?)?[0-9]{2,5}(?:[ .-][0-9]{2,4}){1,4}(?![0-9]|[.-][0-9])'), ok: phoneOk },
+  { t: 'ADDRESS', re: R('(?:ул\\.|улица|пр-т|проспект|пер\\.|наб\\.) ?[А-ЯЁ][а-яё-]+(?: [А-ЯЁ][а-яё-]+)?,? ?(?:д\\. ?)?[0-9]+[а-я]?(?:,? ?(?:кв\\.|офис) ?[0-9]+)?(?:, [А-ЯЁ][а-яё-]+)?') },
+  { t: 'ADDRESS', re: R('(?<![0-9])[0-9]{1,5} (?:[A-Z][a-z]+ ){1,3}(?:Street|St|Avenue|Ave|Road|Rd|Lane|Boulevard|Blvd|Drive|Way|Court)\\.?(?:, [A-Z][a-z]+)?(?![A-Za-z])') },
+  // Names in free text are not detected (owner 2026-11-28, Q6: «не делаем такое»): only dump columns and the word list.
+  { t: 'ID', re: R('(?<![0-9A-Fa-f-])[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![0-9A-Fa-f-])', 'i') },
+  { t: 'HEX', re: R('(?<![0-9A-Za-z])[0-9a-f]{20,}(?![0-9A-Za-z])', 'i'), ok: function (v) { return /[a-f]/i.test(v) && /[0-9]/.test(v); } }
+];
+
+// ---- structure-aware dumps: a column's name gives every cell of it a category; NULL, ids, amounts and dates stay ----
+var COLS = [
+  ['NAME', /^(?:name|first_?name|last_?name|full_?name|fio|surname|middle_?name|customer(?:_?name)?|client(?:_?name)?|contact_?name|holder|имя|фамилия|фио|клиент)$/i],
+  ['EMAIL', /^(?:e_?mail|email_?address|mail|почта)$/i],
+  ['PHONE', /^(?:phone(?:_?number)?|tel|mobile|msisdn|телефон)$/i],
+  ['CARD', /^(?:card(?:_?number)?|pan|cc_?number)$/i],
+  ['IBAN', /^(?:iban|account_?number|bank_?account)$/i],
+  ['ADDRESS', /^(?:address|addr|street|address_?line_?\d?|адрес)$/i],
+  ['DOC', /^(?:passport|tax_?id|inn|ssn|snils|national_?id)$/i],
+  ['DOB', /^(?:dob|birth_?date|date_?of_?birth|birthday)$/i],
+  ['IP', /^(?:ip|ip_?address|client_?ip|remote_?addr)$/i],
+  ['HOST', /^(?:host|hostname)$/i],
+  ['SECRET', /^(?:password|passwd|pwd|password_?hash|secret|token|api_?key|access_?token|refresh_?token)$/i]
+];
+var NULLISH = /^(?:NULL|null|None|\\N|-|)$/;
+function colType(name) {
+  name = String(name).trim().replace(/^["'`[]+|["'`\]]+$/g, '');
+  for (var i = 0; i < COLS.length; i++) if (COLS[i][1].test(name)) return COLS[i][0];
+  return null;
+}
+// Split one line into cells; positions are trimmed and exclude CSV quotes.
+function splitCells(line, d, noQuotes) {
+  var out = [], i = 0, n = line.length;
+  while (i <= n) {
+    var s = i, e;
+    while (s < n && line[s] === ' ') s++;
+    if (!noQuotes && line[s] === '"') {
+      var j = s + 1;
+      while (j < n && !(line[j] === '"' && line[j + 1] !== '"')) j += line[j] === '"' ? 2 : 1;
+      out.push({ s: s + 1, e: j }); i = j + 1;
+      while (i < n && line[i] !== d) i++;
+    } else {
+      var k = line.indexOf(d, s); if (k < 0) k = n;
+      e = k; while (e > s && line[e - 1] === ' ') e--;
+      out.push({ s: s, e: e }); i = k;
+    }
+    if (i >= n) break;
+    i++;
+  }
+  return out;
+}
+function pipeCells(line) {
+  var c = splitCells(line, '|', true), t = line.trim();
+  if (t[0] === '|') c.shift();
+  if (t[t.length - 1] === '|') c.pop();
+  return c;
+}
+var RULE = /^\s*\+?-{2,}(?:\+-{2,})+\+?\s*$/;
+function scanTables(text, out) {
+  var lines = text.split('\n'), off = [], p = 0, i = 0;
+  lines.forEach(function (l) { off.push(p); p += l.length + 1; });
+  function names(cells, li) { return cells.map(function (c) { return lines[li].slice(c.s, c.e); }); }
+  function row(li, cells, types, cols) {
+    cells.forEach(function (c, k) {
+      if (!types[k] || NULLISH.test(lines[li].slice(c.s, c.e).trim())) return;
+      out.push({ start: off[li] + c.s, end: off[li] + c.e, t: types[k], pri: 1, src: 'col', col: cols[k] });
+    });
+  }
+  while (i < lines.length) {
+    var L = lines[i];
+    if (L.indexOf('|') >= 0 && i + 1 < lines.length && RULE.test(lines[i + 1])) { // psql or mysql table
+      var hc = pipeCells(L), cols = names(hc, i), types = cols.map(colType), j = i + 2;
+      for (; j < lines.length; j++) {
+        if (RULE.test(lines[j])) continue;
+        if (lines[j].indexOf('|') < 0) break;
+        var rc = pipeCells(lines[j]); if (rc.length !== hc.length) break;
+        row(j, rc, types, cols);
+      }
+      i = j; continue;
+    }
+    var d = L.indexOf('\t') >= 0 ? '\t' : L.split(',').length >= 3 ? ',' : L.split(';').length >= 3 ? ';' : null;
+    if (d && i + 1 < lines.length) { // CSV / TSV with a header row
+      var h = splitCells(L, d), hn = names(h, i);
+      if (h.length >= 3 && hn.every(function (x) { return /^[A-Za-z_\u0400-\u04ff][\w \u0400-\u04ff]{0,40}$/.test(x); }) && splitCells(lines[i + 1], d).length === h.length) {
+        var ct = hn.map(colType), k = i + 1;
+        for (; k < lines.length && lines[k].trim(); k++) { var cc = splitCells(lines[k], d); if (cc.length !== h.length) break; row(k, cc, ct, hn); }
+        i = k; continue;
+      }
+    }
+    i++;
+  }
+  var ins = /INSERT\s+INTO\s+[^\s(]+\s*\(([^)]*)\)\s*VALUES\s*/gi, m; // SQL INSERT ... VALUES (...), (...);
+  while ((m = ins.exec(text))) {
+    var icols = m[1].split(',').map(function (x) { return x.trim(); }), it = icols.map(colType), q = ins.lastIndex;
+    while (text[q] === '(') {
+      q++;
+      for (var col = 0; ; col++) {
+        while (text[q] === ' ') q++;
+        var s, e;
+        if (text[q] === "'") { s = q + 1; q = s; while (q < text.length && !(text[q] === "'" && text[q + 1] !== "'")) q += text[q] === "'" ? 2 : 1; e = q; q++; }
+        else { s = q; while (q < text.length && text[q] !== ',' && text[q] !== ')') q++; e = q; while (e > s && text[e - 1] === ' ') e--; }
+        if (it[col] && !NULLISH.test(text.slice(s, e))) out.push({ start: s, end: e, t: it[col], pri: 1, src: 'col', col: icols[col] });
+        while (text[q] === ' ') q++;
+        if (text[q] !== ',') break;
+        q++;
+      }
+      if (text[q] === ')') q++;
+      while (q < text.length && /[\s,]/.test(text[q])) q++;
+    }
+    ins.lastIndex = Math.max(q, ins.lastIndex);
+  }
+  for (var jm of text.matchAll(/"([A-Za-z_][\w-]*)"\s*:\s*"((?:[^"\\\n]|\\.)*)"/gd)) { // JSON "key": "value"
+    var jt = colType(jm[1]);
+    if (jt && jm[2]) out.push({ start: jm.indices[2][0], end: jm.indices[2][1], t: jt, pri: 1, src: 'col', col: jm[1] });
+  }
+}
+// ---- analysis: every candidate of every category; `active` = it will be hidden ----
+var TABLE = { byKey: {}, byPh: {}, n: {} }; // the placeholder table: one value, one placeholder, for the whole page session
+function resetTable() { TABLE.byKey = {}; TABLE.byPh = {}; TABLE.n = {}; }
+function norm(t, v) {
+  v = String(v).trim();
+  if (t === 'EMAIL' || t === 'HOST' || t === 'WORD' || t === 'NAME') return v.replace(/\s+/g, ' ').toLowerCase();
+  if (t === 'PHONE' || t === 'CARD') return v.replace(/\D/g, '');
+  if (t === 'IBAN') return v.replace(/\s/g, '').toUpperCase();
+  return v;
+}
+function esc(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+function findWord(text, w, fn) {
+  if (!w) return;
+  for (var m of text.matchAll(new RegExp('(?<![\\p{L}\\p{N}_])' + esc(w) + '(?![\\p{L}\\p{N}_])', 'giu'))) fn(m.index, m.index + m[0].length);
+}
+// st: { cats, shown (keys shown as is), hide (keys hidden though the category is off), manual (strings), words, asIs ([start, end) ranges) }
+function analyze(text, st) {
+  var c = [], cats = st.cats || {}, shown = st.shown || new Set(), hide = st.hide || new Set(), asIs = st.asIs || [];
+  (st.manual || []).forEach(function (v) { for (var p = v ? text.indexOf(v) : -1; p >= 0; p = text.indexOf(v, p + v.length)) c.push({ start: p, end: p + v.length, t: 'HIDDEN', pri: 0, src: 'manual' }); });
+  scanTables(text, c);
+  DET.forEach(function (d, k) {
+    for (var m of text.matchAll(d.re)) {
+      var g = d.g || 0, s = m.indices[g][0], e = m.indices[g][1];
+      if (e > s && (!d.ok || d.ok(text.slice(s, e)))) c.push({ start: s, end: e, t: d.t, pri: 2 + k, src: 're' });
+    }
+  });
+  Object.keys(TABLE.byKey).forEach(function (key) { // a name seen in an earlier dump is found again in any later paste
+    var en = TABLE.byKey[key];
+    if ((en.t === 'NAME' || en.t === 'ADDRESS') && en.value.length >= 4) findWord(text, en.value, function (s, e) { c.push({ start: s, end: e, t: en.t, pri: 60, src: 'known' }); });
+  });
+  (st.words || []).forEach(function (w) { findWord(text, w.trim(), function (s, e) { c.push({ start: s, end: e, t: 'WORD', pri: 70, src: 'word' }); }); });
+  c.forEach(function (it) {
+    it.value = text.slice(it.start, it.end); it.cat = TYPE_CAT[it.t]; it.key = it.t + ':' + norm(it.t, it.value);
+    var inAsIs = asIs.some(function (r) { return it.start >= r[0] && it.end <= r[1]; });
+    it.active = it.t === 'HIDDEN' || (!inAsIs && (hide.has(it.key) || (!!cats[it.cat] && !shown.has(it.key))));
+  });
+  // Overlaps: what will be hidden beats what will not, then priority, then the longer find.
+  c.sort(function (a, b) { return (b.active - a.active) || (a.pri - b.pri) || ((b.end - b.start) - (a.end - a.start)) || (a.start - b.start); });
+  var kept = [];
+  c.forEach(function (it) { if (!kept.some(function (k) { return it.start < k.end && k.start < it.end; })) kept.push(it); });
+  return kept.sort(function (a, b) { return a.start - b.start; });
+}
+// Placeholders: a known value keeps its placeholder; a new one gets the next number. commit=true writes them to the table.
+function assign(items, commit) {
+  var pend = {}, add = {};
+  items.forEach(function (it) {
+    var en = TABLE.byKey[it.key];
+    it.isNew = !en; it.ph = en ? en.ph : null;
+    if (!it.active || en) return;
+    if (!pend[it.key]) { add[it.t] = (add[it.t] || 0) + 1; pend[it.key] = LQ + it.t + '_' + ((TABLE.n[it.t] || 0) + add[it.t]) + RQ; }
+    it.ph = pend[it.key];
+  });
+  if (commit) items.forEach(function (it) {
+    if (!it.active || TABLE.byKey[it.key]) return;
+    TABLE.n[it.t] = (TABLE.n[it.t] || 0) + 1;
+    TABLE.byKey[it.key] = TABLE.byPh[it.ph] = { ph: it.ph, t: it.t, cat: it.cat, value: it.value };
+  });
+  return items;
+}
+function outgoing(text, items, mode) {
+  if (mode === 'detect') return text;
+  var o = '', p = 0;
+  items.forEach(function (it) { if (it.active && it.ph) { o += text.slice(p, it.start) + it.ph; p = it.end; } });
+  return o + text.slice(p);
+}
+function counts(items, mode) {
+  var r = {};
+  items.forEach(function (it) { var x = r[it.cat] || (r[it.cat] = { found: 0, hidden: 0 }); x.found++; if (it.active && mode !== 'detect') x.hidden++; });
+  return r;
+}
+function pl(n, a, b, c) { var m = n % 10, h = n % 100; return n + ' ' + (m === 1 && h !== 11 ? a : m >= 2 && m <= 4 && (h < 12 || h > 14) ? b : c); }
+function joinRu(a) { return a.length > 1 ? a.slice(0, -1).join(', ') + ' и ' + a[a.length - 1] : a[0] || ''; }
+var GROUPS = [['secrets', 'секрет', 'секрета', 'секретов'], ['EMAIL', 'email', 'email', 'email'], ['PHONE', 'телефон', 'телефона', 'телефонов'], ['CARD', 'карта', 'карты', 'карт'],
+  ['IBAN', 'IBAN', 'IBAN', 'IBAN'], ['NAME', 'имя', 'имени', 'имён'], ['ADDRESS', 'адрес', 'адреса', 'адресов'], ['DOC', 'документ', 'документа', 'документов'],
+  ['DOB', 'дата рождения', 'даты рождения', 'дат рождения'], ['IP', 'IP', 'IP', 'IP'], ['HOST', 'хост', 'хоста', 'хостов'], ['ids', 'id', 'id', 'id'],
+  ['WORD', 'слово', 'слова', 'слов'], ['HIDDEN', 'кусок вручную', 'куска вручную', 'кусков вручную']];
+function summary(items, pred) {
+  var n = {};
+  items.forEach(function (it) { if (!pred(it)) return; var g = it.cat === 'secrets' || it.cat === 'ids' ? it.cat : it.t; n[g] = (n[g] || 0) + 1; });
+  return GROUPS.filter(function (g) { return n[g[0]]; }).map(function (g) { return pl(n[g[0]], g[1], g[2], g[3]); }).join(' · ');
+}
+
+// ---- the canned model reply: built only from the placeholders the model actually got ----
+function reply(out, items, mode) {
+  var L = [], lines = out.split('\n'), phRe = new RegExp(LQ + '[A-Z_]+_[0-9]+' + RQ, 'g');
+  function phs(s, types) {
+    var r = [];
+    (s.match(phRe) || []).forEach(function (p) { var t = p.slice(1, p.lastIndexOf('_')); if ((!types || types.indexOf(t) >= 0) && r.indexOf(p) < 0) r.push(p); });
+    return r;
+  }
+  function said(p) { return L.join(' ').indexOf(p) >= 0; }
+  if (mode === 'detect') {
+    var open = items.filter(function (it) { return it.cat === 'secrets'; }).length;
+    return 'Режим «Только подсветить»: сообщение пришло ко мне как есть, без placeholder-ов.' + (open ? ' В нём ' + pl(open, 'секрет', 'секрета', 'секретов') + ' открытым текстом: их стоит отозвать.' : '');
+  }
+  var all = phs(out);
+  if (!all.length) return 'В сообщении нет скрытых значений, оно пришло как есть. Чем помочь?';
+  var fail = lines.findIndex(function (l) { return /\b40[13]\b|Unauthorized|invalid_token/i.test(l); });
+  if (fail >= 0) {
+    var win = lines.slice(Math.max(0, fail - 3), fail + 2).join('\n'), toks = phs(win, ['TOKEN', 'API_KEY', 'SECRET']), host = phs(win, ['HOST'])[0];
+    if (toks.length) L.push('Ответ 401 пришёл на запрос' + (host ? ' к ' + host : '') + ' с ' + joinRu(toks) + ': сервер не принял ' + toks[0] +
+      (/expired/i.test(win) ? ', у него истёк срок действия' : '') + '. Выпустите новый; его значение мне не нужно, хватит placeholder-а.');
+  }
+  var pw = phs(out, ['PASSWORD'])[0];
+  if (pw && /refused/i.test(out)) {
+    var dbl = lines.find(function (l) { return l.indexOf(pw) >= 0; }) || '', dbh = phs(dbl, ['HOST'])[0], ip = phs(out.slice(out.search(/refused/i)), ['IP'])[0];
+    L.push('В строке подключения пароль ' + pw + (dbh ? ', хост ' + dbh : '') + '. «Connection refused» — это не пароль: сервер не принимает соединение' + (ip ? '. Проверьте, что Postgres на ' + ip + ' слушает порт 5432' : '') + '.');
+  }
+  var rest = phs(out, ['API_KEY', 'TOKEN', 'SECRET', 'PRIVATE_KEY']).filter(function (p) { return !said(p); });
+  if (rest.length) L.push('Ещё ' + joinRu(rest) + ' я вижу только как placeholder-ы: для разбора лога значения ключей не нужны. Раз они попали в лог, их стоит отозвать.');
+  var hi = lines.findIndex(function (l) { return /(?:^|,)amount[^,]*(?:,|$)/i.test(l); });
+  if (hi >= 0) { // a report: totals per customer survive masking, because the columns and the amounts stay
+    var ai = lines[hi].split(',').findIndex(function (x) { return /amount/i.test(x); }), tot = {}, cnt = {};
+    lines.slice(hi + 1).forEach(function (l) { var nm = phs(l, ['NAME'])[0], a = parseFloat(l.split(',')[ai]); if (nm && !isNaN(a)) { tot[nm] = (tot[nm] || 0) + a; cnt[nm] = (cnt[nm] || 0) + 1; } });
+    var byCnt = Object.keys(tot).sort(function (a, b) { return cnt[b] - cnt[a] || tot[b] - tot[a]; }), byTot = Object.keys(tot).sort(function (a, b) { return tot[b] - tot[a]; });
+    if (byCnt.length) L.push('По отчёту чаще всего заказывает ' + byCnt[0] + ': ' + pl(cnt[byCnt[0]], 'заказ', 'заказа', 'заказов') + ' на ' + tot[byCnt[0]].toFixed(2) + ' EUR' +
+      (byTot[0] !== byCnt[0] ? '; больше всего денег — у ' + byTot[0] + ', ' + tot[byTot[0]].toFixed(2) + ' EUR' : '') + '. Суммы, статусы и даты пришли как есть, поэтому считать можно и без имён.');
+  } else phs(out, ['EMAIL']).forEach(function (em) { // a dump: the same email on several rows
+    var rows = lines.filter(function (l) { return l.indexOf(em) >= 0; });
+    if (rows.length < 2) return;
+    var nm = phs(rows[0], ['NAME'])[0], ids = rows.map(function (l) { var m = /^\s*\|?\s*([0-9]+)\s*[|,]/.exec(l); return m && m[1]; }).filter(Boolean);
+    L.push((nm ? nm + ' (' + em + ')' : em) + ' встречается ' + (rows.length === 2 ? 'дважды' : pl(rows.length, 'раз', 'раза', 'раз')) + (ids.length ? ', строки с id ' + joinRu(ids) : '') +
+      ': похоже на дубль клиента' + (phs(rows[0], ['PHONE', 'CARD']).some(function (p) { return rows[1].indexOf(p) >= 0; }) ? ', телефон и карта у строк тоже совпадают' : '') + '.');
+  });
+  if (hi < 0 && /верн|возврат|refund/i.test(out)) {
+    var n1 = phs(out, ['NAME'])[0], ib = phs(out, ['IBAN'])[0], p1 = phs(out, ['PHONE'])[0], e1 = phs(out, ['EMAIL'])[0];
+    L.push('Черновик ответа: «' + (n1 ? n1 + ', здравствуйте' : 'Здравствуйте') + '! Лишнее списание вернём' + (ib ? ' на счёт ' + ib : '') + ' в течение 5 рабочих дней.»' +
+      (p1 || e1 ? ' Если нужно уточнить, связаться можно по ' + [p1, e1].filter(Boolean).join(' или ') + '.' : ''));
+  }
+  var fin = phs(out, ['CARD', 'IBAN']).filter(function (p) { return !said(p); });
+  if (fin.length) L.push('Карты и счета (' + joinRu(fin) + ') я вижу только как placeholder-ы и не прошу их значения.');
+  if (!L.length) L.push('Вижу ' + pl(all.length, 'скрытое значение', 'скрытых значения', 'скрытых значений') + ': ' + all.slice(0, 6).join(', ') + (all.length > 6 ? '…' : '') + '. Работаю с ними как с именами переменных.');
+  return L.join('\n\n');
+}
+
+// ---- sample pastes; everything fictional. Keys are assembled at runtime from pieces ----
+function rnd(n, seed, abc) { var s = '', x = seed; for (var i = 0; i < n; i++) { x = (x * 48271) % 2147483647; s += abc[x % abc.length]; } return s; }
+function an(n, seed) { return rnd(n, seed, 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'); }
+function hx(n, seed) { return rnd(n, seed, '0123456789abcdef'); }
+function fakeKeys() {
+  var J = 'ey' + 'J', PK = 'PRIV' + 'ATE KEY' + D5;
+  return {
+    jwt: J + 'hbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.' + J + 'zdWIiOiJzdmMtYmlsbGluZyIsImV4cCI6MTc2NDI4Nzk5OX0.' + an(43, 7),
+    ant: 's' + 'k-ant-api03-' + an(40, 11) + '-' + an(12, 12) + 'AA', ghp: 'gh' + 'p_' + an(36, 13), akid: 'AK' + 'IA' + 'IOSFODNN7' + 'EXAMPLE',
+    aws: 'wJalrXUtnFEMI/K7MDENG/' + 'bPxRfiCYEXAMPLEKEY', stripe: 's' + 'k_live_' + an(24, 17), slack: 'xo' + 'xb-' + '20481357' + '9111-' + '40961234' + '5678-' + an(24, 19),
+    goog: 'AI' + 'za' + 'Sy' + an(33, 23), pwd: 'Wint3r' + '-is-' + 'c0ming!', pem: D5 + 'BEGIN ' + PK + '\n' + [an(64, 29), an(64, 31), an(40, 37) + '=='].join('\n') + '\n' + D5 + 'END ' + PK,
+    uuid: [hx(8, 41), hx(4, 43), '4' + hx(3, 47), '8' + hx(3, 53), hx(12, 59)].join('-'), sha: hx(40, 61), req: hx(32, 67)
+  };
+}
+function sampleLog() {
+  var k = fakeKeys(), api = 'billing-api.prod.acme.corp', db = 'pg-main-02.db.acme.internal';
+  return ['$ curl -sS https://' + api + '/v2/invoices?status=open \\', '    -H "Authorization: Bear' + 'er ' + k.jwt + '" \\', '    -H "x-api-key: ' + k.ant + '"',
+    'HTTP/1.1 401 Unauthorized', '{"error":"invalid_token","detail":"token expired at 2026-11-27T23:59:59Z","trace_id":"' + k.uuid + '"}', '',
+    '2026-11-28 10:31:07 ERROR [worker-3] invoice sync failed (deploy ' + k.sha + ')', 'Traceback (most recent call last):',
+    '  File "/srv/app/billing/sync.py", line 88, in push_invoice', '    stripe.api_key = os.environ["STRIPE_SECRET_KEY"]',
+    '  File "/srv/app/billing/db.py", line 14, in connect', '    engine = create_engine("postgresql://billing:' + k.pwd + AT + db + ':5432/billing")',
+    'psycopg2.OperationalError: could not connect to server: Connection refused', '\tIs the server running on host "' + db + '" (192.0.2.41) and accepting',
+    '\tTCP/IP connections on port 5432?', '', 'env at crash: STRIPE_SECRET_KEY=' + k.stripe + ' AWS_ACCESS_KEY_ID=' + k.akid,
+    '  AWS_SECRET_ACCESS_KEY=' + k.aws + ' GITHUB_TOKEN=' + k.ghp, '  SLACK_BOT_TOKEN=' + k.slack + ' MAPS_KEY=' + k.goog,
+    'upstream 198.51.100.23 -> 203.0.113.7 retry=3 request_id=' + k.req, '', '# deploy/billing.pem, cat by mistake', k.pem].join('\n');
+}
+function sampleDump() {
+  var head = ['id', 'full_name', 'email', 'phone', 'card', 'city', 'created_at'], rows = [
+    ['1', 'Jane Roe', 'jane.roe@example.com', '+1 202 555 0143', '4111 1111 1111 1111', 'Boston', '2026-03-02 09:14:11'],
+    ['2', 'John Smith', 'j.smith@example.org', '+44 20 7946 0958', '5555 5555 5555 4444', 'Leeds', '2026-03-05 17:40:02'],
+    ['3', 'Maria Garcia', 'maria.garcia@example.com', '+1 202 555 0171', '4012 8888 8888 1881', 'Austin', '2026-04-11 08:03:55'],
+    ['4', 'Wei Chen', 'wei.chen@example.org', 'NULL', 'NULL', 'Denver', '2026-04-19 12:30:41'],
+    ['5', 'Priya Patel', 'priya.patel@example.com', '+44 161 496 0754', '5105 1051 0510 5100', 'Leeds', '2026-05-23 15:22:09'],
+    ['6', 'Ahmed Hassan', 'a.hassan@example.org', '+1 202 555 0110', '4000 0566 5566 5556', 'Boston', '2026-06-30 10:11:12'],
+    ['7', 'Olga Petrova', 'olga.p@example.com', '+44 20 7946 0321', '6011 1111 1111 1117', 'Leeds', '2026-08-14 19:45:30'],
+    ['8', 'Lucas Martin', 'lucas.martin@example.org', '+1 202 555 0199', 'NULL', 'Austin', '2026-09-02 07:58:44'],
+    ['9', 'Jane Roe', 'Jane.Roe@example.com', '+1 202 555 0143', '4111 1111 1111 1111', 'Boston', '2026-10-30 21:05:17'],
+    ['10', 'Kenji Sato', 'k.sato@example.org', '+44 113 496 0402', '3782 822463 10005', 'Denver', '2026-11-20 13:37:00']];
+  var w = head.map(function (h, i) { return Math.max.apply(null, [h.length].concat(rows.map(function (r) { return r[i].length; }))); });
+  function line(cells) { return cells.map(function (c, i) { return ' ' + (i === 0 ? c.padStart(w[i]) : c.padEnd(w[i])) + ' '; }).join('|').replace(/\s+$/, ''); }
+  return ['billing=> SELECT id, full_name, email, phone, card, city, created_at FROM customers ORDER BY id;', line(head),
+    w.map(function (x) { return '-'.repeat(x + 2); }).join('+')].concat(rows.map(line), ['(10 rows)']).join('\n');
+}
+function sampleCsv() {
+  return ['order_id,customer,email,amount_eur,status,order_date,note', '5001,Emma Brown,emma.brown@example.com,1250.00,paid,2026-10-01,',
+    '5002,Lucas Martin,lucas.martin@example.org,980.50,overdue,2026-10-03,"reminder sent, no answer"', '5003,Emma Brown,emma.brown@example.com,310.00,paid,2026-10-09,',
+    '5004,Olga Petrova,olga.p@example.com,75.00,refunded,2026-10-12,"charged twice, refund requested"', '5005,Kenji Sato,k.sato@example.org,2400.00,paid,2026-10-15,via Globex reseller',
+    '5006,Emma Brown,emma.brown@example.com,99.90,paid,2026-10-20,"call back +44 20 7946 0123"', '5007,Daniel Wright,d.wright@example.com,640.00,overdue,2026-10-27,',
+    '5008,Sophie Laurent,sophie.l@example.org,15.00,paid,2026-11-02,'].join('\n');
+}
+function sampleLetter() {
+  return ['Тема: двойное списание по заказу 5004', '', 'Здравствуйте!', '',
+    'Меня зовут Ольга Петрова, я оформляла подписку через партнёра Globex (заказ 5004, 75,00 EUR). Деньги списали дважды, 12 и 13 октября.',
+    'Верните, пожалуйста, лишний платёж на мой счёт: IBAN DE89 3704 0044 0532 0130 00, получатель Ольга Петрова.',
+    'Платила картой 4242 4242 4242 4242. Телефон для связи: +44 20 7946 0321, почта olga.p@example.com.',
+    'Для документов: ул. Садовая, д. 15, кв. 8, Казань; дата рождения 14.03.1987, паспорт 4509 123456.', '', 'С уважением,', 'Ольга Петрова'].join('\n');
+}
+var SAMPLES = [['log', 'Лог с ключами', sampleLog], ['dump', 'Дамп клиентов (psql)', sampleDump], ['csv', 'Отчёт CSV', sampleCsv], ['letter', 'Письмо клиента', sampleLetter]];
+var E = { CATS: CATS, LEVELS: LEVELS, TYPE_CAT: TYPE_CAT, TYPE_RU: TYPE_RU, analyze: analyze, assign: assign, outgoing: outgoing, reply: reply, counts: counts,
+  summary: summary, pl: pl, table: TABLE, resetTable: resetTable, SAMPLES: SAMPLES, luhn: luhn, ibanOk: ibanOk };
+globalThis.MaskEngine = E;
+if (typeof document === 'undefined') return;
+
+// ======================================================================
+// UI: shell (window mock, chat, state panel) and shared controls; the variants follow.
+// ======================================================================
+function h(tag, attrs, kids) {
+  var el = document.createElement(tag);
+  Object.keys(attrs || {}).forEach(function (k) {
+    var v = attrs[k];
+    if (v == null || v === false) return;
+    if (k === 'text') el.textContent = v; else if (k === 'html') el.innerHTML = v; else if (k === 'value') el.value = v; else if (k === 'checked') el.checked = !!v;
+    else if (k.slice(0, 2) === 'on') el.addEventListener(k.slice(2), v); else el.setAttribute(k, v === true ? '' : v);
+  });
+  (kids || []).forEach(function (c) { if (c != null && c !== false) el.appendChild(typeof c === 'string' ? document.createTextNode(c) : c); });
+  return el;
+}
+function fill(el, kids) { el.replaceChildren.apply(el, kids.filter(Boolean)); return el; }
+function preset(n) { var o = {}; CATS.forEach(function (c) { o[c.id] = LEVELS[n].cats.indexOf(c.id) >= 0; }); return o; }
+function levelOf(cats) { for (var n = 0; n < LEVELS.length; n++) { var p = preset(n); if (CATS.every(function (c) { return !!cats[c.id] === p[c.id]; })) return n; } return -1; }
+function fresh() { return { level: 1, cats: preset(1), mode: 'mask', words: ['Acme', 'Globex', 'Nightjar'], shown: new Set(), hide: new Set(), manual: [], draft: '', blocks: [], chat: [], raw: false }; }
+var S = fresh(), CUR = { text: '', items: [], out: '' }, VIEW = null, VARIANT = 'A', ROOT = {}, POP = null;
+// The strict mode of Moon CLI is not in the first version (owner 2026-11-28, Q4), so it is not offered here.
+var MODES = [['mask', 'Скрывать', 'Найденное уходит модели как placeholder-ы'], ['detect', 'Только подсветить', 'Как detect у Moon CLI: подсветить и посчитать, а отправить как есть']];
+function settings(asIs) { return { cats: S.cats, shown: S.shown, hide: S.hide, manual: S.manual, words: S.words, asIs: asIs || [] }; }
+function compute() {
+  var x = VIEW && VIEW.expanded ? VIEW.expanded() : { text: S.draft, asIs: [] }, items = assign(analyze(x.text, settings(x.asIs)), false);
+  CUR = { text: x.text, items: items, out: outgoing(x.text, items, S.mode) };
+  return CUR;
+}
+function refresh() { compute(); if (VIEW) VIEW.render(CUR); renderState(CUR); }
+function commitDraft() { assign(compute().items, true); refresh(); } // a paste fixes its placeholders at once
+function setLevel(n) { S.level = n; S.cats = preset(n); refresh(); }
+function toggleCat(id, on) { S.cats[id] = on; S.level = levelOf(S.cats); refresh(); }
+function setMode(m) { S.mode = m; refresh(); }
+function strictCount(cur) { return S.mode === 'strict' ? cur.items.filter(function (it) { return it.cat === 'secrets' && !it.active; }).length : 0; }
+function levelName() { return S.level >= 0 ? LEVELS[S.level].name : 'Свой набор'; }
+function modeLabel() { return MODES.filter(function (m) { return m[0] === S.mode; })[0][1]; }
+function catOf(id) { return id === 'manual' ? { id: 'manual', name: 'Вручную', hint: '' } : CATS.filter(function (c) { return c.id === id; })[0]; }
+function nActive(items) { return items.filter(function (it) { return it.active; }).length; }
+
+function shell() {
+  document.body.appendChild(h('div', { class: 'proto-banner', role: 'note' }, [h('b', { text: 'Одноразовый прототип' }), h('span', { html:
+    'маскирования вставки в prompt Session: три варианта, переключатель внизу (клавиши [ ] или ← →). Кнопки внизу вставляют примеры, данные в них вымышленные. ' +
+    '<b style="color:var(--accent)">Страница ничего не отправляет: можно вставить свой текст.</b> Модели нет: её ответ — заготовка, собранная из полученных placeholder-ов.' })]));
+  var chat = h('div', { class: 'chat' }), comp = h('div', { class: 'composer' }), sess = h('section', { class: 'sess', 'aria-label': 'Session' }, [chat, comp]);
+  var state = h('aside', { class: 'state', 'aria-label': 'Состояние прототипа' });
+  document.body.appendChild(h('div', { class: 'win' }, [
+    h('header', { class: 'w-toolbar' }, [h('span', { class: 'tl', html: '<i></i><i></i><i></i>' }),
+      h('div', {}, [h('div', { class: 'w-title', text: 'billing-api — «Почему падает синхронизация счетов»' }), h('div', { class: 'w-sub', text: 'Session · Claude Code · worktree sync-fix' })]),
+      h('span', { class: 'sp' }), h('span', { class: 'chip', text: 'маскирование вставки' })]),
+    h('div', { class: 'body' }, [sess, state])]));
+  ROOT = { chat: chat, comp: comp, sess: sess, state: state };
+}
+// Placeholders in a string become the real values (dotted underline, tooltip «модель видела ‹…›») or stay as raw placeholders.
+function rich(el, str, raw) {
+  var re = new RegExp(LQ + '[A-Z_]+_[0-9]+' + RQ, 'g'), p = 0, m;
+  while ((m = re.exec(str))) {
+    el.appendChild(document.createTextNode(str.slice(p, m.index)));
+    var en = TABLE.byPh[m[0]];
+    el.appendChild(en && !raw ? h('span', { class: 'real', 'data-tip': 'модель видела ' + m[0], text: en.value }) : h('span', { class: 'ph k-' + (en ? en.cat : TYPE_CAT[m[0].slice(1, m[0].lastIndexOf('_'))] || 'manual'), text: m[0] }));
+    p = m.index + m[0].length;
+  }
+  el.appendChild(document.createTextNode(str.slice(p)));
+  return el;
+}
+function paintSegs(el, text, items, cls, tail) {
+  el.textContent = '';
+  var p = 0;
+  items.forEach(function (it, i) {
+    var c = cls(it);
+    if (!c || it.start < p) return;
+    el.appendChild(document.createTextNode(text.slice(p, it.start)));
+    el.appendChild(h('span', { class: c + ' k-' + it.cat, 'data-i': i, text: text.slice(it.start, it.end) }));
+    p = it.end;
+  });
+  el.appendChild(document.createTextNode(text.slice(p) + (tail || '')));
+}
+function renderChat() {
+  var c = ROOT.chat;
+  fill(c, [h('div', { class: 'chat-h' }, [h('span', { text: S.chat.length ? 'Сообщений: ' + S.chat.length : 'Новая Session' }), h('span', { class: 'sp' }),
+    h('label', { title: 'Показать сообщения так, как их получила модель: с placeholder-ами' }, [h('input', { type: 'checkbox', checked: S.raw, onchange: function (e) { S.raw = e.target.checked; renderChat(); } }), ' Как видела модель'])]),
+    S.chat.length ? null : h('div', { class: 'chat-empty', html: 'Вставьте текст в поле ниже или нажмите пример на нижней панели.<br><br>После «Отправить» здесь появятся ваше сообщение и ответ модели. ' +
+      'Настоящие значения подставлены обратно и подчёркнуты пунктиром; при наведении видно, что получила модель.' })]);
+  S.chat.forEach(function (m) {
+    c.appendChild(rich(h('div', { class: 'msg msg--' + m.who }), m.text, S.raw));
+    c.appendChild(h('div', { class: 'msg-cap' + (m.who === 'me' ? ' msg-cap--me' : ''), text: m.cap }));
+  });
+  c.scrollTop = c.scrollHeight;
+}
+function renderState(cur) {
+  var cnt = counts(cur.items, S.mode), block = strictCount(cur), pre = h('pre', { class: 'st-out' });
+  if (!cur.text) pre.appendChild(h('span', { class: 'hint', text: '(поле пусто)' }));
+  else if (S.mode === 'detect') paintSegs(pre, cur.text, cur.items, function (it) { return it.active ? 'asis' : null; });
+  else rich(pre, cur.out, true);
+  var tb = h('tbody');
+  CATS.concat([catOf('manual')]).forEach(function (c) {
+    var x = cnt[c.id] || { found: 0, hidden: 0 }, on = c.id === 'manual' || S.cats[c.id];
+    if (c.id === 'manual' && !x.found) return;
+    tb.appendChild(h('tr', { class: on ? '' : 'off' }, [h('td', {}, [h('span', { class: 'k-' + c.id, style: 'display:inline-block;width:8px;height:8px;margin-right:6px;border-radius:2px;background:var(--cc)' }), c.name]),
+      h('td', { class: 'num', text: String(x.found) }), h('td', { class: 'num', text: String(x.hidden) }), h('td', { class: 'off', text: on ? 'вкл' : 'выкл' })]));
+  });
+  var rows = Object.keys(TABLE.byPh).map(function (p) { return TABLE.byPh[p]; }), seen = {}, tt = h('tbody');
+  cur.items.forEach(function (it) { if (it.active && it.isNew && !seen[it.ph]) { seen[it.ph] = 1; rows.push({ ph: it.ph, cat: it.cat, value: it.value, pending: true }); } });
+  rows.forEach(function (r) {
+    tt.appendChild(h('tr', {}, [h('td', { style: 'white-space:nowrap' }, [h('span', { class: 'ph k-' + r.cat, text: r.ph }), r.pending ? h('div', { class: 'st-new', text: 'новый, запишется при отправке' }) : null]),
+      h('td', {}, [h('span', { class: 'st-val', text: r.value.length > 80 ? r.value.slice(0, 77) + '…' : r.value })])]));
+  });
+  fill(ROOT.state, [
+    h('section', {}, [h('div', { class: 'st-h' }, [h('span', { text: 'Что получит модель' }), h('span', { class: 'sp' }), h('em', { text: modeLabel() + ' · ' + levelName() })]), pre,
+      S.mode === 'detect' && cur.items.length ? h('div', { class: 'strict-why', text: 'Режим «Только подсветить»: подсвеченное уйдёт модели как есть.' }) : null,
+      block ? h('div', { class: 'strict-why', text: 'Строгий режим: ' + pl(block, 'секрет показан', 'секрета показаны', 'секретов показаны') + ' как есть, отправка запрещена.' }) : null]),
+    h('section', {}, [h('div', { class: 'st-h' }, [h('span', { text: 'Счётчики по категориям' })]), h('table', { class: 'st-grid' }, [h('thead', {}, [h('tr', {}, [h('th', { text: 'Категория' }),
+      h('th', { class: 'num', text: 'найдено' }), h('th', { class: 'num', text: 'скрыто' }), h('th', { text: '' })])]), tb])]),
+    h('section', {}, [h('div', { class: 'st-h' }, [h('span', { text: 'Таблица подстановки' }), h('span', { class: 'sp' }), h('em', { text: String(rows.length) })]),
+      rows.length ? h('table', { class: 'st-grid' }, [tt]) : h('div', { class: 'st-note', text: 'Пусто. Одно значение — один placeholder на всю Session, во всех вставках.' }),
+      h('div', { class: 'st-note', style: 'margin-top:6px', text: 'Живёт только в worfy на этом компьютере. Модель видит левую колонку; значения справа размыты до наведения и возвращаются только в ваш чат.' })]),
+    h('div', { class: 'st-note', html: '<b>Страница ничего не отправляет:</b> можно вставить свой текст. Таблица живёт до «Сбросить» или перезагрузки страницы.' })]);
+}
+
+// ---- shared controls: level, mode, category list, item popover, prompt box, Send ----
+function segLevels(labels) {
+  var seg = h('div', { class: 'seg', role: 'group', 'aria-label': 'Уровень' });
+  LEVELS.forEach(function (l, n) {
+    seg.appendChild(h('button', { type: 'button', 'aria-pressed': String(S.level === n), text: labels === 'short' ? l.short : l.name, onclick: function () { setLevel(n); },
+      title: 'Уровень ' + n + ' «' + l.name + '»: ' + (l.cats.map(function (id) { return catOf(id).name; }).join(', ') || 'ничего не скрывать') }));
+  });
+  if (S.level < 0) seg.appendChild(h('button', { type: 'button', class: 'custom', 'aria-pressed': 'true', text: 'Свой набор', title: 'Категории переключены вручную и не совпадают ни с одним уровнем' }));
+  return seg;
+}
+function segModes() {
+  var seg = h('div', { class: 'seg', role: 'group', 'aria-label': 'Режим' });
+  MODES.forEach(function (m) { seg.appendChild(h('button', { type: 'button', 'aria-pressed': String(S.mode === m[0]), title: m[2], text: m[1], onclick: function () { setMode(m[0]); } })); });
+  return seg;
+}
+function catList(items, hints) {
+  var cnt = counts(items, S.mode), box = h('div', { class: 'cats' });
+  CATS.forEach(function (c) {
+    var x = cnt[c.id], on = S.cats[c.id];
+    box.appendChild(h('label', { class: 'cat k-' + c.id, title: c.hint }, [h('input', { type: 'checkbox', checked: on, onchange: function (e) { toggleCat(c.id, e.target.checked); } }),
+      h('span', { class: 'dot' }), h('span', { text: c.name }), h('span', { class: 'cnt', text: !x ? '' : on && S.mode !== 'detect' ? x.hidden + ' из ' + x.found : x.found + (on ? ' подсвечено' : ' найдено') })]));
+    if (hints || c.id === 'ids') box.appendChild(h('div', { class: 'cat-hint', text: c.hint }));
+    if (c.id === 'words') box.appendChild(h('textarea', { class: 'words', 'aria-label': 'Свой список слов', value: S.words.join(', '),
+      onchange: function (e) { S.words = e.target.value.split(/[,\n]/).map(function (s) { return s.trim(); }).filter(Boolean); refresh(); } }));
+  });
+  return box;
+}
+function closePop() { if (POP) { POP.remove(); POP = null; } }
+function placePop(el, rect) {
+  closePop(); document.body.appendChild(el); POP = el;
+  var x = Math.min(Math.max(8, rect.left), innerWidth - el.offsetWidth - 8), y = rect.top - el.offsetHeight - 6;
+  if (y < 8) y = Math.min(rect.bottom + 6, innerHeight - el.offsetHeight - 8);
+  el.style.left = x + 'px'; el.style.top = y + 'px';
+}
+// The per-item popover: показать модели как есть / скрывать такие всегда / какая категория.
+function itemPop(it, rect) {
+  if (!rect) return;
+  var c = catOf(it.cat), lv = [];
+  LEVELS.forEach(function (l, n) { if (l.cats.indexOf(it.cat) >= 0) lv.push(n); });
+  function act(label, fn, off) { return h('button', { class: 'pop-b', type: 'button', text: label, disabled: off, onclick: function () { fn(); closePop(); refresh(); } }); }
+  var kids = [h('div', { class: 'pop-h' }, [h('span', { class: 'chip k-' + it.cat, style: 'color:var(--cc)', text: c.name }), h('b', { text: TYPE_RU[it.t] }), h('span', { class: 'sp' }), it.ph ? h('span', { class: 'ph k-' + it.cat, text: it.ph }) : null]),
+    h('div', { class: 'pop-v', title: 'Наведите, чтобы увидеть значение', text: it.value.length > 140 ? it.value.slice(0, 137) + '…' : it.value })];
+  if (it.t === 'HIDDEN') kids.push(act('Больше не скрывать этот кусок', function () { S.manual = S.manual.filter(function (v) { return v !== it.value; }); }));
+  else if (it.active) kids.push(act('Показать модели как есть', function () { S.hide.delete(it.key); S.shown.add(it.key); }));
+  else kids.push(act(S.shown.has(it.key) ? 'Снова скрывать' : 'Скрыть только это значение', function () { S.shown.delete(it.key); if (!S.cats[it.cat]) S.hide.add(it.key); }));
+  if (it.t !== 'HIDDEN') kids.push(S.cats[it.cat] ? act('Такие уже скрываются всегда: категория включена', function () {}, true)
+    : act('Скрывать такие всегда: включить «' + c.name + '»', function () { S.cats[it.cat] = true; S.level = levelOf(S.cats); S.shown.delete(it.key); }));
+  kids.push(h('div', { class: 'pop-f', text: 'Категория: ' + c.name + (it.cat === 'manual' ? '' : lv.length ? ', входит в уровни ' + lv.join(', ') : ', не входит ни в один уровень') +
+    (it.src === 'col' ? '. Найдено по колонке «' + it.col + '»' : it.src === 'known' ? '. Уже было в прошлой вставке' : '') + '.' }));
+  placePop(h('div', { class: 'pop', role: 'dialog' }, kids), rect);
+}
+function promptBox(o) {
+  var mir = h('div', { class: 'mirror', 'aria-hidden': 'true' });
+  var ta = h('textarea', { spellcheck: 'false', placeholder: o.placeholder || '', 'aria-label': o.label || 'Prompt', readonly: o.readonly });
+  ta.addEventListener('scroll', function () { mir.scrollTop = ta.scrollTop; });
+  return { box: h('div', { class: 'pbox' }, [mir, ta]), ta: ta, mir: mir };
+}
+function itemAt(items, pos) { for (var i = 0; i < items.length; i++) if (items[i].start <= pos && pos < items[i].end) return i; return -1; }
+function spanRect(mir, i) { var s = mir.querySelector('[data-i="' + i + '"]'); return s ? s.getBoundingClientRect() : null; }
+// Click inside a found item opens its popover; the textarea sits over the mirror, so the caret position names the item.
+function clickToPop(ta, mir, items) {
+  ta.addEventListener('click', function () {
+    if (ta.selectionStart !== ta.selectionEnd) return;
+    var list = items(), i = itemAt(list, ta.selectionStart);
+    if (i >= 0) itemPop(list[i], spanRect(mir, i));
+  });
+}
+function hideSelButton(ta) {
+  var b = h('button', { class: 'link', type: 'button', hidden: true, text: 'Скрыть выделенное', title: 'Скрыть выделенный текст вручную: он станет ‹HIDDEN_n›',
+    onmousedown: function (e) { e.preventDefault(); },
+    onclick: function () { var v = ta.value.slice(ta.selectionStart, ta.selectionEnd).trim(); if (v && S.manual.indexOf(v) < 0) S.manual.push(v); b.hidden = true; refresh(); } });
+  function upd() { b.hidden = ta.selectionStart === ta.selectionEnd; }
+  ['select', 'keyup', 'mouseup'].forEach(function (ev) { ta.addEventListener(ev, upd); });
+  return b;
+}
+function insertAt(ta, t) {
+  var s = ta.selectionStart, e = ta.selectionEnd;
+  if (document.activeElement !== ta) { s = e = ta.value.length; if (s && !/\n$/.test(ta.value)) t = '\n' + t; }
+  ta.setRangeText(t, s, e, 'end'); ta.focus();
+}
+function enterSends(e) { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } }
+function sendBtn(cur) {
+  var n = strictCount(cur);
+  return h('button', { class: 'btn ' + (n ? 'btn--warn' : 'btn--primary'), type: 'button', disabled: !cur.text.trim() || n > 0, onclick: send,
+    text: n ? 'Строгий: ' + pl(n, 'секрет', 'секрета', 'секретов') + ' как есть' : 'Отправить',
+    title: n ? 'Строгий режим не отправляет сообщение, пока в нём есть секрет как есть. Скройте его (клик по нему → «Снова скрывать») или смените режим' : 'Отправить (Enter)' });
+}
+function strictWhy(cur) {
+  var n = strictCount(cur);
+  return n ? h('div', { class: 'strict-why', text: 'Отправка выключена: строгий режим не пускает к модели секрет как есть (' + n + '). Скройте его кликом по нему или включите категорию «Секреты».' }) : null;
+}
+function send() {
+  var cur = compute();
+  if (!cur.text.trim() || strictCount(cur)) return;
+  assign(cur.items, true);
+  var out = outgoing(cur.text, cur.items, S.mode), n = nActive(cur.items);
+  S.chat.push({ who: 'me', text: out, cap: 'вы · ' + (S.mode === 'detect' ? 'ушло как есть, подсвечено ' + n : 'скрыто ' + n) + ' · ' + modeLabel() + ' · ' + levelName() });
+  S.chat.push({ who: 'ai', text: reply(out, cur.items, S.mode), cap: 'ответ модели: заготовка прототипа из полученных placeholder-ов' });
+  S.draft = ''; S.blocks = [];
+  if (VIEW.clear) VIEW.clear();
+  renderChat(); refresh();
+}
+
+// ======================================================================
+// Variant A «Прямо в поле»: found items become blurred chips in the prompt text; a counter under the box; the level next to Send.
+// ======================================================================
+function mountA(root) {
+  var pb = promptBox({ placeholder: 'Сообщение для Claude Code. Вставьте лог, дамп или отчёт: найденное станет размытыми chip-ами прямо в тексте (Enter — отправить, Shift+Enter — новая строка)' });
+  var ta = pb.ta, under = h('div', { class: 'a-under' }), why = h('div'), bar = h('div', { class: 'bar' }), sel = hideSelButton(ta), pending = false, catsPop = null, cntBtn = null;
+  ta.value = S.draft;
+  ta.addEventListener('paste', function () { pending = true; });
+  ta.addEventListener('input', function () { S.draft = ta.value; if (pending) { pending = false; commitDraft(); } else refresh(); });
+  ta.addEventListener('keydown', enterSends);
+  clickToPop(ta, pb.mir, function () { return CUR.items; });
+  fill(root, [pb.box, under, why, bar]);
+  function openCats() {
+    catsPop = h('div', { class: 'pop', style: 'width:350px', role: 'dialog' }, [h('div', { class: 'pop-t', text: 'Что скрывать · ' + levelName() }), catList(CUR.items, false), h('div', { class: 'pop-t', text: 'Режим' }), segModes()]);
+    placePop(catsPop, cntBtn.getBoundingClientRect());
+  }
+  return {
+    render: function (cur) {
+      paintSegs(pb.mir, cur.text, cur.items, function (it) { return it.active ? (S.mode === 'detect' ? 'm-hl' : 'm-chip') : 'm-open'; }, ' ');
+      pb.mir.scrollTop = ta.scrollTop;
+      var n = nActive(cur.items), open = cur.items.length - n, what = summary(cur.items, function (it) { return it.active; });
+      cntBtn = h('button', { class: 'link', type: 'button', title: 'Категории и режим', onclick: openCats,
+        text: !cur.items.length ? 'Ничего не найдено · категории' : (S.mode === 'detect' ? 'Подсвечено ' : 'Скрыто ') + n + (what ? ': ' + what : '') + (open ? ' · ещё ' + open + ' найдено, не скрыто' : '') });
+      fill(under, [cntBtn, h('span', { class: 'sp' }), sel]);
+      fill(why, [strictWhy(cur)]);
+      fill(bar, [h('span', { class: 'hint', text: 'Клик по chip-у — показать модели как есть; выделите текст, чтобы скрыть вручную' }), h('span', { class: 'sp' }),
+        S.mode !== 'mask' ? h('span', { class: 'chip', style: 'color:var(--blocked-text)', text: modeLabel() }) : null, segLevels('short'), sendBtn(cur)]);
+      if (catsPop && POP === catsPop) openCats();
+    },
+    paste: function (t) { insertAt(ta, t); S.draft = ta.value; commitDraft(); },
+    clear: function () { ta.value = ''; }
+  };
+}
+
+// ======================================================================
+// Variant B «Проверка вставки»: a paste over 300 characters opens a review sheet over the composer and lands as a paste token.
+// ======================================================================
+function mountB(root) {
+  var TOK = /\[Вставка #(\d+) · [^\]\n]*\]/g;
+  var pb = promptBox({ placeholder: 'Сообщение для Claude Code. Вставка длиннее 300 символов откроет проверку; короткая вставится сразу (Enter — отправить)' });
+  var ta = pb.ta, under = h('div', { class: 'a-under' }), why = h('div'), bar = h('div', { class: 'bar' }), sel = hideSelButton(ta), pending = false, sh = null, own = [];
+  ta.value = S.draft;
+  function tokens() { var r = [], m; TOK.lastIndex = 0; while ((m = TOK.exec(S.draft))) r.push({ start: m.index, end: m.index + m[0].length, n: +m[1], cat: 'pill', pill: true }); return r; }
+  function expanded() { // the draft with every paste token replaced by its text; a block pasted «как есть» is a range nothing is hidden in
+    var text = '', asIs = [], p = 0;
+    tokens().forEach(function (t) {
+      var b = S.blocks[t.n - 1];
+      text += S.draft.slice(p, t.start);
+      if (b) { if (b.asIs) asIs.push([text.length, text.length + b.text.length]); text += b.text; } else text += S.draft.slice(t.start, t.end);
+      p = t.end;
+    });
+    return { text: text + S.draft.slice(p), asIs: asIs };
+  }
+  ta.addEventListener('paste', function (e) {
+    var t = e.clipboardData && e.clipboardData.getData('text/plain');
+    if (t && t.length > 300) { e.preventDefault(); openSheet({ text: t, asIs: false }, true); } else pending = true;
+  });
+  ta.addEventListener('input', function () { S.draft = ta.value; if (pending) { pending = false; commitDraft(); } else refresh(); });
+  ta.addEventListener('keydown', enterSends);
+  ta.addEventListener('click', function () {
+    if (ta.selectionStart !== ta.selectionEnd) return;
+    var i = itemAt(own, ta.selectionStart), it = own[i];
+    if (!it) return;
+    if (!it.pill) itemPop(it, spanRect(pb.mir, i)); else if (S.blocks[it.n - 1]) openSheet(S.blocks[it.n - 1], false);
+  });
+  fill(root, [pb.box, under, why, bar]);
+  function openSheet(block, kind) { // kind: true = a new paste, false = a paste already in the box, 'all' = the whole message
+    closeSheet();
+    var left = promptBox({ readonly: true, label: 'Оригинал' }), lsel = hideSelButton(left.ta);
+    left.ta.value = block.text;
+    sh = { block: block, kind: kind, left: left, right: h('pre', { class: 'st-out', style: 'flex:1;max-height:none' }), items: [], top: h('div', { class: 'sh-top' }), side: h('div', { class: 'sh-side' }), bot: h('div', { class: 'sh-bot' }) };
+    clickToPop(left.ta, left.mir, function () { return sh ? sh.items : []; });
+    sh.el = h('div', { class: 'sheet', role: 'dialog', 'aria-label': 'Проверка вставки' }, [sh.top, h('div', { class: 'sh-mid' }, [sh.side,
+      h('div', { class: 'sh-pane' }, [h('div', { class: 'st-h' }, [h('span', { text: 'Оригинал, как вставлен' }), h('span', { class: 'sp' }), lsel]), left.box]),
+      h('div', { class: 'sh-pane' }, [h('div', { class: 'st-h' }, [h('span', { text: 'Что получит модель' })]), sh.right])]), sh.bot]);
+    ROOT.sess.appendChild(sh.el);
+    renderSheet();
+  }
+  function closeSheet() { closePop(); if (sh) { sh.el.remove(); sh = null; } }
+  function done(asIs) {
+    var b = sh.block;
+    b.asIs = asIs;
+    if (sh.kind === true) { S.blocks.push(b); insertAt(ta, '[Вставка #' + S.blocks.length + ' · ' + pl(b.text.split('\n').length, 'строка', 'строки', 'строк') + ']'); S.draft = ta.value; }
+    if (!asIs) assign(analyze(b.text, settings()), true);
+    closeSheet(); refresh();
+  }
+  function renderSheet() {
+    var b = sh.block, items = assign(analyze(b.text, settings()), false), n = nActive(items), isNew = sh.kind === true, all = sh.kind === 'all';
+    sh.items = items;
+    paintSegs(sh.left.mir, b.text, items, function (it) { return it.active ? 'm-hl' : 'm-open'; }, ' ');
+    sh.left.mir.scrollTop = sh.left.ta.scrollTop;
+    if (S.mode === 'detect') paintSegs(sh.right, b.text, items, function (it) { return it.active ? 'asis' : null; }); else { sh.right.textContent = ''; rich(sh.right, outgoing(b.text, items, S.mode), true); }
+    fill(sh.top, [h('h3', { text: all ? 'Проверка сообщения' : 'Проверка вставки' }), h('span', { class: 'hint', text: pl(b.text.split('\n').length, 'строка', 'строки', 'строк') + ' · найдено ' + items.length + ' · ' + (S.mode === 'detect' ? 'подсвечено ' : 'скрыто ') + n }),
+      h('span', { class: 'sp' }), segLevels('name'), segModes()]);
+    fill(sh.side, [h('div', { class: 'pop-t', text: 'Категории · ' + levelName() }), catList(items, true)]);
+    var risky = S.mode === 'strict' && items.some(function (it) { return it.cat === 'secrets'; });
+    fill(sh.bot, [h('span', { class: 'hint', text: 'Клик по подсветке — показать модели как есть или скрыть; выделите текст, чтобы скрыть вручную. Esc — ' + (isNew ? 'отменить вставку' : 'закрыть') }), h('span', { class: 'sp' }),
+      h('button', { class: 'btn', type: 'button', text: isNew ? 'Отменить' : 'Закрыть', onclick: closeSheet }),
+      all ? null : h('button', { class: 'btn', type: 'button', text: isNew ? 'Вставить как есть' : 'Отправлять как есть', onclick: function () { done(true); },
+        title: risky ? 'В тексте есть секреты: строгий режим потом не даст отправить сообщение' : 'Без маскирования: модель получит текст целиком' }),
+      all ? null : h('button', { class: 'btn btn--primary', type: 'button', text: isNew ? 'Вставить скрытым' : 'Скрывать в этой вставке', onclick: function () { done(false); } })]);
+  }
+  return {
+    expanded: expanded,
+    render: function (cur) {
+      var toks = tokens();
+      own = assign(analyze(S.draft, settings()), false).concat(toks).sort(function (a, b) { return a.start - b.start; });
+      paintSegs(pb.mir, S.draft, own, function (it) { return it.pill ? 'm-pill' : it.active ? 'm-hl' : 'm-open'; }, ' ');
+      pb.mir.scrollTop = ta.scrollTop;
+      var typed = nActive(own.filter(function (it) { return !it.pill; }));
+      fill(under, toks.map(function (t) {
+        var b = S.blocks[t.n - 1];
+        if (!b) return null;
+        var bi = analyze(b.text, settings(b.asIs ? [[0, b.text.length]] : []));
+        return h('button', { class: 'link', type: 'button', onclick: function () { openSheet(b, false); }, text: 'Вставка #' + t.n + ': ' + (b.asIs ? 'как есть, найдено ' + bi.length : (S.mode === 'detect' ? 'подсвечено ' : 'скрыто ') + nActive(bi) + ' из ' + bi.length) });
+      }).concat([typed ? h('span', { text: 'в набранном тексте: ' + (S.mode === 'detect' ? 'подсвечено ' : 'скрыто ') + typed }) : null,
+        !toks.length && !typed ? h('span', { class: 'hint', text: 'Вставок нет. Короткая вставка (до 300 символов) проверку не открывает' }) : null, h('span', { class: 'sp' }), sel]));
+      fill(why, [strictWhy(cur)]);
+      fill(bar, [h('span', { class: 'hint', text: 'Уровень и категории — в окне проверки; клик по вставке открывает его снова' }), h('span', { class: 'sp' }),
+        h('button', { class: 'btn', type: 'button', text: levelName() + (S.mode !== 'mask' ? ' · ' + modeLabel() : ''), title: 'Открыть проверку для всего сообщения', onclick: function () { openSheet({ text: expanded().text }, 'all'); } }), sendBtn(cur)]);
+      if (sh) renderSheet();
+    },
+    paste: function (t) { if (t.length > 300) openSheet({ text: t, asIs: false }, true); else { insertAt(ta, t); S.draft = ta.value; commitDraft(); } },
+    clear: function () { ta.value = ''; closeSheet(); },
+    esc: closeSheet,
+    unmount: function () { // leaving B: tokens become their text; a block pasted «как есть» becomes per-value overrides
+      var x = expanded(), items = analyze(x.text, settings(x.asIs));
+      x.asIs.forEach(function (r) { items.forEach(function (it) { if (it.start >= r[0] && it.end <= r[1]) S.shown.add(it.key); }); });
+      S.draft = x.text; S.blocks = []; closeSheet();
+    }
+  };
+}
+
+// ======================================================================
+// Variant C «Щит и уровень»: no interruption; found items blur in place; the shield on Send holds the level slider.
+// ======================================================================
+var SHIELD = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M8 1.75 2.75 3.6v4.1c0 3.1 2.2 5.4 5.25 6.55 3.05-1.15 5.25-3.45 5.25-6.55V3.6L8 1.75Z"/></svg>';
+function nearestLevel() {
+  var best = 0, bd = 99;
+  LEVELS.forEach(function (l, n) { var p = preset(n), d = CATS.filter(function (c) { return !!S.cats[c.id] !== p[c.id]; }).length; if (d < bd) { bd = d; best = n; } });
+  return best;
+}
+function mountC(root) {
+  var pb = promptBox({ placeholder: 'Сообщение для Claude Code. Вставляйте как обычно: найденное размоется на месте, щит на кнопке покажет, сколько скрыто (Enter — отправить)' });
+  var ta = pb.ta, pv = h('div', { class: 'pv', hidden: true }), banner = h('div', { class: 'pv-banner', hidden: true }), under = h('div', { class: 'c-under' }), why = h('div');
+  var sel = hideSelButton(ta), pending = false, D = null, preview = false, shieldBtn = null;
+  pb.box.appendChild(pv);
+  ta.value = S.draft;
+  ta.addEventListener('paste', function () { pending = true; });
+  ta.addEventListener('input', function () { S.draft = ta.value; if (pending) { pending = false; commitDraft(); } else refresh(); });
+  ta.addEventListener('keydown', enterSends);
+  clickToPop(ta, pb.mir, function () { return CUR.items; });
+  fill(banner, [h('span', { text: 'Предпросмотр для модели: так сообщение уйдёт. Чтобы править текст, вернитесь к нему' }), h('span', { class: 'sp' }),
+    h('button', { class: 'link', type: 'button', text: 'Вернуться к тексту', onclick: function () { setPreview(false); } })]);
+  fill(root, [banner, pb.box, under, why]);
+  function setPreview(on) { preview = on; ta.hidden = on; pb.mir.hidden = on; pv.hidden = !on; banner.hidden = !on; refresh(); }
+  function openDrop() {
+    D = { sl: h('input', { type: 'range', class: 'slider', min: '0', max: '3', step: '1', 'aria-label': 'Уровень блюра', oninput: function () { setLevel(+D.sl.value); } }),
+      lab: h('em'), ticks: h('div', { class: 'ticks' }), cats: h('div'), modes: h('div'), pvc: h('input', { type: 'checkbox', onchange: function (e) { setPreview(e.target.checked); } }) };
+    D.el = h('div', { class: 'drop', role: 'dialog', 'aria-label': 'Уровень блюра и категории' }, [h('div', { class: 'st-h' }, [h('span', { text: 'Уровень блюра' }), h('span', { class: 'sp' }), D.lab]), D.sl, D.ticks,
+      h('div', { class: 'pop-t', text: 'Категории' }), D.cats, h('div', { class: 'pop-t', text: 'Режим' }), D.modes,
+      h('label', { class: 'cat', style: 'grid-template-columns:16px 1fr;margin-top:8px' }, [D.pvc, h('span', { text: 'Предпросмотр для модели: показать в поле текст с placeholder-ами' })])]);
+    root.appendChild(D.el); refresh();
+  }
+  function closeDrop() { if (D) { D.el.remove(); D = null; refresh(); } }
+  return {
+    render: function (cur) {
+      paintSegs(pb.mir, cur.text, cur.items, function (it) { return it.active ? (S.mode === 'detect' ? 'm-hl' : 'm-blur') : S.shown.has(it.key) ? 'm-open' : null; }, ' ');
+      pb.mir.scrollTop = ta.scrollTop;
+      if (preview) { if (S.mode === 'detect') paintSegs(pv, cur.text, cur.items, function (it) { return it.active ? 'm-hl' : null; }); else { pv.textContent = ''; rich(pv, cur.out, true); } }
+      var n = nActive(cur.items), open = cur.items.length - n, bad = strictCount(cur);
+      var tone = bad ? 'bad' : !cur.items.length ? 'zero' : open || S.mode === 'detect' ? 'warn' : 'ok';
+      shieldBtn = h('button', { class: 'shield ' + tone, type: 'button', 'aria-expanded': String(!!D), onclick: function () { if (D) closeDrop(); else openDrop(); },
+        title: (S.mode === 'detect' ? 'Подсвечено ' : 'Скрыто ') + n + ' · ' + levelName() + (open ? ' · ещё ' + open + ' найдено, не скрыто' : '') + '. Клик — уровень блюра и категории',
+        html: SHIELD + '<span>' + n + '</span><span aria-hidden="true">▾</span>' });
+      fill(under, [h('span', { class: 'hint', text: open ? 'Ещё ' + open + ' найдено, но не скрыто: щит на кнопке — уровень и категории' : 'Размытое уйдёт модели как placeholder; клик по нему — показать как есть, выделение — скрыть вручную' }),
+        h('span', { class: 'sp' }), sel, h('span', { class: 'split' }, [shieldBtn, sendBtn(cur)])]);
+      fill(why, [strictWhy(cur)]);
+      if (D) {
+        D.sl.value = String(S.level >= 0 ? S.level : nearestLevel());
+        D.lab.textContent = (S.level >= 0 ? S.level + ' · ' : '') + levelName();
+        fill(D.ticks, LEVELS.map(function (l, k) { return h('span', { class: k === S.level ? 'on' : '', text: k + ' ' + l.short }); }));
+        fill(D.cats, [catList(cur.items, false)]); fill(D.modes, [segModes()]); D.pvc.checked = preview;
+      }
+    },
+    paste: function (t) { if (preview) setPreview(false); insertAt(ta, t); S.draft = ta.value; commitDraft(); },
+    clear: function () { ta.value = ''; if (preview) setPreview(false); },
+    esc: function () { if (D) closeDrop(); },
+    outside: function (e) { if (D && !D.el.contains(e.target) && !(shieldBtn && shieldBtn.contains(e.target))) closeDrop(); }
+  };
+}
+
+// ======================================================================
+// Prototype chrome: the variant switcher with the sample pastes, keyboard, boot.
+// ======================================================================
+var VARIANTS = ['A', 'B', 'C'], VNAMES = { A: 'Прямо в поле', B: 'Проверка вставки', C: 'Щит и уровень' },
+  VHINT = { A: 'размытые chip-ы в тексте, уровень у Send', B: 'длинная вставка открывает проверку', C: 'блюр на месте, щит и ползунок на Send' };
+var LAB = h('div', { class: 'vlab', 'aria-live': 'polite' });
+function mount(v) {
+  closePop();
+  if (VIEW && VIEW.unmount) VIEW.unmount();
+  VARIANT = v; VIEW = null; ROOT.comp.textContent = '';
+  VIEW = (v === 'A' ? mountA : v === 'B' ? mountB : mountC)(ROOT.comp);
+  LAB.innerHTML = '<b>' + v + '</b>«' + VNAMES[v] + '»<small>' + VHINT[v] + '</small>';
+  document.title = 'Маскирование вставки · ' + v + ' «' + VNAMES[v] + '» · прототип';
+  refresh();
+}
+function cycle(d) {
+  var v = VARIANTS[(VARIANTS.indexOf(VARIANT) + d + VARIANTS.length) % VARIANTS.length];
+  try { var u = new URL(location.href); u.searchParams.set('variant', v); history.replaceState(null, '', u.toString()); } catch (err) { /* a file:// page may refuse; the variant still switches */ }
+  mount(v);
+}
+function reset() { closePop(); resetTable(); S = fresh(); renderChat(); mount(VARIANT); }
+shell();
+document.body.appendChild(h('div', { class: 'vbar', role: 'toolbar', 'aria-label': 'Прототип: вариант и примеры' }, [
+  h('button', { class: 'arrow', type: 'button', title: 'Предыдущий вариант ([ или ←)', 'aria-label': 'Предыдущий вариант', text: '‹', onclick: function () { cycle(-1); } }), LAB,
+  h('button', { class: 'arrow', type: 'button', title: 'Следующий вариант (] или →)', 'aria-label': 'Следующий вариант', text: '›', onclick: function () { cycle(1); } }), h('span', { class: 'sep' })]
+  .concat(SAMPLES.map(function (s) { return h('button', { type: 'button', title: 'Вставить пример в поле, как вставку из буфера', text: s[1], onclick: function () { closePop(); VIEW.paste(s[2]()); } }); }),
+    [h('span', { class: 'sep' }), h('button', { type: 'button', title: 'Очистить поле, чат, настройки и таблицу подстановки', text: 'Сбросить', onclick: reset })])));
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape') { if (POP) closePop(); else if (VIEW && VIEW.esc) VIEW.esc(); return; }
+  var t = e.target;
+  if (e.metaKey || e.ctrlKey || e.altKey || (t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT' || t.isContentEditable))) return;
+  if (e.key === '[' || e.key === 'ArrowLeft') { cycle(-1); e.preventDefault(); } else if (e.key === ']' || e.key === 'ArrowRight') { cycle(1); e.preventDefault(); }
+});
+document.addEventListener('mousedown', function (e) { if (POP && !POP.contains(e.target)) closePop(); if (VIEW && VIEW.outside) VIEW.outside(e); });
+window.addEventListener('resize', closePop);
+var v0 = (new URLSearchParams(location.search).get('variant') || 'A').toUpperCase();
+renderChat();
+mount(VARIANTS.indexOf(v0) >= 0 ? v0 : 'A');
+})();
+</script>
+</body>
+</html>
