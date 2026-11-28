@@ -133,6 +133,13 @@
     [{"type":"alive","hook":{"id":"00000000-0000-4000-8000-000000000180","phase":"ended"}}],
     [{"type":"result","subtype":"success","isError":false,"error":null,"text":"ok","costUsd":0.0728458,"durationMs":1580,"numTurns":1,"usage":{"inputTokens":2,"outputTokens":4,"cacheCreationInputTokens":273,"cacheReadInputTokens":16916},"terminalReason":"completed","interrupted":false}]
   ],
+  "init-plugin-errors.jsonl": [
+    [{"type":"init","sdkSessionId":"00000000-0000-4000-8000-000000000001","model":"claude-sonnet-4-5","permissionMode":"bypassPermissions","apiKeySource":"ANTHROPIC_API_KEY","cwd":"<tmp>/cwd-init-intact","claudeCodeVersion":"2.1.322","slashCommands":["deep-research","worfy:code-review","worfy:codebase-design","worfy:connect-project","worfy:continuous-audit","<74 more>"]}],
+    [{"type":"init","sdkSessionId":"00000000-0000-4000-8000-000000000003","model":"claude-sonnet-4-5","permissionMode":"bypassPermissions","apiKeySource":"ANTHROPIC_API_KEY","cwd":"<tmp>/cwd-init-broken-hooks-json","claudeCodeVersion":"2.1.322","slashCommands":["deep-research","worfy:code-review","worfy:codebase-design","worfy:connect-project","worfy:continuous-audit","<74 more>"]}],
+    [{"type":"init","sdkSessionId":"00000000-0000-4000-8000-000000000005","model":"claude-sonnet-4-5","permissionMode":"bypassPermissions","apiKeySource":"ANTHROPIC_API_KEY","cwd":"<tmp>/cwd-init-missing-hook-script","claudeCodeVersion":"2.1.322","slashCommands":["deep-research","worfy:code-review","worfy:codebase-design","worfy:connect-project","worfy:continuous-audit","<74 more>"]}],
+    [{"type":"init","sdkSessionId":"00000000-0000-4000-8000-000000000007","model":"claude-sonnet-4-5","permissionMode":"bypassPermissions","apiKeySource":"ANTHROPIC_API_KEY","cwd":"<tmp>/cwd-init-engines-unmet","claudeCodeVersion":"2.1.322","slashCommands":["deep-research","worfy:code-review","worfy:codebase-design","worfy:connect-project","worfy:continuous-audit","<74 more>"]}],
+    [{"type":"init","sdkSessionId":"00000000-0000-4000-8000-000000000009","model":"claude-sonnet-4-5","permissionMode":"bypassPermissions","apiKeySource":"ANTHROPIC_API_KEY","cwd":"<tmp>/cwd-init-engines-met","claudeCodeVersion":"2.1.322","slashCommands":["deep-research","worfy:code-review","worfy:codebase-design","worfy:connect-project","worfy:continuous-audit","<74 more>"]}]
+  ],
   "init.jsonl": [
     [{"type":"alive","hook":{"id":"00000000-0000-4000-8000-000000000001","phase":"running"}}],
     [{"type":"alive","hook":{"id":"00000000-0000-4000-8000-000000000004","phase":"running"}}],
