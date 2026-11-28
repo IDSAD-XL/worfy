@@ -1,7 +1,8 @@
 # 02: Модели: регулярная `claude-sonnet-5-5` и пилота `claude-opus-5-5` вместо одной, judge Opus
 
 Type: task
-Status: open
+Status: claimed 2026-11-28T02:59Z
+Branch: worfy-harness-eval/02
 Blocked by: None — can start immediately
 Source: [spec.md](../spec.md), «Ticket-ы», 02; «Решения владельца», «Модели» (Ticket 06 темы, «да»); «Решения по
 реализации» («Модели»); critic 2026-11-24, возражение 2 (одна константа `MODEL` делится на две, 02 блокирует 08);
