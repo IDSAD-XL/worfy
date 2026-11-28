@@ -51,12 +51,12 @@ Source: [spec.md](../spec.md), «Ticket-ы», 02; «Решения владел�
 ## Готово, когда
 
 - [ ] Две константы модели агента и judge `claude-opus-5-5`; все импорты переведены; contract test-ы это проверяют.
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/harness-evals-run.test.ts test/contract/harness-evals-outcome.test.ts test/contract/harness-evals.test.ts` exit 0 · mac - · 9598b9dd0
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/harness-evals-run.test.ts test/contract/harness-evals-outcome.test.ts test/contract/harness-evals.test.ts` exit 0 · mac - · aa14d9a12
 - [ ] `pnpm eval:harness -- --dry-run` печатает `--model claude-sonnet-5-5` и `--judge-model claude-opus-5-5`; вывод
       в «Итог».
-  - evidence: test-run pass · `CLAUDE_BIN=test/fixtures/eval-stub/claude.cjs pnpm eval:harness -- --dry-run` exit 0 · mac - · 9598b9dd0
+  - evidence: test-run pass · `CLAUDE_BIN=test/fixtures/eval-stub/claude.cjs pnpm eval:harness -- --dry-run` exit 0 · mac - · aa14d9a12
 - [ ] `harness/README.md` называет место констант и новые модели.
-  - evidence: commit pass · worfy-harness-eval/02: README names the constants' file without a new repository script path · - - · 2e102aaa1ca24934f62842401867b16d827b215b
+  - evidence: commit pass · worfy-harness-eval/02: README names the constants' file without a new repository script path · - - · 46cb241635ffd4d5e4609dd59c3bc248663cdd22
 - [ ] PR называет Ticket 05 своим полным прогоном.
   - evidence: commit pass · PR 2356 description, section Full eval run: ticket 05 is its full run · - - · 9e22c68476d1c3187c4aa9ff0fcf6cd3abbaed66
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
