@@ -25,7 +25,7 @@
 // needs two (Agent in the main thread, Write in the Subagent).
 
 import { spawn } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
@@ -285,7 +285,7 @@ async function initErrors(): Promise<void> {
   const variants: [string, string][] = [
     ['intact', harnessCopy('intact', () => undefined)],
     ['broken-hooks-json', harnessCopy('broken-hooks-json', (dir) => writeFileSync(join(dir, 'hooks', 'hooks.json'), '{ "hooks": { "PreToolUse": [ '))],
-    ['missing-hook-script', harnessCopy('missing-hook-script', (dir) => rmSync(join(dir, 'hooks', 'guard.mjs')))],
+    ['missing-hook-script', harnessCopy('missing-hook-script', (dir) => unlinkSync(join(dir, 'hooks', 'guard.mjs')))],
     [
       'engines-unmet',
       harnessCopy('engines-unmet', (dir) => {
