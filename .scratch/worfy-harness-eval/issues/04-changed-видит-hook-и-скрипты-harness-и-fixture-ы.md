@@ -58,13 +58,13 @@ test краснеет.
 
 - [ ] Карта покрытия знает hook-скрипты, скрипты и библиотеки Harness и общие fixture-ы; `coverageProblems` требует
       каждый из них ровно один раз.
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/harness-evals-run.test.ts` exit 0 · mac - · 73a872c817e7b07b4256de628b2da182e46be77a
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/harness-evals-run.test.ts` exit 0 · mac - · f52661db91c7bb08347c914628587ea4314d0a97
 - [ ] `--changed` выбирает по ним case-ы и запускает `compaction-state` отдельным вызовом, когда меняются его файлы.
-  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/harness-evals-run.test.ts` exit 0 · mac - · 73a872c817e7b07b4256de628b2da182e46be77a
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs run test/contract/harness-evals-run.test.ts` exit 0 · mac - · f52661db91c7bb08347c914628587ea4314d0a97
 - [ ] `pnpm eval:harness -- --changed origin/main --dry-run` в описании PR; PR называет Ticket 05 своим полным
       прогоном.
 - [ ] `harness/README.md` описывает новый вид файлов карты.
-  - evidence: commit pass · worfy-harness-eval/04: --changed sees hook scripts, Harness scripts and libraries, shared fixtures · - - · 73a872c817e7b07b4256de628b2da182e46be77a
+  - evidence: commit pass · worfy-harness-eval/04: --changed sees hook scripts, Harness scripts and libraries, shared fixtures · - - · f52661db91c7bb08347c914628587ea4314d0a97
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
 
 ## Итог
