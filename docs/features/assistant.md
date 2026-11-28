@@ -150,7 +150,8 @@ first three items, each with Prepare or Open; and "Was this summary useful?" wit
 
 **Chat** is the conversation. The user writes at any moment in the box at the foot ("Ask Assistant, or tell it what to
 change…"); Enter sends, Shift+Enter starts a new line. The answer comes when the Assistant's Session ends; until then
-three dots show that it is writing. What the Assistant wrote on its own wakes (morning, batch, urgent) joins the
+three dots show that it is writing. Under each message is the time it was written, in 24 h (an answer shows the
+time it came); a message of another day has its date before the time, and the tooltip gives the full time. What the Assistant wrote on its own wakes (morning, batch, urgent) joins the
 conversation too. The Assistant's messages here and its morning summary in Summary are rendered as Markdown, as a
 Session's answers are: bold, code, lists, headings, tables and links that open in the browser. Raw HTML stays text and
 images are not loaded. An http(s) link of a quoted Slack or Jira message opens in the browser too; when its text is not

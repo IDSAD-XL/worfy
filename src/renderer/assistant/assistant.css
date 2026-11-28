@@ -723,8 +723,37 @@
 .w-asst-message--you {
   justify-content: flex-end;
 }
-.w-asst-bubble {
+/* A message's bubble with its time under it, on the bubble's side (worfy-polish ticket 171). */
+.w-asst-said {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
   max-width: 88%;
+  min-width: 0;
+}
+.w-asst-message--you .w-asst-said {
+  align-items: flex-end;
+}
+.w-asst-time {
+  padding: 0 4px;
+  font-size: 11px;
+  line-height: 14px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* The date of another day stands on the time's line, before the clock (the transcript puts it on a line of its own). */
+.w-asst-time .w-tr__date {
+  display: inline;
+  margin-right: 4px;
+}
+/* The avatar stays level with the bottom of the bubble, not with the time under it. */
+.w-asst-message:has(.w-asst-time) > .w-asst-avatar {
+  margin-bottom: 17px;
+}
+.w-asst-bubble {
+  max-width: 100%;
   min-width: 0;
   padding: 8px 11px;
   border-radius: 14px;

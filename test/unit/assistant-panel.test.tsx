@@ -6,7 +6,7 @@
 // replaced; the section's store and components are real. The built app is checked in test/e2e/assistant.spec.ts.
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AssistantView, WindowItem } from '../../src/shared/assistant/window'
 
@@ -495,5 +495,58 @@ describe('the Chat tab with a scroll that returns a value (worfy-polish ticket 1
       if (original === undefined) delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView
       else Object.defineProperty(Element.prototype, 'scrollIntoView', original)
     }
+  })
+})
+
+describe('the time of each message in Chat (worfy-polish ticket 171)', () => {
+  // Local times, so the expected clock does not depend on the time zone the tests run in.
+  const TODAY = new Date(2026, 10, 25, 18, 0).getTime()
+  const ASKED = new Date(2026, 10, 25, 16, 7, 9).getTime()
+  const ANSWERED = new Date(2026, 10, 25, 16, 9, 41).getTime()
+  const message = (id: string, at: number, who: 'you' | 'assistant', state: 'done' | 'pending' | 'failed' = 'done') => ({ id, at, who, text: `Message ${id}`, state, reason: 'user' as const, rating: null })
+  const chat = (...conversation: ReturnType<typeof message>[]) => {
+    useAssistant.setState({ tab: 'chat' })
+    render(<AssistantPanel view={view({ conversation })} />)
+  }
+  const yours = (): HTMLElement => screen.getByTestId('assistant-your-message')
+  const answer = (): HTMLElement => screen.getByTestId('assistant-message')
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(TODAY)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('shows the time of the user’s message and of the answer in 24 h, with no date for today', () => {
+    chat(message('m1', ASKED, 'you'), message('m2', ANSWERED, 'assistant'))
+    expect(within(yours()).getByTestId('transcript-clock').textContent).toBe('16:07')
+    expect(within(answer()).getByTestId('transcript-clock').textContent).toBe('16:09')
+    expect(within(yours()).queryByTestId('transcript-date')).toBeNull()
+    expect(within(answer()).queryByTestId('transcript-date')).toBeNull()
+  })
+
+  it('gives the full time with seconds in the tooltip', () => {
+    chat(message('m1', ASKED, 'you'), message('m2', ANSWERED, 'assistant'))
+    expect(within(yours()).getByTestId('transcript-time').getAttribute('title')).toBe('2026-11-25 16:07:09')
+    expect(within(answer()).getByTestId('transcript-time').getAttribute('title')).toBe('2026-11-25 16:09:41')
+  })
+
+  it('puts the date before the time of a message of another day', () => {
+    chat(message('m1', new Date(2026, 10, 23, 8, 5).getTime(), 'you'), message('m2', new Date(2025, 11, 31, 23, 5).getTime(), 'assistant'))
+    expect(within(yours()).getByTestId('transcript-date').textContent).toBe('Nov 23')
+    expect(within(yours()).getByTestId('transcript-clock').textContent).toBe('08:05')
+    expect(within(answer()).getByTestId('transcript-date').textContent).toBe("Dec 31 '25")
+    expect(within(answer()).getByTestId('transcript-clock').textContent).toBe('23:05')
+  })
+
+  it('shows no time while the answer is being written, and the time of an answer that failed', () => {
+    chat(message('m1', ASKED, 'assistant', 'pending'))
+    expect(within(answer()).queryByTestId('transcript-time')).toBeNull()
+    cleanup()
+    chat(message('m1', ANSWERED, 'assistant', 'failed'))
+    expect(within(answer()).getByTestId('transcript-clock').textContent).toBe('16:09')
   })
 })

@@ -19,6 +19,8 @@ import { ResolvedQuestions } from './QuestionCard'
 import { QueuedRows } from './QueuedMessages'
 import { parseQuoted } from './quote-comments'
 import { QuotedPrompt } from './QuotedPrompt'
+import { NowContext, useRowTime, useToday } from './row-time'
+import { RowTime } from './RowTime'
 import { rowTypes } from './rows/index'
 import type { NarrationLines } from './store'
 import { clearMatches, extensionTypes, paintMatches, partId, scrollToMatch, type TranscriptFind } from './transcript-find'
@@ -165,68 +167,11 @@ function Chevron({ open }: { open: boolean }) {
   )
 }
 
-/** The time rows are dated against (useToday): which of them are of today. */
-const NowContext = createContext(0)
-
-/**
- * The time now, taken when the transcript mounts and again at every local midnight, so a row of
- * yesterday gets its date while the view stays open.
- */
-function useToday(): number {
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    const midnight = new Date(now)
-    midnight.setHours(24, 0, 0, 0)
-    const timer = setTimeout(() => setNow(Date.now()), Math.max(midnight.getTime() - now, 1000))
-    return () => clearTimeout(timer)
-  }, [now])
-  return now
-}
-
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-const two = (value: number): string => String(value).padStart(2, '0')
-
-/**
- * When a row happened, in local time: `HH:MM`, a date before it for a row of another day than
- * today (`Oct 4`, `Dec 31 '25` in another year), and the full time with seconds for the tooltip.
- */
-function rowTime(at: number, now: number): { date: string | null; clock: string; full: string } {
-  const when = new Date(at)
-  const today = new Date(now)
-  const clock = `${two(when.getHours())}:${two(when.getMinutes())}`
-  const full = `${when.getFullYear()}-${two(when.getMonth() + 1)}-${two(when.getDate())} ${clock}:${two(when.getSeconds())}`
-  const sameDay = when.getFullYear() === today.getFullYear() && when.getMonth() === today.getMonth() && when.getDate() === today.getDate()
-  if (sameDay) return { date: null, clock, full }
-  const day = `${MONTHS[when.getMonth()] ?? ''} ${when.getDate()}`
-  return { date: when.getFullYear() === today.getFullYear() ? day : `${day} '${String(when.getFullYear()).slice(-2)}`, clock, full }
-}
-
 /**
  * A row with the label column on the left (who wrote it), as in the F mockups. `at` is shown under
  * the label when `time` is `shown`, only in the label's tooltip when it is `tooltip`. The user's
  * row (`labelKind` `user`) is drawn mirrored, at the right edge (worfy-polish ticket 57).
  */
-/** When a row happened (rowTime), against the transcript's today; null without a time Date can hold. */
-function useRowTime(at: number | null): ReturnType<typeof rowTime> | null {
-  const now = useContext(NowContext)
-  // A time Date cannot hold (out of its range) is shown as none rather than thrown on.
-  return at === null || !Number.isFinite(new Date(at).getTime()) ? null : rowTime(at, now)
-}
-
-/** The time under a row's label, or in a message's meta line: the date for another day, then the clock. */
-function RowTime({ at, when }: { at: number; when: NonNullable<ReturnType<typeof rowTime>> }) {
-  return (
-    <time className="w-tr__time" dateTime={new Date(at).toISOString()} title={when.full} data-testid="transcript-time">
-      {when.date !== null ? (
-        <span className="w-tr__date" data-testid="transcript-date">
-          {when.date}
-        </span>
-      ) : null}
-      <span data-testid="transcript-clock">{when.clock}</span>
-    </time>
-  )
-}
-
 function Row({
   label,
   labelKind,
