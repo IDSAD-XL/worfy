@@ -151,4 +151,6 @@ improve-codebase-architecture, orchestrator-rules, product-ideas, qmd, tickets-t
    (триггер первым) или считать это приемлемым?
 4. Hook-и и `bin/` Harness SkillEvaluator не проверяет (issue #495). Нужна ли им другая статика?
 
+Решения владельца 2026-11-28: 1 — да, добавить `agents/openai.yaml` с `allow_implicit_invocation: false` обоим skill-ам; 2 — да, делить `epic-wave/SKILL.md` на файлы шагов, как `ship-ticket`; 3 — да, сократить description, триггер первым; 4 — нет, hook-и и `bin/` покрывают shell test-ы и contract set worfy-harness-guarantees 08. Ticket-ы на 1–3 заводит Orchestrator в worfy-polish.
+
 Временная папка с окружением, копией `harness/` и отчётами удалена после прогона; фоновых процессов не осталось.
