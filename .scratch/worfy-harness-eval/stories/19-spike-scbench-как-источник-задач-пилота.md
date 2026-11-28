@@ -119,3 +119,10 @@ Docker SCBench не собирался, агент не запускался: н
    - Ответ: runner сбрасывает контекст на каждом checkpoint-е и переносит только рабочую папку; второй prompt в той
      же Session бывает только при повторе после ошибки.
    - Строки: `.scratch/worfy-harness-eval/issues/19-spike-scbench-как-источник-задач-пилота.md:163`, `.scratch/worfy-harness-eval/issues/19-spike-scbench-как-источник-задач-пилота.md:165`
+
+## 7. Что нашёл review и что осталось
+
+> VERIFIED — worfy-harness-eval 19 (spike SCBench as a pilot task source: answers 1–8 with file:line into slop-code-bench de70a479 and scb-problems 9cd9ca3a; owner decision «Пятое семейство, малое» recorded on item 3 and in ticket 10 «Решения»), head 512587ed22399b32a607bd68a156919fb2043697
+>
+> Review depth low, one reviewer, lens correctness. The reviewer cloned both repos at the pinned commits and the scb-check 0.1.3 wheel and spot-checked answers 1–6 and the licenses: they hold. Two [low] findings were fixed by the orchestrator in 55c14345: extra_mounts is read-only outside /workspace only for a string value (exec.py:143-150); the scb-check config loophole depends on the working directory of the call (check.py:190, driver.py:86-91), not on the snapshot. The Code story fragments were moved to the new lines in 512587ed (story-check exit 0).
+> Commands: clone + wheel unzip exit 0; reads only; no Docker, no model, no sign-in.

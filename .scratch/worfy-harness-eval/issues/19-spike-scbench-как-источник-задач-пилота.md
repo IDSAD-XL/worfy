@@ -1,7 +1,7 @@
 # 19: Spike: SCBench (SlopCodeBench) как источник задач пилота
 
 Type: spike
-Status: claimed 2026-11-28T03:00Z
+Status: done 2026-11-28T04:17Z
 PR: #2349
 Branch: worfy-harness-eval/19
 Blocked by: None — can start immediately
@@ -56,15 +56,19 @@ Codex не запускается. Чтение кода и документац
 
 - [ ] «Итог» отвечает на вопросы 1–8 со ссылками; commit-ы обоих репозиториев SCBench названы.
   - evidence: commit pass · worfy-harness-eval/19: SCBench spike answers in the ticket summary · - - · 29b37c30b23f30b28162526d3f38ff76eaa3cf90
+  - evidence: review pass · PR #2349 · - - · 512587ed22399b32a607bd68a156919fb2043697
 - [ ] «Итог» предлагает одно из трёх: SCBench — пятое семейство пилота, замена одного семейства или не берём, с
       причиной и ценой платной пробы.
   - evidence: commit pass · worfy-harness-eval/19: SCBench spike answers in the ticket summary · - - · 29b37c30b23f30b28162526d3f38ff76eaa3cf90
+  - evidence: review pass · PR #2349 · - - · 512587ed22399b32a607bd68a156919fb2043697
 - [x] (вручную) Сделай: прочитай «Итог» и выбери: пятое семейство, замена семейства или не берём → Должно быть:
       решение записано в «Решения» Ticket-а 10 до его claim.
   - needs: mac
   - evidence: owner-check pass · 2026-11-28: Пятое семейство, малое (Recommended) · mac stable · ec15fd4b26e4df8b4d831db93b1c3c474ed989f4
 - [ ] Временная папка и container-ы удалены; фоновых процессов нет.
+  - evidence: review pass · PR #2349 · - - · 512587ed22399b32a607bd68a156919fb2043697
 - [ ] `pnpm lint` — exit 0; `ci-ok` зелёный на head PR.
+  - evidence: ci-check pass · https://github.com/IDSAD-XL/worfy/actions/runs/46106244699/job/140860592908 · ci - · 512587ed22399b32a607bd68a156919fb2043697
 
 ## Итог
 
