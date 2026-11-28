@@ -12,7 +12,7 @@ const ROOT = '/projects/web'
 const REPO = 'example-org/web'
 const HEAD = 'a'.repeat(40)
 const MOVED = 'b'.repeat(40)
-const TOKEN = 'gho_0000000000000000000000000000000000AA'
+const TOKEN = 'token-of-owner-login'
 
 const extends07: VerificationAnswer = {
   pr: 7,
