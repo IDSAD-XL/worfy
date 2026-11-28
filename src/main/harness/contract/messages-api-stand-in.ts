@@ -1,9 +1,15 @@
 // A local stand-in of the Anthropic Messages API for running the real Claude Code (the Agent SDK's
-// own binary) without a model: the first request that offers the tool gets a scripted tool_use of
-// it, the request that carries that tool's result is recorded and gets a short text answer, every
-// other request (a title, a count of tokens) a short text. Nothing leaves the machine:
-// ANTHROPIC_BASE_URL points Claude Code here, and the environment it gets (claudeEnv) has no key
-// of the user, a HOME of its own and no non-essential traffic.
+// own binary) without a model. Two scripts:
+// - startMessagesApiStandIn: one call for the whole run. The first request that offers the tool gets
+//   a scripted tool_use of it, the request that carries that tool's result is recorded and gets a
+//   short text answer, every other request (a title, a count of tokens) a short text;
+// - startScriptedStandIn: a chain of calls per conversation. A conversation (the main thread, each
+//   Subagent) is told by a marker in its first user message and gets its calls in order, one per
+//   request, then text. A Subagent's Write takes two calls in two conversations: Agent in the main
+//   thread, Write in the Subagent (spike worfy-harness-guarantees/01, scripts/spikes/harness-hooks/probe.ts).
+// Nothing leaves the machine: ANTHROPIC_BASE_URL points Claude Code here, and the environment it gets
+// (claudeEnv) has no key of the user, a HOME of its own and no non-essential traffic.
+// It lives in src/main, not in test/, so worfy runs the contract set of the Harness (./cases.ts) too.
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 
@@ -66,7 +72,7 @@ function text(res: ServerResponse, stream: boolean, said: string): void {
 
 function toolUse(res: ServerResponse, call: ScriptedToolUse): void {
   sse(res, [
-    messageStart('msg_tool'),
+    messageStart(`msg_${call.id}`),
     { type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id: call.id, name: call.name, input: {} } },
     { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: JSON.stringify(call.input) } },
     { type: 'content_block_stop', index: 0 },
@@ -76,10 +82,11 @@ function toolUse(res: ServerResponse, call: ScriptedToolUse): void {
 }
 
 async function body(req: IncomingMessage): Promise<Block> {
-  let raw = ''
-  for await (const chunk of req) raw += String(chunk)
+  // Bytes first, decoded once: a character split between two chunks would turn into U+FFFD.
+  const chunks: Buffer[] = []
+  for await (const chunk of req) chunks.push(chunk as Buffer)
   try {
-    return JSON.parse(raw) as Block
+    return JSON.parse(Buffer.concat(chunks).toString('utf8')) as Block
   } catch {
     return {}
   }
@@ -149,12 +156,94 @@ export async function startMessagesApiStandIn(call: ScriptedToolUse, standInOpti
   }
 }
 
+/** A conversation's calls: the conversation whose first user message has `marker` in it gets `calls` in order. */
+export interface ScriptedChain {
+  marker: string
+  calls: ScriptedToolUse[]
+}
+
+/** What one request of Claude Code carried, as text. */
+export interface RecordedRequest {
+  /** The system prompt. */
+  system: string
+  /** The first user message: the prompt, with what the SessionStart hooks added to it. */
+  first: string
+  /** The last message: a tool's result, or what a hook told the model. */
+  last: string
+  /** The names of the tools the request offered. */
+  tools: string[]
+}
+
+export interface ScriptedStandIn {
+  url: string
+  /** Every request to /v1/messages that offered tools (a conversation's turn), in the order they came. */
+  requests(): RecordedRequest[]
+  /** The result Claude Code sent back for the scripted call `id`; undefined until it came. */
+  toolResult(id: string): RecordedToolResult | undefined
+  close(): Promise<void>
+}
+
+/** The text of a message's content or of a system prompt: strings and the text of every block, nested ones too. */
+const textOf = (content: unknown): string =>
+  typeof content === 'string' ? content : Array.isArray(content) ? (content as Block[]).map((b) => (typeof b.text === 'string' ? b.text : textOf(b.content))).join('\n') : ''
+
+export async function startScriptedStandIn(chains: ScriptedChain[]): Promise<ScriptedStandIn> {
+  const requests: RecordedRequest[] = []
+  const results = new Map<string, RecordedToolResult>()
+  const scripted = new Set(chains.flatMap((chain) => chain.calls.map((call) => call.id)))
+  const server: Server = createServer((req, res) => {
+    void body(req).then((json) => {
+      const url = req.url ?? ''
+      if (!url.startsWith('/v1/messages') || url.includes('count_tokens')) {
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ input_tokens: 10 }))
+        return
+      }
+      const stream = json.stream === true
+      const messages = Array.isArray(json.messages) ? (json.messages as Block[]) : []
+      const answered = new Set<string>()
+      for (const message of messages)
+        for (const block of Array.isArray(message.content) ? (message.content as Block[]) : [])
+          if (block.type === 'tool_result' && typeof block.tool_use_id === 'string') {
+            answered.add(block.tool_use_id)
+            if (scripted.has(block.tool_use_id)) results.set(block.tool_use_id, { content: block.content, ...(block.is_error === true ? { is_error: true } : {}) })
+          }
+      const tools = Array.isArray(json.tools) ? (json.tools as Block[]).map((tool) => String(tool.name)) : []
+      // A title or a summary offers no tools: it is no turn of a conversation.
+      if (tools.length === 0) {
+        text(res, stream, 'ok')
+        return
+      }
+      const first = textOf(messages[0]?.content)
+      requests.push({ system: textOf(json.system), first, last: textOf(messages.at(-1)?.content), tools })
+      const next = chains.find((chain) => first.includes(chain.marker))?.calls.find((call) => !answered.has(call.id))
+      if (next !== undefined && tools.includes(next.name)) {
+        toolUse(res, next)
+        return
+      }
+      text(res, stream, 'done')
+    })
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const { port } = server.address() as AddressInfo
+  return {
+    url: `http://127.0.0.1:${port}`,
+    requests: () => [...requests],
+    toolResult: (id) => results.get(id),
+    close: () =>
+      new Promise<void>((resolve) => {
+        server.closeAllConnections()
+        server.close(() => resolve())
+      }),
+  }
+}
+
 /**
  * The whole environment Claude Code gets: the stand-in as its API, a key that is no key, `home` as
  * its HOME and config folder (its transcripts go there, not to ~/.claude), and no telemetry, update
  * check or other traffic of its own.
  */
-export function claudeEnv(standIn: MessagesApiStandIn, home: string): Record<string, string> {
+export function claudeEnv(standIn: Pick<MessagesApiStandIn, 'url'>, home: string): Record<string, string> {
   const env: Record<string, string> = {
     PATH: process.env.PATH ?? '',
     HOME: home,

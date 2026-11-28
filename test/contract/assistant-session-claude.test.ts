@@ -18,7 +18,7 @@ import type { SessionMemoryPart } from '../../src/main/assistant/duties/memory'
 import { SessionMemory } from '../../src/main/assistant/session/memory'
 import { assistantSessionOptions } from '../../src/main/vendors/claude/assistant-session'
 import { ASSISTANT_SESSION_KIND, SESSION_KIND_VARIABLE } from '../../src/main/vendors/claude/options'
-import { claudeEnv, startMessagesApiStandIn, type ScriptedToolUse } from './messages-api-stand-in'
+import { claudeEnv, startMessagesApiStandIn, type ScriptedToolUse } from '../../src/main/harness/contract/messages-api-stand-in'
 
 vi.mock('electron', () => ({ app: { on: () => undefined, isPackaged: false, getAppPath: () => '/nowhere' } }))
 

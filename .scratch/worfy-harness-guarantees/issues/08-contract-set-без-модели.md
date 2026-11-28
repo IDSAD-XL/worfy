@@ -1,7 +1,9 @@
 # 08: Contract set без модели
 
 Type: task
-Status: open
+Status: claimed 2026-11-28T02:37Z
+PR: #2345
+Branch: worfy-harness-guarantees/08
 Blocked by: 01
 Source: [spec.md](../spec.md), «Ticket-ы», 08; «Решение», 4; «Решения по реализации» («Contract set без модели»);
 «Решения по test-ам», Seams (contract set), «Сначала падающий test», 08, «Windows» и «Без модели и без денег»;
@@ -69,9 +71,104 @@ Source: [spec.md](../spec.md), «Ticket-ы», 08; «Решение», 4; «Ре�
 ## Готово, когда
 
 - [ ] Stand-in Messages API лежит в `src/main/harness/contract/`; старые contract test-ы импортируют его оттуда и зелёные.
+  - evidence: test-run pass · `pnpm test` exit 0 · mac - · d7f28800186fb001f3c95d8fcf571e8636bedea2
 - [ ] Runner и шесть case-ов (или пять — с причиной из spike-а 01 в «Итог»); runner отличает «не смог запустить» от
       «guard не отказал».
+  - evidence: test-run pass · `pnpm test test/contract/harness-guarantees.test.ts` exit 0 · mac - · d7f28800186fb001f3c95d8fcf571e8636bedea2
 - [ ] `test/contract/harness-guarantees.test.ts` идёт в `pnpm test` на binary SDK на macOS и Windows; копия Harness со
       сломанным `hooks.json` даёт красный case.
+  - evidence: test-run pass · `pnpm test test/contract/harness-guarantees.test.ts` exit 0 · mac - · d7f28800186fb001f3c95d8fcf571e8636bedea2
 - [ ] Шапка набора называет его бесплатной половиной Ticket-а 15 worfy-harness-eval.
+  - evidence: commit pass · worfy-harness-guarantees/08: contract set of the Harness on the SDK binary without a model · - - · d7f28800186fb001f3c95d8fcf571e8636bedea2
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR, включая Windows verdict.
+
+## Итог
+
+Сделано 2026-11-28 на `@anthropic-ai/claude-agent-sdk` 0.3.322 (Claude Code 2.1.322, binary пакета SDK), macOS arm64.
+Модели, ключа и входа нет; настоящий Codex не запускался.
+
+- **Stand-in** переехал в `src/main/harness/contract/messages-api-stand-in.ts` (`git mv`); три старых contract test-а и
+  `scripts/spikes/harness-hooks/probe.ts` импортируют его оттуда. Добавлен `startScriptedStandIn` — цепочка вызовов на
+  разговор по метке в первом сообщении, как в spike-е 01: ход Subagent-а (Agent у главного потока, Bash у Subagent-а)
+  идёт без модели. `startMessagesApiStandIn` (один вызов на прогон) остался как был; `claudeEnv` берёт только `url`.
+- **Runner** — `src/main/harness/contract/runner.ts`: `claude -p … --output-format stream-json --verbose
+  --include-hook-events --permission-mode bypassPermissions --plugin-dir <Harness>`, окружение `claudeEnv` плюс
+  `HARNESS_HOME` во временной папке прогона. Ответ — `passed`, `failed` (прогон был, Harness не сделал своё; причина
+  называет, чего нет) или `not-run` (binary не стартовал, stand-in не слушает, нет `system/init`, Claude Code не спросил
+  stand-in, нет `result` или он с ошибкой API, прогон не уложился в предел и остановлен по своему pid). Case — данные
+  (`ContractCase`): новый case — ещё одна строка `CONTRACT_CASES`, runner не правится.
+- **Шесть case-ов** — `src/main/harness/contract/cases.ts`; шапка файла называет набор бесплатной половиной Ticket-а 15
+  worfy-harness-eval.
+  1. `plugin-loaded` — в `plugins` есть имя из manifest-а, `plugin_errors` пуст.
+  2. `session-start-rules` — первые строки `rules/orchestrator.md` и `rules/common.md` есть в первом запросе к stand-in-у,
+     то есть правила дошли до модели.
+  3. `skills-and-agents` — каждая папка `skills/*/SKILL.md` и каждый `agents/*.md` есть в init как `worfy:<имя>`.
+  4. `guard-reset-hard` — `git reset --hard` при незакоммиченной правке: `tool_result` с `is_error` и текстом guard-а,
+     правка на месте.
+  5. `stop-holds-on-red` — gate — stub: resolver-stub (`CLAUDE_GATE_RESOLVE`) называет репозиторий
+     зарегистрированным, в state лежит маркер `red-<key>-<tag>`, как после красного `gate.mjs fast`; после Stop приходит
+     ещё один запрос главного потока с «The quality gate is red».
+  6. `subagent-agent-id` — Bash внутри Subagent-а; PostToolUse hook Harness-а `hooks/calls.mjs` пишет лог
+     `<session>.<agent_id>.jsonl`, то есть hook видит `agent_id`.
+- **Test** — `test/contract/harness-guarantees.test.ts`: каждый case отдельным test-ом на `harness/` и binary SDK
+  (`bundledClaudeBinary`), плюс два test-а runner-а: копия `harness/` с наложенным fixture
+  `test/fixtures/harness-broken-hooks/hooks/hooks.json` (не JSON) даёт `failed` с `hook-load-failed`, несуществующий
+  binary — `not-run` с «could not start». Весь файл на Mac — около 4 с; предел прогона runner-а — `ms(12_000)`, ниже
+  предела contract test-а, так что зависший прогон приходит как `not-run` с выводом, а не как timeout test-а.
+- **Сначала падающий test.** Test написан до кода и был красным (`Cannot find module '../../src/main/harness/contract/cases'`).
+  После кода копия Harness со сломанным `hooks.json` даёт красный case `plugin-loaded`. Отдельно, руками (временный test,
+  не в PR), четыре мутации копии Harness: без правила `reset --hard` в `guard.mjs`, `stop.mjs` с `return 0` вместо `2`,
+  `calls.mjs` без `agent_id`, `hooks.json` без части orchestrator — каждая краснит ровно свой case (4, 5, 6, 2), остальные
+  зелёные.
+
+Отличия от текста тикета (по фактам spike-а 01 и кода):
+- Fixture — не полная копия Harness, а один `hooks/hooks.json`, который test кладёт поверх временной копии `harness/`:
+  полная копия в `test/fixtures/` отставала бы от `harness/`.
+- Case 6 проверяет `agent_id`, не `agent_type`: `agent_type` есть и у главного потока Session с `--agent` (spike 01, п. 3).
+  Поле видит настоящий hook Harness-а (`calls.mjs`), а не hook-проба.
+- Case 2 не забирает test `harness-plugin.test.ts:103`: тот проверяет, что `WORFY_SESSION_KIND` доходит до hook-а (три вида
+  Session на plugin-пробе), case — что правила полного Harness-а доходят до модели. Оба остаются.
+- Windows локально не проверен: verdict — job Windows в CI.
+
+Review round 1 (PR #2345, REJECTED на 32785ef5e). Каждое исправление — с test-ом, который был красным на 32785ef5e:
+- **[high] Сломанный Harness выходил как `not-run`.** Копия, где `hooks/stage-lines.mjs` (UserPromptSubmit) выходит с
+  кодом 2, давала «Claude Code never asked the stand-in … (exit code 0)». Теперь решение о прогоне — функция `judgeRun`
+  (`src/main/harness/contract/runner.ts`): пришёл `system/init`, а хода к stand-in-у нет — `failed`, с блокирующим hook-ом
+  в причине. Блокирующий hook — `hook_response` с `exit_code` 2 (`outcome: "error"`, так его пишет 2.1.322) или с JSON
+  `decision: "block"` / `continue: false`. `not-run` остался для: binary не стартовал, нет `system/init`, stand-in не
+  слушает, и — когда ни один hook не блокировал — ошибка API, нет `result`, предел времени. Test «a UserPromptSubmit hook
+  that blocks every prompt»: на 32785ef5e `not-run`, теперь `failed`.
+- **[med] Исключение в `check` роняло весь набор.** `check` теперь в try/catch: `failed` с «the check threw: …», набор
+  отвечает за каждый case. Test «a check that throws»: на 32785ef5e — SyntaxError из `runContractSet`.
+- **[med] Предел времени всегда давал `not-run`.** Stop, который держит каждый ход, на case-е `subagent-agent-id` давал
+  «did not finish … 20 turns». С блокирующим hook-ом это теперь `failed` с его именем. Stop, который всегда выходит с
+  кодом 2, на 2.1.322 сам заканчивает ход через 9–15 с, и test на нём зависел бы от времени. Поэтому test «a Stop hook
+  that holds the turn and then hangs» держит ход один раз, а потом висит, пока жив Claude Code: hook пишет пробел раз в
+  200 мс и выходит, когда его stdout рвётся (не позже 60 с). Предел runner-а `ms(5_000)`. На 32785ef5e (проверено во
+  временном detached worktree) — `not-run: … did not finish in 15000 ms … 2 turns`.
+- **[low] Тело запроса stand-in читал по кускам.** Символ на границе двух chunk-ов становился U+FFFD. Теперь байты
+  собираются и декодируются один раз; так же stdout и stderr Claude Code в runner-е. Test «reads a character split between
+  two chunks»: на 32785ef5e `MARKER ��� split`.
+- Ветки «нет init», «ошибка API», «нет result», «предел времени» с блоком и без — unit test
+  `test/unit/harness-contract-judge.test.ts` (13 test-ов, без процессов).
+- `test/fixtures/sdk-messages/README.md:30` называет новый путь stand-in-а рядом со старым.
+
+Review round 2 (PR #2345, REJECTED на ea5f8fc97), после rebase на origin/main:
+- **[med] «init есть, хода нет — failed» стоял раньше веток предела и ошибки API.** Недоступный API
+  (`ANTHROPIC_BASE_URL=http://127.0.0.1:9`) и медленная машина давали ложный красный. Теперь без хода `failed` только
+  тогда, когда hook plugin-а блокировал или начал (`hook_started`) и не ответил (нет `hook_response` с его `hook_id`);
+  иначе `not-run` с причиной окружения. Четыре unit test-а в `test/unit/harness-contract-judge.test.ts` (предел, ошибка
+  API, без hook-а — `not-run`; висящий hook — `failed`) были красными до правки.
+- **[low] По пределу runner убивал только Claude Code, и hook-и переживали прогон.** Claude Code 2.1.322 запускает каждый
+  hook в своей process group (pgid hook-а равен его pid), поэтому kill группы Claude Code их не достаёт. Теперь runner до
+  kill-а читает дерево процессов (`ps -A -o pid=,ppid=`) и убивает всех потомков pid Claude Code; на Windows —
+  `taskkill /T /F` (`killTool`). Test «a hook that hangs at the time limit ends with the run»: Stop-hook копии пишет свой
+  pid и висит; после прогона процесса нет. С kill-ом группы этот test был красным (hook жив).
+
+Известные пределы (не исправлены, по решению review round 2):
+- Блокирующий hook решает `failed` раньше `check` case-а: если прогон case-а 5 (Stop держит ход при красном gate)
+  упрётся в предел уже после удержания, case красный, хотя `check` прошёл бы.
+- SessionStart и UserPromptSubmit идут до `system/init`: такой hook, который висит, даёт `not-run` («printed no
+  system/init»), а не `failed`.
+- Hook, который висит, когда ходы уже дошли до stand-in-а (например, Stop), не считается удержанием: по пределу —
+  `not-run`.
