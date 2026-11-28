@@ -31,7 +31,7 @@ Code: `harness/hooks/hooks.json:186-187` · key lines: 187
 
 ## 3. Кто Subagent и какие tool-ы доходят до раздела 4
 
-Code: `harness/hooks/guard.mjs:123-141` · key lines: 129, 137, 139
+Code: `harness/hooks/guard.mjs:124-142` · key lines: 130, 138, 140
 
 ```js
 const agent = codex ? codexAgent(payload) : ""
@@ -67,7 +67,7 @@ if (bash && !cmd.trim()) ok()
 
 ## 4. Решение — правило `land`
 
-Code: `harness/hooks/guard.mjs:1430-1477` · key lines: 1439, 1447, 1453, 1456, 1465, 1475
+Code: `harness/hooks/guard.mjs:1434-1481` · key lines: 1443, 1451, 1457, 1460, 1469, 1479
 
 ```js
 function verificationSection() {
@@ -136,7 +136,7 @@ function verificationSection() {
 
 ## 5. Какие профили проверяются
 
-Code: `harness/hooks/guard.mjs:1418-1428` · key lines: 1427
+Code: `harness/hooks/guard.mjs:1422-1432` · key lines: 1431
 
 ```js
 // Whether the guard checks verification paths for a project: a ticket branch template (tickets.branch with <epic> and
@@ -165,7 +165,7 @@ function checksPaths(profile) {
 
 ## 6. Сбой открывает проход
 
-Code: `harness/hooks/guard.mjs:1007-1017` · key lines: 1014, 1017
+Code: `harness/hooks/guard.mjs:1008-1018` · key lines: 1015, 1018
 
 ```js
 // The time all the reads of this section share — bin/profile, git rev-parse, git symbolic-ref and the git calls of the
@@ -195,7 +195,7 @@ const section4Left = () => Math.max(1, section4Until - Date.now())
 
 ## 7. Silent mode: правка trail-а в папке Ticket-ов
 
-Code: `harness/hooks/guard.mjs:1396-1416` · key lines: 1403, 1407, 1408
+Code: `harness/hooks/guard.mjs:1400-1420` · key lines: 1407, 1411, 1412
 
 ```js
 function trailEdit(t, folder, heading) {
@@ -234,7 +234,7 @@ function trailEdit(t, folder, heading) {
 
 ## 8. `ticket mark` и `profile-set`
 
-Code: `harness/hooks/guard.mjs:1202-1214` · key lines: 1206, 1207, 1208
+Code: `harness/hooks/guard.mjs:1206-1218` · key lines: 1210, 1211, 1212
 
 ```js
 function marksAndFields() {
@@ -265,7 +265,7 @@ function marksAndFields() {
 
 ## 9. Один `deny()` и строка в `WORFY_GUARD_LOG`
 
-Code: `harness/hooks/guard.mjs:94-114` · key lines: 99, 100, 101, 102, 103
+Code: `harness/hooks/guard.mjs:95-115` · key lines: 100, 101, 102, 103, 104
 
 ```js
 let refusedTicket = null
@@ -301,7 +301,7 @@ const deny = (reason, rule) => {
 
 ## 10. Копия или перенос в папку
 
-Code: `harness/hooks/guard.mjs:1149-1164` · key lines: 1154, 1158, 1160, 1162
+Code: `harness/hooks/guard.mjs:1153-1168` · key lines: 1158, 1162, 1164, 1166
 
 ```js
             // a folder copy (cp -r, -R, -a), a move and rsync may write a whole folder where a source lands
@@ -337,7 +337,7 @@ Code: `harness/hooks/guard.mjs:1149-1164` · key lines: 1154, 1158, 1160, 1162
 
 ## 11. Rebase, остановленный на конфликте
 
-Code: `harness/hooks/guard.mjs:1297-1313` · key lines: 1299, 1308, 1310
+Code: `harness/hooks/guard.mjs:1301-1317` · key lines: 1303, 1312, 1314
 
 ```js
 // The branch a rebase in progress in the work tree of `dir` is rebasing, or null.
@@ -383,10 +383,10 @@ Windows и Git Bash — только CI.
 
 1. Почему trail читается на `origin/main`, а не на HEAD ветки дерева?
    - Ответ: trail на ветке пишет сам Subagent; прочитанный там, он разрешал бы путь, который Subagent себе дописал.
-   - Строки: `harness/hooks/guard.mjs:1343-1356`
+   - Строки: `harness/hooks/guard.mjs:1347-1360`
 2. Что делает guard, когда git не ответил за бюджет раздела?
    - Ответ: пропускает вызов — сбой открывает проход, путь закрывает `land` при merge.
-   - Строки: `harness/hooks/guard.mjs:1462-1465`
+   - Строки: `harness/hooks/guard.mjs:1466-1469`
 3. Почему Edit главного потока Session, запущенной с `--agent`, не отказан, хотя в нём есть `agent_type`?
    - Ответ: Subagent на Claude Code узнаётся по `agent_id`, который есть только внутри Subagent-а.
-   - Строки: `harness/hooks/guard.mjs:125-129`
+   - Строки: `harness/hooks/guard.mjs:126-130`

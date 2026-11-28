@@ -160,6 +160,11 @@ Seams (guard), «Сначала падающий test», 03, «Mutation testing�
 - Долг, принятый spec-ом («Сбой guard открывает проход», страховка — `land`): Subagent может сам сделать trail
   непрочитанным (`git update-ref -d refs/remotes/origin/main`) — тогда вызов проходит; сломанный `gitdir` в файле `.git`
   worktree тоже даёт проход (дерево не найдено). Оба случая ловит `land` при merge.
+- Долг review round 3: источник-glob (`cp -r tmpl/* .github/`, `mv tmpl/* .github/`) и, на macOS, источник `cp`,
+  который кончается на `/` (`cp -R tmpl/ .github`), кладут папку поверх папки над путём проверки и проходят: guard не
+  раскрывает glob и берёт источник по его имени. Это лексический обход, который spec принимает, — ловит `land`.
+  Исправление: считать источник-glob и источник `cp` с `/` в конце записью в саму цель. Ещё нет test-а на чтение ветки
+  из `rebase-apply/head-name` (проверен только `rebase-merge`).
 - Silent mode (и папка Ticket-ов вне репозитория): trail — из файла Ticket-а в папке; правка Subagent-ом, которая меняет
   пути trail-а (как их читает `trailPaths`), отказана; правка других разделов проходит; shell-запись в такой Ticket и
   patch, чьи hunk-и не сходятся, отказаны («may change»).

@@ -19,8 +19,9 @@
 // the trail read by lib/ticket-trail.cjs at the tip of worktree.base, or in the tickets folder when the
 // tickets live outside the repository — the rule bin/land merges by; as there, a symbolic link a command
 // makes (`ln -s`) counts wherever it is, and so does a folder above a verification path a command may
-// write or remove whole (`rm -r .github`; a folder that `cp -R`, `mv` or `rsync` lands as or over: `cp -RT
-// tmpl .github`, `mv tmpl/workflows .github/`; a file moved into a folder is that one file). Refused: a path
+// write or remove whole (`rm -r .github`; a folder source that `cp -R`, `mv` or `rsync` lands by its literal
+// name as or over one: `cp -RT tmpl .github`, `mv tmpl/workflows .github/`; a file moved into a folder is that one
+// file; glob sources and cp sources ending in "/" are not expanded, land catches them). Refused: a path
 // outside the trail, a branch that names no ticket, a ticket with no trail at the base branch (a ticket only
 // on its branch), and any verification path in a tree on a detached HEAD with no rebase in progress (a
 // review tree: mutate a copy outside the repository; during a rebase the branch being rebased decides). The main Session is not refused; a folder no profile covers, a project of several
@@ -1086,12 +1087,15 @@ function operands(args, valued = []) {
 // The files a shell command writes or removes, as {abs, folder, symlink}: the targets of its write redirections, and the
 // operands of the common commands that write files (tee, cp, mv, install, ln, rsync, rm, rmdir, unlink, touch, truncate,
 // dd of=, sed -i, perl -i); a folder copy (cp -r, -R, -a), mv and rsync write a whole folder where a folder source lands
-// (in a destination that ends in "/" or is a folder now, under the source's own name; -T and rsync "src/" onto the
-// destination itself), and rm and the source of mv remove one. A path is read the way its shell reads it (`~`, `$HOME`, `$PWD`, variables the
-// command sets, `cd` or `pushd` before it; Git Bash paths on Windows); a word the guard cannot expand ($(…), an unknown
-// variable) is skipped.
+// by its literal name (in a destination that ends in "/" or is a folder now, under the source's own name; -T and rsync
+// "src/" onto the destination itself), and rm and the source of mv remove one. A path is read the way its shell reads
+// it (`~`, `$HOME`, `$PWD`, variables the command sets, `cd` or `pushd` before it; Git Bash paths on Windows); a word
+// the guard cannot expand ($(…), an unknown variable) is skipped.
 // shortcut: lexical, as every rule here: a script that writes a file itself (`node -e "…writeFileSync…"`), git
-// checkout or git apply are not read; bin/land checks the PR's diff at merge.
+// checkout or git apply are not read; nor is a glob source (`cp -r tmpl/* .github/`, `mv tmpl/* .github/`) expanded,
+// or a cp source ending in "/" (`cp -R tmpl/ .github`, which on macOS copies the folder's contents) taken as landing
+// on the destination itself; bin/land checks the PR's diff at merge. Redo: count a glob source, or a cp source ending
+// in "/", as landing on the destination itself.
 function shellTargets(src) {
     const out = []
     const { flat } = flattenHeredocs(src)
