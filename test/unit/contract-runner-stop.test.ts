@@ -8,6 +8,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { runContractCase, runContractSet, STOPPED, type ContractCase, type ContractSetOptions } from '../../src/main/harness/contract/runner'
 import { removeTestTree } from '../remove'
+import { ms } from '../time-scale'
 
 const CASE = (id: string): ContractCase => ({ id, title: `case ${id}`, prompt: 'hello', check: () => null })
 
@@ -31,7 +32,7 @@ beforeEach(() => {
   // Writes its pid, starts a child that outlives a kill of the script alone, and waits; each start is a line of `runs`.
   writeFileSync(binary, ['#!/bin/sh', `echo started >> '${join(marks, 'runs')}'`, `echo $$ > '${join(marks, 'script.pid')}'`, 'sleep 60 &', `echo $! > '${join(marks, 'child.pid')}'`, 'wait', ''].join('\n'))
   chmodSync(binary, 0o755)
-  options = { binary, pluginDir: marks, runLimitMs: 60_000, scratch }
+  options = { binary, pluginDir: marks, runLimitMs: ms(60_000), scratch }
 })
 
 afterEach(() => {
@@ -52,7 +53,7 @@ describe.skipIf(process.platform === 'win32')('the contract set stops when worfy
   it('a stop ends the running case with its whole tree and removes its temporary folder at once; the case is not run', async () => {
     const stop = new AbortController()
     const outcome = runContractCase(CASE('one'), { ...options, signal: stop.signal })
-    await expect.poll(() => existsSync(join(marks, 'child.pid')) && readFileSync(join(marks, 'child.pid'), 'utf8').trim() !== '', { timeout: 10_000 }).toBe(true)
+    await expect.poll(() => existsSync(join(marks, 'child.pid')) && readFileSync(join(marks, 'child.pid'), 'utf8').trim() !== '', { timeout: ms(10_000) }).toBe(true)
     const pids = ['script.pid', 'child.pid'].map((file) => Number(readFileSync(join(marks, file), 'utf8')))
     expect(readdirSync(scratch)).toHaveLength(1)
     stop.abort()
@@ -65,7 +66,7 @@ describe.skipIf(process.platform === 'win32')('the contract set stops when worfy
   it('a stop during the first case starts no case after it, and a set already stopped starts nothing', async () => {
     const stop = new AbortController()
     const set = runContractSet([CASE('one'), CASE('two')], { ...options, signal: stop.signal })
-    await expect.poll(() => existsSync(join(marks, 'child.pid')) && readFileSync(join(marks, 'child.pid'), 'utf8').trim() !== '', { timeout: 10_000 }).toBe(true)
+    await expect.poll(() => existsSync(join(marks, 'child.pid')) && readFileSync(join(marks, 'child.pid'), 'utf8').trim() !== '', { timeout: ms(10_000) }).toBe(true)
     stop.abort()
     expect((await set).map((each) => [each.id, each.status, each.status === 'passed' ? null : each.reason])).toEqual([
       ['one', 'not-run', STOPPED],
