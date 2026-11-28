@@ -1545,7 +1545,7 @@ describe('pnpm eval:harness: the record of a full run in evals-history/ (claude 
   const wilsonOf = async (): Promise<(k: number, n: number) => { rate: number | null; low: number | null; high: number | null }> =>
     ((await import(pathToFileURL(join(REPO, 'scripts', 'eval-outcome-stats.mjs')).href)) as { wilson: (k: number, n: number) => { rate: number | null; low: number | null; high: number | null } }).wilson
   const SUITE = { modelOverride: 'claude-sonnet-5-5', judgeModel: 'claude-opus-5-5' }
-  const reports = (runs: Record<string, boolean[]>, fields: Record<string, unknown> = {}): NodeJS.ProcessEnv => ({
+  const reports = (runs: Record<string, boolean[] | null>, fields: Record<string, unknown> = {}): NodeJS.ProcessEnv => ({
     STUB_REPORT: JSON.stringify({ runs, suite: SUITE, ...fields }),
   })
   /** The cases of a general run: those of the tags main and gui; `alone` runs only by its --case. */
