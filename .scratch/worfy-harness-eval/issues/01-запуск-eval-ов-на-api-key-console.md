@@ -74,3 +74,39 @@ Source: [spec.md](../spec.md), «Ticket-ы», 01; «Решения владел�
   - needs: mac
 - [ ] «Итог» называет, куда ушёл расход `claude plugin eval` с ключом: в кредиты или в лимит подписки.
 - [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` — exit 0; `ci-ok` зелёный на head PR.
+
+## Итог
+
+- Опция — `--billing subscription|credits` (и `--billing=<имя>`) в `pnpm eval:harness` и `pnpm eval:outcome`; по
+  умолчанию `subscription`. Опция не доходит до `claude`. Неизвестное имя, опция без значения или дважды — отказ до
+  `claude` (`eval:harness` — exit 1, `eval:outcome` — exit 2, как его прочие ошибки разбора). Общий код —
+  `takeBilling`, `billingFor`, `apiKeyFile` в `scripts/eval-run-env.mjs`.
+- Файл ключа — `~/.claude/worfy-harness/secrets/anthropic-api-key`, в общем виде `<HARNESS_HOME>/secrets/anthropic-api-key`
+  (`HARNESS_HOME` или `~/.claude/worfy-harness`, как `harness/hooks/eval-env.cjs` вне run-а). Ключ читается с обрезкой
+  пробелов и попадает только в окружение вызовов `claude plugin eval`: не в `claude --version`, не в git и не в копию
+  git. Нет файла или он пустой — отказ до любого `claude`, даже до `--version`, и в `--dry-run` тоже.
+- Каждый запуск печатает строку `billing …`; для кредитов — `billing credits: ANTHROPIC_API_KEY=<hidden> from <файл>`,
+  в `--dry-run` тоже. Сам ключ не печатается нигде.
+- Изменение поведения: `ANTHROPIC_API_KEY` и `ANTHROPIC_AUTH_TOKEN` оболочки теперь не доходят ни до одного run-а, в
+  том числе по умолчанию. Иначе ключ, экспортированный в shell, молча делал бы run «на подписке» платным по ключу.
+- Не сделано: judge-вызовы score в `pnpm eval:outcome` (`judgeCommand` в `scripts/eval-outcome-lib.mjs`, вне «Где в
+  коде») `--billing` не получают. На кредитах они по-прежнему идут под вход подписки. Это сказано в шапке
+  `scripts/eval-outcome.mjs`.
+- Сначала падающий test: 10 новых contract test-ов (`-t billing` в `harness-evals-run.test.ts` и
+  `harness-evals-outcome.test.ts`) красные на коде до правки, exit 1. Stub `claude` (`test/fixtures/eval-stub/claude.cjs`
+  и stub в `harness-evals-outcome.test.ts`) теперь пишет в свой лог `ANTHROPIC_API_KEY` и `ANTHROPIC_AUTH_TOKEN`
+  вызова. Ключ в test-ах — поддельный, в временном `HARNESS_HOME`.
+- Платный run (владелец заранее одобрил платные eval-ы до 100 USD, бриф — ровно один run):
+  - `pnpm eval:harness -- --case status-block --billing credits --max-cost-usd 2 --dry-run` — exit 0, один вызов
+    `main-status-block`, потолок 2 USD, ключ скрыт.
+  - `pnpm eval:harness -- --case status-block --billing credits --max-cost-usd 2` — 2026-11-28, 05:02:46–05:03:29 UTC,
+    exit 0. Строка для PR: `eval:harness main: casesPassed 1 of 1, overallScore 1, costUsd 0.31, claudeVersion 2.1.322,
+    cases status-block`.
+  - `costUsd` 0,31, а не 0,12: `claude plugin eval` по умолчанию делает 3 run-а case-а (0,13 + 0,09 + 0,09 USD).
+    Потолок 2 USD не задет.
+  - Ключ claude принял: run прошёл без ошибки входа. Поиск префикса ключей Anthropic в выводе run-а и в
+    `harness/evals/results/` — 0 совпадений.
+- Куда ушёл расход — **из run-а не видно**. Ни вывод `claude plugin eval`, ни `aggregate-result.json`, ни
+  `report.html` не называют способ оплаты: там только `costUsd`. Признака списания с лимита подписки run тоже не
+  дал. Ответ даст только ручной пункт Console выше (Usage за 2026-11-28 около 05:03 UTC, расход ≈ 0,31 USD). Пока его
+  нет, вопрос «кредиты или лимит подписки» открыт, и Orchestrator решает, ждут ли 05, 07 и 14–17.
