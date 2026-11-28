@@ -3,10 +3,13 @@
 // checks, and — in a Silent project or with `attribution: off` — commit messages, branch names and PR
 // texts that carry traces of the workflow (section 3, bin/silent-check). Section 4 refuses a subagent's
 // write of a verification path that the trail of its ticket on the base branch does not name, a
-// subagent's `ticket mark`, and `profile-set` of the fields the merge condition depends on.
+// subagent's `ticket mark`, and `profile-set` of the fields the merge condition depends on. Section 5
+// refuses, in any permission mode, a write or a removal in a protected area (lib/protected-areas.cjs: the
+// hard-deny areas of worfy's approval policy), a direct write into .git/hooks/ or .git/config, and the
+// commands of the policy's os-settings and run-download rules; a manual Claude Code Session is asked instead.
 //
 // The matcher of hooks.json is Bash, apply_patch (Codex) and the file tools of Claude Code (Edit, Write,
-// MultiEdit, NotebookEdit). A file tool meets section 4 only; a shell command meets every section.
+// MultiEdit, NotebookEdit). A file tool meets sections 4 and 5 only; a shell command meets every section.
 //
 // Section 4, a verification path (lib/verification-paths.cjs: its defaults and the profile's
 // verification.paths). The file a call writes: tool_input.file_path of Edit, Write and MultiEdit,
@@ -41,7 +44,9 @@
 // --agent carries too, so it does not tell a subagent); ticket — the ticket section 4 read for the
 // decision, else null. The rule ids: read-only-agent, interactive-shell, uncommitted-work, pipe-exit-code,
 // workflow-traces, verification-path, verification-path-no-ticket, verification-path-detached,
-// ticket-trail-edit, ticket-mark-subagent, profile-set-merge-fields.
+// ticket-trail-edit, ticket-mark-subagent, profile-set-merge-fields; section 5 refuses by the ids of the policy:
+// the area (claude-home, codex-home, ssh, gnupg, gh-config, git-config, npmrc, shell-rc, library, appdata,
+// worfy-data, harness-home), git-files, os-settings, run-download.
 //
 // The decision is returned in the permissionDecision field. We always exit with zero: an error in
 // the hook itself must neither break the session nor silently let a call through unnoticed.
@@ -72,7 +77,7 @@ import { spawnSync } from "node:child_process"
 import { createRequire } from "node:module"
 import { fileURLToPath } from "node:url"
 import { codexAgent, isCodexInput, isHarnessAgent, READ_ONLY_AGENTS } from "./codex-input.mjs"
-import { git as GIT } from "./eval-env.cjs"
+import { git as GIT, harnessHome as harnessHomeOf } from "./eval-env.cjs"
 import { gateConfigFile } from "./gate-paths.mjs"
 
 // bin/ of this Harness: the folder above hooks/, found from this script's real file.
@@ -85,6 +90,8 @@ const PROFILE = process.env.CLAUDE_PROFILE_BIN || path.join(BIN, "profile")
 const require = createRequire(import.meta.url)
 const { verificationPaths, isVerificationParent, normalizePath, touchesVerificationPath } = require("../lib/verification-paths.cjs")
 const { trailPaths, namedByTrail, readTrail } = require("../lib/ticket-trail.cjs")
+// The protected areas of section 5: the same list as the hard-deny areas of worfy's approval policy.
+const { protectedAreas, openPlaces, areaOf, gitFileOf, OS_SETTINGS, DEFAULTS_READS } = require("../lib/protected-areas.cjs")
 
 let raw = ""
 process.stdin.setEncoding("utf8")
@@ -925,8 +932,10 @@ function setShellVar(word) {
     else shellVars[m[1]] = expandPath(m[2])
 }
 
-// A path as the shell of the command reads it: `~`, `$HOME`, `$TMPDIR` and the variables the command set itself.
+// A path as the shell of the command reads it: `~`, `$HOME`, `$TMPDIR`, the variables that name a protected area
+// (`$APPDATA`, `$USERPROFILE`, `$XDG_CONFIG_HOME`) when they are set, and the variables the command set itself.
 // On Windows that shell is Git Bash: `/c/…` is drive C, and `/tmp` is the user's temporary folder.
+const AREA_VARS = new Set(["APPDATA", "USERPROFILE", "XDG_CONFIG_HOME"])
 function expandPath(f) {
     let p = f.replace(/^~(?=[/\\]|$)/, "$HOME")
     p = p.replace(/\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))/g, (m, braced, bare) => {
@@ -934,6 +943,7 @@ function expandPath(f) {
         if (Object.hasOwn(shellVars, name)) return shellVars[name]
         if (name === "HOME") return process.env.HOME || os.homedir()
         if (name === "TMPDIR") return process.env.TMPDIR || os.tmpdir()
+        if (AREA_VARS.has(name) && process.env[name]) return process.env[name]
         return m
     })
     if (process.platform === "win32")
@@ -1096,7 +1106,7 @@ function operands(args, valued = []) {
 // or a cp source ending in "/" (`cp -R tmpl/ .github`, which on macOS copies the folder's contents) taken as landing
 // on the destination itself; bin/land checks the PR's diff at merge. Redo: count a glob source, or a cp source ending
 // in "/", as landing on the destination itself.
-function shellTargets(src) {
+function shellTargets(src, { mkdir = false } = {}) {
     const out = []
     const { flat } = flattenHeredocs(src)
     let dir = cwdOf()
@@ -1168,6 +1178,8 @@ function shellTargets(src) {
             if (prog === "mv") sources.forEach((s) => add(s, true))
         } else if (prog === "rm" || prog === "rmdir" || prog === "unlink") operands(args).forEach((f) => add(f, true))
         else if (prog === "touch") operands(args, ["-t", "-d", "-r", "--date", "--reference"]).forEach((f) => add(f))
+        // a new folder: section 5 counts it (a folder made in a protected area), section 4 does not (an empty folder is no verification path)
+        else if (prog === "mkdir" && mkdir) operands(args, ["-m", "--mode"]).forEach((f) => add(f))
         else if (prog === "truncate") operands(args, ["-s", "--size", "-r", "--reference"]).forEach((f) => add(f))
         else if (prog === "dd") args.filter((a) => a.startsWith("of=")).forEach((a) => add(a.slice(3)))
         else if (prog === "sed" && args.some((a) => /^-[a-zA-Z]*i/.test(a) || a.startsWith("--in-place"))) {
@@ -1486,6 +1498,144 @@ try {
     verificationSection()
 } catch {}
 
+// --- 5. Protected areas, os-settings, run-download ---------------------------------------------------------------
+// worfy's approval policy refuses these in every mode it sees (policy.ts of its auto-approve module, hard deny), but it
+// judges only the permission requests an agent makes: none in bypassPermissions or in Codex's Full access. This section
+// refuses them on every call, in every project, with or without a profile:
+//   - a write or a removal in a protected area (lib/protected-areas.cjs: the secrets and settings of the home folder,
+//     %APPDATA%, worfy's data folder, the Harness home), as the path is named and through the links of its nearest
+//     existing folder; a removal of a folder above one too. Not a read: agents read the rules of the Harness there. Open
+//     stay the memory and the plans of Claude Code, the Cards folders and the Session's own TMPDIR (openPlaces);
+//   - a direct write into .git/hooks/ or .git/config of any repository (a git command goes as before);
+//   - os-settings: a program that changes the settings of the OS or of an app (sudo, launchctl, defaults write…);
+//   - run-download: what curl or wget downloads, run by a shell or an interpreter.
+// The rules that need the folders of a Run (chmod-outside, send-outside, other-session, other-worktree) stay with the
+// policy: the guard does not know them. Who is refused (the third answer to Q2 of the epic's spec): a Session with no person at
+// it (WORFY_UNATTENDED=1, which worfy sets for an unattended Session) and every Codex Session, whose parser of a
+// PreToolUse answer takes no `ask` (it fails the hook, and the call runs); a manual Claude Code Session gets `ask`,
+// which Claude Code puts to the person even in bypassPermissions, and refuses itself where nobody can answer
+// (`claude -p` with no permission prompt tool), as spike 01 of the epic recorded. The ask waits until section 3 has
+// spoken: its refusal wins. An ask writes no WORFY_GUARD_LOG line: it is no refusal.
+// shortcut: lexical, as every rule here: a script that writes a file itself (`node -e "…writeFileSync…"`) passes, and
+// so does a path behind a variable the guard cannot read; the spec's risks describe it. Nothing checks these areas a
+// second time. Redo: none planned — the agent's own powers, described rather than closed (the spec, Q1).
+const AREA_HINTS = {
+    "worfy-data": "It changes worfy's own data or settings; leave it to the owner.",
+    "harness-home": "It changes the Harness; leave it to the owner.",
+    "git-files": "Through the hooks and the config of a repository any git command runs a program; leave this change to the owner.",
+    "os-settings": "It changes the settings of the OS or of an app; leave it to the owner.",
+    "run-download": "It runs what it downloads. Save the download to a file and leave running it to the owner.",
+}
+const HOME_HINT = "It touches the user's secrets or settings in the home folder; leave it to the owner."
+let asked = null
+const refuseArea = (what, rule) => {
+    const reason =
+        `${what}: the guard of the Harness refuses it in any permission mode. ${AREA_HINTS[rule] || HOME_HINT} ` +
+        "Name the change and the reason in your report; reading there stays allowed."
+    if (codex || process.env.WORFY_UNATTENDED === "1") deny(reason, rule)
+    asked ??= `${reason} A person is at this Session, so it is asked: allow it only if you asked for this change.`
+}
+// A path for a reason: ~/… inside the home folder.
+function shown(file) {
+    const home = process.env.HOME || os.homedir()
+    const f = file.replace(/\\/g, "/")
+    const h = home.replace(/\\/g, "/").replace(/\/+$/, "")
+    const fold = process.platform === "win32" || process.platform === "darwin"
+    const same = (a, b) => (fold ? a.toLowerCase() === b.toLowerCase() : a === b)
+    if (same(f, h)) return "~"
+    return same(f.slice(0, h.length + 1), `${h}/`) ? `~/${f.slice(h.length + 1)}` : f
+}
+// The words of a command past the wrappers that run the next word (env and its assignments, nohup, xargs, timeout…).
+const RUNS_NEXT = /^(env|command|nohup|time|exec|nice|xargs|timeout|stdbuf|caffeinate)$/
+function pastWrappers(words) {
+    let w = [...words]
+    while (w.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(w[0])) w = w.slice(1)
+    while (w.length && RUNS_NEXT.test(baseName(w[0]).toLowerCase())) {
+        w = w.slice(1)
+        while (w.length && (/^-/.test(w[0]) || /^[A-Za-z_][A-Za-z0-9_]*=/.test(w[0]) || /^\d+(\.\d+)?[smhd]?$/.test(w[0]))) w = w.slice(1)
+    }
+    return w
+}
+const AREA_SHELLS = /^(sh|bash|zsh|dash|ksh|mksh|ash|fish|pwsh|powershell)$/
+// The program of os-settings a command runs, or null; a shell's -c script is read one level down.
+function osSettingsOf(words, depth = 0) {
+    const w = pastWrappers(words)
+    if (!w.length) return null
+    const prog = baseName(w[0]).toLowerCase()
+    const first = w[1] ?? ""
+    if (OS_SETTINGS.includes(prog)) return prog
+    if (prog === "defaults" && !DEFAULTS_READS.includes(first)) return prog
+    if (prog === "schtasks" && !/^[/-]query$/i.test(first)) return prog
+    if (prog === "networksetup" && !/^-(list|get|print|help|version)/i.test(first)) return prog
+    const c = w.indexOf("-c")
+    if (depth === 0 && AREA_SHELLS.test(prog) && c !== -1 && w[c + 1] !== undefined)
+        for (const inner of lex(w[c + 1])) {
+            const found = osSettingsOf(inner, 1)
+            if (found) return found
+        }
+    return null
+}
+const FETCHES = /^(curl|wget)$/
+const INTERPRETERS_RUN = /^(node|nodejs|deno|bun|python|python2|python3|py|ruby|perl|php)$/
+// Whether a command fed by a pipe runs what it reads: a shell without -c, an interpreter given no script.
+function runsStdin(words) {
+    const w = pastWrappers(words)
+    if (!w.length) return false
+    const prog = baseName(w[0]).toLowerCase()
+    const args = w.slice(1)
+    if (AREA_SHELLS.test(prog)) return !args.some((a) => /^-c$|^-command$/i.test(a))
+    if (INTERPRETERS_RUN.test(prog)) return !args.some((a) => /^(-c|-e|-p|-m|-E|--eval|--print)$/.test(a) || !a.startsWith("-"))
+    return false
+}
+function runsDownload(flat) {
+    // a shell that sources a download: `bash <(curl …)`, `source <(wget …)`, `sh -c "$(curl …)"`, `eval "$(curl …)"`
+    if (/(^|[\s;&|(])(sh|bash|zsh|dash|ksh|source|\.)\s+(-\S+\s+)*<\(\s*(curl|wget)\b/.test(flat)) return true
+    const cmds = lex(flat)
+    const carries = []
+    for (let k = 0; k < cmds.length; k++) {
+        const w = pastWrappers(cmds[k])
+        const prog = w.length ? baseName(w[0]).toLowerCase() : ""
+        if ((AREA_SHELLS.test(prog) || prog === "eval") && w.slice(1).some((a) => /(\$\(|`)\s*(curl|wget)\b/.test(a))) return true
+        const before = flat.slice(0, cmds[k].at)
+        const piped = k > 0 && /(^|[^|])\|&?\s*$/.test(before)
+        const fed = piped && carries[k - 1] === true
+        if (fed && runsStdin(cmds[k])) return true
+        carries[k] = FETCHES.test(prog) || fed
+    }
+    return false
+}
+function protectedSection() {
+    const platform = process.platform
+    const areas = protectedAreas({ env: process.env, platform, homedir: os.homedir(), harnessHome: harnessHomeOf(cwdOf(), process.env) })
+    const open = openPlaces(areas, { env: process.env, platform })
+    const what = (file) => (bash ? `This command writes or removes ${shown(file)}` : `${tool} of ${shown(file)}`)
+    const targets = bash ? shellTargets(cmd, { mkdir: true }) : callTargets()
+    for (const t of targets) {
+        for (const p of [t.abs, realTarget(t.abs).real]) {
+            const area = areaOf(p, areas, open, { platform, folder: t.folder === true })
+            if (area) return refuseArea(`${what(t.abs)}, in ${shown(area.path)}, a protected area (${area.id})`, area.id)
+            if (gitFileOf(p, { platform })) return refuseArea(`${what(t.abs)}, a hook or the config of a git repository`, "git-files")
+        }
+    }
+    if (!bash) return
+    const flat = flattenHeredocs(cmd).flat
+    for (const words of lex(flat)) {
+        const prog = osSettingsOf(words)
+        if (prog) return refuseArea(`This command runs \`${prog}\`, which changes the settings of the OS or of an app`, "os-settings")
+    }
+    if (runsDownload(flat)) return refuseArea("This command runs what curl or wget downloads", "run-download")
+}
+
+// A failure inside section 5 lets the call through, as one inside section 4 does: a guard that breaks ordinary work is
+// as bad as one that misses.
+try {
+    protectedSection()
+} catch {}
+
 if (bash) silentCheck()
 
+if (asked) {
+    process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: asked } }))
+    process.exit(0)
+}
 ok()

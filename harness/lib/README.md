@@ -15,6 +15,12 @@ the plugin, where `lib/` lies next to `bin/` and `hooks/`.
 - `ticket-trail.cjs` — the trail of a ticket: the ticket of a branch by `tickets.branch`, its file by `tickets.path` and
   the paths in backticks of its section `tickets.trail_section`, read at a ref of the base branch (`git show`), never from
   the working tree; `bin/land` checks a PR's verification paths with it, and the guard hook is to read the trail the same way.
+- `protected-areas.cjs` — the protected areas of the guard hook: the hard-deny areas of worfy's approval policy (the
+  secrets and settings of the home folder, `%APPDATA%`, worfy's data folder, the Harness home) by the same ids, the places
+  inside them that stay open (the memory and plans of Claude Code, the Cards folders, the Session's TMPDIR), the
+  `.git/hooks/` and `.git/config` check and the programs of the os-settings rule; `hooks/guard.mjs` refuses a write
+  there in any permission mode, and `test/contract/guard-policy-parity.test.ts` of the worfy repository holds the list
+  to the policy's.
 - `workflow-move.cjs` — the move of a project's workflow files between Full mode and Silent mode: the paths that
   move, the checks before it (clean trees, open PRs of the tickets' branches, Full mode for several repositories), the
   copy and the commit on each side, the rollback, and the marker of a move under way that the next move reads to

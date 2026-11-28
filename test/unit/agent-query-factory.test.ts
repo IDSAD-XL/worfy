@@ -73,7 +73,8 @@ describe('sdkQueryFactory', () => {
     const req = request()
     expect(await sdkQueryFactory()(req)).toBe(SDK_QUERY)
     const options = sdkOptions()
-    expect(options.env).toStrictEqual(LOGIN_ENV)
+    // With the guard hook of the Harness told where this run's worfy data folder is (guardVariables).
+    expect(options.env).toStrictEqual({ ...LOGIN_ENV, WORFY_GUARD_DATA_DIR: dataDir })
     expect(options.env).not.toHaveProperty('ANTHROPIC_API_KEY')
     expect(options.env).not.toHaveProperty('ANTHROPIC_AUTH_TOKEN')
     expect(JSON.stringify(options)).not.toContain('worfy-own')

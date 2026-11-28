@@ -79,6 +79,7 @@
     "lib/pipeline.cjs": ["bin/profile"],
     "lib/privacy.cjs": ["bin/evidence-check", "bin/land", "bin/review-draft-lint", "bin/story-check", "hooks/gate-failures.mjs"],
     "lib/profile-rules.cjs": ["bin/profile"],
+    "lib/protected-areas.cjs": ["hooks/guard.mjs"],
     "lib/ticket-trail.cjs": ["bin/land", "hooks/guard.mjs"],
     "lib/verdict.cjs": ["reviewer-verdict", "bin/land", "bin/verdict"],
     "lib/verification-paths.cjs": ["bin/land", "bin/profile", "hooks/guard.mjs", "lib/profile-rules.cjs", "lib/ticket-trail.cjs"],

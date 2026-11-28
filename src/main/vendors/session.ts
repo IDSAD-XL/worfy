@@ -10,9 +10,26 @@ import type { ModelOption, SessionSettings } from '../../shared/agent/settings'
 import type { SessionKind } from '../../shared/ipc/sessions'
 import type { AutoApprovalMode } from '../../shared/settings/app-settings'
 import type { ApprovalRequest, Decision } from '../agent/auto-approve/policy'
+import { dataRoot } from '../storage/paths'
 
 /** The variable that names the Epic of a Session that runs a Wave (SessionStart.epic; read by harness/hooks/after-compact.mjs). */
 export const EPIC_VARIABLE = 'WORFY_EPIC'
+
+/**
+ * The variables the guard hook of the Harness reads (harness/hooks/guard.mjs, section 5; worfy-harness-guarantees
+ * ticket 06): `1` in a Session no person is at, which gets a refusal where a manual one is asked; and worfy's data
+ * folder when WORFY_DATA_DIR moved it off the platform's default, which the guard protects (the defaults it knows).
+ */
+export const UNATTENDED_VARIABLE = 'WORFY_UNATTENDED'
+export const GUARD_DATA_VARIABLE = 'WORFY_GUARD_DATA_DIR'
+
+/** The guard's variables of a Session: none for a manual Session of worfy at its default data folder. */
+export function guardVariables(unattended: boolean, env: Readonly<Record<string, string | undefined>> = process.env): Record<string, string> {
+  return {
+    ...(unattended ? { [UNATTENDED_VARIABLE]: '1' } : {}),
+    ...(env.WORFY_DATA_DIR ? { [GUARD_DATA_VARIABLE]: dataRoot(env) } : {}),
+  }
+}
 
 /** A message of the user, in worfy's types rather than the Vendor's. */
 export interface SessionMessage {

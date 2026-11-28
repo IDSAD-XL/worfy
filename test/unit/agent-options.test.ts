@@ -4,7 +4,7 @@
 // ADR-0021): in a Project only those on the Profile's list, outside a Project the user's own set.
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   ASKED_ALLOW_REASON,
@@ -30,6 +30,7 @@ import { DEFAULT_MCP_SERVERS, readSkillsAllowlist } from '../../src/main/workflo
 import { PERMISSION_MODES, type SessionSettings } from '../../src/shared/agent/settings'
 import { BROWSER_SERVER_NAME } from '../../src/shared/browser/tools'
 import { CANVAS_SERVER_NAME } from '../../src/shared/canvas/tools'
+import { guardVariables } from '../../src/main/vendors/session'
 import { removeTestTree } from '../remove'
 
 /** The Harness copy of the build, as bundled.ts (worfy-harness ticket 04) would give it. */
@@ -71,6 +72,22 @@ describe('sessionOptions of an unattended Session', () => {
 
   it('starts in bypassPermissions without settings too', () => {
     expect(sessionOptions(input({ unattended: true })).permissionMode).toBe('bypassPermissions')
+  })
+})
+
+describe('the variables of the Harness guard in the environment of a Session (worfy-harness-guarantees ticket 06)', () => {
+  it('an unattended Session carries WORFY_UNATTENDED=1, over the Run variables; a manual one has none and keeps its environment', () => {
+    expect(sessionOptions(input({ unattended: true })).env).toEqual({ ...env, WORFY_UNATTENDED: '1' })
+    expect(sessionOptions(input({ unattended: true, environment: { TMPDIR: '/t', WORFY_UNATTENDED: '0' } })).env).toEqual({ ...env, TMPDIR: '/t', WORFY_UNATTENDED: '1' })
+    expect(sessionOptions(input({ unattended: false })).env).toBe(env)
+    expect(sessionOptions(input({})).env).not.toHaveProperty('WORFY_UNATTENDED')
+  })
+
+  it('names worfy\'s data folder for the guard only when WORFY_DATA_DIR moved it off the default', () => {
+    expect(guardVariables(false, { WORFY_DATA_DIR: '/tmp/worfy-data' })).toEqual({ WORFY_GUARD_DATA_DIR: resolve('/tmp/worfy-data') })
+    expect(guardVariables(true, { WORFY_DATA_DIR: '/tmp/worfy-data' })).toEqual({ WORFY_UNATTENDED: '1', WORFY_GUARD_DATA_DIR: resolve('/tmp/worfy-data') })
+    expect(guardVariables(false, {})).toEqual({})
+    expect(guardVariables(false, { WORFY_DATA_DIR: '' })).toEqual({})
   })
 })
 

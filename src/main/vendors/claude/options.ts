@@ -109,7 +109,7 @@ import { productToolDecision, type ProductToolDecision, type ProductWriteAsker, 
 import type { ToolUseFacts } from '../../agent/session/types'
 import { bundledHarnessDir } from '../../harness/bundled'
 import { HARNESS_PLUGIN_NAME } from '../../harness/locate'
-import { EPIC_VARIABLE } from '../session'
+import { EPIC_VARIABLE, guardVariables } from '../session'
 import { sdkServerConfig, type ClaudeMcpServer } from './mcp'
 import { allowedMcpEntries, type McpAddresses } from './mcp-addresses'
 
@@ -798,11 +798,15 @@ export function harnessCheckOptions(input: { cwd: string; env: Env; runtime: Run
   return options
 }
 
-/** The environment of a Session's Claude Code: `env`, the Run's variables over it, the kind of a Product Session and the Epic of a Wave. */
+/**
+ * The environment of a Session's Claude Code: `env`, the Run's variables over it, the kind of a Product Session, the
+ * Epic of a Wave and the variables of the Harness's guard (guardVariables: an unattended Session, a moved data folder).
+ */
 function sessionEnv(input: SessionOptionsInput): Env {
   const own: Env = {
     ...(input.kind === 'product' ? { [SESSION_KIND_VARIABLE]: 'product' } : {}),
     ...(input.epic !== undefined && input.epic !== '' ? { [EPIC_VARIABLE]: input.epic } : {}),
+    ...guardVariables(input.unattended === true),
   }
   return input.environment === undefined && Object.keys(own).length === 0 ? input.env : { ...input.env, ...input.environment, ...own }
 }
