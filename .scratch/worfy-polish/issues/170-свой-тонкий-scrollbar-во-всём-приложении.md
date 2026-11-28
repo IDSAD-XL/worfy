@@ -157,6 +157,7 @@ Source: просьба владельца 2026-11-28 со screenshot-ом пан
 - [ ] Unit test на CSS (импорт есть, `scrollbar-color` нет, `scrollbar-width` только `none`) и unit test на hook
       красные до правки и зелёные после; `test/e2e/theme.spec.ts` знает новые tokens.
   - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/scrollbars-css.test.ts test/unit/scrolling-mark.test.tsx test/unit/contrast.test.ts` exit 0; the two new files exit 1 before the change · mac - · f353029649ccf66d7a7aeca7d938e32f232cbc52
+  - evidence: test-run pass · `node scripts/vitest-electron.mjs test/unit/scrollbars-css.test.ts` exit 0 with CRLF-safe reads · mac - · 8143cca777018603cb1c6b1f3e1c8ea2033a9fc7
 - [ ] У Terminal цвета thumb-а берутся из тех же tokens.
   - evidence: commit pass · worfy-polish/170: the app's own thin scrollbar everywhere · - - · f353029649ccf66d7a7aeca7d938e32f232cbc52
 - [ ] В «Итог» — нужен ли Ticket на настоящий overlay (шаг 6), по впечатлению исполнителя.
