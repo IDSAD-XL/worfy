@@ -79,14 +79,17 @@ Code: `src/renderer/assistant/assistant.css:746-754` · key lines: 747, 748, 752
 
 - Что делает: дата другого дня стоит в строке времени перед часами, а не отдельной строкой, как в transcript. Строка
   `.w-asst-message` выравнивает детей по низу; avatar поднят на высоту строки времени (14 px и зазор 3 px), чтобы
-  стоять вровень с низом bubble. Предел ширины 88% перешёл с `.w-asst-bubble` на колонку `.w-asst-said`.
+  стоять вровень с низом bubble. Предел ширины 88% перешёл с `.w-asst-bubble` на колонку `.w-asst-said`; у bubble
+  внутри неё — `max-width: 100%` и `box-sizing: border-box` (раунд 2 review: без border-box padding и border
+  добавлялись сверху, и bubble с широким code block выходил за край панели).
 - Почему здесь: Ticket называет `assistant.css` рядом с `.w-asst-message` и `.w-asst-bubble`; 11 px, `--text-muted`
   и `tabular-nums` — из пункта 2 «Что строить». Отступ avatar-а и дата в одной строке — мой выбор, владелец его не
   записывал.
 - Без него: avatar стоял бы вровень со строкой времени, а дата — над часами.
 - Требование: [Что строить, п. 2](../issues/171-время-сообщений-в-chat-assistant-а.md#что-строить)
-- Риски и пробелы test-ов: CSS в jsdom не проверен; `:has` есть в Chromium Electron, но вид проверяет только ручной
-  пункт.
+- Риски и пробелы test-ов: jsdom не считает раскладку; test в `assistant-panel.test.tsx` закрепляет только правила
+  `box-sizing: border-box` у bubble и `min-width: 0` у колонки. `:has` есть в Chromium Electron, но вид проверяет только
+  ручной пункт.
 
 ## 5. Test: pending без времени, failed со временем
 
