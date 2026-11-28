@@ -21,7 +21,12 @@ function code(text: string): string {
   return text.replace(/\/\*[\s\S]*?\*\//g, (comment) => comment.replace(/[^\n]/g, '')).replace(/\/\/.*$/gm, '')
 }
 
-const sources = sourcesUnder(RENDERER).map((path) => ({ file: relative(RENDERER, path), text: code(readFileSync(path, 'utf8')) }))
+/** A file's text with LF line ends: a Windows checkout has CRLF. */
+function read(path: string): string {
+  return readFileSync(path, 'utf8').replace(/\r\n/g, '\n')
+}
+
+const sources = sourcesUnder(RENDERER).map((path) => ({ file: relative(RENDERER, path), text: code(read(path)) }))
 
 /** Every `file: line` whose code matches the pattern. */
 function linesMatching(pattern: RegExp): string[] {
@@ -32,12 +37,12 @@ function linesMatching(pattern: RegExp): string[] {
 
 describe('the scrollbar style of the renderer', () => {
   it('is loaded by the entry point, right after the tokens', () => {
-    const main = readFileSync(join(RENDERER, 'main.tsx'), 'utf8')
+    const main = read(join(RENDERER, 'main.tsx'))
     expect(main).toMatch(/^import '\.\/theme\/tokens\.css'\nimport '\.\/theme\/scrollbars\.css'$/m)
   })
 
   it('styles every element and takes its colours from the tokens', () => {
-    const css = readFileSync(join(RENDERER, 'theme/scrollbars.css'), 'utf8')
+    const css = read(join(RENDERER, 'theme/scrollbars.css'))
     expect(css).toContain('*::-webkit-scrollbar {')
     expect(css).toContain('var(--scrollbar-thumb)')
     expect(css).toContain('var(--scrollbar-thumb-hover)')

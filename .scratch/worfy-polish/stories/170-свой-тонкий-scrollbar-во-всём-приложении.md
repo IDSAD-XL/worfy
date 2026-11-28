@@ -106,7 +106,7 @@ Code: `src/renderer/canvas/nodes/TerminalNode.tsx:113-116` · key lines: 114, 11
 
 ## 5. Test: ничто не выключает общий стиль
 
-Code: `test/unit/scrollbars-css.test.ts:51-54` · key lines: 52, 53
+Code: `test/unit/scrollbars-css.test.ts:56-59` · key lines: 57, 58
 
 ```ts
   it('meets scrollbar-width only where a scrollbar is hidden on purpose', () => {
@@ -140,6 +140,8 @@ exit 1; после, вместе с `test/unit/contrast.test.ts`, — exit 0. `p
 `pnpm test` — exit 1: один timeout под нагрузкой машины в `test/unit/pr-inbox-view.test.tsx` (первый test файла,
 15 s; PR inbox этот PR не трогает). Gate fast следом прогнал lint, typecheck и весь `pnpm test` — exit 0,
 `[gate] green (fast)`. e2e и Electron локально не запускали.
+Первый CI: job `windows (1/3) / full-suite` красный — test импорта ждал `\n`, а checkout на Windows даёт CRLF;
+test теперь приводит концы строк к LF (`read` в `test/unit/scrollbars-css.test.ts`).
 
 ## Проверить себя
 
@@ -153,4 +155,4 @@ exit 1; после, вместе с `test/unit/contrast.test.ts`, — exit 0. `p
 3. Чем опасен `scrollbar-width: thin` в новой панели?
    - Ответ: Chromium тогда не применяет `::-webkit-scrollbar` к этому элементу, и там снова native scrollbar;
      test ловит такую строку.
-   - Строки: `test/unit/scrollbars-css.test.ts:53`
+   - Строки: `test/unit/scrollbars-css.test.ts:58`
